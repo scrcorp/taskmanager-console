@@ -9,14 +9,12 @@ import {
   CalendarClock,
   Clock,
   CheckSquare,
-  ClipboardCheck,
   Zap,
   Megaphone,
   Bell,
   LogOut,
   Building2,
   Star,
-  FileSearch,
 } from "lucide-react";
 import React from "react";
 import { useAuthStore } from "@/stores/authStore";
@@ -41,11 +39,9 @@ const navItems: NavItem[] = [
   { href: "/schedules", label: "Schedules", icon: CalendarClock },
   { href: "/attendances", label: "Attendance", icon: Clock },
   { href: "/checklists", label: "Checklists", icon: CheckSquare },
-  { href: "/checklists/instances", label: "Records", icon: ClipboardCheck },
   { href: "/tasks", label: "Tasks", icon: Zap },
   { href: "/announcements", label: "Notices", icon: Megaphone },
   { href: "/evaluations", label: "Evaluations", icon: Star },
-  { href: "/audit-log", label: "Audit Log", icon: FileSearch },
   { href: "/notifications", label: "Alerts", icon: Bell },
 ];
 

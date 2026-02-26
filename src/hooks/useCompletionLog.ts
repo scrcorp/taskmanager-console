@@ -1,11 +1,11 @@
 /**
- * Checklist Audit Log React Query hook.
+ * Checklist Completion Log React Query hook.
  */
 
 import { useQuery } from "@tanstack/react-query";
 import api from "@/lib/api";
 
-export interface AuditLogEntry {
+export interface CompletionLogEntry {
   id: string;
   instance_id: string;
   item_index: number;
@@ -21,29 +21,33 @@ export interface AuditLogEntry {
   note: string | null;
 }
 
-interface AuditLogFilters {
+interface CompletionLogFilters {
+  store_id?: string;
+  user_id?: string;
   date_from?: string;
   date_to?: string;
   page?: number;
   per_page?: number;
 }
 
-interface AuditLogResponse {
-  items: AuditLogEntry[];
+interface CompletionLogResponse {
+  items: CompletionLogEntry[];
   total: number;
   page: number;
   per_page: number;
 }
 
-export function useAuditLog(filters: AuditLogFilters = {}) {
+export function useCompletionLog(filters: CompletionLogFilters = {}) {
   const params: Record<string, string | number> = {};
+  if (filters.store_id) params.store_id = filters.store_id;
+  if (filters.user_id) params.user_id = filters.user_id;
   if (filters.date_from) params.date_from = filters.date_from;
   if (filters.date_to) params.date_to = filters.date_to;
   if (filters.page) params.page = filters.page;
   if (filters.per_page) params.per_page = filters.per_page;
 
-  return useQuery<AuditLogResponse>({
-    queryKey: ["audit-log", params],
-    queryFn: () => api.get("/admin/checklist-instances/checklist-audit", { params }).then((r) => r.data),
+  return useQuery<CompletionLogResponse>({
+    queryKey: ["completion-log", params],
+    queryFn: () => api.get("/admin/checklist-instances/completion-log", { params }).then((r) => r.data),
   });
 }

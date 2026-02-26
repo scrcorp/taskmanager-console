@@ -138,6 +138,6 @@ export {
   useSubmitEvaluation,
 } from "./useEvaluations";
 
-export { useAuditLog } from "./useAuditLog";
+export { useCompletionLog } from "./useCompletionLog";
 
 export { useOvertimeAlerts } from "./useOvertimeAlerts";

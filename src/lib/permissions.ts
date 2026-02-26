@@ -39,5 +39,5 @@ export const PERMISSIONS = {
   TASKS_UPDATE: "tasks:update",
   TASKS_DELETE: "tasks:delete",
   DASHBOARD_READ: "dashboard:read",
-  AUDIT_LOG_READ: "audit_log:read",
+  AUDIT_LOG_READ: "completion_log:read",
 } as const;

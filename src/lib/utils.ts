@@ -47,8 +47,13 @@ export function formatFixedDateWithDay(dateStr: string): string {
  * @param dateStr - ISO 8601 UTC string
  * @returns Formatted date (e.g., "Feb 19, 2026")
  */
-export function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString("en-US", {
+export function formatDate(dateStr: string | null | undefined): string {
+  if (!dateStr) return "—";
+  // Python datetime may include microseconds (6 decimal places); normalize to 3 for JS compatibility
+  const normalized = dateStr.replace(/(\.\d{3})\d+/, "$1");
+  const d = new Date(normalized);
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
     year: "numeric",
@@ -61,8 +66,12 @@ export function formatDate(dateStr: string): string {
  * @param dateStr - ISO 8601 UTC string
  * @returns Formatted datetime (e.g., "Feb 19, 3:30 PM")
  */
-export function formatDateTime(dateStr: string): string {
-  return new Date(dateStr).toLocaleString("en-US", {
+export function formatDateTime(dateStr: string | null | undefined): string {
+  if (!dateStr) return "—";
+  const normalized = dateStr.replace(/(\.\d{3})\d+/, "$1");
+  const d = new Date(normalized);
+  if (isNaN(d.getTime())) return "—";
+  return d.toLocaleString("en-US", {
     month: "short",
     day: "numeric",
     hour: "numeric",
