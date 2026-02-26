@@ -63,7 +63,7 @@ export default function LoginPage() {
       <div className="w-[400px] bg-card border border-border rounded-2xl p-10">
         <div className="text-center mb-9">
           <div className="text-3xl font-extrabold text-text">
-            <span className="text-accent">●</span> TaskManager
+            <img src="/taskmanager_icon.png" alt="TaskManager" className="inline-block w-12 h-12 mr-2 align-middle" /> TaskManager
           </div>
           <div className="text-text-muted text-sm mt-2">Admin Console</div>
           {companyCode && (
