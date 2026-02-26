@@ -18,10 +18,7 @@ import {
 import { formatFixedDate, formatDateTime } from "@/lib/utils";
 
 type SortDir = "asc" | "desc" | null;
-interface SortState {
-  key: string;
-  dir: SortDir;
-}
+type SortEntry = { key: string; dir: "asc" | "desc" };
 
 function SortArrows({ active, dir }: { active: boolean; dir: SortDir }) {
   return (
@@ -49,7 +46,7 @@ function CompletionLogContent(): React.ReactElement {
   );
   const [storeId, setStoreId] = useState<string>("");
   const [userId, setUserId] = useState<string>("");
-  const [sort, setSort] = useState<SortState>({ key: "", dir: null });
+  const [sort, setSort] = useState<SortEntry[]>([]);
   const perPage: number = 20;
 
   // Sync when query params change
@@ -77,21 +74,25 @@ function CompletionLogContent(): React.ReactElement {
 
   const handleSort = (key: string) => {
     setSort((prev) => {
-      if (prev.key !== key) return { key, dir: "asc" };
-      if (prev.dir === "asc") return { key, dir: "desc" };
-      return { key: "", dir: null };
+      const existing = prev.find((s) => s.key === key);
+      if (!existing) return [...prev, { key, dir: "asc" }];
+      if (existing.dir === "asc") return prev.map((s) => s.key === key ? { key, dir: "desc" } : s);
+      return prev.filter((s) => s.key !== key);
     });
   };
 
   const sortedItems = useMemo(() => {
-    if (!sort.key || !sort.dir) return items;
+    if (sort.length === 0) return items;
     return [...items].sort((a, b) => {
-      const aVal = (a as unknown as Record<string, unknown>)[sort.key];
-      const bVal = (b as unknown as Record<string, unknown>)[sort.key];
-      const aStr = aVal == null ? "" : String(aVal);
-      const bStr = bVal == null ? "" : String(bVal);
-      const cmp = aStr.localeCompare(bStr);
-      return sort.dir === "asc" ? cmp : -cmp;
+      for (const { key, dir } of sort) {
+        const aVal = (a as unknown as Record<string, unknown>)[key];
+        const bVal = (b as unknown as Record<string, unknown>)[key];
+        const aStr = aVal == null ? "" : String(aVal);
+        const bStr = bVal == null ? "" : String(bVal);
+        const cmp = aStr.localeCompare(bStr);
+        if (cmp !== 0) return dir === "asc" ? cmp : -cmp;
+      }
+      return 0;
     });
   }, [items, sort]);
 
@@ -293,8 +294,8 @@ function CompletionLogContent(): React.ReactElement {
                         {col.header}
                         {col.sortable && (
                           <SortArrows
-                            active={sort.key === col.key}
-                            dir={sort.key === col.key ? sort.dir : null}
+                            active={sort.some((s) => s.key === col.key)}
+                            dir={sort.find((s) => s.key === col.key)?.dir ?? null}
                           />
                         )}
                       </span>
