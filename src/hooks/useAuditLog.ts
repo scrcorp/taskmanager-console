@@ -1,0 +1,49 @@
+/**
+ * Checklist Audit Log React Query hook.
+ */
+
+import { useQuery } from "@tanstack/react-query";
+import api from "@/lib/api";
+
+export interface AuditLogEntry {
+  id: string;
+  instance_id: string;
+  item_index: number;
+  item_title: string;
+  user_id: string;
+  user_name: string;
+  store_id: string;
+  store_name: string;
+  work_date: string;
+  completed_at: string | null;
+  completed_timezone: string | null;
+  photo_url: string | null;
+  note: string | null;
+}
+
+interface AuditLogFilters {
+  date_from?: string;
+  date_to?: string;
+  page?: number;
+  per_page?: number;
+}
+
+interface AuditLogResponse {
+  items: AuditLogEntry[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+
+export function useAuditLog(filters: AuditLogFilters = {}) {
+  const params: Record<string, string | number> = {};
+  if (filters.date_from) params.date_from = filters.date_from;
+  if (filters.date_to) params.date_to = filters.date_to;
+  if (filters.page) params.page = filters.page;
+  if (filters.per_page) params.per_page = filters.per_page;
+
+  return useQuery<AuditLogResponse>({
+    queryKey: ["audit-log", params],
+    queryFn: () => api.get("/admin/checklist-instances/checklist-audit", { params }).then((r) => r.data),
+  });
+}
