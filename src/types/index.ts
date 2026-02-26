@@ -46,6 +46,10 @@ export interface Store {
   created_at: string;
 }
 
+export interface UserStoreAssignment extends Store {
+  is_manager: boolean;
+}
+
 export interface StoreDetail extends Store {
   shifts: Shift[];
   positions: Position[];

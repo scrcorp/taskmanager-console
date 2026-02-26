@@ -8,7 +8,7 @@ import {
 } from "@tanstack/react-query";
 import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
-import type { User, Store } from "@/types";
+import type { User, Store, UserStoreAssignment } from "@/types";
 
 /** 사용자 목록 필터 타입 (User list filter type) */
 interface UserFilters {
@@ -234,11 +234,11 @@ export const useDeleteUser = (): UseMutationResult<void, Error, string> => {
  */
 export const useUserStores = (
   userId: string | undefined,
-): UseQueryResult<Store[], Error> => {
-  return useQuery<Store[], Error>({
+): UseQueryResult<UserStoreAssignment[], Error> => {
+  return useQuery<UserStoreAssignment[], Error>({
     queryKey: ["users", userId, "stores"],
-    queryFn: async (): Promise<Store[]> => {
-      const response: AxiosResponse<Store[]> = await api.get(
+    queryFn: async (): Promise<UserStoreAssignment[]> => {
+      const response: AxiosResponse<UserStoreAssignment[]> = await api.get(
         `/admin/users/${userId}/stores`,
       );
       return response.data;
@@ -313,9 +313,45 @@ export const useRemoveUserStore = (): UseMutationResult<
       await api.delete(`/admin/users/${userId}/stores/${storeId}`);
     },
     onSuccess: (_: void, variables: RemoveUserStoreData): void => {
-      queryClient.setQueryData<Store[]>(
+      queryClient.setQueryData<UserStoreAssignment[]>(
         ["users", variables.userId, "stores"],
         (old) => old?.filter((s) => s.id !== variables.storeId),
+      );
+    },
+  });
+};
+
+/** 매장 배정 일괄 저장 요청 데이터 */
+interface SyncUserStoresData {
+  userId: string;
+  assignments: { store_id: string; is_manager: boolean }[];
+}
+
+/** 매장 배정 일괄 저장 훅 */
+export const useSyncUserStores = (): UseMutationResult<
+  UserStoreAssignment[],
+  Error,
+  SyncUserStoresData
+> => {
+  const queryClient: QueryClient = useQueryClient();
+  return useMutation<UserStoreAssignment[], Error, SyncUserStoresData>({
+    mutationFn: async ({
+      userId,
+      assignments,
+    }: SyncUserStoresData): Promise<UserStoreAssignment[]> => {
+      const response: AxiosResponse<UserStoreAssignment[]> = await api.put(
+        `/admin/users/${userId}/stores`,
+        { assignments },
+      );
+      return response.data;
+    },
+    onSuccess: (
+      data: UserStoreAssignment[],
+      variables: SyncUserStoresData,
+    ): void => {
+      queryClient.setQueryData<UserStoreAssignment[]>(
+        ["users", variables.userId, "stores"],
+        data,
       );
     },
   });

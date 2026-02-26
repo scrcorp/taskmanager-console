@@ -7,7 +7,7 @@
  * deletion, and store assignments.
  */
 
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
 import {
   ChevronLeft,
@@ -15,9 +15,7 @@ import {
   Trash2,
   ToggleLeft,
   ToggleRight,
-  Plus,
   Store as StoreIcon,
-  X,
 } from "lucide-react";
 import {
   useUser,
@@ -25,8 +23,7 @@ import {
   useToggleUserActive,
   useDeleteUser,
   useUserStores,
-  useAddUserStore,
-  useRemoveUserStore,
+  useSyncUserStores,
 } from "@/hooks/useUsers";
 import { useStores } from "@/hooks/useStores";
 import { useRoles } from "@/hooks/useRoles";
@@ -38,7 +35,7 @@ import { useToast } from "@/components/ui/Toast";
 import { formatDate, parseApiError } from "@/lib/utils";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@/lib/permissions";
-import type { User, Store, Role } from "@/types";
+import type { User, Store, Role, UserStoreAssignment } from "@/types";
 
 /* -------------------------------------------------------------------------- */
 /*  Type Definitions                                                          */
@@ -52,7 +49,11 @@ interface UserEditFormData {
   role_id: string;
 }
 
-/** useUserStores returns Store[] from the hooks */
+/** 매장 배정 체크박스 상태 */
+interface StoreCheckState {
+  is_manager: boolean;
+  is_work: boolean;
+}
 
 /* -------------------------------------------------------------------------- */
 /*  Constants                                                                 */
@@ -88,8 +89,7 @@ export default function UserDetailPage(): React.ReactElement {
   const updateUser = useUpdateUser();
   const toggleActive = useToggleUserActive();
   const deleteUser = useDeleteUser();
-  const addUserStore = useAddUserStore();
-  const removeUserStore = useRemoveUserStore();
+  const syncUserStores = useSyncUserStores();
 
   /* ---- Edit modal state -------------------------------------------------- */
   const [isEditOpen, setIsEditOpen] = useState<boolean>(false);
@@ -103,19 +103,11 @@ export default function UserDetailPage(): React.ReactElement {
   const [isRoleChangeOpen, setIsRoleChangeOpen] = useState<boolean>(false);
 
   /* ---- Store assignment state -------------------------------------------- */
-  const [isAssignOpen, setIsAssignOpen] = useState<boolean>(false);
-  const [selectedStoreId, setSelectedStoreId] = useState<string>("");
-  const [removingStoreId, setRemovingStoreId] = useState<string | null>(null);
-  const [isRemoveConfirmOpen, setIsRemoveConfirmOpen] =
-    useState<boolean>(false);
-  const [removingStoreName, setRemovingStoreName] = useState<string>("");
+  const [storeChecks, setStoreChecks] = useState<Record<string, StoreCheckState>>({});
+  const [isStoreEditing, setIsStoreEditing] = useState<boolean>(false);
+  const [unmanageConfirm, setUnmanageConfirm] = useState<{ storeId: string; storeName: string } | null>(null);
 
   /* ---- Derived data ------------------------------------------------------ */
-
-  const userStoreList: Store[] = useMemo(
-    () => (Array.isArray(userStores) ? userStores : []),
-    [userStores],
-  );
 
   const allStoreList: Store[] = useMemo(
     () => (Array.isArray(allStores) ? allStores : []),
@@ -127,15 +119,53 @@ export default function UserDetailPage(): React.ReactElement {
     [roles],
   );
 
-  /** 아직 할당되지 않은 매장 목록 / Stores not yet assigned */
-  const availableStores: Store[] = useMemo(() => {
-    const assignedIds: Set<string> = new Set(
-      userStoreList.map((us: Store) => us.id),
-    );
-    return allStoreList.filter(
-      (store: Store) => !assignedIds.has(store.id),
-    );
-  }, [allStoreList, userStoreList]);
+  /** 사용자 role priority (기본 999 = 권한 없음) */
+  const userRolePriority: number = useMemo(() => {
+    if (!user) return 999;
+    const role = roleList.find((r: Role) => r.name === user.role_name);
+    return role?.priority ?? 999;
+  }, [user, roleList]);
+
+  const isStaff = userRolePriority >= 40;
+  const isSV = userRolePriority === 30;
+
+  /** 서버 상태 기반 초기 체크 상태 생성 */
+  const serverCheckState: Record<string, StoreCheckState> = useMemo(() => {
+    const state: Record<string, StoreCheckState> = {};
+    if (!Array.isArray(userStores)) return state;
+    for (const us of userStores) {
+      state[us.id] = { is_manager: us.is_manager, is_work: true };
+    }
+    return state;
+  }, [userStores]);
+
+  /** 서버 데이터가 바뀌면 로컬 상태 초기화 */
+  useEffect(() => {
+    if (!isStoreEditing) {
+      setStoreChecks(serverCheckState);
+    }
+  }, [serverCheckState, isStoreEditing]);
+
+  /** 관리매장 체크 수 */
+  const managerCount: number = useMemo(
+    () => Object.values(storeChecks).filter((s) => s.is_manager).length,
+    [storeChecks],
+  );
+
+  /** 변경사항 있는지 */
+  const hasChanges: boolean = useMemo(() => {
+    const currentIds = new Set(Object.keys(storeChecks).filter((id) => storeChecks[id].is_work));
+    const serverIds = new Set(Object.keys(serverCheckState));
+    if (currentIds.size !== serverIds.size) return true;
+    for (const id of currentIds) {
+      if (!serverIds.has(id)) return true;
+      if (storeChecks[id].is_manager !== (serverCheckState[id]?.is_manager ?? false)) return true;
+    }
+    for (const id of serverIds) {
+      if (!currentIds.has(id)) return true;
+    }
+    return false;
+  }, [storeChecks, serverCheckState]);
 
   /* ======================================================================== */
   /*  Handlers                                                                */
@@ -156,7 +186,6 @@ export default function UserDetailPage(): React.ReactElement {
   /** 사용자 수정 저장 (역할 변경 확인 포함) / Save user edits (with role change check) */
   const handleSaveClick = useCallback((): void => {
     if (!editForm.full_name.trim()) return;
-    // If role is being changed, show confirmation first
     if (editForm.role_id && user) {
       const currentRole = roleList.find((r: Role) => r.name === user.role_name);
       if (currentRole && editForm.role_id !== currentRole.id) {
@@ -225,48 +254,80 @@ export default function UserDetailPage(): React.ReactElement {
     }
   }, [userId, deleteUser, toast, router]);
 
-  /** 매장 할당 / Assign store */
-  const handleAssignStore = useCallback(async (): Promise<void> => {
-    if (!selectedStoreId) return;
-    try {
-      await addUserStore.mutateAsync({
-        userId,
-        storeId: selectedStoreId,
-      });
-      toast({ type: "success", message: "Store assigned successfully!" });
-      setIsAssignOpen(false);
-      setSelectedStoreId("");
-    } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to assign store.") });
+  /** 관리 체크박스 토글 */
+  const handleManagerToggle = useCallback((storeId: string, storeName: string, checked: boolean): void => {
+    if (checked) {
+      // 관리매장 체크 → 근무매장 자동 체크
+      setStoreChecks((prev) => ({
+        ...prev,
+        [storeId]: { is_manager: true, is_work: true },
+      }));
+    } else {
+      // 관리매장 해제 → confirmation
+      setUnmanageConfirm({ storeId, storeName });
     }
-  }, [userId, selectedStoreId, addUserStore, toast]);
+  }, []);
 
-  /** 매장 할당 해제 확인 열기 / Open remove store confirmation */
-  const handleOpenRemoveStore = useCallback(
-    (store: Store): void => {
-      setRemovingStoreId(store.id);
-      setRemovingStoreName(store.name);
-      setIsRemoveConfirmOpen(true);
-    },
-    [],
-  );
+  /** 관리매장 해제 확정 — 근무매장도 함께 제거 */
+  const handleUnmanageWithRemove = useCallback((): void => {
+    if (!unmanageConfirm) return;
+    setStoreChecks((prev) => {
+      const next = { ...prev };
+      delete next[unmanageConfirm.storeId];
+      return next;
+    });
+    setUnmanageConfirm(null);
+  }, [unmanageConfirm]);
 
-  /** 매장 할당 해제 / Remove store assignment */
-  const handleRemoveStore = useCallback(async (): Promise<void> => {
-    if (!removingStoreId) return;
+  /** 관리매장 해제 확정 — 근무매장은 유지 */
+  const handleUnmanageKeepWork = useCallback((): void => {
+    if (!unmanageConfirm) return;
+    setStoreChecks((prev) => ({
+      ...prev,
+      [unmanageConfirm.storeId]: { is_manager: false, is_work: true },
+    }));
+    setUnmanageConfirm(null);
+  }, [unmanageConfirm]);
+
+  /** 근무 체크박스 토글 */
+  const handleWorkToggle = useCallback((storeId: string, checked: boolean): void => {
+    setStoreChecks((prev) => {
+      if (checked) {
+        return {
+          ...prev,
+          [storeId]: { is_manager: prev[storeId]?.is_manager ?? false, is_work: true },
+        };
+      } else {
+        // 근무 해제
+        const next = { ...prev };
+        delete next[storeId];
+        return next;
+      }
+    });
+  }, []);
+
+  /** 매장 배정 저장 */
+  const handleSaveStores = useCallback(async (): Promise<void> => {
+    const assignments = Object.entries(storeChecks)
+      .filter(([, v]) => v.is_work)
+      .map(([storeId, v]) => ({
+        store_id: storeId,
+        is_manager: v.is_manager,
+      }));
     try {
-      await removeUserStore.mutateAsync({
-        userId,
-        storeId: removingStoreId,
-      });
-      toast({ type: "success", message: "Store assignment removed." });
-      setIsRemoveConfirmOpen(false);
-      setRemovingStoreId(null);
-      setRemovingStoreName("");
+      await syncUserStores.mutateAsync({ userId, assignments });
+      toast({ type: "success", message: "Store assignments updated." });
+      setIsStoreEditing(false);
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to remove store assignment.") });
+      toast({ type: "error", message: parseApiError(err, "Failed to update store assignments.") });
     }
-  }, [userId, removingStoreId, removeUserStore, toast]);
+  }, [userId, storeChecks, syncUserStores, toast]);
+
+  /** 매장 배정 취소 */
+  const handleCancelStores = useCallback((): void => {
+    setStoreChecks(serverCheckState);
+    setIsStoreEditing(false);
+  }, [serverCheckState]);
 
   /** 역할 뱃지 변형 결정 / Determine role badge variant */
   const getRoleBadgeVariant = useCallback(
@@ -423,16 +484,35 @@ export default function UserDetailPage(): React.ReactElement {
           <h2 className="text-lg font-bold text-text">
             Store Assignments
           </h2>
-          {canManageUsers && (
+          {canManageUsers && !isStoreEditing && (
             <Button
-              variant="primary"
+              variant="secondary"
               size="sm"
-              onClick={() => setIsAssignOpen(true)}
-              disabled={availableStores.length === 0}
+              onClick={() => setIsStoreEditing(true)}
             >
-              <Plus className="h-4 w-4" />
-              Assign Store
+              <Edit className="h-4 w-4" />
+              Edit
             </Button>
+          )}
+          {canManageUsers && isStoreEditing && (
+            <div className="flex items-center gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={handleCancelStores}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={handleSaveStores}
+                isLoading={syncUserStores.isPending}
+                disabled={!hasChanges}
+              >
+                Save
+              </Button>
+            </div>
           )}
         </div>
 
@@ -440,40 +520,88 @@ export default function UserDetailPage(): React.ReactElement {
           <div className="flex items-center justify-center h-16">
             <LoadingSpinner size="sm" />
           </div>
-        ) : userStoreList.length === 0 ? (
+        ) : allStoreList.length === 0 ? (
           <div className="text-center py-6">
             <StoreIcon className="h-8 w-8 text-text-muted mx-auto mb-2" />
             <p className="text-sm text-text-muted">
-              No stores assigned yet. Assign a store to get started.
+              No stores in this organization.
             </p>
           </div>
         ) : (
-          <div className="space-y-2">
-            {userStoreList.map((store: Store) => (
-              <div
-                key={store.id}
-                className="flex items-center justify-between bg-surface border border-border rounded-lg px-4 py-3"
-              >
-                <div className="flex items-center gap-3">
-                  <div className="flex items-center justify-center h-8 w-8 rounded-lg bg-accent-muted text-accent">
-                    <StoreIcon className="h-4 w-4" />
-                  </div>
-                  <span className="text-sm font-medium text-text">
-                    {store.name}
-                  </span>
-                </div>
-                {canManageUsers && (
-                  <button
-                    type="button"
-                    onClick={() => handleOpenRemoveStore(store)}
-                    className="p-1.5 rounded-md text-text-muted hover:text-danger hover:bg-danger-muted transition-colors"
-                    aria-label={`Remove ${store.name} assignment`}
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                )}
-              </div>
-            ))}
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="text-left py-2 px-3 font-medium text-text-secondary">Store</th>
+                  <th className="text-center py-2 px-3 font-medium text-text-secondary w-24">Manager</th>
+                  <th className="text-center py-2 px-3 font-medium text-text-secondary w-24">Work</th>
+                </tr>
+              </thead>
+              <tbody>
+                {allStoreList.map((store: Store) => {
+                  const check = storeChecks[store.id];
+                  const isManaged = check?.is_manager ?? false;
+                  const isWork = check?.is_work ?? false;
+
+                  // 관리 체크박스 disabled 조건
+                  const managerDisabled =
+                    !isStoreEditing ||
+                    isStaff ||
+                    (isSV && !isManaged && managerCount >= 1);
+
+                  // 근무 체크박스 disabled 조건
+                  const workDisabled =
+                    !isStoreEditing ||
+                    isManaged; // 관리매장이면 근무 자동
+
+                  return (
+                    <tr
+                      key={store.id}
+                      className="border-b border-border last:border-b-0 hover:bg-surface/50 transition-colors"
+                    >
+                      <td className="py-2.5 px-3">
+                        <div className="flex items-center gap-2">
+                          <div className="flex items-center justify-center h-7 w-7 rounded-md bg-accent-muted text-accent">
+                            <StoreIcon className="h-3.5 w-3.5" />
+                          </div>
+                          <span className="font-medium text-text">{store.name}</span>
+                          {!store.is_active && (
+                            <Badge variant="danger">Inactive</Badge>
+                          )}
+                        </div>
+                      </td>
+                      <td className="text-center py-2.5 px-3">
+                        <input
+                          type="checkbox"
+                          checked={isManaged}
+                          disabled={managerDisabled}
+                          onChange={(e) => handleManagerToggle(store.id, store.name, e.target.checked)}
+                          className="h-4 w-4 rounded border-border text-accent focus:ring-accent disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+                        />
+                      </td>
+                      <td className="text-center py-2.5 px-3">
+                        <input
+                          type="checkbox"
+                          checked={isWork}
+                          disabled={workDisabled}
+                          onChange={(e) => handleWorkToggle(store.id, e.target.checked)}
+                          className="h-4 w-4 rounded border-border text-accent focus:ring-accent disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+                        />
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {/* Role-specific hints */}
+        {isStoreEditing && (
+          <div className="mt-3 text-xs text-text-muted">
+            {isStaff && "Staff can only be assigned to work stores."}
+            {isSV && "Supervisor can manage only one store."}
+            {!isStaff && !isSV && userRolePriority <= 20 && "GM can manage multiple stores."}
           </div>
         )}
       </div>
@@ -568,7 +696,7 @@ export default function UserDetailPage(): React.ReactElement {
             </Button>
             <Button
               variant="primary"
-              onClick={handleUpdate}
+              onClick={handleSaveClick}
               isLoading={updateUser.isPending}
               disabled={!editForm.full_name.trim()}
             >
@@ -577,6 +705,17 @@ export default function UserDetailPage(): React.ReactElement {
           </div>
         </div>
       </Modal>
+
+      {/* Role Change Confirmation */}
+      <ConfirmDialog
+        isOpen={isRoleChangeOpen}
+        onClose={() => setIsRoleChangeOpen(false)}
+        onConfirm={handleUpdate}
+        title="Change Role"
+        message="Changing the role will affect this user's permissions and store access. Are you sure?"
+        confirmLabel="Change Role"
+        isLoading={updateUser.isPending}
+      />
 
       {/* Delete Confirmation Dialog */}
       <ConfirmDialog
@@ -589,69 +728,41 @@ export default function UserDetailPage(): React.ReactElement {
         isLoading={deleteUser.isPending}
       />
 
-      {/* Assign Store Modal */}
-      <Modal
-        isOpen={isAssignOpen}
-        onClose={() => {
-          setIsAssignOpen(false);
-          setSelectedStoreId("");
-        }}
-        title="Assign Store"
-      >
-        <div className="space-y-4">
-          <p className="text-sm text-text-secondary">
-            Select a store to assign to {user.full_name}.
-          </p>
-          <Select
-            label="Store"
-            options={[
-              { value: "", label: "Select a store" },
-              ...availableStores.map((store: Store) => ({
-                value: store.id,
-                label: store.name,
-              })),
-            ]}
-            value={selectedStoreId}
-            onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-              setSelectedStoreId(e.target.value)
-            }
-          />
-          <div className="flex justify-end gap-2 pt-2">
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setIsAssignOpen(false);
-                setSelectedStoreId("");
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              onClick={handleAssignStore}
-              isLoading={addUserStore.isPending}
-              disabled={!selectedStoreId}
-            >
-              Assign
-            </Button>
+      {/* Unmanage Store Confirmation — 관리매장 해제 시 근무매장 유지 여부 */}
+      {unmanageConfirm && (
+        <Modal
+          isOpen={true}
+          onClose={() => setUnmanageConfirm(null)}
+          title="Remove Management"
+        >
+          <div className="space-y-4">
+            <p className="text-sm text-text-secondary">
+              &quot;{unmanageConfirm.storeName}&quot; management assignment will be removed.
+              Do you also want to remove the work assignment?
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                variant="secondary"
+                onClick={() => setUnmanageConfirm(null)}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="primary"
+                onClick={handleUnmanageKeepWork}
+              >
+                Keep Work
+              </Button>
+              <Button
+                variant="danger"
+                onClick={handleUnmanageWithRemove}
+              >
+                Remove Both
+              </Button>
+            </div>
           </div>
-        </div>
-      </Modal>
-
-      {/* Remove Store Assignment Confirmation */}
-      <ConfirmDialog
-        isOpen={isRemoveConfirmOpen}
-        onClose={() => {
-          setIsRemoveConfirmOpen(false);
-          setRemovingStoreId(null);
-          setRemovingStoreName("");
-        }}
-        onConfirm={handleRemoveStore}
-        title="Remove Store Assignment"
-        message={`Are you sure you want to remove "${removingStoreName}" from ${user.full_name}?`}
-        confirmLabel="Remove"
-        isLoading={removeUserStore.isPending}
-      />
+        </Modal>
+      )}
     </div>
   );
 }
