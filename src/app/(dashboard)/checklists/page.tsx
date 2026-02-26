@@ -24,8 +24,8 @@ import {
   downloadSampleExcel,
 } from "@/hooks/useChecklists";
 import { useStores } from "@/hooks/useStores";
-import { useShifts } from "@/hooks/useShifts";
-import { usePositions } from "@/hooks/usePositions";
+import { useShifts, useCreateShift } from "@/hooks/useShifts";
+import { usePositions, useCreatePosition } from "@/hooks/usePositions";
 import {
   Button,
   Input,
@@ -131,6 +131,10 @@ export default function ChecklistsPage(): React.ReactElement {
   const [createShiftId, setCreateShiftId] = useState<string>("");
   const [createPositionId, setCreatePositionId] = useState<string>("");
   const [createTitle, setCreateTitle] = useState<string>("");
+  const [isCreatingShift, setIsCreatingShift] = useState(false);
+  const [newShiftName, setNewShiftName] = useState("");
+  const [isCreatingPosition, setIsCreatingPosition] = useState(false);
+  const [newPositionName, setNewPositionName] = useState("");
 
   /* ---- Excel import state ---- */
   const [isImportOpen, setIsImportOpen] = useState<boolean>(false);
@@ -204,6 +208,8 @@ export default function ChecklistsPage(): React.ReactElement {
   const updateItem = useUpdateChecklistItem();
   const deleteItem = useDeleteChecklistItem();
   const importTemplates = useImportChecklistTemplates();
+  const createNewShift = useCreateShift();
+  const createNewPosition = useCreatePosition();
 
   const { data: checklistItems, isLoading: itemsLoading } = useChecklistItems(
     expandedTemplateId || "",
@@ -286,6 +292,39 @@ export default function ChecklistsPage(): React.ReactElement {
       toast({ type: "error", message: parseApiError(err, "Failed to create checklist template.") });
     }
   }, [createTitle, createStoreId, createShiftId, createPositionId, createTemplate, toast]);
+
+  const handleCreateInlineShift = useCallback(async (): Promise<void> => {
+    if (!createStoreId || !newShiftName.trim()) return;
+    try {
+      const created = await createNewShift.mutateAsync({
+        storeId: createStoreId,
+        name: newShiftName.trim(),
+      });
+      setCreateShiftId(created.id);
+      setCreatePositionId("");
+      setIsCreatingShift(false);
+      setNewShiftName("");
+      toast({ type: "success", message: "Shift created!" });
+    } catch (err) {
+      toast({ type: "error", message: parseApiError(err, "Failed to create shift.") });
+    }
+  }, [createStoreId, newShiftName, createNewShift, toast]);
+
+  const handleCreateInlinePosition = useCallback(async (): Promise<void> => {
+    if (!createStoreId || !newPositionName.trim()) return;
+    try {
+      const created = await createNewPosition.mutateAsync({
+        storeId: createStoreId,
+        name: newPositionName.trim(),
+      });
+      setCreatePositionId(created.id);
+      setIsCreatingPosition(false);
+      setNewPositionName("");
+      toast({ type: "success", message: "Position created!" });
+    } catch (err) {
+      toast({ type: "error", message: parseApiError(err, "Failed to create position.") });
+    }
+  }, [createStoreId, newPositionName, createNewPosition, toast]);
 
   const handleImport = useCallback(async (): Promise<void> => {
     if (!importFile) return;
@@ -827,6 +866,10 @@ export default function ChecklistsPage(): React.ReactElement {
           setCreateStoreId("");
           setCreateShiftId("");
           setCreatePositionId("");
+          setIsCreatingShift(false);
+          setNewShiftName("");
+          setIsCreatingPosition(false);
+          setNewPositionName("");
         }}
         title="Create Checklist Template"
       >
@@ -865,62 +908,150 @@ export default function ChecklistsPage(): React.ReactElement {
               setCreateStoreId(e.target.value);
               setCreateShiftId("");
               setCreatePositionId("");
+              setIsCreatingShift(false);
+              setNewShiftName("");
+              setIsCreatingPosition(false);
+              setNewPositionName("");
             }}
             options={[
               { value: "", label: "Select a store" },
               ...storeList.map((b: Store) => ({ value: b.id, label: b.name })),
             ]}
           />
-          <Select
-            label="Shift"
-            value={createShiftId}
-            onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
-              setCreateShiftId(e.target.value);
-              setCreatePositionId("");
-            }}
-            options={[
-              { value: "", label: "Select a shift" },
-              ...[...(createShifts ?? [])].sort((a: Shift, b: Shift) => {
-                const aTaken = createPositions && createPositions.length > 0 && getAvailablePositionCount(a.id) === 0;
-                const bTaken = createPositions && createPositions.length > 0 && getAvailablePositionCount(b.id) === 0;
-                if (aTaken === bTaken) return 0;
-                return aTaken ? 1 : -1;
-              }).map((s: Shift) => {
-                const availableCount = getAvailablePositionCount(s.id);
-                const allTaken = createPositions && createPositions.length > 0 && availableCount === 0;
-                return {
-                  value: s.id,
-                  label: allTaken ? `${s.name} (all positions taken)` : s.name,
-                  disabled: allTaken,
-                };
-              }),
-            ]}
-            disabled={!createStoreId}
-          />
-          <Select
-            label="Position"
-            value={createPositionId}
-            onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-              setCreatePositionId(e.target.value)
-            }
-            options={[
-              { value: "", label: "Select a position" },
-              ...[...(createPositions ?? [])].sort((a: Position, b: Position) => {
-                const aTaken = !!(createShiftId && existingCombos.has(`${createShiftId}::${a.id}`));
-                const bTaken = !!(createShiftId && existingCombos.has(`${createShiftId}::${b.id}`));
-                if (aTaken === bTaken) return 0;
-                return aTaken ? 1 : -1;
-              }).map((p: Position) => {
-                const taken = createShiftId && existingCombos.has(`${createShiftId}::${p.id}`);
-                return {
-                  value: p.id,
-                  label: taken ? `${p.name} (already exists)` : p.name,
-                  disabled: !!taken,
-                };
-              }),
-            ]}
-            disabled={!createStoreId}
-          />
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-sm font-medium text-text-secondary">Shift</label>
+              {createStoreId && !isCreatingShift && (
+                <button
+                  type="button"
+                  onClick={() => setIsCreatingShift(true)}
+                  className="text-xs text-primary hover:text-primary-hover transition-colors"
+                >
+                  + Add new
+                </button>
+              )}
+            </div>
+            {isCreatingShift ? (
+              <div className="flex items-center gap-2">
+                <div className="flex-1">
+                  <Input
+                    placeholder="New shift name"
+                    value={newShiftName}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewShiftName(e.target.value)}
+                    onKeyDown={(e: React.KeyboardEvent) => { if (e.key === "Enter") handleCreateInlineShift(); }}
+                  />
+                </div>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleCreateInlineShift}
+                  isLoading={createNewShift.isPending}
+                  disabled={!newShiftName.trim()}
+                >
+                  Create
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => { setIsCreatingShift(false); setNewShiftName(""); }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            ) : (
+              <Select
+                value={createShiftId}
+                onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
+                  setCreateShiftId(e.target.value);
+                  setCreatePositionId("");
+                }}
+                options={[
+                  { value: "", label: "Select a shift" },
+                  ...[...(createShifts ?? [])].sort((a: Shift, b: Shift) => {
+                    const aTaken = createPositions && createPositions.length > 0 && getAvailablePositionCount(a.id) === 0;
+                    const bTaken = createPositions && createPositions.length > 0 && getAvailablePositionCount(b.id) === 0;
+                    if (aTaken === bTaken) return 0;
+                    return aTaken ? 1 : -1;
+                  }).map((s: Shift) => {
+                    const availableCount = getAvailablePositionCount(s.id);
+                    const allTaken = createPositions && createPositions.length > 0 && availableCount === 0;
+                    return {
+                      value: s.id,
+                      label: allTaken ? `${s.name} (all positions taken)` : s.name,
+                      disabled: allTaken,
+                    };
+                  }),
+                ]}
+                disabled={!createStoreId}
+              />
+            )}
+          </div>
+          <div>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-sm font-medium text-text-secondary">Position</label>
+              {createStoreId && !isCreatingPosition && (
+                <button
+                  type="button"
+                  onClick={() => setIsCreatingPosition(true)}
+                  className="text-xs text-primary hover:text-primary-hover transition-colors"
+                >
+                  + Add new
+                </button>
+              )}
+            </div>
+            {isCreatingPosition ? (
+              <div className="flex items-center gap-2">
+                <div className="flex-1">
+                  <Input
+                    placeholder="New position name"
+                    value={newPositionName}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewPositionName(e.target.value)}
+                    onKeyDown={(e: React.KeyboardEvent) => { if (e.key === "Enter") handleCreateInlinePosition(); }}
+                  />
+                </div>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleCreateInlinePosition}
+                  isLoading={createNewPosition.isPending}
+                  disabled={!newPositionName.trim()}
+                >
+                  Create
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => { setIsCreatingPosition(false); setNewPositionName(""); }}
+                >
+                  Cancel
+                </Button>
+              </div>
+            ) : (
+              <Select
+                value={createPositionId}
+                onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                  setCreatePositionId(e.target.value)
+                }
+                options={[
+                  { value: "", label: "Select a position" },
+                  ...[...(createPositions ?? [])].sort((a: Position, b: Position) => {
+                    const aTaken = !!(createShiftId && existingCombos.has(`${createShiftId}::${a.id}`));
+                    const bTaken = !!(createShiftId && existingCombos.has(`${createShiftId}::${b.id}`));
+                    if (aTaken === bTaken) return 0;
+                    return aTaken ? 1 : -1;
+                  }).map((p: Position) => {
+                    const taken = createShiftId && existingCombos.has(`${createShiftId}::${p.id}`);
+                    return {
+                      value: p.id,
+                      label: taken ? `${p.name} (already exists)` : p.name,
+                      disabled: !!taken,
+                    };
+                  }),
+                ]}
+                disabled={!createStoreId}
+              />
+            )}
+          </div>
           <Input
             label="Additional Name (Optional)"
             placeholder={createStoreId && createShiftId && createPositionId ? "e.g. Opening Checklist" : "Select store, shift, position first"}
@@ -939,6 +1070,10 @@ export default function ChecklistsPage(): React.ReactElement {
                 setCreateStoreId("");
                 setCreateShiftId("");
                 setCreatePositionId("");
+                setIsCreatingShift(false);
+                setNewShiftName("");
+                setIsCreatingPosition(false);
+                setNewPositionName("");
               }}
             >
               Cancel
@@ -1104,6 +1239,23 @@ export default function ChecklistsPage(): React.ReactElement {
               No selection = every day. Select specific days to limit.
             </p>
             <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  setItemCreateForm((prev: ItemFormData) => ({
+                    ...prev,
+                    recurrence_days: prev.recurrence_days.length === 7 ? [] : [0, 1, 2, 3, 4, 5, 6],
+                  }))
+                }
+                className={cn(
+                  "px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors",
+                  itemCreateForm.recurrence_days.length === 7
+                    ? "bg-primary text-white border-primary"
+                    : "bg-card text-text-secondary border-border hover:border-primary",
+                )}
+              >
+                All
+              </button>
               {DAY_LABELS.map((day: string, idx: number) => (
                 <button
                   key={day}
@@ -1236,6 +1388,23 @@ export default function ChecklistsPage(): React.ReactElement {
               No selection = every day. Select specific days to limit.
             </p>
             <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  setItemEditForm((prev: ItemFormData) => ({
+                    ...prev,
+                    recurrence_days: prev.recurrence_days.length === 7 ? [] : [0, 1, 2, 3, 4, 5, 6],
+                  }))
+                }
+                className={cn(
+                  "px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors",
+                  itemEditForm.recurrence_days.length === 7
+                    ? "bg-primary text-white border-primary"
+                    : "bg-card text-text-secondary border-border hover:border-primary",
+                )}
+              >
+                All
+              </button>
               {DAY_LABELS.map((day: string, idx: number) => (
                 <button
                   key={day}
