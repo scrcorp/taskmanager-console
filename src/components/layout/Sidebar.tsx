@@ -22,6 +22,7 @@ import React from "react";
 import { useAuthStore } from "@/stores/authStore";
 import { useUnreadCount } from "@/hooks";
 import { cn } from "@/lib/utils";
+import { ThemeToggle } from "./ThemeToggle";
 
 /** 사이드바 내비게이션 항목 타입.
  *  Sidebar navigation item type. */
@@ -143,6 +144,7 @@ export function Sidebar() {
             {user?.email || "admin@taskmanager.app"}
           </div>
         </div>
+        <ThemeToggle />
         <button
           onClick={logout}
           className="p-1.5 text-text-muted hover:text-danger transition-colors"

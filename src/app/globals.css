@@ -1,6 +1,33 @@
 @import "tailwindcss";
 
+/* dark: variant uses .dark class (not prefers-color-scheme) */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
+  /* Light mode defaults (Tailwind v4 utility registration) */
+  --color-bg: #F5F6FA;
+  --color-surface: #FFFFFF;
+  --color-surface-hover: #F0F1F5;
+  --color-card: #FFFFFF;
+  --color-border: #E2E4EA;
+  --color-accent: #6C5CE7;
+  --color-accent-light: #5A4BD1;
+  --color-accent-muted: rgba(108, 92, 231, 0.1);
+  --color-success: #00B894;
+  --color-success-muted: rgba(0, 184, 148, 0.1);
+  --color-warning: #F0A500;
+  --color-warning-muted: rgba(240, 165, 0, 0.1);
+  --color-danger: #EF4444;
+  --color-danger-muted: rgba(239, 68, 68, 0.1);
+  --color-text: #1A1D27;
+  --color-text-secondary: #64748B;
+  --color-text-muted: #94A3B8;
+
+  --font-sans: "DM Sans", "Pretendard", system-ui, sans-serif;
+}
+
+/* Dark mode overrides */
+.dark {
   --color-bg: #0F1117;
   --color-surface: #1A1D27;
   --color-surface-hover: #22252F;
@@ -18,11 +45,13 @@
   --color-text: #E8E8EF;
   --color-text-secondary: #8B8DA3;
   --color-text-muted: #5A5C6F;
-
-  --font-sans: "DM Sans", "Pretendard", system-ui, sans-serif;
 }
 
 html {
+  color-scheme: light;
+}
+
+html.dark {
   color-scheme: dark;
 }
 
