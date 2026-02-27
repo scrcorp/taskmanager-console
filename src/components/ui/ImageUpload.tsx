@@ -1,25 +1,32 @@
 "use client";
 
 /**
- * 이미지 업로드 컴포넌트 — S3 presigned URL을 사용하여 직접 업로드합니다.
+ * 미디어 업로드 컴포넌트 — presigned URL을 사용하여 이미지/영상을 업로드합니다.
  *
- * Image upload component using S3 presigned URL for direct upload.
+ * Media upload component using presigned URL for direct image/video upload.
  */
 
 import React, { useRef, useState } from "react";
-import { Camera, X, Loader2 } from "lucide-react";
+import { Paperclip, X, Loader2, Film } from "lucide-react";
 import { usePresignedUrl } from "@/hooks/useChecklistInstances";
 
 interface ImageUploadProps {
   value?: string | null;
   onUpload: (url: string) => void;
   onRemove?: () => void;
+  /** compact 모드: 아이콘 버튼만 표시 */
+  compact?: boolean;
+}
+
+function isVideo(url: string): boolean {
+  return /\.(mp4|mov|webm|avi|mkv)(\?|$)/i.test(url);
 }
 
 export function ImageUpload({
   value,
   onUpload,
   onRemove,
+  compact = false,
 }: ImageUploadProps): React.ReactElement {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -51,11 +58,17 @@ export function ImageUpload({
   if (value) {
     return (
       <div className="relative inline-block">
-        <img
-          src={value}
-          alt="Uploaded"
-          className="w-20 h-20 object-cover rounded-lg border border-border"
-        />
+        {isVideo(value) ? (
+          <div className="w-20 h-20 rounded-lg border border-border bg-surface flex items-center justify-center">
+            <Film size={24} className="text-text-muted" />
+          </div>
+        ) : (
+          <img
+            src={value}
+            alt="Uploaded"
+            className="w-20 h-20 object-cover rounded-lg border border-border"
+          />
+        )}
         {onRemove && (
           <button
             type="button"
@@ -66,6 +79,35 @@ export function ImageUpload({
           </button>
         )}
       </div>
+    );
+  }
+
+  if (compact) {
+    return (
+      <>
+        <button
+          type="button"
+          disabled={uploading}
+          onClick={() => inputRef.current?.click()}
+          className="p-1 rounded-md text-text-muted hover:text-text-secondary disabled:opacity-50"
+        >
+          {uploading ? (
+            <Loader2 size={14} className="animate-spin" />
+          ) : (
+            <Paperclip size={14} />
+          )}
+        </button>
+        <input
+          ref={inputRef}
+          type="file"
+          accept="image/*,video/*"
+          className="hidden"
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) handleFile(file);
+          }}
+        />
+      </>
     );
   }
 
@@ -80,14 +122,14 @@ export function ImageUpload({
         {uploading ? (
           <Loader2 size={12} className="animate-spin" />
         ) : (
-          <Camera size={12} />
+          <Paperclip size={12} />
         )}
-        {uploading ? "Uploading..." : "Photo"}
+        {uploading ? "Uploading..." : "Attach"}
       </button>
       <input
         ref={inputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,video/*"
         className="hidden"
         onChange={(e) => {
           const file = e.target.files?.[0];

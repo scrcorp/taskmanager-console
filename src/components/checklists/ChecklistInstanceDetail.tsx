@@ -5,14 +5,14 @@
  * Review 버튼으로 리뷰 모드 진입, batch save로 변경된 리뷰만 서버에 저장합니다.
  */
 
-import React, { useMemo, useState, useCallback } from "react";
+import React, { useState, useCallback } from "react";
 import { ClipboardCheck } from "lucide-react";
 import { Card, Badge, Button, EmptyState } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
 import { formatFixedDate, parseApiError } from "@/lib/utils";
 import { ChecklistItemRow, type LocalReview } from "./ChecklistItemRow";
 import { useUpsertItemReview } from "@/hooks/useChecklistInstances";
-import type { ChecklistInstance, ChecklistCompletion } from "@/types";
+import type { ChecklistInstance } from "@/types";
 
 /** 인스턴스 상태에 따른 뱃지 변형 매핑 */
 const statusBadgeVariant: Record<string, "default" | "warning" | "success"> = {
@@ -41,14 +41,6 @@ export function ChecklistInstanceDetail({
       ? Math.round((instance.completed_items / instance.total_items) * 100)
       : 0;
 
-  const completionMap = useMemo(() => {
-    const map = new Map<number, ChecklistCompletion>();
-    for (const c of instance.completions ?? []) {
-      map.set(c.item_index, c);
-    }
-    return map;
-  }, [instance.completions]);
-
   const snapshot = instance.snapshot ?? [];
 
   // Review mode
@@ -64,6 +56,7 @@ export function ChecklistInstanceDetail({
         map.set(item.item_index, {
           result: item.review.result,
           comment: item.review.comment,
+          photo_url: item.review.photo_url,
         });
       }
     }
@@ -91,21 +84,24 @@ export function ChecklistInstanceDetail({
     [],
   );
 
-  /** 변경된 리뷰만 서버로 전송 */
+  /** 변경된 리뷰만 서버로 전송 (result가 없는 항목은 스킵) */
   const handleSave = useCallback(async () => {
-    // 변경 감지: 기존 리뷰와 비교
-    const changes: { itemIndex: number; result: string; comment: string | null }[] = [];
+    const changes: { itemIndex: number; result: string; comment: string | null; photo_url: string | null }[] = [];
 
     for (const [itemIndex, local] of localReviews) {
+      if (!local.result) continue; // result 없으면 스킵
+
       const item = snapshot.find((s) => s.item_index === itemIndex);
       const existing = item?.review;
 
       if (!existing) {
-        // 새 리뷰
-        changes.push({ itemIndex, result: local.result, comment: local.comment });
-      } else if (existing.result !== local.result || existing.comment !== local.comment) {
-        // 수정된 리뷰
-        changes.push({ itemIndex, result: local.result, comment: local.comment });
+        changes.push({ itemIndex, result: local.result, comment: local.comment, photo_url: local.photo_url });
+      } else if (
+        existing.result !== local.result ||
+        existing.comment !== local.comment ||
+        existing.photo_url !== local.photo_url
+      ) {
+        changes.push({ itemIndex, result: local.result, comment: local.comment, photo_url: local.photo_url });
       }
     }
 
@@ -123,6 +119,7 @@ export function ChecklistInstanceDetail({
           itemIndex: ch.itemIndex,
           result: ch.result,
           comment: ch.comment,
+          photo_url: ch.photo_url,
         });
       }
       toast({ type: "success", message: `${changes.length} review(s) saved.` });
@@ -206,7 +203,6 @@ export function ChecklistInstanceDetail({
                 key={item.item_index}
                 item={item}
                 index={index}
-                completion={completionMap.get(item.item_index)}
                 workDate={instance.work_date}
                 reviewMode={isReviewMode}
                 localReview={localReviews.get(item.item_index) ?? null}

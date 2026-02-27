@@ -468,7 +468,6 @@ export interface ChecklistInstance {
   total_items: number;
   completed_items: number;
   status: "pending" | "in_progress" | "completed";
-  completions: ChecklistCompletion[];
   created_at: string;
   updated_at: string;
   store_name?: string;
@@ -483,7 +482,12 @@ export interface ChecklistInstanceSnapshotItem {
   verification_type: "none" | "photo" | "text" | "both";
   is_completed?: boolean;
   completed_at?: string | null;
+  completed_timezone?: string | null;
   completed_by?: string | null;
+  completed_by_name?: string | null;
+  photo_url?: string | null;
+  note?: string | null;
+  location?: { lat: number; lng: number } | null;
   review?: {
     id: string;
     reviewer_id: string;
@@ -494,19 +498,6 @@ export interface ChecklistInstanceSnapshotItem {
     created_at: string;
     updated_at: string;
   } | null;
-}
-
-export interface ChecklistCompletion {
-  id: string;
-  instance_id: string;
-  item_index: number;
-  user_id: string;
-  user_name?: string;
-  completed_at: string;
-  completed_timezone: string | null;
-  photo_url: string | null;
-  note: string | null;
-  location: { lat: number; lng: number } | null;
 }
 
 /** 체크리스트 아이템 리뷰 응답 타입.
