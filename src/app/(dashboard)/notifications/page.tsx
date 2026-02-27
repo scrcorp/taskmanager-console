@@ -30,7 +30,7 @@ function getNotificationHref(referenceType: string | null, referenceId: string |
     case "announcement":
       return `/announcements/${referenceId}`;
     case "schedule":
-      return `/schedules/${referenceId}`;
+      return `/schedules/manage/${referenceId}`;
     case "attendance":
       return `/attendances/${referenceId}`;
     case "work_assignment":
