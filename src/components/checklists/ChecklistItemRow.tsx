@@ -257,12 +257,10 @@ export function ChecklistItemRow({
               >
                 <MessageCircle size={14} />
               </button>
-              {/* 미디어 첨부 — 항상 표시 */}
+              {/* 미디어 첨부 — 📎 버튼만 (썸네일은 아래에서 별도 표시) */}
               <ImageUpload
                 compact
-                value={localReview?.photo_url}
                 onUpload={handleMediaUpload}
-                onRemove={handleMediaRemove}
               />
             </div>
             {/* 미디어 썸네일 */}
