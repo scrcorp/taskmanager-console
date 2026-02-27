@@ -1,46 +1,38 @@
 "use client";
 
 /**
- * 체크리스트 아이템 행 컴포넌트 -- 인스턴스 상세에서 개별 아이템을 표시합니다.
+ * 체크리스트 아이템 행 컴포넌트.
  *
- * Individual checklist item row in the instance detail view.
- * Shows completion status, verification data (photo/note), timestamp,
- * and review controls (O/X/△ + comment + photo).
+ * - 기본 모드: completion 상태 + 기존 리뷰 뱃지 표시
+ * - 리뷰 모드: O/△/X 버튼 + 💬 코멘트 토글
+ * - 자체 저장 없음 — 부모가 batch save 처리
  */
 
 import React, { useState } from "react";
-import {
-  Check,
-  X,
-  Clock,
-  Camera,
-  FileText,
-  MapPin,
-  Trash2,
-} from "lucide-react";
-import { Badge, Textarea, ImageUpload } from "@/components/ui";
+import { Check, X, Clock, Camera, FileText, MapPin, MessageCircle } from "lucide-react";
+import { Badge, Textarea } from "@/components/ui";
 import { cn, formatActionTime } from "@/lib/utils";
-import {
-  useUpsertItemReview,
-  useDeleteItemReview,
-} from "@/hooks/useChecklistInstances";
-import type {
-  ChecklistInstanceSnapshotItem,
-  ChecklistCompletion,
-} from "@/types";
+import type { ChecklistInstanceSnapshotItem, ChecklistCompletion } from "@/types";
+
+export interface LocalReview {
+  result: string;
+  comment: string | null;
+}
 
 interface ChecklistItemRowProps {
   item: ChecklistInstanceSnapshotItem;
   index: number;
-  completion: ChecklistCompletion | undefined;
+  completion?: ChecklistCompletion;
   workDate: string;
-  instanceId?: string;
+  reviewMode?: boolean;
+  localReview?: LocalReview | null;
+  onReviewChange?: (review: LocalReview | null) => void;
 }
 
 const REVIEW_OPTIONS = [
-  { value: "pass", label: "O" },
-  { value: "fail", label: "X" },
-  { value: "caution", label: "△" },
+  { value: "pass", label: "O", color: "success" },
+  { value: "caution", label: "△", color: "warning" },
+  { value: "fail", label: "X", color: "danger" },
 ] as const;
 
 export function ChecklistItemRow({
@@ -48,53 +40,29 @@ export function ChecklistItemRow({
   index,
   completion,
   workDate,
-  instanceId,
+  reviewMode = false,
+  localReview,
+  onReviewChange,
 }: ChecklistItemRowProps): React.ReactElement {
-  const isCompleted: boolean = !!completion;
+  const isCompleted = !!completion;
   const [isPhotoExpanded, setIsPhotoExpanded] = useState(false);
-
-  // Review state
+  const [showComment, setShowComment] = useState(!!localReview?.comment);
   const review = item.review;
-  const [isEditing, setIsEditing] = useState(false);
-  const [editResult, setEditResult] = useState<string>(review?.result ?? "");
-  const [editComment, setEditComment] = useState<string>(
-    review?.comment ?? "",
-  );
-  const [editPhotoUrl, setEditPhotoUrl] = useState<string | null>(
-    review?.photo_url ?? null,
-  );
-
-  const upsertReview = useUpsertItemReview();
-  const deleteReview = useDeleteItemReview();
 
   const handleResultClick = (result: string) => {
-    if (!instanceId) return;
-    setEditResult(result);
-    setEditComment(review?.comment ?? "");
-    setEditPhotoUrl(review?.photo_url ?? null);
-    setIsEditing(true);
+    if (!onReviewChange) return;
+    if (localReview?.result === result) {
+      // 같은 버튼 다시 클릭 → 선택 해제
+      onReviewChange(null);
+      setShowComment(false);
+    } else {
+      onReviewChange({ result, comment: localReview?.comment ?? null });
+    }
   };
 
-  const handleSave = () => {
-    if (!instanceId || !editResult) return;
-    upsertReview.mutate(
-      {
-        instanceId,
-        itemIndex: item.item_index,
-        result: editResult,
-        comment: editComment || null,
-        photo_url: editPhotoUrl,
-      },
-      { onSuccess: () => setIsEditing(false) },
-    );
-  };
-
-  const handleDelete = () => {
-    if (!instanceId) return;
-    deleteReview.mutate(
-      { instanceId, itemIndex: item.item_index },
-      { onSuccess: () => setIsEditing(false) },
-    );
+  const handleCommentChange = (text: string) => {
+    if (!onReviewChange || !localReview) return;
+    onReviewChange({ ...localReview, comment: text || null });
   };
 
   return (
@@ -119,59 +87,40 @@ export function ChecklistItemRow({
       {/* Content */}
       <div className="flex-1 min-w-0">
         <div className="flex items-center gap-2">
-          <span className="text-xs font-mono text-text-muted">
-            {index + 1}.
-          </span>
+          <span className="text-xs font-mono text-text-muted">{index + 1}.</span>
           <span className="text-sm font-medium text-text">{item.title}</span>
           {item.verification_type !== "none" && (
             <Badge variant="accent">{item.verification_type}</Badge>
           )}
-          {/* Review badge */}
-          {review && !isEditing && (
+          {/* 기존 리뷰 뱃지 (리뷰 모드 아닐 때) */}
+          {!reviewMode && review && (
             <Badge
               variant={
-                review.result === "pass"
-                  ? "success"
-                  : review.result === "fail"
-                    ? "danger"
-                    : "warning"
+                review.result === "pass" ? "success" : review.result === "fail" ? "danger" : "warning"
               }
             >
-              {review.result === "pass"
-                ? "O"
-                : review.result === "fail"
-                  ? "X"
-                  : "△"}
+              {review.result === "pass" ? "O" : review.result === "fail" ? "X" : "△"}
             </Badge>
           )}
         </div>
 
         {item.description && (
-          <p className="text-xs text-text-secondary mt-1 ml-6">
-            {item.description}
-          </p>
+          <p className="text-xs text-text-secondary mt-1 ml-6">{item.description}</p>
         )}
 
         {/* Completion details */}
         {completion && (
           <div className="mt-2 ml-6 space-y-1.5">
-            {/* Completer and time */}
             <div className="flex items-center gap-2 text-xs text-text-muted">
               <Clock size={11} />
-              <span>
-                {formatActionTime(completion.completed_at, workDate)}
-              </span>
+              <span>{formatActionTime(completion.completed_at, workDate)}</span>
               {completion.user_name && (
                 <>
                   <span>by</span>
-                  <span className="text-text-secondary font-medium">
-                    {completion.user_name}
-                  </span>
+                  <span className="text-text-secondary font-medium">{completion.user_name}</span>
                 </>
               )}
             </div>
-
-            {/* Photo thumbnail */}
             {completion.photo_url && (
               <div className="flex items-start gap-2">
                 <Camera size={11} className="text-accent mt-0.5 shrink-0" />
@@ -185,163 +134,88 @@ export function ChecklistItemRow({
               </div>
             )}
             {isPhotoExpanded && completion.photo_url && (
-              <div className="ml-0 mt-1">
-                <img
-                  src={completion.photo_url}
-                  alt={`Verification for ${item.title}`}
-                  className="max-w-[240px] rounded-lg border border-border"
-                />
-              </div>
+              <img
+                src={completion.photo_url}
+                alt={`Verification for ${item.title}`}
+                className="max-w-[240px] rounded-lg border border-border"
+              />
             )}
-
-            {/* Note */}
             {completion.note && (
               <div className="flex items-start gap-2">
                 <FileText size={11} className="text-warning mt-0.5 shrink-0" />
                 <p className="text-xs text-text-secondary">{completion.note}</p>
               </div>
             )}
-
-            {/* Location */}
             {completion.location && (
               <div className="flex items-center gap-2 text-xs text-text-muted">
                 <MapPin size={11} className="shrink-0" />
                 <span>
-                  {completion.location.lat.toFixed(4)},{" "}
-                  {completion.location.lng.toFixed(4)}
+                  {completion.location.lat.toFixed(4)}, {completion.location.lng.toFixed(4)}
                 </span>
               </div>
             )}
           </div>
         )}
 
-        {/* Review section */}
-        {instanceId && (
+        {/* 기존 리뷰 표시 (리뷰 모드 아닐 때) */}
+        {!reviewMode && review && (
+          <div className="mt-1.5 ml-6 text-xs text-text-muted">
+            {review.comment && <p className="text-text-secondary">{review.comment}</p>}
+            <span>Reviewed by {review.reviewer_name ?? "Unknown"}</span>
+          </div>
+        )}
+
+        {/* 리뷰 모드 — O/△/X 버튼 + 코멘트 */}
+        {reviewMode && (
           <div className="mt-2 ml-6">
-            {/* Existing review display (not editing) */}
-            {review && !isEditing && (
-              <div className="space-y-1 text-xs text-text-muted">
-                {review.comment && (
-                  <p className="text-text-secondary">{review.comment}</p>
-                )}
-                {review.photo_url && (
-                  <img
-                    src={review.photo_url}
-                    alt="Review photo"
-                    className="w-16 h-16 object-cover rounded border border-border"
-                  />
-                )}
-                <div className="flex items-center gap-2">
-                  <span>
-                    Reviewed by {review.reviewer_name ?? "Unknown"}
-                  </span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setEditResult(review.result);
-                      setEditComment(review.comment ?? "");
-                      setEditPhotoUrl(review.photo_url);
-                      setIsEditing(true);
-                    }}
-                    className="text-accent hover:underline"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDelete}
-                    className="text-danger hover:underline"
-                  >
-                    <Trash2 size={11} />
-                  </button>
-                </div>
-              </div>
-            )}
-
-            {/* Review buttons (no review yet, not editing) */}
-            {!review && !isEditing && (
-              <div className="flex items-center gap-1.5">
-                {REVIEW_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    onClick={() => handleResultClick(opt.value)}
-                    className={cn(
-                      "w-7 h-7 rounded-md text-xs font-bold border flex items-center justify-center",
-                      opt.value === "pass" &&
-                        "border-success/40 text-success hover:bg-success/10",
-                      opt.value === "fail" &&
-                        "border-danger/40 text-danger hover:bg-danger/10",
-                      opt.value === "caution" &&
-                        "border-warning/40 text-warning hover:bg-warning/10",
-                    )}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {/* Editing form */}
-            {isEditing && (
-              <div className="space-y-2 p-2 rounded-lg border border-accent/30 bg-accent/5">
-                {/* Result selection */}
-                <div className="flex items-center gap-1.5">
-                  {REVIEW_OPTIONS.map((opt) => (
-                    <button
-                      key={opt.value}
-                      type="button"
-                      onClick={() => setEditResult(opt.value)}
-                      className={cn(
-                        "w-7 h-7 rounded-md text-xs font-bold border flex items-center justify-center",
-                        editResult === opt.value
-                          ? opt.value === "pass"
-                            ? "bg-success text-white border-success"
-                            : opt.value === "fail"
-                              ? "bg-danger text-white border-danger"
-                              : "bg-warning text-white border-warning"
-                          : "border-border text-text-muted hover:bg-surface-hover",
-                      )}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-
-                {/* Comment */}
-                <Textarea
-                  value={editComment}
-                  onChange={(e) => setEditComment(e.target.value)}
-                  placeholder="Comment (optional)"
-                  className="text-xs min-h-[60px]"
-                />
-
-                {/* Photo */}
-                <ImageUpload
-                  value={editPhotoUrl}
-                  onUpload={(url) => setEditPhotoUrl(url)}
-                  onRemove={() => setEditPhotoUrl(null)}
-                />
-
-                {/* Actions */}
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleSave}
-                    disabled={!editResult || upsertReview.isPending}
-                    className="px-3 py-1 text-xs font-medium rounded-md bg-accent text-white hover:bg-accent/90 disabled:opacity-50"
-                  >
-                    {upsertReview.isPending ? "Saving..." : "Save"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setIsEditing(false)}
-                    className="px-3 py-1 text-xs rounded-md text-text-muted hover:bg-surface-hover"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
+            <div className="flex items-center gap-1.5">
+              {REVIEW_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  type="button"
+                  onClick={() => handleResultClick(opt.value)}
+                  className={cn(
+                    "w-7 h-7 rounded-md text-xs font-bold border flex items-center justify-center transition-colors",
+                    localReview?.result === opt.value
+                      ? opt.color === "success"
+                        ? "bg-success text-white border-success"
+                        : opt.color === "danger"
+                          ? "bg-danger text-white border-danger"
+                          : "bg-warning text-white border-warning"
+                      : opt.color === "success"
+                        ? "border-success/40 text-success hover:bg-success/10"
+                        : opt.color === "danger"
+                          ? "border-danger/40 text-danger hover:bg-danger/10"
+                          : "border-warning/40 text-warning hover:bg-warning/10",
+                  )}
+                >
+                  {opt.label}
+                </button>
+              ))}
+              {/* 코멘트 토글 아이콘 */}
+              {localReview && (
+                <button
+                  type="button"
+                  onClick={() => setShowComment(!showComment)}
+                  className={cn(
+                    "ml-1 p-1 rounded-md",
+                    showComment || localReview.comment
+                      ? "text-accent"
+                      : "text-text-muted hover:text-text-secondary",
+                  )}
+                >
+                  <MessageCircle size={14} />
+                </button>
+              )}
+            </div>
+            {/* 코멘트 입력 */}
+            {showComment && localReview && (
+              <Textarea
+                value={localReview.comment ?? ""}
+                onChange={(e) => handleCommentChange(e.target.value)}
+                placeholder="Comment..."
+                className="mt-1.5 text-xs min-h-[48px]"
+              />
             )}
           </div>
         )}

@@ -1,29 +1,25 @@
 "use client";
 
 /**
- * 체크리스트 인스턴스 상세 컴포넌트 -- 인스턴스 정보, 진행률, 완료 항목을 표시합니다.
- *
- * Checklist instance detail component showing instance info, progress bar,
- * and individual checklist items with completion data.
+ * 체크리스트 인스턴스 상세 컴포넌트 -- 인스턴스 정보, 진행률, 체크리스트 아이템을 표시합니다.
+ * Review 버튼으로 리뷰 모드 진입, batch save로 변경된 리뷰만 서버에 저장합니다.
  */
 
-import React, { useMemo } from "react";
-import { Card, Badge, EmptyState } from "@/components/ui";
-import { formatFixedDate } from "@/lib/utils";
-import { ChecklistItemRow } from "./ChecklistItemRow";
-import type {
-  ChecklistInstance,
-  ChecklistCompletion,
-} from "@/types";
+import React, { useMemo, useState, useCallback } from "react";
+import { ClipboardCheck } from "lucide-react";
+import { Card, Badge, Button, EmptyState } from "@/components/ui";
+import { useToast } from "@/components/ui/Toast";
+import { formatFixedDate, parseApiError } from "@/lib/utils";
+import { ChecklistItemRow, type LocalReview } from "./ChecklistItemRow";
+import { useUpsertItemReview } from "@/hooks/useChecklistInstances";
+import type { ChecklistInstance, ChecklistCompletion } from "@/types";
 
-/** 인스턴스 상태에 따른 뱃지 변형 매핑 (Status to badge variant mapping) */
+/** 인스턴스 상태에 따른 뱃지 변형 매핑 */
 const statusBadgeVariant: Record<string, "default" | "warning" | "success"> = {
   pending: "default",
   in_progress: "warning",
   completed: "success",
 };
-
-/** 인스턴스 상태 라벨 매핑 (Status label mapping) */
 const statusLabel: Record<string, string> = {
   pending: "Pending",
   in_progress: "In Progress",
@@ -37,13 +33,15 @@ interface ChecklistInstanceDetailProps {
 export function ChecklistInstanceDetail({
   instance,
 }: ChecklistInstanceDetailProps): React.ReactElement {
-  const percentage: number =
+  const { toast } = useToast();
+  const upsertReview = useUpsertItemReview();
+
+  const percentage =
     instance.total_items > 0
       ? Math.round((instance.completed_items / instance.total_items) * 100)
       : 0;
 
-  /** item_index -> completion 매핑 (Map completions by item_index) */
-  const completionMap: Map<number, ChecklistCompletion> = useMemo(() => {
+  const completionMap = useMemo(() => {
     const map = new Map<number, ChecklistCompletion>();
     for (const c of instance.completions ?? []) {
       map.set(c.item_index, c);
@@ -53,6 +51,89 @@ export function ChecklistInstanceDetail({
 
   const snapshot = instance.snapshot ?? [];
 
+  // Review mode
+  const [isReviewMode, setIsReviewMode] = useState(false);
+  const [localReviews, setLocalReviews] = useState<Map<number, LocalReview>>(new Map());
+  const [isSaving, setIsSaving] = useState(false);
+
+  /** 기존 리뷰에서 localReviews 초기화 */
+  const enterReviewMode = useCallback(() => {
+    const map = new Map<number, LocalReview>();
+    for (const item of snapshot) {
+      if (item.review) {
+        map.set(item.item_index, {
+          result: item.review.result,
+          comment: item.review.comment,
+        });
+      }
+    }
+    setLocalReviews(map);
+    setIsReviewMode(true);
+  }, [snapshot]);
+
+  const exitReviewMode = useCallback(() => {
+    setIsReviewMode(false);
+    setLocalReviews(new Map());
+  }, []);
+
+  const handleReviewChange = useCallback(
+    (itemIndex: number, review: LocalReview | null) => {
+      setLocalReviews((prev) => {
+        const next = new Map(prev);
+        if (review) {
+          next.set(itemIndex, review);
+        } else {
+          next.delete(itemIndex);
+        }
+        return next;
+      });
+    },
+    [],
+  );
+
+  /** 변경된 리뷰만 서버로 전송 */
+  const handleSave = useCallback(async () => {
+    // 변경 감지: 기존 리뷰와 비교
+    const changes: { itemIndex: number; result: string; comment: string | null }[] = [];
+
+    for (const [itemIndex, local] of localReviews) {
+      const item = snapshot.find((s) => s.item_index === itemIndex);
+      const existing = item?.review;
+
+      if (!existing) {
+        // 새 리뷰
+        changes.push({ itemIndex, result: local.result, comment: local.comment });
+      } else if (existing.result !== local.result || existing.comment !== local.comment) {
+        // 수정된 리뷰
+        changes.push({ itemIndex, result: local.result, comment: local.comment });
+      }
+    }
+
+    if (changes.length === 0) {
+      toast({ type: "info", message: "No changes to save." });
+      exitReviewMode();
+      return;
+    }
+
+    setIsSaving(true);
+    try {
+      for (const ch of changes) {
+        await upsertReview.mutateAsync({
+          instanceId: instance.id,
+          itemIndex: ch.itemIndex,
+          result: ch.result,
+          comment: ch.comment,
+        });
+      }
+      toast({ type: "success", message: `${changes.length} review(s) saved.` });
+      exitReviewMode();
+    } catch (err) {
+      toast({ type: "error", message: parseApiError(err, "Failed to save reviews.") });
+    } finally {
+      setIsSaving(false);
+    }
+  }, [localReviews, snapshot, instance.id, upsertReview, toast, exitReviewMode]);
+
   return (
     <div>
       {/* Summary Card */}
@@ -60,37 +141,26 @@ export function ChecklistInstanceDetail({
         <h1 className="text-xl font-bold text-text mb-4">
           {instance.template_title ?? "Checklist"}
         </h1>
-
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
           <div>
             <p className="text-xs text-text-muted mb-1">Store</p>
-            <p className="text-sm font-medium text-text">
-              {instance.store_name ?? "-"}
-            </p>
+            <p className="text-sm font-medium text-text">{instance.store_name ?? "-"}</p>
           </div>
           <div>
             <p className="text-xs text-text-muted mb-1">Staff</p>
-            <p className="text-sm font-medium text-text">
-              {instance.user_name ?? "-"}
-            </p>
+            <p className="text-sm font-medium text-text">{instance.user_name ?? "-"}</p>
           </div>
           <div>
             <p className="text-xs text-text-muted mb-1">Date</p>
-            <p className="text-sm font-medium text-text">
-              {formatFixedDate(instance.work_date)}
-            </p>
+            <p className="text-sm font-medium text-text">{formatFixedDate(instance.work_date)}</p>
           </div>
           <div>
             <p className="text-xs text-text-muted mb-1">Status</p>
-            <Badge
-              variant={statusBadgeVariant[instance.status] ?? "default"}
-            >
+            <Badge variant={statusBadgeVariant[instance.status] ?? "default"}>
               {statusLabel[instance.status] ?? instance.status}
             </Badge>
           </div>
         </div>
-
-        {/* Progress bar */}
         <div>
           <p className="text-xs text-text-muted mb-1">Progress</p>
           <div className="flex items-center gap-3">
@@ -109,9 +179,24 @@ export function ChecklistInstanceDetail({
 
       {/* Checklist Items */}
       <Card>
-        <h2 className="text-lg font-semibold text-text mb-4">
-          Checklist Items
-        </h2>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-lg font-semibold text-text">Checklist Items</h2>
+          {!isReviewMode ? (
+            <Button variant="ghost" size="sm" onClick={enterReviewMode}>
+              <ClipboardCheck size={14} />
+              Review
+            </Button>
+          ) : (
+            <div className="flex items-center gap-2">
+              <Button variant="ghost" size="sm" onClick={exitReviewMode} disabled={isSaving}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={handleSave} disabled={isSaving}>
+                {isSaving ? "Saving..." : "Save Reviews"}
+              </Button>
+            </div>
+          )}
+        </div>
         {snapshot.length === 0 ? (
           <EmptyState message="No checklist items available." />
         ) : (
@@ -123,7 +208,9 @@ export function ChecklistInstanceDetail({
                 index={index}
                 completion={completionMap.get(item.item_index)}
                 workDate={instance.work_date}
-                instanceId={instance.id}
+                reviewMode={isReviewMode}
+                localReview={localReviews.get(item.item_index) ?? null}
+                onReviewChange={(r) => handleReviewChange(item.item_index, r)}
               />
             ))}
           </div>
