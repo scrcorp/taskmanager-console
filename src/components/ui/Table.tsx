@@ -20,6 +20,7 @@ interface Column<T> {
   header: string;
   render?: (item: T) => React.ReactNode;
   className?: string;
+  hideOnMobile?: boolean;
 }
 
 interface TableProps<T> {
@@ -34,7 +35,7 @@ function SkeletonRow({ columnCount }: { columnCount: number }): React.ReactEleme
   return (
     <tr className="border-b border-border">
       {Array.from({ length: columnCount }).map((_: unknown, i: number) => (
-        <td key={i} className="px-4 py-3">
+        <td key={i} className="px-2 md:px-4 py-3">
           <div className="h-4 bg-surface-hover rounded animate-pulse" />
         </td>
       ))}
@@ -60,7 +61,8 @@ export function Table<T extends { id?: string }>({
               <th
                 key={column.key}
                 className={cn(
-                  "px-4 py-3 text-left text-xs font-medium text-text-muted uppercase tracking-wider",
+                  "px-2 md:px-4 py-3 text-left text-xs font-medium text-text-muted uppercase tracking-wider",
+                  column.hideOnMobile && "hidden md:table-cell",
                   column.className,
                 )}
               >
@@ -96,7 +98,11 @@ export function Table<T extends { id?: string }>({
                 {columns.map((column: Column<T>) => (
                   <td
                     key={column.key}
-                    className={cn("px-4 py-3 text-text", column.className)}
+                    className={cn(
+                      "px-2 md:px-4 py-3 text-text",
+                      column.hideOnMobile && "hidden md:table-cell",
+                      column.className,
+                    )}
                   >
                     {column.render
                       ? column.render(item)

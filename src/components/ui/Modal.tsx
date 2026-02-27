@@ -27,9 +27,9 @@ interface ModalProps {
 }
 
 const sizeStyles: Record<ModalSize, string> = {
-  sm: "max-w-sm",
-  md: "max-w-lg",
-  lg: "max-w-2xl",
+  sm: "md:max-w-sm",
+  md: "md:max-w-lg",
+  lg: "md:max-w-2xl",
 };
 
 export function Modal({
@@ -74,17 +74,21 @@ export function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+      className="fixed inset-0 z-50 flex items-end md:items-center md:justify-center bg-black/60"
       onClick={handleBackdropClick}
     >
       <div
         className={cn(
-          "w-full mx-4 bg-card border border-border rounded-xl shadow-xl",
+          "w-full bg-card flex flex-col",
+          // Mobile: full screen
+          "h-full",
+          // Desktop: auto height, centered, rounded
+          "md:h-auto md:max-h-[90vh] md:mx-4 md:border md:border-border md:rounded-xl md:shadow-xl",
           sizeStyles[size],
         )}
       >
         {title && (
-          <div className="flex items-center justify-between px-6 py-4 border-b border-border">
+          <div className="flex items-center justify-between px-4 md:px-6 py-4 border-b border-border shrink-0">
             <h2 className="text-lg font-semibold text-text">{title}</h2>
             <button
               type="button"
@@ -96,7 +100,7 @@ export function Modal({
             </button>
           </div>
         )}
-        <div className="px-6 py-4">{children}</div>
+        <div className="px-4 md:px-6 py-4 flex-1 overflow-auto">{children}</div>
       </div>
     </div>
   );
