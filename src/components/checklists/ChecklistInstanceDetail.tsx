@@ -123,6 +123,7 @@ export function ChecklistInstanceDetail({
                 index={index}
                 completion={completionMap.get(item.item_index)}
                 workDate={instance.work_date}
+                instanceId={instance.id}
               />
             ))}
           </div>

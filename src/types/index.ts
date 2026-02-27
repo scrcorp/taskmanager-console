@@ -204,6 +204,16 @@ export interface ChecklistSnapshotItem {
   is_completed: boolean;
   completed_at: string | null;
   completed_tz: string | null;
+  review?: {
+    id: string;
+    reviewer_id: string;
+    reviewer_name: string | null;
+    result: "pass" | "fail" | "caution";
+    comment: string | null;
+    photo_url: string | null;
+    created_at: string;
+    updated_at: string;
+  } | null;
 }
 
 // Announcement

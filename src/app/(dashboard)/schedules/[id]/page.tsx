@@ -8,14 +8,13 @@
 
 import React, { useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ChevronLeft, Check, X, Clock, Trash2, ExternalLink, MessageSquare, Send } from "lucide-react";
+import { ChevronLeft, Check, X, Clock, Trash2, ExternalLink } from "lucide-react";
 import { useAssignment, useDeleteAssignment } from "@/hooks/useAssignments";
-import { useChecklistComments, useCreateChecklistComment } from "@/hooks/useChecklistInstances";
-import { Button, Card, Badge, LoadingSpinner, EmptyState, ConfirmDialog, Input } from "@/components/ui";
+import { Button, Card, Badge, LoadingSpinner, EmptyState, ConfirmDialog } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
-import { formatFixedDate, formatDateTime, parseApiError } from "@/lib/utils";
+import { formatFixedDate, parseApiError } from "@/lib/utils";
 import { cn } from "@/lib/utils";
-import type { AssignmentDetail, ChecklistSnapshotItem, ChecklistInstanceComment } from "@/types";
+import type { AssignmentDetail, ChecklistSnapshotItem } from "@/types";
 
 /** 배정 상태에 따른 뱃지 변형 매핑 (Status to badge variant mapping) */
 const statusBadgeVariant: Record<string, "default" | "warning" | "success"> = {
@@ -59,24 +58,7 @@ export default function AssignmentDetailPage(): React.ReactElement {
   const { data: assignment, isLoading } = useAssignment(assignmentId);
   const deleteAssignment = useDeleteAssignment();
 
-  const instanceId: string | undefined = assignment?.checklist_instance_id ?? undefined;
-  const { data: comments, isLoading: commentsLoading } = useChecklistComments(instanceId ?? "");
-  const createComment = useCreateChecklistComment();
-
   const [isDeleteOpen, setIsDeleteOpen] = useState<boolean>(false);
-  const [commentText, setCommentText] = useState<string>("");
-
-  const handleSubmitComment = useCallback(async (): Promise<void> => {
-    const trimmed = commentText.trim();
-    if (!trimmed || !instanceId) return;
-    try {
-      await createComment.mutateAsync({ instanceId, text: trimmed });
-      setCommentText("");
-      toast({ type: "success", message: "Comment added." });
-    } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to add comment.") });
-    }
-  }, [commentText, instanceId, createComment, toast]);
 
   const handleDelete: () => void = useCallback((): void => {
     deleteAssignment.mutate(assignmentId, {
@@ -240,13 +222,40 @@ export default function AssignmentDetailPage(): React.ReactElement {
                     <Badge variant={verificationBadgeVariant[item.verification_type] ?? "default"}>
                       {item.verification_type}
                     </Badge>
+                    {/* Review badge */}
+                    {item.review && (
+                      <Badge
+                        variant={
+                          item.review.result === "pass"
+                            ? "success"
+                            : item.review.result === "fail"
+                              ? "danger"
+                              : "warning"
+                        }
+                      >
+                        {item.review.result === "pass"
+                          ? "O"
+                          : item.review.result === "fail"
+                            ? "X"
+                            : "△"}
+                      </Badge>
+                    )}
                   </div>
                   {item.description && (
                     <p className="text-xs text-text-secondary mt-1">{item.description}</p>
                   )}
+                  {/* Review details */}
+                  {item.review && (
+                    <div className="mt-1 text-xs text-text-muted">
+                      {item.review.comment && (
+                        <p className="text-text-secondary">{item.review.comment}</p>
+                      )}
+                      <span>Reviewed by {item.review.reviewer_name ?? "Unknown"}</span>
+                    </div>
+                  )}
                 </div>
 
-                {/* Right-side meta (completion time, future: location) */}
+                {/* Right-side meta (completion time) */}
                 {item.completed_at && (
                   <div className="flex items-center gap-1 shrink-0 text-xs text-text-muted">
                     <Clock size={12} />
@@ -258,64 +267,6 @@ export default function AssignmentDetailPage(): React.ReactElement {
           </div>
         )}
       </Card>
-
-      {/* Comments Section — only shown when a checklist instance exists */}
-      {instanceId && (
-        <Card className="mt-6">
-          <div className="flex items-center gap-2 mb-4">
-            <MessageSquare size={18} className="text-text-muted" />
-            <h2 className="text-lg font-semibold text-text">Comments</h2>
-          </div>
-
-          {commentsLoading ? (
-            <div className="flex items-center justify-center py-6">
-              <LoadingSpinner size="sm" />
-            </div>
-          ) : !comments || comments.length === 0 ? (
-            <p className="text-sm text-text-muted py-4">No comments yet.</p>
-          ) : (
-            <div className="space-y-3 mb-4">
-              {comments.map((comment: ChecklistInstanceComment) => (
-                <div key={comment.id} className="rounded-lg bg-surface p-3">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm font-medium text-text">
-                      {comment.user_name ?? "Unknown"}
-                    </span>
-                    <span className="text-xs text-text-muted">
-                      {formatDateTime(comment.created_at)}
-                    </span>
-                  </div>
-                  <p className="text-sm text-text-secondary">{comment.text}</p>
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div className="flex items-center gap-2 pt-2 border-t border-border">
-            <Input
-              placeholder="Add a comment..."
-              value={commentText}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                setCommentText(e.target.value)
-              }
-              onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
-                if (e.key === "Enter" && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSubmitComment();
-                }
-              }}
-              className="flex-1"
-            />
-            <Button
-              size="sm"
-              onClick={handleSubmitComment}
-              disabled={!commentText.trim() || createComment.isPending}
-            >
-              <Send size={16} />
-            </Button>
-          </div>
-        </Card>
-      )}
 
       {/* Delete Confirm Dialog */}
       <ConfirmDialog
