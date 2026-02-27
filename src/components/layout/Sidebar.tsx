@@ -20,9 +20,11 @@ import {
   List,
   Settings,
   FileSearch,
+  X,
 } from "lucide-react";
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useAuthStore } from "@/stores/authStore";
+import { useSidebarStore } from "@/stores/sidebarStore";
 import { useUnreadCount } from "@/hooks";
 import { cn } from "@/lib/utils";
 import { ThemeToggle } from "./ThemeToggle";
@@ -68,7 +70,7 @@ const navItems: NavItem[] = [
  * Sidebar layout component — navigation links, user profile, and logout.
  * Displays dynamic unread notification count badge from server.
  */
-export function Sidebar() {
+export function Sidebar({ onNavClick }: { onNavClick?: () => void }) {
   const pathname: string = usePathname();
   const { user, logout } = useAuthStore();
   const { data: unreadRaw } = useUnreadCount();
@@ -178,7 +180,11 @@ export function Sidebar() {
                     : "text-text-secondary hover:text-accent"
                 )}
               >
-                <Link href={item.href} className="flex items-center gap-3 flex-1 min-w-0">
+                <Link
+                  href={item.href}
+                  onClick={onNavClick}
+                  className="flex items-center gap-3 flex-1 min-w-0"
+                >
                   <Icon size={18} />
                   <span>{item.label}</span>
                 </Link>
@@ -208,6 +214,7 @@ export function Sidebar() {
                       <Link
                         key={child.href}
                         href={getChildHref(child.href)}
+                        onClick={onNavClick}
                         className={cn(
                           "flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
                           child.indent && "ml-3",
@@ -262,5 +269,43 @@ export function Sidebar() {
         </button>
       </div>
     </aside>
+  );
+}
+
+/** 모바일 사이드바 오버레이 — md 이하에서만 표시 */
+export function MobileSidebar() {
+  const { isOpen, close } = useSidebarStore();
+
+  const handleEsc = useCallback(
+    (e: KeyboardEvent) => { if (e.key === "Escape") close(); },
+    [close],
+  );
+
+  useEffect(() => {
+    if (isOpen) {
+      document.addEventListener("keydown", handleEsc);
+      return () => document.removeEventListener("keydown", handleEsc);
+    }
+  }, [isOpen, handleEsc]);
+
+  if (!isOpen) return null;
+
+  return (
+    <div className="fixed inset-0 z-40 md:hidden">
+      {/* Backdrop */}
+      <div className="absolute inset-0 bg-black/60" onClick={close} />
+      {/* Sidebar panel */}
+      <div className="relative w-60">
+        <Sidebar onNavClick={close} />
+        <button
+          type="button"
+          onClick={close}
+          className="absolute top-4 right-[-44px] p-2 rounded-full bg-surface/80 text-text-secondary hover:text-text transition-colors"
+          aria-label="Close menu"
+        >
+          <X size={20} />
+        </button>
+      </div>
+    </div>
   );
 }
