@@ -1,8 +1,14 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // Enable if using external images
-  // images: { domains: [] },
+  async rewrites() {
+    return [
+      {
+        source: "/api/:path*",
+        destination: `${process.env.API_SERVER_URL}/api/:path*`,
+      },
+    ];
+  },
 };
 
 export default nextConfig;
