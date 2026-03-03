@@ -10,7 +10,7 @@
 
 import React, { useState } from "react";
 import { Check, X, Clock, Camera, FileText, MapPin, MessageCircle, Film } from "lucide-react";
-import { Badge } from "@/components/ui";
+import { Badge, Lightbox } from "@/components/ui";
 import { cn, formatActionTime } from "@/lib/utils";
 import { ReviewChatModal } from "./ReviewChatModal";
 import type { ChecklistInstanceSnapshotItem } from "@/types";
@@ -27,6 +27,7 @@ interface ChecklistItemRowProps {
   reviewMode?: boolean;
   localReview?: LocalReview | null;
   onReviewChange?: (review: LocalReview | null) => void;
+  expandAllNotes?: boolean;
 }
 
 const REVIEW_OPTIONS = [
@@ -34,6 +35,8 @@ const REVIEW_OPTIONS = [
   { value: "caution", label: "△", color: "warning" },
   { value: "fail", label: "X", color: "danger" },
 ] as const;
+
+const NOTE_TRUNCATE_LENGTH = 150;
 
 function isVideo(url: string): boolean {
   return /\.(mp4|mov|webm|avi|mkv)(\?|$)/i.test(url);
@@ -47,12 +50,17 @@ export function ChecklistItemRow({
   reviewMode = false,
   localReview,
   onReviewChange,
+  expandAllNotes = false,
 }: ChecklistItemRowProps): React.ReactElement {
   const isCompleted = !!item.is_completed;
-  const [isPhotoExpanded, setIsPhotoExpanded] = useState(false);
+  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
+  const [isNoteExpanded, setIsNoteExpanded] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const review = item.review;
   const contentsCount = review?.contents?.length ?? 0;
+
+  const noteExpanded = expandAllNotes || isNoteExpanded;
+  const noteTruncated = item.note && item.note.length > NOTE_TRUNCATE_LENGTH;
 
   const handleResultClick = (result: string) => {
     if (!onReviewChange) return;
@@ -62,6 +70,11 @@ export function ChecklistItemRow({
       onReviewChange({ result });
     }
   };
+
+  const hasPhoto = !!item.photo_url;
+  const hasNote = !!item.note;
+  const hasBothEvidence = hasPhoto && hasNote;
+  const needsEvidence = !isCompleted && item.verification_type !== "none";
 
   return (
     <div
@@ -123,7 +136,7 @@ export function ChecklistItemRow({
 
         {/* Completion details */}
         {isCompleted && (
-          <div className="mt-2 ml-6 space-y-1.5">
+          <div className="mt-2 ml-6 space-y-2">
             <div className="flex items-center gap-2 text-xs text-text-muted">
               <Clock size={11} />
               <span>{formatActionTime(item.completed_at ?? "", workDate)}</span>
@@ -134,43 +147,60 @@ export function ChecklistItemRow({
                 </>
               )}
             </div>
-            {item.photo_url && (
-              <div className="flex items-start gap-2">
-                {isVideo(item.photo_url) ? (
-                  <Film size={11} className="text-accent mt-0.5 shrink-0" />
-                ) : (
-                  <Camera size={11} className="text-accent mt-0.5 shrink-0" />
+
+            {/* Evidence: photo + text */}
+            {(hasPhoto || hasNote) && (
+              <div className={cn(
+                hasBothEvidence && "flex items-start gap-3 flex-col sm:flex-row",
+              )}>
+                {/* Photo thumbnail */}
+                {hasPhoto && item.photo_url && (
+                  <div className="relative flex-shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setIsLightboxOpen(true)}
+                      className="block rounded-lg border border-border overflow-hidden hover:border-accent/50 transition-colors cursor-pointer"
+                    >
+                      {isVideo(item.photo_url) ? (
+                        <div className="relative w-20 h-20 bg-surface-hover flex items-center justify-center">
+                          <Film size={24} className="text-accent" />
+                          <span className="absolute bottom-1 right-1 text-[9px] text-text-muted bg-black/60 px-1 rounded">
+                            VIDEO
+                          </span>
+                        </div>
+                      ) : (
+                        <img
+                          src={item.photo_url}
+                          alt={`Verification for ${item.title}`}
+                          className="w-20 h-20 object-cover"
+                        />
+                      )}
+                    </button>
+                  </div>
                 )}
-                <button
-                  type="button"
-                  onClick={() => setIsPhotoExpanded(!isPhotoExpanded)}
-                  className="text-xs text-accent hover:underline cursor-pointer"
-                >
-                  {isPhotoExpanded ? "Hide media" : "View media"}
-                </button>
+
+                {/* Text note block */}
+                {hasNote && item.note && (
+                  <div className="flex-1 min-w-0 border-l-2 border-accent/60 bg-surface/50 rounded-r-lg px-3 py-2">
+                    <p className="text-sm text-text-secondary">
+                      {noteExpanded || !noteTruncated
+                        ? item.note
+                        : `${item.note.slice(0, NOTE_TRUNCATE_LENGTH)}...`}
+                    </p>
+                    {noteTruncated && !expandAllNotes && (
+                      <button
+                        type="button"
+                        onClick={() => setIsNoteExpanded(!isNoteExpanded)}
+                        className="text-xs text-accent hover:underline mt-1 cursor-pointer"
+                      >
+                        {isNoteExpanded ? "Show less" : "Show more"}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             )}
-            {isPhotoExpanded && item.photo_url && (
-              isVideo(item.photo_url) ? (
-                <video
-                  src={item.photo_url}
-                  controls
-                  className="max-w-[320px] rounded-lg border border-border"
-                />
-              ) : (
-                <img
-                  src={item.photo_url}
-                  alt={`Verification for ${item.title}`}
-                  className="max-w-[240px] rounded-lg border border-border"
-                />
-              )
-            )}
-            {item.note && (
-              <div className="flex items-start gap-2">
-                <FileText size={11} className="text-warning mt-0.5 shrink-0" />
-                <p className="text-xs text-text-secondary">{item.note}</p>
-              </div>
-            )}
+
             {item.location && (
               <div className="flex items-center gap-2 text-xs text-text-muted">
                 <MapPin size={11} className="shrink-0" />
@@ -178,6 +208,22 @@ export function ChecklistItemRow({
                   {item.location.lat.toFixed(4)}, {item.location.lng.toFixed(4)}
                 </span>
               </div>
+            )}
+          </div>
+        )}
+
+        {/* Incomplete + evidence required indicator */}
+        {needsEvidence && (
+          <div className="mt-2 ml-6 border border-dashed border-border rounded-lg px-3 py-2 flex items-center gap-2">
+            {(item.verification_type === "photo" || item.verification_type === "both") && (
+              <span className="flex items-center gap-1 text-xs text-text-muted italic">
+                <Camera size={11} /> Photo required
+              </span>
+            )}
+            {(item.verification_type === "text" || item.verification_type === "both") && (
+              <span className="flex items-center gap-1 text-xs text-text-muted italic">
+                <FileText size={11} /> Note required
+              </span>
             )}
           </div>
         )}
@@ -220,6 +266,16 @@ export function ChecklistItemRow({
           </div>
         )}
       </div>
+
+      {/* Lightbox */}
+      {item.photo_url && (
+        <Lightbox
+          isOpen={isLightboxOpen}
+          onClose={() => setIsLightboxOpen(false)}
+          src={item.photo_url}
+          alt={`Verification for ${item.title}`}
+        />
+      )}
 
       {/* 채팅 모달 */}
       {review && (

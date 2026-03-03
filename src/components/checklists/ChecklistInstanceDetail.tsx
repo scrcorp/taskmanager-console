@@ -5,8 +5,8 @@
  * Review 버튼으로 리뷰 모드 진입, batch save로 변경된 리뷰만 서버에 저장합니다.
  */
 
-import React, { useState, useCallback } from "react";
-import { ClipboardCheck } from "lucide-react";
+import React, { useState, useCallback, useMemo } from "react";
+import { ClipboardCheck, Camera, FileText, CheckCircle, AlertTriangle, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 import { Card, Badge, Button, EmptyState } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
 import { formatFixedDate, parseApiError } from "@/lib/utils";
@@ -43,10 +43,30 @@ export function ChecklistInstanceDetail({
 
   const snapshot = instance.snapshot ?? [];
 
+  // Evidence summary
+  const evidenceSummary = useMemo(() => {
+    let photos = 0;
+    let notes = 0;
+    let reviewed = 0;
+    let missing = 0;
+
+    for (const item of snapshot) {
+      if (item.photo_url) photos++;
+      if (item.note) notes++;
+      if (item.review) reviewed++;
+      if (!item.is_completed && item.verification_type !== "none") missing++;
+    }
+
+    return { photos, notes, reviewed, missing };
+  }, [snapshot]);
+
   // Review mode
   const [isReviewMode, setIsReviewMode] = useState(false);
   const [localReviews, setLocalReviews] = useState<Map<number, LocalReview>>(new Map());
   const [isSaving, setIsSaving] = useState(false);
+
+  // Expand all notes
+  const [allExpanded, setAllExpanded] = useState(false);
 
   /** 기존 리뷰에서 localReviews 초기화 */
   const enterReviewMode = useCallback(() => {
@@ -119,6 +139,8 @@ export function ChecklistInstanceDetail({
     }
   }, [localReviews, snapshot, instance.id, upsertReview, toast, exitReviewMode]);
 
+  const hasAnyEvidence = evidenceSummary.photos > 0 || evidenceSummary.notes > 0 || evidenceSummary.reviewed > 0 || evidenceSummary.missing > 0;
+
   return (
     <div>
       {/* Summary Card */}
@@ -160,12 +182,54 @@ export function ChecklistInstanceDetail({
             </span>
           </div>
         </div>
+
+        {/* Evidence Summary */}
+        {hasAnyEvidence && (
+          <div className="flex flex-wrap items-center gap-4 mt-3 pt-3 border-t border-border">
+            {evidenceSummary.photos > 0 && (
+              <span className="flex items-center gap-1.5 text-xs text-text-secondary">
+                <Camera size={13} className="text-accent" />
+                {evidenceSummary.photos}
+              </span>
+            )}
+            {evidenceSummary.notes > 0 && (
+              <span className="flex items-center gap-1.5 text-xs text-text-secondary">
+                <FileText size={13} className="text-warning" />
+                {evidenceSummary.notes}
+              </span>
+            )}
+            {evidenceSummary.reviewed > 0 && (
+              <span className="flex items-center gap-1.5 text-xs text-text-secondary">
+                <CheckCircle size={13} className="text-success" />
+                {evidenceSummary.reviewed}
+              </span>
+            )}
+            {evidenceSummary.missing > 0 && (
+              <span className="flex items-center gap-1.5 text-xs text-text-secondary">
+                <AlertTriangle size={13} className="text-danger" />
+                {evidenceSummary.missing} pending
+              </span>
+            )}
+          </div>
+        )}
       </Card>
 
       {/* Checklist Items */}
       <Card>
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-lg font-semibold text-text">Checklist Items</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-lg font-semibold text-text">Checklist Items</h2>
+            {snapshot.length > 0 && (
+              <button
+                type="button"
+                onClick={() => setAllExpanded(!allExpanded)}
+                className="flex items-center gap-1 text-xs text-text-muted hover:text-accent transition-colors cursor-pointer"
+              >
+                {allExpanded ? <ChevronsDownUp size={14} /> : <ChevronsUpDown size={14} />}
+                {allExpanded ? "Collapse" : "Expand"}
+              </button>
+            )}
+          </div>
           {!isReviewMode ? (
             <Button variant="ghost" size="sm" onClick={enterReviewMode}>
               <ClipboardCheck size={14} />
@@ -196,6 +260,7 @@ export function ChecklistInstanceDetail({
                 reviewMode={isReviewMode}
                 localReview={localReviews.get(item.item_index) ?? null}
                 onReviewChange={(r) => handleReviewChange(item.item_index, r)}
+                expandAllNotes={allExpanded}
               />
             ))}
           </div>
