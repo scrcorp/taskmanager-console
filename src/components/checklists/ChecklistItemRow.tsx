@@ -98,8 +98,8 @@ export function ChecklistItemRow({
   const hasBothEvidence = hasPhoto && hasNote;
   const needsEvidence = !isCompleted && item.verification_type !== "none";
 
-  // pending_re_review or has history/completion_history → show chat button
-  const showChatButton = !reviewMode && (review || hasHistory);
+  // 완료된 항목이면 항상 채팅 버튼 표시 (evidence 확인용)
+  const showChatButton = !reviewMode && (isCompleted || review || hasHistory);
 
   return (
     <div
