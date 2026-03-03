@@ -7,7 +7,7 @@
  */
 
 import React, { useState, useCallback, useMemo } from "react";
-import { ClipboardCheck, Camera, FileText, CheckCircle, AlertTriangle, ChevronsDownUp, ChevronsUpDown, RotateCcw } from "lucide-react";
+import { ClipboardCheck, Camera, FileText, CheckCircle, AlertTriangle, RotateCcw } from "lucide-react";
 import { Card, Badge, Button, EmptyState } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
 import { formatFixedDate, parseApiError } from "@/lib/utils";
@@ -73,9 +73,6 @@ export function ChecklistInstanceDetail({
   const [isReviewMode, setIsReviewMode] = useState(false);
   const [localReviews, setLocalReviews] = useState<Map<number, LocalReview>>(new Map());
   const [isSaving, setIsSaving] = useState(false);
-
-  // Expand all notes
-  const [allExpanded, setAllExpanded] = useState(false);
 
   /** 기존 리뷰에서 localReviews 초기화 */
   const enterReviewMode = useCallback(() => {
@@ -272,19 +269,7 @@ export function ChecklistInstanceDetail({
       {/* Checklist Items */}
       <Card>
         <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            <h2 className="text-lg font-semibold text-text">Checklist Items</h2>
-            {snapshot.length > 0 && (
-              <button
-                type="button"
-                onClick={() => setAllExpanded(!allExpanded)}
-                className="flex items-center gap-1 text-xs text-text-muted hover:text-accent transition-colors cursor-pointer"
-              >
-                {allExpanded ? <ChevronsDownUp size={14} /> : <ChevronsUpDown size={14} />}
-                {allExpanded ? "Collapse" : "Expand"}
-              </button>
-            )}
-          </div>
+          <h2 className="text-lg font-semibold text-text">Checklist Items</h2>
           {!isReviewMode ? (
             <Button variant="ghost" size="sm" onClick={enterReviewMode}>
               <ClipboardCheck size={14} />
@@ -315,7 +300,6 @@ export function ChecklistInstanceDetail({
                 reviewMode={isReviewMode}
                 localReview={localReviews.get(item.item_index) ?? null}
                 onReviewChange={(r) => handleReviewChange(item.item_index, r)}
-                expandAllNotes={allExpanded}
               />
             ))}
           </div>

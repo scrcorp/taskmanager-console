@@ -11,8 +11,8 @@
  */
 
 import React, { useState, useRef, useEffect, useMemo } from "react";
-import { Send, Paperclip, Loader2, Film, Trash2, RotateCcw, CheckCircle } from "lucide-react";
-import { Modal } from "@/components/ui";
+import { Send, Paperclip, Loader2, Trash2, RotateCcw, CheckCircle } from "lucide-react";
+import { Modal, Lightbox } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
 import { useAddReviewContent, useDeleteReviewContent, usePresignedUrl } from "@/hooks/useChecklistInstances";
 import { useAuthStore } from "@/stores/authStore";
@@ -81,7 +81,7 @@ export function ReviewChatModal({
   completedAt,
   photoUrl,
   note,
-}: ReviewChatModalProps): React.ReactElement | null {
+}: ReviewChatModalProps): React.ReactElement {
   const { toast } = useToast();
   const user = useAuthStore((s) => s.user);
   const addContent = useAddReviewContent();
@@ -91,6 +91,7 @@ export function ReviewChatModal({
   const [text, setText] = useState("");
   const [isSending, setIsSending] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -199,6 +200,7 @@ export function ReviewChatModal({
   };
 
   return (
+    <>
     <Modal isOpen={isOpen} onClose={onClose} title={`Review — ${itemTitle}`} size="md">
       {/* 현재 리뷰 결과 표시 */}
       {reviewResult && (
@@ -229,7 +231,9 @@ export function ReviewChatModal({
                       {isVideo(event.photoUrl) ? (
                         <video src={event.photoUrl} controls className="max-w-full max-h-[120px] rounded mx-auto" />
                       ) : (
-                        <img src={event.photoUrl} alt="Evidence" className="max-w-full max-h-[120px] rounded mx-auto" />
+                        <button type="button" onClick={() => setLightboxSrc(event.photoUrl)} className="cursor-pointer">
+                          <img src={event.photoUrl} alt="Evidence" className="max-w-full max-h-[120px] rounded mx-auto hover:opacity-80 transition-opacity" />
+                        </button>
                       )}
                     </div>
                   )}
@@ -286,7 +290,9 @@ export function ReviewChatModal({
                     ) : c.type === "video" || isVideo(c.content) ? (
                       <video src={c.content} controls className="max-w-full max-h-[200px] rounded" />
                     ) : (
-                      <img src={c.content} alt="Review media" className="max-w-full max-h-[200px] rounded" />
+                      <button type="button" onClick={() => setLightboxSrc(c.content)} className="cursor-pointer">
+                        <img src={c.content} alt="Review media" className="max-w-full max-h-[200px] rounded hover:opacity-80 transition-opacity" />
+                      </button>
                     )}
                     {isMe && (
                       <button
@@ -321,7 +327,9 @@ export function ReviewChatModal({
                       {isVideo(ch.photo_url) ? (
                         <video src={ch.photo_url} controls className="max-w-full max-h-[100px] rounded mx-auto opacity-60" />
                       ) : (
-                        <img src={ch.photo_url} alt="Previous evidence" className="max-w-full max-h-[100px] rounded mx-auto opacity-60" />
+                        <button type="button" onClick={() => setLightboxSrc(ch.photo_url)} className="cursor-pointer">
+                          <img src={ch.photo_url} alt="Previous evidence" className="max-w-full max-h-[100px] rounded mx-auto opacity-60 hover:opacity-80 transition-opacity" />
+                        </button>
                       )}
                     </div>
                   )}
@@ -382,5 +390,14 @@ export function ReviewChatModal({
         </div>
       )}
     </Modal>
+
+    {lightboxSrc && (
+      <Lightbox
+        isOpen
+        onClose={() => setLightboxSrc(null)}
+        src={lightboxSrc}
+      />
+    )}
+  </>
   );
 }

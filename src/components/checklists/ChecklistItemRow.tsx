@@ -3,14 +3,15 @@
 /**
  * 체크리스트 아이템 행 컴포넌트.
  *
- * - 기본 모드: completion 상태 + 리뷰 뱃지 + 말풍선 아이콘(항상, 콘텐츠 수 뱃지)
+ * - 기본 모드: completion 상태 + 리뷰 뱃지 + 말풍선 아이콘
  * - 리뷰 모드: O/△/X 버튼 + 인라인 코멘트 입력
+ * - evidence(사진/메모)는 채팅 모달에서만 표시
  * - 자체 저장 없음 — 부모가 batch save 처리
  */
 
 import React, { useState, useRef } from "react";
-import { Check, X, Clock, Camera, FileText, MapPin, MessageCircle, Film, Paperclip } from "lucide-react";
-import { Badge, Lightbox } from "@/components/ui";
+import { Check, X, Clock, Camera, FileText, MessageCircle, Paperclip } from "lucide-react";
+import { Badge } from "@/components/ui";
 import { cn, formatActionTime } from "@/lib/utils";
 import { ReviewChatModal } from "./ReviewChatModal";
 import type { ChecklistInstanceSnapshotItem } from "@/types";
@@ -30,7 +31,6 @@ interface ChecklistItemRowProps {
   reviewMode?: boolean;
   localReview?: LocalReview | null;
   onReviewChange?: (review: LocalReview | null) => void;
-  expandAllNotes?: boolean;
 }
 
 const REVIEW_OPTIONS = [
@@ -38,12 +38,6 @@ const REVIEW_OPTIONS = [
   { value: "caution", label: "△", color: "warning" },
   { value: "fail", label: "X", color: "danger" },
 ] as const;
-
-const NOTE_TRUNCATE_LENGTH = 150;
-
-function isVideo(url: string): boolean {
-  return /\.(mp4|mov|webm|avi|mkv)(\?|$)/i.test(url);
-}
 
 export function ChecklistItemRow({
   item,
@@ -53,20 +47,14 @@ export function ChecklistItemRow({
   reviewMode = false,
   localReview,
   onReviewChange,
-  expandAllNotes = false,
 }: ChecklistItemRowProps): React.ReactElement {
   const isCompleted = !!item.is_completed;
-  const [isLightboxOpen, setIsLightboxOpen] = useState(false);
-  const [isNoteExpanded, setIsNoteExpanded] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [showComment, setShowComment] = useState(false);
   const commentFileRef = useRef<HTMLInputElement>(null);
   const review = item.review;
   const contentsCount = review?.contents?.length ?? 0;
   const hasHistory = (review?.history?.length ?? 0) > 0 || (item.completion_history?.length ?? 0) > 0;
-
-  const noteExpanded = expandAllNotes || isNoteExpanded;
-  const noteTruncated = item.note && item.note.length > NOTE_TRUNCATE_LENGTH;
 
   const handleResultClick = (result: string) => {
     if (!onReviewChange) return;
@@ -93,9 +81,6 @@ export function ChecklistItemRow({
     }
   };
 
-  const hasPhoto = !!item.photo_url;
-  const hasNote = !!item.note;
-  const hasBothEvidence = hasPhoto && hasNote;
   const needsEvidence = !isCompleted && item.verification_type !== "none";
 
   // 완료된 항목이면 항상 채팅 버튼 표시 (evidence 확인용)
@@ -154,7 +139,7 @@ export function ChecklistItemRow({
           {!reviewMode && (item.resubmission_count ?? 0) > 0 && (
             <Badge variant="accent">재제출 {item.resubmission_count}회</Badge>
           )}
-          {/* 말풍선 아이콘 — 리뷰가 있거나 히스토리가 있으면 표시 */}
+          {/* 말풍선 아이콘 */}
           {showChatButton && (
             <button
               type="button"
@@ -175,9 +160,9 @@ export function ChecklistItemRow({
           <p className="text-xs text-text-secondary mt-1 ml-6">{item.description}</p>
         )}
 
-        {/* Completion details */}
+        {/* Completion meta (시간 + 작성자만, evidence는 채팅 모달에서) */}
         {isCompleted && (
-          <div className="mt-2 ml-6 space-y-2">
+          <div className="mt-1.5 ml-6">
             <div className="flex items-center gap-2 text-xs text-text-muted">
               <Clock size={11} />
               <span>{formatActionTime(item.completed_at ?? "", workDate)}</span>
@@ -188,68 +173,6 @@ export function ChecklistItemRow({
                 </>
               )}
             </div>
-
-            {/* Evidence: photo + text */}
-            {(hasPhoto || hasNote) && (
-              <div className={cn(
-                hasBothEvidence && "flex items-start gap-3 flex-col sm:flex-row",
-              )}>
-                {/* Photo thumbnail */}
-                {hasPhoto && item.photo_url && (
-                  <div className="relative flex-shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => setIsLightboxOpen(true)}
-                      className="block rounded-lg border border-border overflow-hidden hover:border-accent/50 transition-colors cursor-pointer"
-                    >
-                      {isVideo(item.photo_url) ? (
-                        <div className="relative w-20 h-20 bg-surface-hover flex items-center justify-center">
-                          <Film size={24} className="text-accent" />
-                          <span className="absolute bottom-1 right-1 text-[9px] text-text-muted bg-black/60 px-1 rounded">
-                            VIDEO
-                          </span>
-                        </div>
-                      ) : (
-                        <img
-                          src={item.photo_url}
-                          alt={`Verification for ${item.title}`}
-                          className="w-20 h-20 object-cover"
-                        />
-                      )}
-                    </button>
-                  </div>
-                )}
-
-                {/* Text note block */}
-                {hasNote && item.note && (
-                  <div className="flex-1 min-w-0 border-l-2 border-accent/60 bg-surface/50 rounded-r-lg px-3 py-2">
-                    <p className="text-sm text-text-secondary">
-                      {noteExpanded || !noteTruncated
-                        ? item.note
-                        : `${item.note.slice(0, NOTE_TRUNCATE_LENGTH)}...`}
-                    </p>
-                    {noteTruncated && !expandAllNotes && (
-                      <button
-                        type="button"
-                        onClick={() => setIsNoteExpanded(!isNoteExpanded)}
-                        className="text-xs text-accent hover:underline mt-1 cursor-pointer"
-                      >
-                        {isNoteExpanded ? "Show less" : "Show more"}
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {item.location && (
-              <div className="flex items-center gap-2 text-xs text-text-muted">
-                <MapPin size={11} className="shrink-0" />
-                <span>
-                  {item.location.lat.toFixed(4)}, {item.location.lng.toFixed(4)}
-                </span>
-              </div>
-            )}
           </div>
         )}
 
@@ -373,16 +296,6 @@ export function ChecklistItemRow({
           </div>
         )}
       </div>
-
-      {/* Lightbox */}
-      {item.photo_url && (
-        <Lightbox
-          isOpen={isLightboxOpen}
-          onClose={() => setIsLightboxOpen(false)}
-          src={item.photo_url}
-          alt={`Verification for ${item.title}`}
-        />
-      )}
 
       {/* 채팅 모달 — 통합 타임라인 */}
       {showChatButton && (
