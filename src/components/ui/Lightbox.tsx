@@ -19,6 +19,7 @@ export function Lightbox({ isOpen, onClose, src, alt }: LightboxProps): React.Re
   const [translate, setTranslate] = useState({ x: 0, y: 0 });
   const [isDragging, setIsDragging] = useState(false);
   const dragOrigin = useRef({ x: 0, y: 0 });
+  const didDrag = useRef(false);
   const mediaRef = useRef<HTMLDivElement>(null);
 
   const resetView = useCallback(() => {
@@ -75,6 +76,7 @@ export function Lightbox({ isOpen, onClose, src, alt }: LightboxProps): React.Re
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (scale <= 1) return;
       setIsDragging(true);
+      didDrag.current = false;
       dragOrigin.current = { x: e.clientX - translate.x, y: e.clientY - translate.y };
       (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
     },
@@ -83,6 +85,7 @@ export function Lightbox({ isOpen, onClose, src, alt }: LightboxProps): React.Re
 
   const handlePointerMove = useCallback((e: React.PointerEvent) => {
     if (!isDragging) return;
+    didDrag.current = true;
     setTranslate({
       x: e.clientX - dragOrigin.current.x,
       y: e.clientY - dragOrigin.current.y,
@@ -100,7 +103,7 @@ export function Lightbox({ isOpen, onClose, src, alt }: LightboxProps): React.Re
   return (
     <div
       className="fixed inset-0 z-[60] flex flex-col bg-black/90"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      onClick={(e) => { if (!didDrag.current && e.target === e.currentTarget) onClose(); }}
     >
       {/* Top bar */}
       <div className="flex items-center justify-end gap-1 px-3 py-2 shrink-0">
@@ -157,7 +160,10 @@ export function Lightbox({ isOpen, onClose, src, alt }: LightboxProps): React.Re
         onPointerDown={!isVid ? handlePointerDown : undefined}
         onPointerMove={!isVid ? handlePointerMove : undefined}
         onPointerUp={!isVid ? handlePointerUp : undefined}
-        onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+        onClick={(e) => {
+          if (didDrag.current) { didDrag.current = false; return; }
+          if (e.target === e.currentTarget) onClose();
+        }}
         style={{ cursor: isVid ? "default" : isDragging ? "grabbing" : scale > 1 ? "grab" : "zoom-in" }}
       >
         {isVid ? (
