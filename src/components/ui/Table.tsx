@@ -106,9 +106,12 @@ export function Table<T extends { id?: string }>({
                   >
                     {column.render
                       ? column.render(item)
-                      : String(
-                          (item as Record<string, unknown>)[column.key] ?? "",
-                        )}
+                      : (() => {
+                          const val = (item as Record<string, unknown>)[column.key];
+                          if (val == null) return "";
+                          if (typeof val === "object") return val as React.ReactNode;
+                          return String(val);
+                        })()}
                   </td>
                 ))}
               </tr>
