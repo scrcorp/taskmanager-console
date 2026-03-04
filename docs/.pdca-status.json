@@ -1,0 +1,293 @@
+{
+  "version": "2.0",
+  "lastUpdated": "2026-03-04T07:14:25.392Z",
+  "activeFeatures": [
+    "server",
+    "versions",
+    "schemas",
+    "repositories",
+    "daily_report_service.py",
+    "api",
+    "admin",
+    "layout",
+    "daily-reports",
+    "[id]"
+  ],
+  "primaryFeature": "server",
+  "features": {
+    "server": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-03-04T07:03:42.645Z",
+        "lastUpdated": "2026-03-04T07:04:35.172Z"
+      },
+      "lastFile": "/Users/jm/development/tigersplus/taskmanager/server/app/models/__init__.py"
+    },
+    "versions": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-03-04T07:05:24.639Z",
+        "lastUpdated": "2026-03-04T07:05:24.639Z"
+      },
+      "lastFile": "/Users/jm/development/tigersplus/taskmanager/server/alembic/versions/2414fb497698_add_daily_reports.py"
+    },
+    "schemas": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-03-04T07:06:56.103Z",
+        "lastUpdated": "2026-03-04T07:06:56.103Z"
+      },
+      "lastFile": "/Users/jm/development/tigersplus/taskmanager/server/app/schemas/daily_report.py"
+    },
+    "repositories": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-03-04T07:07:18.952Z",
+        "lastUpdated": "2026-03-04T07:07:18.952Z"
+      },
+      "lastFile": "/Users/jm/development/tigersplus/taskmanager/server/app/repositories/daily_report_repository.py"
+    },
+    "daily_report_service.py": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-03-04T07:07:33.601Z",
+        "lastUpdated": "2026-03-04T07:07:33.601Z"
+      },
+      "lastFile": "/Users/jm/development/tigersplus/taskmanager/server/app/services/daily_report_service.py"
+    },
+    "api": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-03-04T07:08:28.412Z",
+        "lastUpdated": "2026-03-04T07:09:08.761Z"
+      },
+      "lastFile": "/Users/jm/development/tigersplus/taskmanager/server/app/api/app/__init__.py"
+    },
+    "admin": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-03-04T07:08:49.263Z",
+        "lastUpdated": "2026-03-04T07:12:59.248Z"
+      },
+      "lastFile": "/Users/jm/development/tigersplus/taskmanager/admin/src/hooks/index.ts"
+    },
+    "layout": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-03-04T07:13:03.452Z",
+        "lastUpdated": "2026-03-04T07:13:04.780Z"
+      },
+      "lastFile": "/Users/jm/development/tigersplus/taskmanager/admin/src/components/layout/Sidebar.tsx"
+    },
+    "daily-reports": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-03-04T07:13:58.235Z",
+        "lastUpdated": "2026-03-04T07:13:58.235Z"
+      },
+      "lastFile": "/Users/jm/development/tigersplus/taskmanager/admin/src/app/(dashboard)/daily-reports/page.tsx"
+    },
+    "[id]": {
+      "phase": "do",
+      "phaseNumber": 3,
+      "matchRate": null,
+      "iterationCount": 0,
+      "requirements": [],
+      "documents": {},
+      "timestamps": {
+        "started": "2026-03-04T07:14:25.392Z",
+        "lastUpdated": "2026-03-04T07:14:25.392Z"
+      },
+      "lastFile": "/Users/jm/development/tigersplus/taskmanager/admin/src/app/(dashboard)/daily-reports/[id]/page.tsx"
+    }
+  },
+  "pipeline": {
+    "currentPhase": 1,
+    "level": "Dynamic",
+    "phaseHistory": []
+  },
+  "session": {
+    "startedAt": "2026-03-04T07:02:19.264Z",
+    "onboardingCompleted": false,
+    "lastActivity": "2026-03-04T07:14:25.392Z"
+  },
+  "history": [
+    {
+      "timestamp": "2026-03-04T07:03:42.645Z",
+      "feature": "server",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-04T07:03:53.672Z",
+      "feature": "server",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-04T07:04:01.040Z",
+      "feature": "server",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-04T07:04:35.172Z",
+      "feature": "server",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-04T07:05:24.639Z",
+      "feature": "versions",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-04T07:06:56.103Z",
+      "feature": "schemas",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-04T07:07:18.952Z",
+      "feature": "repositories",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-04T07:07:33.601Z",
+      "feature": "daily_report_service.py",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-04T07:08:28.412Z",
+      "feature": "api",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-04T07:08:49.263Z",
+      "feature": "admin",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-04T07:08:57.597Z",
+      "feature": "api",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-04T07:09:08.761Z",
+      "feature": "api",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-04T07:09:17.140Z",
+      "feature": "admin",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-04T07:09:25.260Z",
+      "feature": "admin",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-04T07:12:38.550Z",
+      "feature": "admin",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-04T07:12:42.803Z",
+      "feature": "admin",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-04T07:12:54.098Z",
+      "feature": "admin",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-04T07:12:59.248Z",
+      "feature": "admin",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-04T07:13:03.452Z",
+      "feature": "layout",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-04T07:13:04.780Z",
+      "feature": "layout",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-04T07:13:58.235Z",
+      "feature": "daily-reports",
+      "phase": "do",
+      "action": "updated"
+    },
+    {
+      "timestamp": "2026-03-04T07:14:25.392Z",
+      "feature": "[id]",
+      "phase": "do",
+      "action": "updated"
+    }
+  ]
+}
