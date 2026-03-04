@@ -1,5 +1,15 @@
 "use client";
 
+/**
+ * 라이트박스 컴포넌트 — 이미지/동영상 전체화면 뷰어.
+ *
+ * 기능:
+ * - 이미지: 확대/축소(휠, 버튼, 더블클릭), 드래그 이동, 초기화
+ * - 동영상: 컨트롤 포함 자동 재생
+ * - ESC 키로 닫기 (capture phase에서 처리하여 부모 Modal과 충돌 방지)
+ * - 배경 클릭으로 닫기 (드래그 후 클릭 구분)
+ */
+
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { X, ZoomIn, ZoomOut, RotateCcw } from "lucide-react";
 
@@ -10,6 +20,7 @@ interface LightboxProps {
   alt?: string;
 }
 
+/** URL 확장자로 동영상 여부 판별 */
 function isVideo(url: string): boolean {
   return /\.(mp4|mov|webm|avi|mkv)(\?|$)/i.test(url);
 }
@@ -27,7 +38,7 @@ export function Lightbox({ isOpen, onClose, src, alt }: LightboxProps): React.Re
     setTranslate({ x: 0, y: 0 });
   }, []);
 
-  // Reset when closing or src changes
+  // 닫히거나 src 변경 시 확대/이동 상태 초기화
   useEffect(() => {
     if (!isOpen) resetView();
   }, [isOpen, src, resetView]);
@@ -46,7 +57,7 @@ export function Lightbox({ isOpen, onClose, src, alt }: LightboxProps): React.Re
     return () => document.removeEventListener("keydown", onKey, true);
   }, [isOpen, onClose]);
 
-  // Wheel zoom — native listener with { passive: false }
+  // 휠 줌 — passive: false로 네이티브 리스너 등록 (스크롤 방지)
   useEffect(() => {
     if (!isOpen) return;
     const el = mediaRef.current;

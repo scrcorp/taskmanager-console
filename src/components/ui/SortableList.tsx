@@ -1,5 +1,18 @@
 "use client";
 
+/**
+ * 드래그앤드롭 정렬 리스트 컴포넌트 (dnd-kit 기반).
+ *
+ * @dnd-kit/core + @dnd-kit/sortable로 구현된 재사용 가능한 정렬 리스트.
+ * 아이템 순서를 드래그로 변경하고, 수정/삭제 액션 버튼을 제공합니다.
+ *
+ * Props:
+ * - items: sort_order가 있는 아이템 배열
+ * - onReorder: 드래그 완료 후 재정렬된 아이템 배열 콜백
+ * - renderContent: 커스텀 콘텐츠 렌더러 (기본: item.name 표시)
+ * - compact: 작은 사이즈 변형 (중첩 리스트용)
+ */
+
 import React, { useState, useCallback } from "react";
 import {
   DndContext,
@@ -21,6 +34,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, Edit, Trash2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+/** 정렬 가능한 아이템의 최소 인터페이스 */
 interface SortableItem {
   id: string;
   sort_order: number;
@@ -33,14 +47,15 @@ interface SortableListProps<T extends SortableItem> {
   onReorder?: (reorderedItems: T[]) => void;
   onEdit?: (item: T, e: React.MouseEvent) => void;
   onDelete?: (item: T, e: React.MouseEvent) => void;
-  /** Custom content renderer. Falls back to item.name if not provided. */
+  /** 커스텀 콘텐츠 렌더러 — 미제공 시 item.name 표시 */
   renderContent?: (item: T, index: number) => React.ReactNode;
-  /** Custom extra actions to render before edit/delete buttons */
+  /** 수정/삭제 버튼 앞에 추가 액션 렌더링 */
   renderExtra?: (item: T) => React.ReactNode;
-  /** Smaller variant for nested lists */
+  /** 작은 사이즈 변형 (중첩 리스트용) */
   compact?: boolean;
 }
 
+/** 개별 정렬 가능 행 — 드래그 핸들 + 콘텐츠 + 액션 버튼 */
 function SortableRow<T extends SortableItem>({
   item,
   index,
@@ -147,7 +162,7 @@ export function SortableList<T extends SortableItem>({
 }: SortableListProps<T>): React.ReactElement {
   const [localItems, setLocalItems] = useState<T[]>(items);
 
-  // Sync when items change externally
+  // 외부에서 items가 변경되면 로컬 상태와 동기화
   React.useEffect(() => {
     setLocalItems(items);
   }, [items]);

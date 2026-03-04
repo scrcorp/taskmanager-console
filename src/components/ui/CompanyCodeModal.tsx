@@ -1,5 +1,13 @@
 "use client";
 
+/**
+ * 회사 코드 입력 모달 컴포넌트.
+ *
+ * 6자리 영숫자 회사 코드를 입력받아 localStorage에 저장합니다.
+ * 로그인 페이지에서 조직 식별을 위해 사용됩니다.
+ * 입력은 대문자 영숫자만 허용하며 6자리 제한입니다.
+ */
+
 import React, { useState, useEffect } from "react";
 import { Modal } from "./Modal";
 import { getCompanyCode, setCompanyCode } from "@/lib/auth";
@@ -17,6 +25,7 @@ export function CompanyCodeModal({
 }: CompanyCodeModalProps) {
   const [code, setCode] = useState("");
 
+  // 모달 열릴 때 기존 저장된 회사 코드를 불러옴
   useEffect(() => {
     if (isOpen) {
       const saved = getCompanyCode();
@@ -24,6 +33,7 @@ export function CompanyCodeModal({
     }
   }, [isOpen]);
 
+  /** 입력된 코드를 대문자로 변환 후 저장 — 6자리가 아니면 무시 */
   const handleSave = () => {
     const trimmed = code.trim().toUpperCase();
     if (trimmed.length !== 6) return;
