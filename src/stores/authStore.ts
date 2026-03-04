@@ -1,8 +1,21 @@
+/**
+ * 인증 전역 상태 스토어 (Zustand).
+ *
+ * 관리하는 상태:
+ * - user: 현재 로그인한 사용자 정보 (UserMe)
+ * - isLoading: 로그인 진행 중 여부
+ *
+ * 주요 액션:
+ * - login: 관리자 로그인 → 토큰 저장 → /auth/me로 사용자 정보 조회
+ * - logout: 서버에 로그아웃 요청 → 토큰 삭제 → /login으로 리다이렉트
+ * - fetchMe: 저장된 토큰으로 사용자 정보 재조회 (페이지 새로고침 시)
+ */
 import { create } from "zustand";
 import type { UserMe } from "@/types";
 import { clearTokens, setTokens, getCompanyCode, getRefreshToken } from "@/lib/auth";
 import api from "@/lib/api";
 
+/** 인증 상태 인터페이스 */
 interface AuthState {
   user: UserMe | null;
   isLoading: boolean;
@@ -15,16 +28,19 @@ export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   isLoading: false,
 
+  /** 관리자 로그인 — 회사 코드가 있으면 함께 전송 */
   login: async (username, password) => {
     set({ isLoading: true });
     try {
       const companyCode = getCompanyCode();
+      // 관리자 전용 로그인 엔드포인트 사용
       const res = await api.post("/admin/auth/login", {
         username,
         password,
         ...(companyCode ? { company_code: companyCode } : {}),
       });
       setTokens(res.data.access_token, res.data.refresh_token);
+      // 토큰 저장 후 사용자 정보 조회
       const me = await api.get("/auth/me");
       set({ user: me.data, isLoading: false });
     } catch (error) {
@@ -33,9 +49,11 @@ export const useAuthStore = create<AuthState>((set) => ({
     }
   },
 
+  /** 로그아웃 — 서버에 refresh token 무효화 요청 후 로컬 토큰 삭제 */
   logout: () => {
     const refreshToken = getRefreshToken();
     if (refreshToken) {
+      // 서버 측 토큰 무효화 (실패해도 무시)
       api.post("/auth/logout", { refresh_token: refreshToken }).catch(() => {});
     }
     clearTokens();
@@ -43,6 +61,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     window.location.href = "/login";
   },
 
+  /** 사용자 정보 재조회 — 실패 시 토큰 삭제 (만료/무효 토큰 정리) */
   fetchMe: async () => {
     try {
       const res = await api.get("/auth/me");

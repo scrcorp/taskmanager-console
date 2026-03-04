@@ -1,19 +1,27 @@
+/**
+ * 유틸리티 함수 모음 — 날짜 포맷, CSS 클래스 병합, API 에러 파싱.
+ *
+ * 날짜 포맷은 3가지 카테고리로 분류:
+ * - A. Fixed Date: 타임존 변환 없음 (work_date, due_date 등 날짜 자체가 의미 있는 경우)
+ * - B. Audit Timestamp: UTC→로컬 변환 (created_at, updated_at 등 서버 기록 시각)
+ * - C. Action Timestamp: UTC→로컬 변환 + 시간 강조 (completed_at 등 행위 시각)
+ */
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
 
-/** Merge Tailwind CSS classes with conflict resolution via clsx + tailwind-merge. */
+/** Tailwind CSS 클래스 병합 — clsx로 조건부 클래스 처리 후 tailwind-merge로 충돌 해결 */
 export function cn(...inputs: ClassValue[]): string {
   return twMerge(clsx(inputs));
 }
 
-// ── Category A: Fixed Date ──────────────────────────────────────────
-// No timezone conversion — the date itself is meaningful (work_date, due_date)
+// ── 카테고리 A: 고정 날짜 (Fixed Date) ─────────────────────────────
+// 타임존 변환 없음 — 날짜 자체가 의미 있는 값 (work_date, due_date)
 
-/** Format a fixed date string without timezone conversion.
- *  Parses YYYY-MM-DD locally to prevent UTC date shift.
+/** 고정 날짜 문자열을 포맷 — 타임존 변환 없이 로컬 파싱.
+ *  YYYY-MM-DD를 로컬로 파싱하여 UTC 날짜 이동을 방지합니다.
  *
- * @param dateStr - YYYY-MM-DD date string (may include T suffix, which is stripped)
- * @returns Formatted date (e.g., "Feb 19, 2026")
+ * @param dateStr - YYYY-MM-DD 날짜 문자열 (T 접미사 포함 가능, 제거됨)
+ * @returns 포맷된 날짜 (예: "Feb 19, 2026")
  */
 export function formatFixedDate(dateStr: string): string {
   const [y, m, d] = dateStr.split("T")[0].split("-").map(Number);
@@ -24,10 +32,10 @@ export function formatFixedDate(dateStr: string): string {
   });
 }
 
-/** Format a fixed date with weekday.
+/** 고정 날짜를 요일 포함하여 포맷.
  *
- * @param dateStr - YYYY-MM-DD date string
- * @returns Date with weekday (e.g., "Wed, Feb 19")
+ * @param dateStr - YYYY-MM-DD 날짜 문자열
+ * @returns 요일 포함 날짜 (예: "Wed, Feb 19")
  */
 export function formatFixedDateWithDay(dateStr: string): string {
   const [y, m, d] = dateStr.split("T")[0].split("-").map(Number);
@@ -38,18 +46,17 @@ export function formatFixedDateWithDay(dateStr: string): string {
   });
 }
 
-// ── Category B: Audit Timestamp ─────────────────────────────────────
-// UTC → local timezone conversion (created_at, updated_at)
+// ── 카테고리 B: 감사 타임스탬프 (Audit Timestamp) ──────────────────
+// UTC → 로컬 타임존 변환 (created_at, updated_at)
 
-/** Format an audit timestamp as date only.
- *  Converts UTC to local timezone.
+/** 감사 타임스탬프를 날짜만 포맷 — UTC를 로컬 타임존으로 변환.
  *
- * @param dateStr - ISO 8601 UTC string
- * @returns Formatted date (e.g., "Feb 19, 2026")
+ * @param dateStr - ISO 8601 UTC 문자열
+ * @returns 포맷된 날짜 (예: "Feb 19, 2026")
  */
 export function formatDate(dateStr: string | null | undefined): string {
   if (!dateStr) return "—";
-  // Python datetime may include microseconds (6 decimal places); normalize to 3 for JS compatibility
+  // Python datetime은 마이크로초(6자리)를 포함할 수 있음 → JS 호환을 위해 3자리로 정규화
   const normalized = dateStr.replace(/(\.\d{3})\d+/, "$1");
   const d = new Date(normalized);
   if (isNaN(d.getTime())) return "—";
@@ -60,11 +67,10 @@ export function formatDate(dateStr: string | null | undefined): string {
   });
 }
 
-/** Format an audit timestamp with date and time.
- *  Converts UTC to local timezone.
+/** 감사 타임스탬프를 날짜+시간 포맷 — UTC를 로컬 타임존으로 변환.
  *
- * @param dateStr - ISO 8601 UTC string
- * @returns Formatted datetime (e.g., "Feb 19, 3:30 PM")
+ * @param dateStr - ISO 8601 UTC 문자열
+ * @returns 포맷된 날짜+시간 (예: "Feb 19, 3:30 PM")
  */
 export function formatDateTime(dateStr: string | null | undefined): string {
   if (!dateStr) return "—";
@@ -79,15 +85,15 @@ export function formatDateTime(dateStr: string | null | undefined): string {
   });
 }
 
-// ── Category C: Action Timestamp ────────────────────────────────────
-// UTC → local timezone, time-focused display (completed_at, etc.)
+// ── 카테고리 C: 행위 타임스탬프 (Action Timestamp) ──────────────────
+// UTC → 로컬 타임존, 시간 강조 표시 (completed_at 등)
 
-/** Format an action timestamp with time emphasis.
- *  Same day: "3:30 PM", different day: "2/19, 3:30 PM".
+/** 행위 타임스탬프를 시간 강조 포맷.
+ *  같은 날: "3:30 PM", 다른 날: "2/19, 3:30 PM".
  *
- * @param dateStr - ISO 8601 UTC string
- * @param referenceDate - Date to compare against (defaults to today)
- * @returns Time-focused format (e.g., "3:30 PM" or "2/19, 3:30 PM")
+ * @param dateStr - ISO 8601 UTC 문자열
+ * @param referenceDate - 비교 기준 날짜 (기본값: 오늘)
+ * @returns 시간 강조 포맷 (예: "3:30 PM" 또는 "2/19, 3:30 PM")
  */
 export function formatActionTime(
   dateStr: string,
@@ -114,15 +120,15 @@ export function formatActionTime(
   });
 }
 
-/** Calculate total page count from total items and items per page. */
+/** 전체 아이템 수와 페이지당 아이템 수로 총 페이지 수 계산 */
 export function getTotalPages(total: number, perPage: number): number {
   return Math.max(1, Math.ceil(total / perPage));
 }
 
-/** Return a relative time string (e.g., "2h ago").
+/** 상대 시간 문자열 반환 (예: "2h ago").
  *
- * @param dateStr - ISO 8601 UTC string
- * @returns Relative time string
+ * @param dateStr - ISO 8601 UTC 문자열
+ * @returns 상대 시간 문자열
  */
 export function timeAgo(dateStr: string): string {
   const now: number = Date.now();
@@ -142,18 +148,18 @@ export function timeAgo(dateStr: string): string {
   return formatDate(dateStr);
 }
 
-// ── API Error Parsing ──────────────────────────────────────────
+// ── API 에러 파싱 ──────────────────────────────────────────────
 
-/** Parse API error response into a user-friendly message.
+/** API 에러 응답을 사용자 친화적 메시지로 변환.
  *
- * Handles FastAPI error formats:
+ * FastAPI 에러 형식 처리:
  *   - { detail: "message" } → "message"
- *   - { detail: [{ loc: [...], msg: "..." }] } → "field: message"
- *   - Network/timeout errors → friendly fallback
+ *   - { detail: [{ loc: [...], msg: "..." }] } → "field: message" (유효성 검증 에러)
+ *   - 네트워크/타임아웃 에러 → 친화적 fallback 메시지
  *
- * @param error - caught error (typically AxiosError)
- * @param fallback - default message if parsing fails
- * @returns User-readable error string
+ * @param error - catch된 에러 (주로 AxiosError)
+ * @param fallback - 파싱 실패 시 기본 메시지
+ * @returns 사용자용 에러 문자열
  */
 export function parseApiError(error: unknown, fallback: string): string {
   if (
