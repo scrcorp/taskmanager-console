@@ -6,14 +6,16 @@
  * Daily report template management page with create, edit, and delete.
  */
 
-import React, { useState, useCallback, useMemo } from "react";
+import React, { useState, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Pencil, ChevronLeft, GripVertical, X } from "lucide-react";
+import { Plus, Trash2, Pencil, ChevronLeft, GripVertical, X, Upload, Download } from "lucide-react";
 import {
   useTemplates,
   useCreateTemplate,
   useUpdateTemplate,
   useDeleteTemplate,
+  useUploadTemplateExcel,
+  downloadSampleExcel,
 } from "@/hooks/useDailyReportTemplates";
 import { useStores } from "@/hooks/useStores";
 import {
@@ -64,6 +66,7 @@ export default function DailyReportTemplatesPage(): React.ReactElement {
   const createTemplate = useCreateTemplate();
   const updateTemplate = useUpdateTemplate();
   const deleteTemplate = useDeleteTemplate();
+  const uploadExcel = useUploadTemplateExcel();
 
   const activeStores: Store[] = useMemo(
     () => (stores ?? []).filter((s: Store) => s.is_active),
@@ -77,6 +80,13 @@ export default function DailyReportTemplatesPage(): React.ReactElement {
   const [formStoreId, setFormStoreId] = useState("");
   const [formIsDefault, setFormIsDefault] = useState(false);
   const [formSections, setFormSections] = useState<SectionFormItem[]>([]);
+
+  // Excel upload modal state
+  const [isExcelOpen, setIsExcelOpen] = useState(false);
+  const [excelFile, setExcelFile] = useState<File | null>(null);
+  const [excelName, setExcelName] = useState("");
+  const [excelStoreId, setExcelStoreId] = useState("");
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Delete state
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -167,6 +177,35 @@ export default function DailyReportTemplatesPage(): React.ReactElement {
     }
   }, [deleteId, deleteTemplate, toast]);
 
+  const handleExcelUpload = useCallback(async () => {
+    if (!excelFile || !excelName.trim()) {
+      toast({ type: "error", message: "File and template name are required" });
+      return;
+    }
+    try {
+      await uploadExcel.mutateAsync({
+        file: excelFile,
+        name: excelName.trim(),
+        store_id: excelStoreId || undefined,
+      });
+      toast({ type: "success", message: "Template created from Excel" });
+      setIsExcelOpen(false);
+      setExcelFile(null);
+      setExcelName("");
+      setExcelStoreId("");
+    } catch (err) {
+      toast({ type: "error", message: parseApiError(err, "Failed to upload Excel") });
+    }
+  }, [excelFile, excelName, excelStoreId, uploadExcel, toast]);
+
+  const handleDownloadSample = useCallback(async () => {
+    try {
+      await downloadSampleExcel();
+    } catch {
+      toast({ type: "error", message: "Failed to download sample file" });
+    }
+  }, [toast]);
+
   const addSection = useCallback(() => {
     setFormSections((prev) => [...prev, createEmptySection(prev.length + 1)]);
   }, []);
@@ -209,10 +248,16 @@ export default function DailyReportTemplatesPage(): React.ReactElement {
             Manage daily report templates for your organization
           </p>
         </div>
-        <Button onClick={openCreateForm}>
-          <Plus className="h-4 w-4 mr-1" />
-          New Template
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" size="sm" onClick={() => setIsExcelOpen(true)}>
+            <Upload className="h-4 w-4 mr-1" />
+            Excel Upload
+          </Button>
+          <Button onClick={openCreateForm}>
+            <Plus className="h-4 w-4 mr-1" />
+            New Template
+          </Button>
+        </div>
       </div>
 
       {/* Template list */}
@@ -383,6 +428,88 @@ export default function DailyReportTemplatesPage(): React.ReactElement {
             </Button>
             <Button onClick={handleSave} disabled={isSaving}>
               {isSaving ? "Saving..." : editingId ? "Update" : "Create"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Excel Upload Modal */}
+      <Modal
+        isOpen={isExcelOpen}
+        onClose={() => setIsExcelOpen(false)}
+        title="Create Template from Excel"
+      >
+        <div className="space-y-4">
+          <Input
+            label="Template Name"
+            value={excelName}
+            onChange={(e) => setExcelName(e.target.value)}
+            placeholder="e.g. Daily Lunch Report"
+          />
+
+          <Select
+            label="Store (optional)"
+            value={excelStoreId}
+            onChange={(e) => setExcelStoreId(e.target.value)}
+            options={[
+              { value: "", label: "Organization Default" },
+              ...activeStores.map((s) => ({ value: s.id, label: s.name })),
+            ]}
+          />
+
+          <div>
+            <label className="text-sm font-medium text-text-secondary block mb-1.5">
+              Excel File
+            </label>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls"
+              onChange={(e) => setExcelFile(e.target.files?.[0] ?? null)}
+              className="hidden"
+            />
+            <div className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+              >
+                <Upload className="h-4 w-4 mr-1" />
+                {excelFile ? excelFile.name : "Choose File"}
+              </Button>
+              {excelFile && (
+                <button
+                  onClick={() => {
+                    setExcelFile(null);
+                    if (fileInputRef.current) fileInputRef.current.value = "";
+                  }}
+                  className="text-text-muted hover:text-danger transition-colors"
+                >
+                  <X size={14} />
+                </button>
+              )}
+            </div>
+            <p className="text-xs text-text-muted mt-1.5">
+              Format: Title | Description | Required (Y/N).{" "}
+              <button
+                onClick={handleDownloadSample}
+                className="text-accent hover:underline inline-flex items-center gap-0.5"
+              >
+                <Download size={10} />
+                Download sample
+              </button>
+            </p>
+          </div>
+
+          <div className="flex justify-end gap-2 pt-2">
+            <Button variant="ghost" onClick={() => setIsExcelOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleExcelUpload}
+              disabled={!excelFile || !excelName.trim() || uploadExcel.isPending}
+            >
+              {uploadExcel.isPending ? "Uploading..." : "Create"}
             </Button>
           </div>
         </div>

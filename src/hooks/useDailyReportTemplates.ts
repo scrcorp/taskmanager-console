@@ -106,3 +106,42 @@ export const useDeleteTemplate = (): UseMutationResult<void, Error, string> => {
     },
   });
 };
+
+/** Excel 파일로 템플릿 생성 */
+export const useUploadTemplateExcel = (): UseMutationResult<
+  DailyReportTemplate,
+  Error,
+  { file: File; name: string; store_id?: string }
+> => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ file, name, store_id }) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("name", name);
+      if (store_id) formData.append("store_id", store_id);
+      const res: AxiosResponse<DailyReportTemplate> = await api.post(
+        "/admin/daily-report-templates/upload-excel",
+        formData,
+        { headers: { "Content-Type": "multipart/form-data" } },
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["daily-report-templates"] });
+    },
+  });
+};
+
+/** 샘플 Excel 파일 다운로드 */
+export const downloadSampleExcel = async (): Promise<void> => {
+  const res = await api.get("/admin/daily-report-templates/excel/sample", {
+    responseType: "blob",
+  });
+  const url = window.URL.createObjectURL(new Blob([res.data]));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "daily_report_template_sample.xlsx";
+  a.click();
+  window.URL.revokeObjectURL(url);
+};
