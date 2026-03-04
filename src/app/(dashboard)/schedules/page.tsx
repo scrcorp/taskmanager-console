@@ -10,12 +10,12 @@
 
 import React, { useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, List, AlertTriangle, FileText, X, ChevronLeft, ChevronRight, Calendar, Edit, Trash2, Search, Camera, Type, PlusCircle, ClipboardList, Settings } from "lucide-react";
+import { Plus, List, FileText, X, ChevronLeft, ChevronRight, Calendar, Edit, Trash2, Search, Camera, Type, Settings } from "lucide-react";
 import { useStores } from "@/hooks/useStores";
 import { useUsers } from "@/hooks/useUsers";
 import { useShifts } from "@/hooks/useShifts";
 import { usePositions } from "@/hooks/usePositions";
-import { useChecklistTemplates, useChecklistItems, useCreateChecklistTemplate, useBulkCreateChecklistItems } from "@/hooks/useChecklists";
+import { useChecklistTemplates, useChecklistItems } from "@/hooks/useChecklists";
 import {
   useAssignments,
   useCreateAssignment,
@@ -638,169 +638,6 @@ function ChecklistPreviewModal({
 
 // ─── Create Checklist Modal ─────────────────────────────
 
-function CreateChecklistModal({
-  isOpen,
-  onClose,
-  storeId,
-  shiftId,
-  shiftName,
-  positionId,
-  positionName,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  storeId: string;
-  shiftId: string;
-  shiftName: string;
-  positionId: string;
-  positionName: string;
-}): React.ReactElement {
-  const [title, setTitle] = useState<string>("");
-  const [itemsText, setItemsText] = useState<string>("");
-  const { toast } = useToast();
-  const createTemplate = useCreateChecklistTemplate();
-  const bulkCreateItems = useBulkCreateChecklistItems();
-
-  const parsedItems: string[] = useMemo(
-    () => itemsText.split("\n").map((l) => l.trim()).filter(Boolean),
-    [itemsText],
-  );
-
-  const isCreating: boolean = createTemplate.isPending || bulkCreateItems.isPending;
-
-  const handleCreate = useCallback(async (): Promise<void> => {
-    const trimmedTitle: string = title.trim();
-    if (!trimmedTitle) return;
-    try {
-      const template = await createTemplate.mutateAsync({
-        storeId,
-        shift_id: shiftId,
-        position_id: positionId,
-        title: trimmedTitle,
-      });
-
-      if (parsedItems.length > 0) {
-        await bulkCreateItems.mutateAsync({
-          templateId: template.id,
-          items: parsedItems.map((itemTitle: string, idx: number) => ({
-            title: itemTitle,
-            sort_order: idx + 1,
-          })),
-        });
-      }
-
-      const msg: string = parsedItems.length > 0
-        ? `Checklist created with ${parsedItems.length} item${parsedItems.length > 1 ? "s" : ""}!`
-        : "Checklist template created!";
-      toast({ type: "success", message: msg });
-      setTitle("");
-      setItemsText("");
-      onClose();
-    } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to create checklist template.") });
-    }
-  }, [title, parsedItems, createTemplate, bulkCreateItems, storeId, shiftId, positionId, toast, onClose]);
-
-  const handleClose = useCallback((): void => {
-    setTitle("");
-    setItemsText("");
-    onClose();
-  }, [onClose]);
-
-  return (
-    <Modal isOpen={isOpen} onClose={handleClose} title="Create Checklist Template" size="lg">
-      <div className="space-y-4">
-        {/* Combo info */}
-        <div className="flex items-center gap-2 px-3 py-2.5 bg-surface border border-border rounded-lg">
-          <ClipboardList size={14} className="text-text-muted shrink-0" />
-          <span className="text-sm text-text-secondary">
-            {shiftName} — {positionName}
-          </span>
-        </div>
-
-        {/* Title input */}
-        <div>
-          <label
-            htmlFor="checklist-title"
-            className="block text-sm font-medium text-text mb-1.5"
-          >
-            Template Title
-          </label>
-          <input
-            id="checklist-title"
-            type="text"
-            placeholder={`e.g. ${shiftName} ${positionName} Checklist`}
-            value={title}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-              setTitle(e.target.value)
-            }
-            className="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-accent"
-            autoFocus
-          />
-        </div>
-
-        {/* Items textarea */}
-        <div>
-          <div className="flex items-center justify-between mb-1.5">
-            <label
-              htmlFor="checklist-items"
-              className="block text-sm font-medium text-text"
-            >
-              Checklist Items
-            </label>
-            {parsedItems.length > 0 && (
-              <span className="text-xs text-text-muted">
-                {parsedItems.length} item{parsedItems.length > 1 ? "s" : ""}
-              </span>
-            )}
-          </div>
-          <textarea
-            id="checklist-items"
-            placeholder={"Enter one item per line, e.g.\nClean tables\nRestock supplies\nCheck equipment"}
-            value={itemsText}
-            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-              setItemsText(e.target.value)
-            }
-            rows={6}
-            className="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-accent resize-none"
-          />
-        </div>
-
-        {/* Preview parsed items */}
-        {parsedItems.length > 0 && (
-          <div className="max-h-40 overflow-y-auto border border-border rounded-lg divide-y divide-border">
-            {parsedItems.map((item: string, idx: number) => (
-              <div key={idx} className="flex items-center gap-2.5 px-3 py-2">
-                <span className="text-xs text-text-muted w-5 text-right shrink-0">
-                  {idx + 1}.
-                </span>
-                <span className="text-sm text-text">{item}</span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Footer */}
-        <div className="flex justify-end gap-2 pt-1">
-          <Button variant="secondary" onClick={handleClose}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            onClick={handleCreate}
-            isLoading={isCreating}
-            disabled={!title.trim()}
-          >
-            {parsedItems.length > 0
-              ? `Create with ${parsedItems.length} Item${parsedItems.length > 1 ? "s" : ""}`
-              : "Create Template"}
-          </Button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
 // ─── Store Schedule Section ─────────────────────────────
 
 function StoreScheduleSection({
@@ -836,13 +673,6 @@ function StoreScheduleSection({
     positionId: string;
   } | null>(null);
   const [previewTemplate, setPreviewTemplate] = useState<ChecklistTemplate | null>(null);
-  const [createChecklistCombo, setCreateChecklistCombo] = useState<{
-    shiftId: string;
-    shiftName: string;
-    positionId: string;
-    positionName: string;
-  } | null>(null);
-
   /* ---- Mutations ---- */
   const deleteAssignment = useDeleteAssignment();
 
@@ -964,6 +794,9 @@ function StoreScheduleSection({
             const comboTemplates: ChecklistTemplate[] =
               templatesByCombo[comboKey] ?? [];
 
+            // Hide combos without checklists
+            if (comboTemplates.length === 0) return null;
+
             return (
               <div key={comboKey}>
                 {/* Combo header */}
@@ -971,7 +804,6 @@ function StoreScheduleSection({
                   <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">
                     {shift.name} — {pos.name}
                   </span>
-                  {comboTemplates.length > 0 ? (
                     <button
                       type="button"
                       onClick={() => setPreviewTemplate(comboTemplates[0])}
@@ -982,23 +814,6 @@ function StoreScheduleSection({
                         ? comboTemplates[0].title
                         : `${comboTemplates.length} checklists`}
                     </button>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setCreateChecklistCombo({
-                          shiftId: shift.id,
-                          shiftName: shift.name,
-                          positionId: pos.id,
-                          positionName: pos.name,
-                        })
-                      }
-                      className="flex items-center gap-1 text-[10px] text-warning hover:text-accent transition-colors cursor-pointer"
-                    >
-                      <PlusCircle size={10} />
-                      <span>Create checklist</span>
-                    </button>
-                  )}
                 </div>
 
                 {/* Worker cards row */}
@@ -1012,8 +827,7 @@ function StoreScheduleSection({
                       onClick={(assignment) => router.push(`/schedules/${assignment.id}`)}
                     />
                   ))}
-                  {comboTemplates.length > 0 ? (
-                    <button
+                  <button
                       type="button"
                       onClick={() =>
                         setBulkAssignCombo({
@@ -1026,12 +840,6 @@ function StoreScheduleSection({
                       <Plus size={16} />
                       <span className="text-sm">Assign</span>
                     </button>
-                  ) : (
-                    <div className="w-44 min-h-[96px] flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border/50 text-text-muted/50 cursor-not-allowed">
-                      <AlertTriangle size={14} />
-                      <span className="text-xs">Create checklist first</span>
-                    </div>
-                  )}
                 </div>
               </div>
             );
@@ -1080,16 +888,6 @@ function StoreScheduleSection({
         template={previewTemplate}
       />
 
-      {/* Create Checklist Modal */}
-      <CreateChecklistModal
-        isOpen={createChecklistCombo !== null}
-        onClose={() => setCreateChecklistCombo(null)}
-        storeId={store.id}
-        shiftId={createChecklistCombo?.shiftId ?? ""}
-        shiftName={createChecklistCombo?.shiftName ?? ""}
-        positionId={createChecklistCombo?.positionId ?? ""}
-        positionName={createChecklistCombo?.positionName ?? ""}
-      />
     </Card>
   );
 }
