@@ -1,5 +1,16 @@
 "use client";
 
+/**
+ * 대시보드 레이아웃 — 인증된 사용자 전용 레이아웃.
+ *
+ * 구조:
+ * - 데스크탑: 왼쪽 고정 사이드바(240px) + 오른쪽 메인 콘텐츠
+ * - 모바일: 상단 바(햄버거 메뉴) + 오버레이 사이드바
+ *
+ * 인증 체크: 토큰 없으면 /login으로 리다이렉트.
+ * 사용자 정보 없으면 fetchMe()로 자동 조회.
+ */
+
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Menu } from "lucide-react";
@@ -8,6 +19,7 @@ import { useSidebarStore } from "@/stores/sidebarStore";
 import { isAuthenticated } from "@/lib/auth";
 import { Sidebar, MobileSidebar } from "@/components/layout/Sidebar";
 
+/** 대시보드 레이아웃 — 사이드바 + 메인 콘텐츠 영역 */
 export default function DashboardLayout({
   children,
 }: {
@@ -17,6 +29,7 @@ export default function DashboardLayout({
   const { user, fetchMe } = useAuthStore();
   const toggle = useSidebarStore((s) => s.toggle);
 
+  // 인증 체크 — 토큰 없으면 로그인으로, 사용자 정보 없으면 조회
   useEffect(() => {
     if (!isAuthenticated()) {
       router.push("/login");

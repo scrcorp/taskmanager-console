@@ -1,7 +1,15 @@
+/**
+ * 루트 레이아웃 — Next.js App Router 최상위 레이아웃.
+ *
+ * HTML 구조를 정의하고 Providers(React Query, Theme 등)로 앱을 감쌉니다.
+ * suppressHydrationWarning: next-themes SSR 하이드레이션 경고 방지.
+ */
+
 import type { Metadata } from "next";
 import { Providers } from "./providers";
 import "./globals.css";
 
+/** SEO 메타데이터 — 브라우저 탭 제목 + 파비콘 설정 */
 export const metadata: Metadata = {
   title: "TaskManager Admin",
   description: "Employee Management Admin Console",
@@ -11,6 +19,7 @@ export const metadata: Metadata = {
   },
 };
 
+/** 루트 레이아웃 — html/body 태그 + Providers 래핑 */
 export default function RootLayout({
   children,
 }: {

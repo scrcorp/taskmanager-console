@@ -1,5 +1,15 @@
 "use client";
 
+/**
+ * 로그인 페이지 — 관리자 콘솔 인증 진입점.
+ *
+ * 기능:
+ * - 회사 코드(6자리) 설정/표시 — 조직 식별용
+ * - 아이디/비밀번호 입력 → POST /admin/auth/login
+ * - 에러 처리: 404(잘못된 회사코드), 401(인증 실패), 네트워크 오류
+ * - 로그인 성공 시 대시보드(/)로 리다이렉트
+ */
+
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/stores/authStore";
@@ -7,6 +17,7 @@ import { getCompanyCode } from "@/lib/auth";
 import { CompanyCodeModal } from "@/components/ui/CompanyCodeModal";
 import { AxiosError } from "axios";
 
+/** 로그인 페이지 — 회사코드 + 아이디/비밀번호 인증 */
 export default function LoginPage() {
   const router = useRouter();
   const { login, isLoading } = useAuthStore();
@@ -16,11 +27,13 @@ export default function LoginPage() {
   const [companyCode, setCompanyCode] = useState<string | null>(null);
   const [showCodeModal, setShowCodeModal] = useState(false);
 
+  // 마운트 시 localStorage에서 저장된 회사 코드 불러오기
   useEffect(() => {
     const saved = getCompanyCode();
     setCompanyCode(saved);
   }, []);
 
+  /** 로그인 폼 제출 — 입력값 검증 후 authStore.login 호출 */
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");

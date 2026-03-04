@@ -1,5 +1,16 @@
 "use client";
 
+/**
+ * 근무 배정 목록 페이지 — 스케줄 > 배정 리스트.
+ *
+ * 기능:
+ * - 매장/직원/기간/상태별 필터링
+ * - 배정 테이블 (직원, 매장, 교대, 직책, 날짜, 상태, 진행률)
+ * - 초과근무 경고 패널 (매장 선택 시 표시)
+ * - 완료 로그 페이지 이동 (날짜 필터 유지)
+ * - 페이지네이션 (20건/페이지)
+ */
+
 import React, { useState, useCallback, useEffect, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowLeft, AlertTriangle, FileSearch } from "lucide-react";
@@ -12,12 +23,14 @@ import type { OvertimeAlert } from "@/hooks/useOvertimeAlerts";
 import { formatFixedDate } from "@/lib/utils";
 import type { Assignment, Store, User } from "@/types";
 
+/** 상태별 뱃지 색상 매핑 */
 const statusBadgeVariant: Record<string, "default" | "warning" | "success"> = {
   assigned: "default",
   in_progress: "warning",
   completed: "success",
 };
 
+/** 상태별 표시 라벨 */
 const statusLabel: Record<string, string> = {
   assigned: "Assigned",
   in_progress: "In Progress",
@@ -26,6 +39,7 @@ const statusLabel: Record<string, string> = {
 
 const PER_PAGE: number = 20;
 
+/** 배정 목록 컨텐츠 — Suspense 내부에서 useSearchParams 사용 */
 function AssignmentsListContent(): React.ReactElement {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -59,6 +73,7 @@ function AssignmentsListContent(): React.ReactElement {
   const { data: stores } = useStores();
   const { data: users } = useUsers();
 
+  // 선택된 매장의 초과근무 경고 조회 (초과시간 > 0인 것만)
   const { data: overtimeAlerts } = useOvertimeAlerts(filterStoreId);
   const activeAlerts: OvertimeAlert[] = (overtimeAlerts ?? []).filter(
     (a: OvertimeAlert) => a.over_hours > 0,
@@ -143,6 +158,7 @@ function AssignmentsListContent(): React.ReactElement {
     [router],
   );
 
+  /** 완료 로그 페이지로 이동 — 현재 날짜 필터를 쿼리 파라미터로 전달 */
   const handleLogsClick = useCallback((): void => {
     const params = new URLSearchParams();
     if (filterDateFrom) params.set("from", filterDateFrom);

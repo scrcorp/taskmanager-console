@@ -1,5 +1,15 @@
 "use client";
 
+/**
+ * 체크리스트 완료 로그 페이지 — 스케줄 > 완료 이력 조회.
+ *
+ * 기능:
+ * - 매장/기간별 필터링 + 사용자 이름 검색
+ * - 정렬 가능한 테이블 (날짜, 매장, 완료자, 체크리스트 항목, 메모, 완료시각)
+ * - 권한 체크: AUDIT_LOG_READ 권한 필요
+ * - 페이지네이션 (20건/페이지)
+ */
+
 import React, { useState, useMemo, useEffect, Suspense } from "react";
 import { FileSearch, ChevronUp, ChevronDown, ArrowLeft, Search } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -17,12 +27,16 @@ import {
 } from "@/components/ui";
 import { formatFixedDate, formatDateTime } from "@/lib/utils";
 
+/** 정렬 방향 타입 */
 type SortDir = "asc" | "desc" | null;
+
+/** 현재 정렬 상태 — 컬럼 키 + 방향 */
 interface SortState {
   key: string;
   dir: SortDir;
 }
 
+/** 정렬 화살표 아이콘 — 활성 컬럼은 accent 색상으로 표시 */
 function SortArrows({ active, dir }: { active: boolean; dir: SortDir }) {
   return (
     <span className="inline-flex flex-col ml-1 -space-y-1">
@@ -36,6 +50,7 @@ function SortArrows({ active, dir }: { active: boolean; dir: SortDir }) {
   );
 }
 
+/** 완료 로그 컨텐츠 — Suspense 내부에서 useSearchParams 사용 */
 function CompletionLogContent(): React.ReactElement {
   const router = useRouter();
   const { hasPermission } = usePermissions();
@@ -74,6 +89,7 @@ function CompletionLogContent(): React.ReactElement {
   const total: number = data?.total ?? 0;
   const totalPages: number = Math.max(1, Math.ceil(total / perPage));
 
+  /** 정렬 토글 — asc → desc → 해제 순환 */
   const handleSort = (key: string) => {
     setSort((prev) => {
       if (prev.key !== key) return { key, dir: "asc" };
@@ -82,6 +98,7 @@ function CompletionLogContent(): React.ReactElement {
     });
   };
 
+  // 정렬 + 사용자 이름 검색 적용된 아이템 목록
   const sortedItems = useMemo(() => {
     let result = items;
     if (sort.key && sort.dir) {
