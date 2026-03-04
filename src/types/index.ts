@@ -777,6 +777,7 @@ export interface DailyReport {
   submitted_at: string | null;
   created_at: string;
   updated_at: string;
+  comment_count: number;
   sections: DailyReportSection[];
   comments: DailyReportComment[];
 }

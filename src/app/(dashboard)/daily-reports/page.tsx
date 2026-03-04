@@ -8,7 +8,7 @@
 
 import React, { useState, useMemo, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FileText, MapPin, Calendar, User } from "lucide-react";
+import { FileText, MapPin, Calendar, User, MessageSquare } from "lucide-react";
 import { useDailyReports } from "@/hooks/useDailyReports";
 import { useStores } from "@/hooks/useStores";
 import { Button, Card, Badge, ClearButton, LoadingSpinner, Pagination } from "@/components/ui";
@@ -212,8 +212,17 @@ function DailyReportsContent(): React.ReactElement {
                     </div>
                   </div>
 
-                  {/* Status badge */}
-                  <Badge variant={sBadge.variant}>{sBadge.label}</Badge>
+                  <div className="flex items-center gap-2">
+                    {/* Comment count */}
+                    {(report.comment_count ?? 0) > 0 && (
+                      <div className="flex items-center gap-1 text-accent">
+                        <MessageSquare size={13} />
+                        <span className="text-xs font-medium">{report.comment_count}</span>
+                      </div>
+                    )}
+                    {/* Status badge */}
+                    <Badge variant={sBadge.variant}>{sBadge.label}</Badge>
+                  </div>
                 </div>
               </Card>
             );
