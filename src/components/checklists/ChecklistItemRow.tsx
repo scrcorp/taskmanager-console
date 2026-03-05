@@ -131,13 +131,13 @@ export function ChecklistItemRow({
                 : review.result === "fail"
                   ? "X"
                   : review.result === "pending_re_review"
-                    ? "재검토"
+                    ? "Re-review"
                     : "△"}
             </Badge>
           )}
           {/* 재제출 횟수 뱃지 */}
           {!reviewMode && (item.resubmission_count ?? 0) > 0 && (
-            <Badge variant="accent">재제출 {item.resubmission_count}회</Badge>
+            <Badge variant="accent">Resubmitted {item.resubmission_count}x</Badge>
           )}
           {/* 말풍선 아이콘 */}
           {showChatButton && (

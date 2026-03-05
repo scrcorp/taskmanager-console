@@ -253,7 +253,7 @@ export function ChecklistInstanceDetail({
             {evidenceSummary.pendingReReview > 0 && (
               <span className="flex items-center gap-1.5 text-xs text-text-secondary">
                 <RotateCcw size={13} className="text-accent" />
-                {evidenceSummary.pendingReReview} 재검토
+                {evidenceSummary.pendingReReview} re-review
               </span>
             )}
             {evidenceSummary.missing > 0 && (

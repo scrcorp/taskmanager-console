@@ -57,7 +57,7 @@ function formatChatTime(isoString: string): string {
 function resultLabel(result: string): string {
   if (result === "pass") return "O";
   if (result === "fail") return "X";
-  if (result === "pending_re_review") return "재검토";
+  if (result === "pending_re_review") return "Re-review";
   return "△";
 }
 
