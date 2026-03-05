@@ -1,6 +1,6 @@
 # Employee Management Service — Admin (Next.js)
 
-> **IMPORTANT**: Before implementing any feature, read the parent `../CLAUDE.md` and relevant task docs in `../docs/tasks/`.
+> **IMPORTANT**: Before implementing any feature, read the parent `../CLAUDE.md` and relevant task docs in `../docs/02_plan/`.
 > Task documents are the Source of Truth for UI features, API integration, and permissions.
 > Do NOT change existing screen layouts, color palette, or navigation structure without explicit request.
 
