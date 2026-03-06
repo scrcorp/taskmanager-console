@@ -9,9 +9,15 @@ import type { Metadata } from "next";
 import { Providers } from "./providers";
 import "./globals.css";
 
+/** 환경별 브라우저 탭 prefix — production: 없음, staging: [STG], 기본: [DEV] */
+const env = process.env.NEXT_PUBLIC_APP_ENV;
+const envPrefix = env === 'production' ? ''
+  : env === 'staging' ? '[STG] '
+  : '[DEV] ';
+
 /** SEO 메타데이터 — 브라우저 탭 제목 + 파비콘 설정 */
 export const metadata: Metadata = {
-  title: "TaskManager Admin",
+  title: `${envPrefix}TaskManager Admin`,
   description: "Employee Management Admin Console",
   icons: {
     icon: "/favicon.ico",
