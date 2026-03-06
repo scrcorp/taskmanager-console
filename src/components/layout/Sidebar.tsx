@@ -71,6 +71,7 @@ const navItems: NavItem[] = [
     ],
   },
   { href: "/notifications", label: "Alerts", icon: Bell },
+  { href: "/settings", label: "Settings", icon: Settings },
 ];
 
 /** 사이드바 레이아웃 컴포넌트 — 내비게이션 + 사용자 프로필 + 로그아웃.

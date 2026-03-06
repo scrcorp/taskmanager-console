@@ -17,6 +17,7 @@ import {
   Trash2,
   ChevronRight,
   Clock,
+  Globe,
   Settings,
   Scale,
 } from "lucide-react";
@@ -63,6 +64,7 @@ import { SortableList } from "@/components/ui/SortableList";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useToast } from "@/components/ui/Toast";
 import { cn, parseApiError } from "@/lib/utils";
+import { TIMEZONE_OPTIONS } from "@/lib/timezones";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@/lib/permissions";
 import type {
@@ -280,6 +282,7 @@ export default function StoreDetailPage(): React.ReactElement {
   /* ---- Settings: Store Update -------------------------------------------- */
   const updateStore = useUpdateStore();
   const [maxWorkHoursWeekly, setMaxWorkHoursWeekly] = useState<string>("");
+  const [storeTimezone, setStoreTimezone] = useState<string>("");
 
   /* ---- Settings: Shift Presets ------------------------------------------- */
   const { data: shiftPresets, isLoading: presetsLoading } = useShiftPresets(storeId);
@@ -302,6 +305,7 @@ export default function StoreDetailPage(): React.ReactElement {
   useEffect(() => {
     if (store) {
       setMaxWorkHoursWeekly(store.max_work_hours_weekly?.toString() ?? "");
+      setStoreTimezone(store.timezone ?? "");
     }
   }, [store]);
 
@@ -848,6 +852,16 @@ export default function StoreDetailPage(): React.ReactElement {
       toast({ type: "error", message: parseApiError(err, "Failed to update max work hours.") });
     }
   }, [maxWorkHoursWeekly, updateStore, storeId, toast]);
+
+  /** 매장 타임존 저장 / Save store timezone */
+  const handleSaveTimezone = useCallback(async (): Promise<void> => {
+    try {
+      await updateStore.mutateAsync({ id: storeId, timezone: storeTimezone || null });
+      toast({ type: "success", message: "Timezone updated!" });
+    } catch (err) {
+      toast({ type: "error", message: parseApiError(err, "Failed to update timezone.") });
+    }
+  }, [storeTimezone, updateStore, storeId, toast]);
 
   /** 시프트 프리셋 생성 / Create shift preset */
   const handleCreatePreset = useCallback(async (): Promise<void> => {
@@ -1865,7 +1879,38 @@ export default function StoreDetailPage(): React.ReactElement {
             </div>
           </div>
 
-          {/* ---- Section 2: Shift Presets ---- */}
+          {/* ---- Section 2: Timezone ---- */}
+          <div className="bg-card border border-border rounded-xl p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Globe className="h-5 w-5 text-accent" />
+              <h2 className="text-lg font-bold text-text">Timezone</h2>
+            </div>
+            <div className="max-w-sm space-y-4">
+              <Select
+                label="Store Timezone"
+                placeholder="Use Organization Default"
+                options={TIMEZONE_OPTIONS}
+                value={storeTimezone}
+                onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                  setStoreTimezone(e.target.value)
+                }
+                disabled={!canUpdateSettings}
+              />
+              <div className="flex justify-end">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleSaveTimezone}
+                  isLoading={updateStore.isPending}
+                  disabled={!canUpdateSettings}
+                >
+                  Save
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* ---- Section 3: Shift Presets ---- */}
           <div className="bg-card border border-border rounded-xl p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">

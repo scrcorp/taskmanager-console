@@ -54,6 +54,7 @@ export const useStore = (
 interface CreateStoreData {
   name: string;
   address?: string;
+  timezone?: string | null;
 }
 
 /**
@@ -92,6 +93,7 @@ interface UpdateStoreData {
   address?: string;
   is_active?: boolean;
   max_work_hours_weekly?: number | null;
+  timezone?: string | null;
 }
 
 /**
