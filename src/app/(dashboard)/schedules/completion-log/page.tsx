@@ -26,6 +26,7 @@ import {
   ClearButton,
 } from "@/components/ui";
 import { formatFixedDate, formatDateTime } from "@/lib/utils";
+import { useTimezone } from "@/hooks/useTimezone";
 
 /** 정렬 방향 타입 */
 type SortDir = "asc" | "desc" | null;
@@ -54,6 +55,7 @@ function SortArrows({ active, dir }: { active: boolean; dir: SortDir }) {
 function CompletionLogContent(): React.ReactElement {
   const router = useRouter();
   const { hasPermission } = usePermissions();
+  const tz = useTimezone();
   const searchParams = useSearchParams();
 
   const [page, setPage] = useState<number>(1);
@@ -192,7 +194,7 @@ function CompletionLogContent(): React.ReactElement {
       sortable: true,
       render: (item) => (
         <span className="text-xs text-text-secondary whitespace-nowrap">
-          {item.completed_at ? formatDateTime(item.completed_at) : "-"}
+          {item.completed_at ? formatDateTime(item.completed_at, tz) : "-"}
         </span>
       ),
     },

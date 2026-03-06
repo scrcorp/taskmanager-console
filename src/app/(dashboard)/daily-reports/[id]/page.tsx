@@ -13,6 +13,7 @@ import { useDailyReport, useAddDailyReportComment, useDeleteDailyReport } from "
 import { Button, Card, Badge, LoadingSpinner, EmptyState, ConfirmDialog } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
 import { formatDate, formatFixedDate, parseApiError } from "@/lib/utils";
+import { useTimezone } from "@/hooks/useTimezone";
 import type { DailyReportSection, DailyReportComment } from "@/types";
 
 const statusBadge: Record<string, { label: string; variant: "success" | "warning" | "default" }> = {
@@ -29,6 +30,7 @@ export default function DailyReportDetailPage(): React.ReactElement {
   const params = useParams();
   const router = useRouter();
   const { toast } = useToast();
+  const tz = useTimezone();
 
   const reportId: string = params.id as string;
   const { data: report, isLoading } = useDailyReport(reportId);
@@ -144,7 +146,7 @@ export default function DailyReportDetailPage(): React.ReactElement {
             <div className="flex items-center gap-2">
               <Clock size={14} className="text-text-muted shrink-0" />
               <span className="text-sm text-text-secondary">
-                Submitted: {formatDate(report.submitted_at)}
+                Submitted: {formatDate(report.submitted_at, tz)}
               </span>
             </div>
           )}
@@ -194,7 +196,7 @@ export default function DailyReportDetailPage(): React.ReactElement {
                     {comment.user_name || "Unknown"}
                   </span>
                   <span className="text-xs text-text-muted">
-                    {formatDate(comment.created_at)}
+                    {formatDate(comment.created_at, tz)}
                   </span>
                 </div>
                 <p className="text-sm text-text-secondary">{comment.content}</p>

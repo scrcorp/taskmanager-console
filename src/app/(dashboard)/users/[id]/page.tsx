@@ -33,6 +33,7 @@ import { Badge, Modal, Select, ConfirmDialog } from "@/components/ui";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useToast } from "@/components/ui/Toast";
 import { formatDate, parseApiError } from "@/lib/utils";
+import { useTimezone } from "@/hooks/useTimezone";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@/lib/permissions";
 import type { User, Store, Role, UserStoreAssignment } from "@/types";
@@ -76,6 +77,7 @@ export default function UserDetailPage(): React.ReactElement {
   const userId: string = params.id as string;
   const { toast } = useToast();
   const { hasPermission } = usePermissions();
+  const tz = useTimezone();
   const canManageUsers = hasPermission(PERMISSIONS.USERS_UPDATE);
 
   /* ---- Data hooks -------------------------------------------------------- */
@@ -433,7 +435,7 @@ export default function UserDetailPage(): React.ReactElement {
                     Created
                   </span>
                   <span className="text-sm text-text-secondary">
-                    {formatDate(user.created_at)}
+                    {formatDate(user.created_at, tz)}
                   </span>
                 </div>
               </div>

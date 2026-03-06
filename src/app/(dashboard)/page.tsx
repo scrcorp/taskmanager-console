@@ -40,7 +40,8 @@ import {
 import { Card, Select, Badge, LoadingSpinner, Button } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
 import api from "@/lib/api";
-import { cn, formatDate, parseApiError } from "@/lib/utils";
+import { cn, formatDate, parseApiError, todayInTimezone } from "@/lib/utils";
+import { useTimezone } from "@/hooks/useTimezone";
 import type { Announcement, Store } from "@/types";
 
 // ─── Date Range Helpers ──────────────────────────────────
@@ -78,8 +79,6 @@ function getDateRange(range: DateRange): { dateFrom: string; dateTo: string } {
 }
 
 // ─── Helpers ────────────────────────────────────────────
-
-const today: string = new Date().toISOString().split("T")[0];
 
 /** 통계 카드 데이터 인터페이스 / Stat card data interface */
 interface StatCardData {
@@ -179,6 +178,8 @@ export default function DashboardPage(): React.ReactElement {
   const router = useRouter();
   useAuthStore();
   const { toast } = useToast();
+  const tz = useTimezone();
+  const today: string = todayInTimezone(tz);
 
   // ─── Export state ──────────────────────────────────
   const [isExporting, setIsExporting] = useState<boolean>(false);
@@ -307,11 +308,11 @@ export default function DashboardPage(): React.ReactElement {
       const response = await api.get("/admin/dashboard/export", {
         responseType: "blob",
       });
-      const today = new Date().toISOString().split("T")[0];
+      const exportDate = todayInTimezone(tz);
       const url = window.URL.createObjectURL(response.data);
       const link = document.createElement("a");
       link.href = url;
-      link.download = `dashboard_${today}.xlsx`;
+      link.download = `dashboard_${exportDate}.xlsx`;
       link.click();
       window.URL.revokeObjectURL(url);
       toast({ type: "success", message: "Dashboard exported." });
@@ -320,7 +321,7 @@ export default function DashboardPage(): React.ReactElement {
     } finally {
       setIsExporting(false);
     }
-  }, [toast]);
+  }, [toast, tz]);
 
   // ─── Date range button handler ────────────────────
   const handleDateRange = useCallback((range: DateRange) => {
@@ -677,7 +678,7 @@ export default function DashboardPage(): React.ReactElement {
                   </div>
                   <div className="flex-shrink-0 flex items-center gap-1 text-text-muted">
                     <Calendar className="h-3 w-3" />
-                    <span className="text-xs whitespace-nowrap">{formatDate(ann.created_at)}</span>
+                    <span className="text-xs whitespace-nowrap">{formatDate(ann.created_at, tz)}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-2 mt-2">

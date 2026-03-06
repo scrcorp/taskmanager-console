@@ -29,10 +29,12 @@ const statusLabel: Record<string, string> = {
 
 interface ChecklistInstanceDetailProps {
   instance: ChecklistInstance;
+  timezone?: string;
 }
 
 export function ChecklistInstanceDetail({
   instance,
+  timezone,
 }: ChecklistInstanceDetailProps): React.ReactElement {
   const { toast } = useToast();
   const upsertReview = useUpsertItemReview();
@@ -300,6 +302,7 @@ export function ChecklistInstanceDetail({
                 reviewMode={isReviewMode}
                 localReview={localReviews.get(item.item_index) ?? null}
                 onReviewChange={(r) => handleReviewChange(item.item_index, r)}
+                timezone={timezone}
               />
             ))}
           </div>

@@ -22,6 +22,7 @@ import {
   History,
 } from "lucide-react";
 import { useAttendance, useCorrectAttendance } from "@/hooks";
+import { useTimezone } from "@/hooks/useTimezone";
 import type { AttendanceCorrection } from "@/types";
 import {
   Button,
@@ -66,6 +67,7 @@ export default function AttendanceDetailPage(): React.ReactElement {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { toast } = useToast();
+  const tz = useTimezone();
 
   const { data: attendance, isLoading } = useAttendance(id);
   const correctAttendance = useCorrectAttendance();
@@ -189,7 +191,7 @@ export default function AttendanceDetailPage(): React.ReactElement {
             </div>
             <div className="text-text">
               {attendance.clock_in
-                ? formatDateTime(attendance.clock_in)
+                ? formatDateTime(attendance.clock_in, tz)
                 : "-"}
             </div>
             {attendance.clock_in_timezone && (
@@ -205,7 +207,7 @@ export default function AttendanceDetailPage(): React.ReactElement {
             </div>
             <div className="text-text">
               {attendance.break_start
-                ? formatDateTime(attendance.break_start)
+                ? formatDateTime(attendance.break_start, tz)
                 : "-"}
             </div>
           </div>
@@ -216,7 +218,7 @@ export default function AttendanceDetailPage(): React.ReactElement {
             </div>
             <div className="text-text">
               {attendance.break_end
-                ? formatDateTime(attendance.break_end)
+                ? formatDateTime(attendance.break_end, tz)
                 : "-"}
             </div>
           </div>
@@ -227,7 +229,7 @@ export default function AttendanceDetailPage(): React.ReactElement {
             </div>
             <div className="text-text">
               {attendance.clock_out
-                ? formatDateTime(attendance.clock_out)
+                ? formatDateTime(attendance.clock_out, tz)
                 : "-"}
             </div>
             {attendance.clock_out_timezone && (

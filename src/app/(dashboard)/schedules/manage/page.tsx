@@ -20,7 +20,8 @@ import { useSchedules } from "@/hooks/useSchedules";
 import { useStores } from "@/hooks/useStores";
 import { Button, Card, Badge } from "@/components/ui";
 import type { Schedule, Store } from "@/types";
-import { cn } from "@/lib/utils";
+import { cn, todayInTimezone } from "@/lib/utils";
+import { useTimezone } from "@/hooks/useTimezone";
 
 // ─── Date helpers ───────────────────────────────────────
 
@@ -107,7 +108,8 @@ function StoreWeekCalendar({
   onScheduleClick: (scheduleId: string) => void;
   onEmptyCellClick: (storeId: string, date: string) => void;
 }): React.ReactElement {
-  const today: string = toDateStr(new Date());
+  const tz = useTimezone();
+  const today: string = todayInTimezone(tz);
 
   const byDate: Record<string, Schedule[]> = useMemo(() => {
     const map: Record<string, Schedule[]> = {};
@@ -200,10 +202,11 @@ function StoreWeekCalendar({
 function ScheduleManageContent(): React.ReactElement {
   const router = useRouter();
   const searchParams = useSearchParams();
+  const tz = useTimezone();
   const [activeTab, setActiveTab] = useState<string>("all");
   const [selectedStoreId, setSelectedStoreId] = useState<string>("");
   const [selectedDate, setSelectedDate] = useState<string>(
-    () => searchParams.get("week") ?? new Date().toISOString().split("T")[0],
+    () => searchParams.get("week") ?? todayInTimezone(tz),
   );
 
   const { data: stores } = useStores();

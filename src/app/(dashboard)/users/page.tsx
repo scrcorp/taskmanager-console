@@ -20,6 +20,7 @@ import { Table, Badge, Modal, Select } from "@/components/ui";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useToast } from "@/components/ui/Toast";
 import { formatDate, parseApiError } from "@/lib/utils";
+import { useTimezone } from "@/hooks/useTimezone";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@/lib/permissions";
 import type { User, Store, Role } from "@/types";
@@ -73,6 +74,7 @@ export default function UsersPage(): React.ReactElement {
   const router = useRouter();
   const { toast } = useToast();
   const { hasPermission } = usePermissions();
+  const tz = useTimezone();
   const canManageUsers = hasPermission(PERMISSIONS.USERS_CREATE);
 
   /** 데이터 훅 / Data hooks */
@@ -223,12 +225,12 @@ export default function UsersPage(): React.ReactElement {
         hideOnMobile: true,
         render: (user: User) => (
           <span className="text-text-muted text-xs">
-            {formatDate(user.created_at)}
+            {formatDate(user.created_at, tz)}
           </span>
         ),
       },
     ],
-    [getRoleBadgeVariant],
+    [getRoleBadgeVariant, tz],
   );
 
   /** 고유 역할 이름 목록 / Unique role names from users */

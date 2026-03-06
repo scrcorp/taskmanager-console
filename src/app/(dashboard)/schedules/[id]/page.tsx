@@ -16,6 +16,7 @@ import { Button, Card, Badge, LoadingSpinner, EmptyState, ConfirmDialog } from "
 import { useToast } from "@/components/ui/Toast";
 import { formatFixedDate, parseApiError } from "@/lib/utils";
 import { ChecklistInstanceDetail } from "@/components/checklists/ChecklistInstanceDetail";
+import { useTimezone } from "@/hooks/useTimezone";
 
 const statusBadgeVariant: Record<string, "default" | "warning" | "success"> = {
   assigned: "default",
@@ -32,6 +33,7 @@ export default function AssignmentDetailPage(): React.ReactElement {
   const params = useParams();
   const router = useRouter();
   const { toast } = useToast();
+  const tz = useTimezone();
 
   const assignmentId: string = params.id as string;
   const { data: assignment, isLoading } = useAssignment(assignmentId);
@@ -140,7 +142,7 @@ export default function AssignmentDetailPage(): React.ReactElement {
       </Card>
 
       {/* Checklist with review mode */}
-      {instance && <ChecklistInstanceDetail instance={instance} />}
+      {instance && <ChecklistInstanceDetail instance={instance} timezone={tz} />}
 
       <ConfirmDialog
         isOpen={isDeleteOpen}

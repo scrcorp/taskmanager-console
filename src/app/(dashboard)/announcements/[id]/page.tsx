@@ -30,12 +30,14 @@ import {
 } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
 import { formatDate, parseApiError } from "@/lib/utils";
+import { useTimezone } from "@/hooks/useTimezone";
 import type { Announcement, Store } from "@/types";
 
 export default function AnnouncementDetailPage(): React.ReactElement {
   const params = useParams();
   const router = useRouter();
   const { toast } = useToast();
+  const tz = useTimezone();
 
   const announcementId: string = params.id as string;
   const { data: announcement, isLoading } = useAnnouncement(announcementId);
@@ -149,7 +151,7 @@ export default function AnnouncementDetailPage(): React.ReactElement {
                 {announcement.created_by_name}
               </span>
               <span className="text-xs text-text-muted">
-                {formatDate(announcement.created_at)}
+                {formatDate(announcement.created_at, tz)}
               </span>
               <Badge variant={announcement.store_name ? "accent" : "default"}>
                 {announcement.store_name ?? "All Stores"}
@@ -191,7 +193,7 @@ export default function AnnouncementDetailPage(): React.ReactElement {
             {reads.map((read) => (
               <li key={read.user_id} className="flex items-center justify-between py-2">
                 <span className="text-sm text-text">{read.user_name}</span>
-                <span className="text-xs text-text-muted">{formatDate(read.read_at)}</span>
+                <span className="text-xs text-text-muted">{formatDate(read.read_at, tz)}</span>
               </li>
             ))}
           </ul>

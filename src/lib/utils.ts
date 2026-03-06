@@ -54,17 +54,19 @@ export function formatFixedDateWithDay(dateStr: string): string {
  * @param dateStr - ISO 8601 UTC 문자열
  * @returns 포맷된 날짜 (예: "Feb 19, 2026")
  */
-export function formatDate(dateStr: string | null | undefined): string {
+export function formatDate(dateStr: string | null | undefined, timezone?: string): string {
   if (!dateStr) return "—";
   // Python datetime은 마이크로초(6자리)를 포함할 수 있음 → JS 호환을 위해 3자리로 정규화
   const normalized = dateStr.replace(/(\.\d{3})\d+/, "$1");
   const d = new Date(normalized);
   if (isNaN(d.getTime())) return "—";
-  return d.toLocaleDateString("en-US", {
+  const options: Intl.DateTimeFormatOptions = {
     month: "short",
     day: "numeric",
     year: "numeric",
-  });
+  };
+  if (timezone) options.timeZone = timezone;
+  return d.toLocaleDateString("en-US", options);
 }
 
 /** 감사 타임스탬프를 날짜+시간 포맷 — UTC를 로컬 타임존으로 변환.
@@ -72,17 +74,19 @@ export function formatDate(dateStr: string | null | undefined): string {
  * @param dateStr - ISO 8601 UTC 문자열
  * @returns 포맷된 날짜+시간 (예: "Feb 19, 3:30 PM")
  */
-export function formatDateTime(dateStr: string | null | undefined): string {
+export function formatDateTime(dateStr: string | null | undefined, timezone?: string): string {
   if (!dateStr) return "—";
   const normalized = dateStr.replace(/(\.\d{3})\d+/, "$1");
   const d = new Date(normalized);
   if (isNaN(d.getTime())) return "—";
-  return d.toLocaleString("en-US", {
+  const options: Intl.DateTimeFormatOptions = {
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-  });
+  };
+  if (timezone) options.timeZone = timezone;
+  return d.toLocaleString("en-US", options);
 }
 
 // ── 카테고리 C: 행위 타임스탬프 (Action Timestamp) ──────────────────
@@ -98,18 +102,22 @@ export function formatDateTime(dateStr: string | null | undefined): string {
 export function formatActionTime(
   dateStr: string,
   referenceDate?: string,
+  timezone?: string,
 ): string {
   const date = new Date(dateStr);
   const ref = referenceDate ? new Date(referenceDate) : new Date();
-  const sameDay =
-    date.getFullYear() === ref.getFullYear() &&
-    date.getMonth() === ref.getMonth() &&
-    date.getDate() === ref.getDate();
+
+  // When timezone is specified, compare dates in that timezone
+  const formatOpts: Intl.DateTimeFormatOptions = timezone ? { timeZone: timezone } : {};
+  const dateParts = new Intl.DateTimeFormat("en-US", { ...formatOpts, year: "numeric", month: "numeric", day: "numeric" }).format(date);
+  const refParts = new Intl.DateTimeFormat("en-US", { ...formatOpts, year: "numeric", month: "numeric", day: "numeric" }).format(ref);
+  const sameDay = dateParts === refParts;
 
   if (sameDay) {
     return date.toLocaleTimeString("en-US", {
       hour: "numeric",
       minute: "2-digit",
+      ...formatOpts,
     });
   }
   return date.toLocaleString("en-US", {
@@ -117,7 +125,18 @@ export function formatActionTime(
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
+    ...formatOpts,
   });
+}
+
+/** 타임존 기준 오늘 날짜를 YYYY-MM-DD 문자열로 반환.
+ *  timezone이 없으면 브라우저 로컬 기준.
+ */
+export function todayInTimezone(timezone?: string): string {
+  const now = new Date();
+  if (!timezone) return now.toISOString().split("T")[0];
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+  return parts; // en-CA → "YYYY-MM-DD"
 }
 
 /** 전체 아이템 수와 페이지당 아이템 수로 총 페이지 수 계산 */

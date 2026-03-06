@@ -13,6 +13,7 @@ import {
   User,
 } from "lucide-react";
 import { useTask, useUpdateTask, useDeleteTask, useTaskEvidences } from "@/hooks";
+import { useTimezone } from "@/hooks/useTimezone";
 import type { TaskEvidence } from "@/types";
 import {
   Button,
@@ -37,6 +38,7 @@ export default function TaskDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const { toast } = useToast();
+  const tz = useTimezone();
 
   const { data: task, isLoading } = useTask(id);
   const { data: evidences, isLoading: evidencesLoading } = useTaskEvidences(id);
@@ -205,7 +207,7 @@ export default function TaskDetailPage() {
               <Clock size={12} className="inline mr-1" />
               Created At
             </div>
-            <div className="text-text">{formatDateTime(task.created_at)}</div>
+            <div className="text-text">{formatDateTime(task.created_at, tz)}</div>
           </div>
         </div>
 

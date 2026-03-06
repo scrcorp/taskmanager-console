@@ -28,6 +28,7 @@ interface ChecklistItemRowProps {
   index: number;
   workDate: string;
   instanceId: string;
+  timezone?: string;
   reviewMode?: boolean;
   localReview?: LocalReview | null;
   onReviewChange?: (review: LocalReview | null) => void;
@@ -44,6 +45,7 @@ export function ChecklistItemRow({
   index,
   workDate,
   instanceId,
+  timezone,
   reviewMode = false,
   localReview,
   onReviewChange,
@@ -165,7 +167,7 @@ export function ChecklistItemRow({
           <div className="mt-1.5 ml-6">
             <div className="flex items-center gap-2 text-xs text-text-muted">
               <Clock size={11} />
-              <span>{formatActionTime(item.completed_at ?? "", workDate)}</span>
+              <span>{formatActionTime(item.completed_at ?? "", workDate, timezone)}</span>
               {item.completed_by_name && (
                 <>
                   <span>by</span>

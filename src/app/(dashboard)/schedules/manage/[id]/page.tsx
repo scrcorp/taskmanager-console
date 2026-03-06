@@ -37,6 +37,7 @@ import { Button, Card, Badge, Modal, Select } from "@/components/ui";
 import { ConfirmDialog } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
 import { formatFixedDate, formatDateTime, parseApiError } from "@/lib/utils";
+import { useTimezone } from "@/hooks/useTimezone";
 
 /** 상태별 배지 색상 매핑 — Status badge variant mapping */
 const statusBadge: Record<
@@ -55,6 +56,7 @@ export default function ScheduleDetailPage(): React.ReactElement {
   const id: string = params.id as string;
   const { toast } = useToast();
   const { hasPermission } = usePermissions();
+  const tz = useTimezone();
 
   const { data: schedule, isLoading } = useSchedule(id);
   const submitSchedule = useSubmitSchedule();
@@ -273,7 +275,7 @@ export default function ScheduleDetailPage(): React.ReactElement {
                 </p>
                 {schedule.approved_at && (
                   <p className="text-xs text-text-muted mt-0.5">
-                    {formatDateTime(schedule.approved_at)}
+                    {formatDateTime(schedule.approved_at, tz)}
                   </p>
                 )}
               </div>

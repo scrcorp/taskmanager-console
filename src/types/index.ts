@@ -20,6 +20,7 @@ export interface UserMe {
   role_priority: number;
   organization_id: string;
   organization_name: string;
+  organization_timezone: string;
   company_code: string;
   is_active: boolean;
   permissions: string[];
@@ -31,6 +32,7 @@ export interface Organization {
   name: string;
   code: string;
   is_active: boolean;
+  timezone: string;
   created_at: string;
 }
 
@@ -43,6 +45,7 @@ export interface Store {
   is_active: boolean;
   operating_hours: Record<string, unknown> | null;
   max_work_hours_weekly: number | null;
+  timezone: string | null;
   created_at: string;
 }
 
@@ -274,6 +277,7 @@ export interface Notification {
 export interface StoreCreate {
   name: string;
   address?: string | null;
+  timezone?: string | null;
 }
 
 /** 매장 수정 요청 타입.
@@ -283,6 +287,7 @@ export interface StoreUpdate {
   address?: string | null;
   is_active?: boolean;
   max_work_hours_weekly?: number | null;
+  timezone?: string | null;
 }
 
 /** 역할 생성 요청 타입.

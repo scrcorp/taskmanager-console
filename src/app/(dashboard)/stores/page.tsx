@@ -33,10 +33,13 @@ import { useCreateShift } from "@/hooks/useShifts";
 import { useCreatePosition } from "@/hooks/usePositions";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
+import { Select } from "@/components/ui/Select";
 import { Table, Badge, Modal, ConfirmDialog } from "@/components/ui";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useToast } from "@/components/ui/Toast";
 import { formatDate, parseApiError } from "@/lib/utils";
+import { useTimezone } from "@/hooks/useTimezone";
+import { TIMEZONE_OPTIONS } from "@/lib/timezones";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@/lib/permissions";
 import type { Store } from "@/types";
@@ -51,6 +54,7 @@ interface FormItem {
 interface StoreFormData {
   name: string;
   address: string;
+  timezone: string;
   shifts: FormItem[];
   positions: FormItem[];
 }
@@ -68,6 +72,7 @@ interface Column<T> {
 const INITIAL_FORM: StoreFormData = {
   name: "",
   address: "",
+  timezone: "",
   shifts: [],
   positions: [],
 };
@@ -132,6 +137,7 @@ export default function StoresPage(): React.ReactElement {
 
   /** 권한 훅 / Permission hook */
   const { hasPermission } = usePermissions();
+  const tz = useTimezone();
   const canWrite = hasPermission(PERMISSIONS.STORES_CREATE);
 
   /** 매장 데이터 훅 / Store data hooks */
@@ -255,6 +261,7 @@ export default function StoresPage(): React.ReactElement {
       const store = await createStore.mutateAsync({
         name: createForm.name.trim(),
         address: createForm.address.trim() || undefined,
+        timezone: createForm.timezone || null,
       });
 
       const storeId: string = store.id;
@@ -292,7 +299,7 @@ export default function StoresPage(): React.ReactElement {
     (store: Store, e: React.MouseEvent): void => {
       e.stopPropagation();
       setEditingStoreId(store.id);
-      setEditForm({ name: store.name, address: store.address || "", shifts: [], positions: [] });
+      setEditForm({ name: store.name, address: store.address || "", timezone: store.timezone || "", shifts: [], positions: [] });
       setIsEditOpen(true);
     },
     [],
@@ -306,6 +313,7 @@ export default function StoresPage(): React.ReactElement {
         id: editingStoreId,
         name: editForm.name.trim(),
         address: editForm.address.trim() || undefined,
+        timezone: editForm.timezone || null,
       });
       toast({ type: "success", message: "Store updated successfully!" });
       setIsEditOpen(false);
@@ -383,7 +391,7 @@ export default function StoresPage(): React.ReactElement {
         hideOnMobile: true,
         render: (store: Store) => (
           <span className="text-text-muted text-xs">
-            {formatDate(store.created_at)}
+            {formatDate(store.created_at, tz)}
           </span>
         ),
       },
@@ -417,7 +425,7 @@ export default function StoresPage(): React.ReactElement {
           ]
         : []),
     ],
-    [handleOpenEdit, handleOpenDelete, canWrite],
+    [handleOpenEdit, handleOpenDelete, canWrite, tz],
   );
 
   if (isLoading) {
@@ -501,6 +509,18 @@ export default function StoresPage(): React.ReactElement {
               setCreateForm((prev: StoreFormData) => ({
                 ...prev,
                 address: e.target.value,
+              }))
+            }
+          />
+          <Select
+            label="Timezone"
+            placeholder="Use Organization Default"
+            options={TIMEZONE_OPTIONS}
+            value={createForm.timezone}
+            onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+              setCreateForm((prev: StoreFormData) => ({
+                ...prev,
+                timezone: e.target.value,
               }))
             }
           />
@@ -671,6 +691,18 @@ export default function StoresPage(): React.ReactElement {
               setEditForm((prev: StoreFormData) => ({
                 ...prev,
                 address: e.target.value,
+              }))
+            }
+          />
+          <Select
+            label="Timezone"
+            placeholder="Use Organization Default"
+            options={TIMEZONE_OPTIONS}
+            value={editForm.timezone}
+            onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+              setEditForm((prev: StoreFormData) => ({
+                ...prev,
+                timezone: e.target.value,
               }))
             }
           />

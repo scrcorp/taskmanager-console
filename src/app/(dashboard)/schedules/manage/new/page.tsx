@@ -18,7 +18,8 @@ import { useShiftPresets } from "@/hooks/useShiftPresets";
 import { useCreateSchedule } from "@/hooks/useSchedules";
 import { Button, Card } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
-import { parseApiError } from "@/lib/utils";
+import { parseApiError, todayInTimezone } from "@/lib/utils";
+import { useTimezone } from "@/hooks/useTimezone";
 import type { Store, User, Shift, Position, ShiftPreset } from "@/types";
 
 export default function NewSchedulePage(): React.ReactElement {
@@ -33,10 +34,11 @@ function NewScheduleContent(): React.ReactElement {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { toast } = useToast();
+  const tz = useTimezone();
   const createSchedule = useCreateSchedule();
 
   // URL 쿼리 파라미터에서 초기값 로드 — Pre-fill from query params
-  const initialDate: string = searchParams.get("date") ?? new Date().toISOString().split("T")[0];
+  const initialDate: string = searchParams.get("date") ?? todayInTimezone(tz);
   const initialStoreId: string = searchParams.get("store_id") ?? "";
 
   // 폼 상태 — Form state

@@ -13,10 +13,12 @@ import { ChevronLeft } from "lucide-react";
 import { useChecklistInstance } from "@/hooks/useChecklistInstances";
 import { Button, LoadingSpinner, EmptyState } from "@/components/ui";
 import { ChecklistInstanceDetail } from "@/components/checklists/ChecklistInstanceDetail";
+import { useTimezone } from "@/hooks/useTimezone";
 
 export default function ChecklistInstanceDetailPage(): React.ReactElement {
   const params = useParams();
   const router = useRouter();
+  const tz = useTimezone();
 
   const instanceId: string = params.id as string;
   const { data: instance, isLoading } = useChecklistInstance(instanceId);
@@ -54,7 +56,7 @@ export default function ChecklistInstanceDetailPage(): React.ReactElement {
         Back to Checklist Instances
       </Button>
 
-      <ChecklistInstanceDetail instance={instance} />
+      <ChecklistInstanceDetail instance={instance} timezone={tz} />
     </div>
   );
 }

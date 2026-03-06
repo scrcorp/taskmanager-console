@@ -31,6 +31,7 @@ import {
 } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
 import { formatDate, parseApiError } from "@/lib/utils";
+import { useTimezone } from "@/hooks/useTimezone";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@/lib/permissions";
 import type { Announcement, Store } from "@/types";
@@ -41,6 +42,7 @@ export default function AnnouncementsPage(): React.ReactElement {
   const router = useRouter();
   const { toast } = useToast();
   const { hasPermission } = usePermissions();
+  const tz = useTimezone();
   const canManageAnnouncements = hasPermission(PERMISSIONS.ANNOUNCEMENTS_CREATE);
 
   // -- Pagination state --
@@ -101,7 +103,7 @@ export default function AnnouncementsPage(): React.ReactElement {
     {
       key: "created_at",
       header: "Created",
-      render: (item: Announcement): React.ReactNode => formatDate(item.created_at),
+      render: (item: Announcement): React.ReactNode => formatDate(item.created_at, tz),
     },
     ...(canManageAnnouncements
       ? [

@@ -29,6 +29,7 @@ import {
 } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
 import { formatDate, parseApiError } from "@/lib/utils";
+import { useTimezone } from "@/hooks/useTimezone";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@/lib/permissions";
 import type { EvalTemplate, Evaluation as EvalType } from "@/types";
@@ -38,6 +39,7 @@ const PER_PAGE: number = 20;
 export default function EvaluationsPage(): React.ReactElement {
   const { toast } = useToast();
   const { hasPermission } = usePermissions();
+  const tz = useTimezone();
   const isGMOrAbove = hasPermission(PERMISSIONS.EVALUATIONS_CREATE);
 
   const [activeTab, setActiveTab] = useState<"templates" | "evaluations">("templates");
@@ -163,7 +165,7 @@ export default function EvaluationsPage(): React.ReactElement {
                 </Badge>
               ),
               item_count: t.item_count,
-              created_at: formatDate(t.created_at),
+              created_at: formatDate(t.created_at, tz),
               ...(isGMOrAbove
                 ? {
                     actions: (
@@ -208,7 +210,7 @@ export default function EvaluationsPage(): React.ReactElement {
                   {e.status}
                 </Badge>
               ),
-              created_at: formatDate(e.created_at),
+              created_at: formatDate(e.created_at, tz),
               actions: e.status === "draft" ? (
                 <Button
                   size="sm"
