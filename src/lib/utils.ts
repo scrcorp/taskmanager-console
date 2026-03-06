@@ -129,6 +129,16 @@ export function formatActionTime(
   });
 }
 
+/** 타임존 기준 오늘 날짜를 YYYY-MM-DD 문자열로 반환.
+ *  timezone이 없으면 브라우저 로컬 기준.
+ */
+export function todayInTimezone(timezone?: string): string {
+  const now = new Date();
+  if (!timezone) return now.toISOString().split("T")[0];
+  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+  return parts; // en-CA → "YYYY-MM-DD"
+}
+
 /** 전체 아이템 수와 페이지당 아이템 수로 총 페이지 수 계산 */
 export function getTotalPages(total: number, perPage: number): number {
   return Math.max(1, Math.ceil(total / perPage));

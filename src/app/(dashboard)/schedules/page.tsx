@@ -34,7 +34,8 @@ import type {
   ChecklistItem,
   Assignment,
 } from "@/types";
-import { cn, formatFixedDateWithDay, parseApiError } from "@/lib/utils";
+import { cn, formatFixedDateWithDay, parseApiError, todayInTimezone } from "@/lib/utils";
+import { useTimezone } from "@/hooks/useTimezone";
 
 // ─── View mode types ────────────────────────────────────
 
@@ -906,7 +907,8 @@ function WeekView({
   onDayClick: (dateStr: string) => void;
 }): React.ReactElement {
   const router = useRouter();
-  const today: string = toDateStr(new Date());
+  const tz = useTimezone();
+  const today: string = todayInTimezone(tz);
 
   // Fetch all assignments for the week
   const { data: weekData, isLoading } = useAssignments({
@@ -1048,9 +1050,10 @@ function MonthView({
   selectedStoreId: string;
   onDayClick: (dateStr: string) => void;
 }): React.ReactElement {
+  const tz = useTimezone();
   const d = new Date(dateStr + "T00:00:00");
   const currentMonth: number = d.getMonth();
-  const today: string = toDateStr(new Date());
+  const today: string = todayInTimezone(tz);
   const weeks: string[][] = getMonthCalendar(dateStr);
   const monthStart: string = weeks[0][0];
   const monthEnd: string = weeks[5][6];
@@ -1171,10 +1174,11 @@ function MonthView({
 
 export default function SchedulesPage(): React.ReactElement {
   const router = useRouter();
+  const tz = useTimezone();
 
   const [viewMode, setViewMode] = useState<ViewMode>("day");
   const [selectedDate, setSelectedDate] = useState<string>(
-    () => new Date().toISOString().split("T")[0],
+    () => todayInTimezone(tz),
   );
   const [selectedStoreId, setSelectedStoreId] = useState<string>("");
 
