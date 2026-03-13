@@ -180,6 +180,7 @@ export default function StoreDetailPage(): React.ReactElement {
   const queryClient = useQueryClient();
   const { hasPermission } = usePermissions();
   const canManageStoreConfig = hasPermission(PERMISSIONS.STORES_UPDATE);
+  const canCreateStoreConfig = hasPermission(PERMISSIONS.STORES_CREATE);
   const canManageChecklists = hasPermission(PERMISSIONS.CHECKLISTS_CREATE);
   const canUpdateSettings = hasPermission(PERMISSIONS.STORES_UPDATE);
 
@@ -1034,7 +1035,13 @@ export default function StoreDetailPage(): React.ReactElement {
                 <Button
                   variant="primary"
                   size="sm"
-                  onClick={() => setIsShiftCreateOpen(true)}
+                  onClick={() => {
+                    if (!canCreateStoreConfig) {
+                      toast({ type: "info", message: "Only the Owner can create shifts. Please contact your Owner." });
+                      return;
+                    }
+                    setIsShiftCreateOpen(true);
+                  }}
                 >
                   <Plus className="h-4 w-4" />
                   Add Shift
@@ -1060,7 +1067,13 @@ export default function StoreDetailPage(): React.ReactElement {
                 <Button
                   variant="primary"
                   size="sm"
-                  onClick={() => setIsPosCreateOpen(true)}
+                  onClick={() => {
+                    if (!canCreateStoreConfig) {
+                      toast({ type: "info", message: "Only the Owner can create positions. Please contact your Owner." });
+                      return;
+                    }
+                    setIsPosCreateOpen(true);
+                  }}
                 >
                   <Plus className="h-4 w-4" />
                   Add Position
