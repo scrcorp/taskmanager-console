@@ -43,6 +43,35 @@ export const useChecklistInstances = (
   });
 };
 
+export interface ReviewSummary {
+  total_items: number;
+  completed_items: number;
+  reviewed_items: number;
+  pass: number;
+  fail: number;
+  caution: number;
+  pending_re_review: number;
+  unreviewed: number;
+  total_assignments: number;
+  fully_approved_assignments: number;
+}
+
+export const useReviewSummary = (
+  filters: { store_id?: string; date_from?: string; date_to?: string } = {},
+): UseQueryResult<ReviewSummary, Error> => {
+  const params: Record<string, string> = {};
+  if (filters.store_id) params.store_id = filters.store_id;
+  if (filters.date_from) params.date_from = filters.date_from;
+  if (filters.date_to) params.date_to = filters.date_to;
+  return useQuery<ReviewSummary, Error>({
+    queryKey: ["review-summary", params],
+    queryFn: async () => {
+      const res: AxiosResponse<ReviewSummary> = await api.get("/admin/checklist-instances/review-summary", { params });
+      return res.data;
+    },
+  });
+};
+
 /**
  * 체크리스트 인스턴스 상세 조회 훅 -- 특정 인스턴스의 상세 정보를 가져옵니다.
  *

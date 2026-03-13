@@ -1,1435 +1,1051 @@
 "use client";
 
 /**
- * 배정 스케줄 페이지 (기본 화면) -- 매장별 Shift×Position 조합으로 워커를 배치합니다.
+ * 스케줄 Overview 페이지 — 스케줄 엔트리 + 배정 현황을 Day/Week/Month/List 뷰로 조회.
  *
- * Schedule page (default view) showing all Store → Shift × Position combos with
- * worker cards and inline assignment creation. Supports multiple
- * workers per combo.
+ * Shows schedule entries (from manage page) and work assignments (with checklist progress)
+ * across Day, Week, Month calendar views and a List view with flexible date range.
  */
 
 import React, { useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, List, FileText, X, ChevronLeft, ChevronRight, Calendar, Edit, Trash2, Search, Camera, Type, Settings } from "lucide-react";
-import { useStores } from "@/hooks/useStores";
-import { useUsers } from "@/hooks/useUsers";
-import { useShifts } from "@/hooks/useShifts";
-import { usePositions } from "@/hooks/usePositions";
-import { useChecklistTemplates, useChecklistItems } from "@/hooks/useChecklists";
 import {
-  useAssignments,
-  useCreateAssignment,
-  useDeleteAssignment,
-  useBulkCreateAssignments,
-  useRecentAssignmentUsers,
-} from "@/hooks/useAssignments";
-import { Button, Card, Badge, Modal, ConfirmDialog } from "@/components/ui";
-import { useToast } from "@/components/ui/Toast";
-import type {
-  Store,
-  User,
-  Shift,
-  Position,
-  ChecklistTemplate,
-  ChecklistItem,
-  Assignment,
-} from "@/types";
-import { cn, formatFixedDateWithDay, parseApiError, todayInTimezone } from "@/lib/utils";
-import { useTimezone } from "@/hooks/useTimezone";
+  ChevronLeft,
+  ChevronRight,
+  Calendar,
+  List,
+  ChevronDown,
+  ChevronUp,
+} from "lucide-react";
+import { useStores } from "@/hooks/useStores";
+import { useWorkRoles } from "@/hooks/useWorkRoles";
+import { useAssignments } from "@/hooks/useAssignments";
+import { useSchedules } from "@/hooks/useSchedules";
+import { useReviewSummary } from "@/hooks/useChecklistInstances";
+import { Card, Badge } from "@/components/ui";
+import { cn } from "@/lib/utils";
+import type { Store, Assignment, WorkRole } from "@/types";
 
-// ─── View mode types ────────────────────────────────────
+// ─── View types ─────────────────────────────────────
 
-type ViewMode = "day" | "week" | "month";
+type CalView = "day" | "week" | "month";
+type MainView = "calendar" | "list";
+type ListPreset = "today" | "week" | "month" | "custom";
+type DisplayStatus = "not_started" | "in_progress" | "in_review";
 
-// ─── Date helpers ───────────────────────────────────────
+function getDisplayStatus(a: Assignment): DisplayStatus {
+  if (a.completed_items === 0) return "not_started";
+  if (a.total_items > 0 && a.completed_items >= a.total_items) return "in_review";
+  return "in_progress";
+}
+
+
+// ─── Date helpers ───────────────────────────────────
 
 function toDateStr(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function shiftDate(dateStr: string, days: number): string {
-  const d = new Date(dateStr + "T00:00:00");
-  d.setDate(d.getDate() + days);
-  return toDateStr(d);
+function addDays(d: Date, n: number): Date {
+  const r = new Date(d);
+  r.setDate(r.getDate() + n);
+  return r;
 }
 
-/** 주의 일요일~토요일 날짜 배열 반환 (Return Sun-Sat date array for the week) */
-function getWeekDays(dateStr: string): string[] {
-  const d = new Date(dateStr + "T00:00:00");
-  const dayOfWeek = d.getDay(); // 0=Sun, 1=Mon, ...
-  const sunday = new Date(d);
-  sunday.setDate(d.getDate() - dayOfWeek);
-  return Array.from({ length: 7 }, (_, i) => {
-    const day = new Date(sunday);
-    day.setDate(sunday.getDate() + i);
-    return toDateStr(day);
-  });
+function getWeekStart(d: Date): Date {
+  const r = new Date(d);
+  const day = r.getDay();
+  r.setDate(r.getDate() - day);
+  r.setHours(0, 0, 0, 0);
+  return r;
 }
 
-/** 월 달력 그리드 반환: 6×7 배열 (Return 6×7 month calendar grid) */
-function getMonthCalendar(dateStr: string): string[][] {
-  const d = new Date(dateStr + "T00:00:00");
-  const year = d.getFullYear();
-  const month = d.getMonth();
-  const firstDay = new Date(year, month, 1);
-  const dayOfWeek = firstDay.getDay(); // 0=Sun
-  const startOffset = -dayOfWeek;
-  const start = new Date(firstDay);
-  start.setDate(firstDay.getDate() + startOffset);
-
-  const weeks: string[][] = [];
-  const cursor = new Date(start);
-  for (let w = 0; w < 6; w++) {
-    const week: string[] = [];
-    for (let d = 0; d < 7; d++) {
-      week.push(toDateStr(cursor));
-      cursor.setDate(cursor.getDate() + 1);
-    }
-    weeks.push(week);
-  }
-  return weeks;
+function getWeekDays(sun: Date): string[] {
+  return Array.from({ length: 7 }, (_, i) => toDateStr(addDays(sun, i)));
 }
 
-/** 날짜 포맷: "Mon", "Tue" 등 (Format short day name) */
-function shortDayName(dateStr: string): string {
-  const d = new Date(dateStr + "T00:00:00");
-  return d.toLocaleDateString("en-US", { weekday: "short" });
+function shortDay(ds: string): string {
+  return new Date(ds + "T00:00:00").toLocaleDateString("en-US", { weekday: "short" });
 }
 
-/** 날짜 포맷: "2/24" (Format MM/DD) */
-function shortDate(dateStr: string): string {
-  const d = new Date(dateStr + "T00:00:00");
+function shortDate(ds: string): string {
+  const d = new Date(ds + "T00:00:00");
   return `${d.getMonth() + 1}/${d.getDate()}`;
 }
 
-/** 월 이름 포맷: "February 2026" (Format month name) */
-function monthYearLabel(dateStr: string): string {
-  const d = new Date(dateStr + "T00:00:00");
-  return d.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+function longDate(ds: string): string {
+  return new Date(ds + "T00:00:00").toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    weekday: "short",
+  });
 }
 
-/** 주 범위 라벨: "Feb 24 - Mar 2, 2026" */
-function weekRangeLabel(weekDays: string[]): string {
-  const start = new Date(weekDays[0] + "T00:00:00");
-  const end = new Date(weekDays[6] + "T00:00:00");
-  const startStr = start.toLocaleDateString("en-US", { month: "short", day: "numeric" });
-  const endStr = end.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
-  return `${startStr} - ${endStr}`;
+function dayLabel(d: Date): string {
+  return d.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    weekday: "short",
+  });
 }
 
-// ─── Status config ──────────────────────────────────────
+function weekLabel(days: string[]): string {
+  const s = new Date(days[0] + "T00:00:00");
+  const e = new Date(days[6] + "T00:00:00");
+  const o: Intl.DateTimeFormatOptions = { month: "short", day: "numeric" };
+  return `${s.toLocaleDateString("en-US", o)} – ${e.toLocaleDateString("en-US", { ...o, year: "numeric" })}`;
+}
 
-const statusConfig: Record<
-  string,
-  { label: string; variant: "default" | "warning" | "success" }
-> = {
-  assigned: { label: "Pending", variant: "default" },
-  in_progress: { label: "Active", variant: "warning" },
-  completed: { label: "Done", variant: "success" },
-};
+function monthLabel(y: number, m: number): string {
+  return new Date(y, m).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+}
 
-const progressColor: Record<string, string> = {
-  assigned: "bg-text-muted",
-  in_progress: "bg-accent",
-  completed: "bg-success",
-};
+function getMonthRange(y: number, m: number): { from: string; to: string } {
+  const first = `${y}-${String(m + 1).padStart(2, "0")}-01`;
+  const lastDay = new Date(y, m + 1, 0).getDate();
+  const last = `${y}-${String(m + 1).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
+  return { from: first, to: last };
+}
 
-// ─── Worker Card ────────────────────────────────────────
+function getListPresetRange(preset: ListPreset): { from: string; to: string } {
+  const now = new Date();
+  const todayStr = toDateStr(now);
+  if (preset === "today") return { from: todayStr, to: todayStr };
+  if (preset === "week") {
+    const sun = getWeekStart(now);
+    return { from: toDateStr(sun), to: toDateStr(addDays(sun, 6)) };
+  }
+  // month
+  return getMonthRange(now.getFullYear(), now.getMonth());
+}
 
-function WorkerCard({
-  assignment,
-  onReassign,
-  onDelete,
-  onClick,
-}: {
-  assignment: Assignment;
-  onReassign: (assignment: Assignment) => void;
-  onDelete: (assignment: Assignment) => void;
-  onClick: (assignment: Assignment) => void;
-}): React.ReactElement {
-  const pct: number =
-    assignment.total_items > 0
-      ? Math.round(
-          (assignment.completed_items / assignment.total_items) * 100,
-        )
-      : 0;
-  const cfg = statusConfig[assignment.status] ?? statusConfig.assigned;
-  const bar: string = progressColor[assignment.status] ?? "bg-accent";
+// ─── Component ──────────────────────────────────────
+
+export default function ScheduleOverviewPage(): React.ReactElement {
+  const router = useRouter();
+
+  // View state
+  const [mainView, setMainView] = useState<MainView>("calendar");
+  const [calView, setCalView] = useState<CalView>("week");
+  const [currentDate, setCurrentDate] = useState<Date>(() => new Date());
+  const [weekStart, setWeekStart] = useState<Date>(() => getWeekStart(new Date()));
+  const [monthYear, setMonthYear] = useState<{ year: number; month: number }>(() => ({
+    year: new Date().getFullYear(),
+    month: new Date().getMonth(),
+  }));
+
+  // Store selection
+  const { data: stores } = useStores();
+  const [storeId, setStoreId] = useState<string>("");
+
+  // List view date range
+  const [listPreset, setListPreset] = useState<ListPreset>("week");
+  const [listFrom, setListFrom] = useState<string>(() => getListPresetRange("week").from);
+  const [listTo, setListTo] = useState<string>(() => getListPresetRange("week").to);
+
+  // List sort
+  const [sortKey, setSortKey] = useState<string>("work_date");
+  const [sortAsc, setSortAsc] = useState<boolean>(true);
+
+  // Auto-select first store
+  const effectiveStoreId = storeId || stores?.[0]?.id || "";
+
+  // Date range for data fetching
+  const dateRange = useMemo(() => {
+    if (mainView === "list") return { from: listFrom, to: listTo };
+    if (calView === "day") {
+      const ds = toDateStr(currentDate);
+      return { from: ds, to: ds };
+    }
+    if (calView === "week") {
+      const days = getWeekDays(weekStart);
+      return { from: days[0], to: days[6] };
+    }
+    return getMonthRange(monthYear.year, monthYear.month);
+  }, [mainView, calView, currentDate, weekStart, monthYear, listFrom, listTo]);
+
+  // Fetch data
+  const { data: workRoles } = useWorkRoles(effectiveStoreId || undefined);
+  const { data: assignmentsData, isLoading: assignmentsLoading } = useAssignments({
+    store_id: effectiveStoreId || undefined,
+    date_from: dateRange.from,
+    date_to: dateRange.to,
+    status: "assigned",
+    per_page: 500,
+  });
+
+  // Also fetch in_progress and completed for overview
+  const { data: inProgressData } = useAssignments({
+    store_id: effectiveStoreId || undefined,
+    date_from: dateRange.from,
+    date_to: dateRange.to,
+    status: "in_progress",
+    per_page: 500,
+  });
+  const { data: completedData } = useAssignments({
+    store_id: effectiveStoreId || undefined,
+    date_from: dateRange.from,
+    date_to: dateRange.to,
+    status: "completed",
+    per_page: 500,
+  });
+
+  // Schedule entries — manage 페이지에서 생성한 항목도 표시
+  const { data: entriesData, isLoading: entriesLoading } = useSchedules({
+    store_id: effectiveStoreId || undefined,
+    date_from: dateRange.from,
+    date_to: dateRange.to,
+    per_page: 500,
+  });
+  const isLoading = assignmentsLoading || entriesLoading;
+
+  // Map schedule entries → Assignment-like objects for unified display
+  // Schedule entries from manage page that don't yet have a linked work_assignment
+  const entryAssignments = useMemo((): Assignment[] => {
+    const scheduleEntries = entriesData?.items ?? [];
+    const roles = workRoles ?? [];
+    return scheduleEntries
+      .filter((e) => e.status !== "cancelled")
+      .map((entry) => {
+        const role = roles.find((r) => r.id === entry.work_role_id);
+        return {
+          id: `se_${entry.id}`,
+          store_id: entry.store_id,
+          store_name: entry.store_name || "",
+          shift_id: role?.shift_id || "",
+          shift_name: role?.shift_name || "",
+          shift_sort_order: role?.sort_order || 0,
+          position_id: role?.position_id || "",
+          position_name: role?.position_name || "",
+          user_id: entry.user_id,
+          user_name: entry.user_name || "?",
+          work_date: entry.work_date,
+          status: "assigned" as const,
+          total_items: 0,
+          completed_items: 0,
+          created_at: entry.created_at,
+        };
+      });
+  }, [entriesData, workRoles]);
+
+  const allAssignments = useMemo(() => [
+    ...(assignmentsData?.items ?? []),
+    ...(inProgressData?.items ?? []),
+    ...(completedData?.items ?? []),
+    ...entryAssignments,
+  ], [assignmentsData, inProgressData, completedData, entryAssignments]);
+
+  // Review summary from server
+  const { data: reviewSummary } = useReviewSummary({
+    store_id: effectiveStoreId || undefined,
+    date_from: dateRange.from,
+    date_to: dateRange.to,
+  });
+
+  const activeRoles = useMemo(
+    () => (workRoles ?? []).filter((r) => r.is_active),
+    [workRoles],
+  );
+
+  // ─── Navigation ─────────────────────────────────
+
+  const goToday = useCallback(() => {
+    const now = new Date();
+    setCurrentDate(new Date(now));
+    setWeekStart(getWeekStart(now));
+    setMonthYear({ year: now.getFullYear(), month: now.getMonth() });
+  }, []);
+
+  const goPrev = useCallback(() => {
+    if (calView === "day") setCurrentDate((d) => addDays(d, -1));
+    else if (calView === "week") setWeekStart((d) => addDays(d, -7));
+    else setMonthYear((m) => {
+      const nm = m.month - 1;
+      return nm < 0 ? { year: m.year - 1, month: 11 } : { year: m.year, month: nm };
+    });
+  }, [calView]);
+
+  const goNext = useCallback(() => {
+    if (calView === "day") setCurrentDate((d) => addDays(d, 1));
+    else if (calView === "week") setWeekStart((d) => addDays(d, 7));
+    else setMonthYear((m) => {
+      const nm = m.month + 1;
+      return nm > 11 ? { year: m.year + 1, month: 0 } : { year: m.year, month: nm };
+    });
+  }, [calView]);
+
+  const dateLabel = useMemo(() => {
+    if (calView === "day") return dayLabel(currentDate);
+    if (calView === "week") return weekLabel(getWeekDays(weekStart));
+    return monthLabel(monthYear.year, monthYear.month);
+  }, [calView, currentDate, weekStart, monthYear]);
+
+  // ─── Summary stats ──────────────────────────────
+
+  const summary = useMemo(() => {
+    const total = allAssignments.length;
+    const rv = reviewSummary;
+    // Assignment: completed = all items approved, not started = 0 items checked, rest = in progress
+    const fullyApproved = rv?.fully_approved_assignments ?? 0;
+    const notStarted = allAssignments.filter((a) => a.completed_items === 0).length;
+    const inProgress = total - fullyApproved - notStarted;
+    const pct = total > 0 ? Math.round((fullyApproved / total) * 100) : 0;
+    // Item completion = approved (pass) / total items
+    const totalItems = rv?.total_items ?? 0;
+    const passCount = rv?.pass ?? 0;
+    const itemPct = totalItems > 0 ? Math.round((passCount / totalItems) * 100) : 0;
+    return { total, completed: fullyApproved, inProgress: Math.max(0, inProgress), notStarted, pct,
+      totalItems, passCount, itemPct,
+      pass: passCount, fail: rv?.fail ?? 0, caution: rv?.caution ?? 0,
+      unreviewed: rv?.unreviewed ?? 0,
+    };
+  }, [allAssignments, reviewSummary]);
+
+  // Range label for summary
+  const rangeLabel = useMemo(() => {
+    if (dateRange.from === dateRange.to) return longDate(dateRange.from);
+    return `${shortDate(dateRange.from)} – ${shortDate(dateRange.to)}`;
+  }, [dateRange]);
+
+  // ─── List preset handler ────────────────────────
+
+  const handlePresetChange = useCallback((preset: ListPreset) => {
+    setListPreset(preset);
+    if (preset !== "custom") {
+      const range = getListPresetRange(preset);
+      setListFrom(range.from);
+      setListTo(range.to);
+    }
+  }, []);
+
+  const handleListFromChange = useCallback((v: string) => {
+    setListFrom(v);
+    setListPreset("custom");
+  }, []);
+
+  const handleListToChange = useCallback((v: string) => {
+    setListTo(v);
+    setListPreset("custom");
+  }, []);
+
+  // ─── Sort handler ──────────────────────────────
+
+  const handleSort = useCallback((key: string) => {
+    setSortKey((prev) => {
+      if (prev === key) {
+        setSortAsc((a) => !a);
+        return key;
+      }
+      setSortAsc(true);
+      return key;
+    });
+  }, []);
+
+  // ─── Navigate to detail ─────────────────────────
+
+  const goToDetail = useCallback(
+    (id: string) => router.push(`/schedules/${id}`),
+    [router],
+  );
+
+  // ─── Click month day → switch to day view ───────
+
+  const goToDay = useCallback((dateStr: string) => {
+    setCurrentDate(new Date(dateStr + "T00:00:00"));
+    setCalView("day");
+  }, []);
+
+  // ─── Render ─────────────────────────────────────
 
   return (
-    <div
-      className="w-52 p-3.5 bg-card rounded-xl border border-border space-y-2.5 group relative cursor-pointer hover:border-accent/50 transition-colors"
-      onClick={() => onClick(assignment)}
-    >
-      {/* Action buttons - visible on hover */}
-      <div className="absolute top-2 right-2 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onReassign(assignment); }}
-          className="p-1 rounded-md text-text-muted hover:text-text hover:bg-surface-hover transition-colors"
-          aria-label={`Reassign ${assignment.user_name}`}
-        >
-          <Edit className="h-3.5 w-3.5" />
-        </button>
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onDelete(assignment); }}
-          className="p-1 rounded-md text-text-muted hover:text-danger hover:bg-danger-muted transition-colors"
-          aria-label={`Remove ${assignment.user_name}`}
-        >
-          <Trash2 className="h-3.5 w-3.5" />
-        </button>
+    <div>
+      {/* Header */}
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-extrabold text-text">Schedule Overview</h1>
       </div>
-      <p className="text-sm font-semibold text-text truncate pr-12">
-        {assignment.user_name}
+
+      {/* Summary */}
+      <p className="text-xs text-text-muted uppercase tracking-wider font-semibold mb-2">
+        Summary — {rangeLabel}
       </p>
-      <div className="w-full h-1.5 bg-surface rounded-full overflow-hidden">
-        <div
-          className={cn("h-full rounded-full transition-all", bar)}
-          style={{ width: `${pct}%` }}
-        />
+      <div className="space-y-4 mb-6">
+        {/* Assignment */}
+        <div>
+          <p className="text-[10px] text-text-muted uppercase tracking-wider font-semibold mb-2">Assignment</p>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <PctCard label="Completion" sub={`${summary.completed}/${summary.total}`} pct={summary.pct} />
+            <MiniCard label="Not Started" value={summary.notStarted} color="text-text-muted" dot="bg-text-muted" />
+            <MiniCard label="In Progress" value={summary.inProgress} color="text-blue-400" dot="bg-blue-400" />
+            <MiniCard label="Completed" value={summary.completed} color="text-success" dot="bg-success" />
+          </div>
+        </div>
+
+        <div className="border-t border-border" />
+
+        {/* Checklist Items */}
+        <div>
+          <p className="text-[10px] text-text-muted uppercase tracking-wider font-semibold mb-2">Checklist Items</p>
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+            <PctCard label="Completion" sub={`${summary.pass}/${summary.totalItems}`} pct={summary.itemPct} />
+            <MiniCard label="Pending" value={summary.unreviewed} color="text-text-muted" dot="bg-text-muted" />
+            <MiniCard label="Rejected" value={summary.fail} color="text-danger" dot="bg-danger" />
+            <MiniCard label="Caution" value={summary.caution} color="text-warning" dot="bg-warning" />
+            <MiniCard label="Approved" value={summary.pass} color="text-success" dot="bg-success" />
+          </div>
+        </div>
       </div>
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-text-secondary">
-          {assignment.completed_items}/{assignment.total_items}
-        </span>
-        <Badge variant={cfg.variant}>{cfg.label}</Badge>
+
+      {/* Store + View */}
+      <div className="flex items-center justify-between gap-4 mb-1.5">
+        <p className="text-[10px] text-text-muted uppercase tracking-wider font-semibold">Store</p>
+        <p className="text-[10px] text-text-muted uppercase tracking-wider font-semibold">View</p>
+      </div>
+      <div className="flex items-center justify-between gap-4 mb-4">
+        <div className="flex gap-1 overflow-x-auto min-w-0">
+          {(stores ?? []).map((s: Store) => (
+            <button
+              key={s.id}
+              onClick={() => setStoreId(s.id)}
+              className={cn(
+                "px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors",
+                s.id === effectiveStoreId
+                  ? "bg-accent text-white"
+                  : "bg-surface text-text-secondary hover:text-text hover:bg-surface-hover",
+              )}
+            >
+              {s.name}
+            </button>
+          ))}
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+        {/* Calendar sub-view toggle */}
+        {mainView === "calendar" && (
+          <div className="flex bg-surface rounded-lg p-0.5">
+            {(["day", "week", "month"] as CalView[]).map((v) => (
+              <button
+                key={v}
+                onClick={() => setCalView(v)}
+                className={cn(
+                  "px-3 py-1 rounded-md text-xs font-medium capitalize transition-colors",
+                  calView === v
+                    ? "bg-accent text-white"
+                    : "text-text-secondary hover:text-text",
+                )}
+              >
+                {v}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Calendar / List toggle */}
+        <div className="flex bg-surface rounded-lg p-0.5">
+          <button
+            onClick={() => setMainView("calendar")}
+            className={cn(
+              "p-1.5 rounded-md transition-colors",
+              mainView === "calendar"
+                ? "bg-accent text-white"
+                : "text-text-secondary hover:text-text",
+            )}
+            title="Calendar"
+          >
+            <Calendar size={16} />
+          </button>
+          <button
+            onClick={() => setMainView("list")}
+            className={cn(
+              "p-1.5 rounded-md transition-colors",
+              mainView === "list"
+                ? "bg-accent text-white"
+                : "text-text-secondary hover:text-text",
+            )}
+            title="List"
+          >
+            <List size={16} />
+          </button>
+        </div>
+        </div>
+      </div>
+
+      {/* Date Navigation — hidden in list mode */}
+      {mainView === "calendar" && (
+        <div className="flex items-center gap-3 mb-4">
+          <button
+            onClick={goPrev}
+            className="p-1.5 rounded-lg text-text-secondary hover:text-text hover:bg-surface-hover transition-colors"
+          >
+            <ChevronLeft size={18} />
+          </button>
+          <span className="text-sm font-semibold text-text min-w-[200px] text-center">
+            {dateLabel}
+          </span>
+          <button
+            onClick={goNext}
+            className="p-1.5 rounded-lg text-text-secondary hover:text-text hover:bg-surface-hover transition-colors"
+          >
+            <ChevronRight size={18} />
+          </button>
+          <button
+            onClick={goToday}
+            className="px-3 py-1 rounded-lg text-xs font-medium bg-surface text-text-secondary hover:text-text hover:bg-surface-hover transition-colors"
+          >
+            Today
+          </button>
+        </div>
+      )}
+
+      {/* List Date Range Filter */}
+      {mainView === "list" && (
+        <div className="flex flex-wrap items-center gap-3 mb-4">
+          <select
+            value={listPreset}
+            onChange={(e) => handlePresetChange(e.target.value as ListPreset)}
+            className="bg-surface border border-border rounded-lg px-3 py-1.5 text-sm text-text"
+          >
+            <option value="today">Today</option>
+            <option value="week">This Week</option>
+            <option value="month">This Month</option>
+            <option value="custom">Custom</option>
+          </select>
+          <div className="flex items-center gap-2">
+            <input
+              type="date"
+              value={listFrom}
+              onChange={(e) => handleListFromChange(e.target.value)}
+              className="bg-surface border border-border rounded-lg px-3 py-1.5 text-sm text-text"
+            />
+            <span className="text-text-muted text-sm">–</span>
+            <input
+              type="date"
+              value={listTo}
+              onChange={(e) => handleListToChange(e.target.value)}
+              className="bg-surface border border-border rounded-lg px-3 py-1.5 text-sm text-text"
+            />
+          </div>
+          <span className="text-xs text-text-muted ml-auto">
+            {allAssignments.length} assignments
+          </span>
+        </div>
+      )}
+
+      {/* Assignments */}
+      {isLoading ? (
+        <div className="text-center py-20 text-text-muted">Loading...</div>
+      ) : mainView === "calendar" ? (
+        calView === "day" ? (
+          <DayView
+            roles={activeRoles}
+            assignments={allAssignments}
+            date={toDateStr(currentDate)}
+            onDetailClick={goToDetail}
+          />
+        ) : calView === "week" ? (
+          <WeekView
+            roles={activeRoles}
+            assignments={allAssignments}
+            weekStart={weekStart}
+            onDetailClick={goToDetail}
+          />
+        ) : (
+          <MonthView
+            assignments={allAssignments}
+            year={monthYear.year}
+            month={monthYear.month}
+            onDayClick={goToDay}
+          />
+        )
+      ) : (
+        <ListView
+          assignments={allAssignments}
+          sortKey={sortKey}
+          sortAsc={sortAsc}
+          onSort={handleSort}
+          onDetailClick={goToDetail}
+        />
+      )}
+    </div>
+  );
+}
+
+// ─── Percentage Card ────────────────────────────────
+
+function PctCard({ label, sub, pct }: { label: string; sub: string; pct: number }) {
+  const c = pct >= 80
+    ? { border: "border-success/20", bg: "bg-success-muted", text: "text-success", bar: "bg-success" }
+    : pct >= 50
+      ? { border: "border-warning/20", bg: "bg-warning-muted", text: "text-warning", bar: "bg-warning" }
+      : { border: "border-danger/20", bg: "bg-danger-muted", text: "text-danger", bar: "bg-danger" };
+  return (
+    <div className={cn("rounded-xl border p-4 flex flex-col justify-between", c.border, c.bg)}>
+      <div>
+        <div className={cn("text-3xl font-extrabold", c.text)}>{pct}%</div>
+        <div className="text-xs text-text-secondary mt-1">{label} · {sub}</div>
+      </div>
+      <div className="mt-3 h-2 bg-surface rounded-full overflow-hidden">
+        <div className={cn("h-full rounded-full transition-all", c.bar)} style={{ width: `${pct}%` }} />
       </div>
     </div>
   );
 }
 
-// ─── Bulk Assign Modal ──────────────────────────────────
+// ─── Mini Card ──────────────────────────────────────
 
-function BulkAssignModal({
-  isOpen,
-  onClose,
-  storeId,
-  shiftId,
-  positionId,
+function MiniCard({
+  label,
+  value,
+  color,
+  dot,
+}: {
+  label: string;
+  value: number;
+  color: string;
+  dot: string;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card p-3">
+      <div className="flex items-center gap-1.5 mb-1">
+        <div className={cn("w-2 h-2 rounded-full", dot)} />
+        <span className="text-[11px] text-text-muted font-medium">{label}</span>
+      </div>
+      <div className={cn("text-xl font-bold", color)}>{value}</div>
+    </div>
+  );
+}
+
+// ─── Progress Bar (inline) ──────────────────────────
+
+function ProgressBar({
+  completed,
+  total,
+  size = "sm",
+}: {
+  completed: number;
+  total: number;
+  size?: "sm" | "xs";
+}) {
+  const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const status = completed === 0 ? "pending" : completed >= total ? "done" : "active";
+  const barColor = status === "done" ? "bg-success" : status === "active" ? "bg-accent" : "bg-text-muted";
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <div className={cn("rounded-full overflow-hidden bg-surface", size === "sm" ? "w-16 h-1.5" : "w-10 h-1")}>
+        <div className={cn("h-full rounded-full", barColor)} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="text-[10px] text-text-muted whitespace-nowrap">
+        {completed}/{total}
+      </span>
+    </div>
+  );
+}
+
+// ─── Status Badge ───────────────────────────────────
+
+function StatusBadge({ completedItems, totalItems }: { completedItems: number; totalItems: number }) {
+  if (completedItems === 0) return <Badge variant="default">Not Started</Badge>;
+  if (totalItems > 0 && completedItems >= totalItems) return <Badge variant="accent">In Review</Badge>;
+  return <Badge variant="accent">In Progress</Badge>;
+}
+
+// ─── Day View ───────────────────────────────────────
+
+function DayView({
+  roles,
+  assignments,
   date,
-  users,
-  existingAssignments,
-  recentUserIds,
+  onDetailClick,
 }: {
-  isOpen: boolean;
-  onClose: () => void;
-  storeId: string;
-  shiftId: string;
-  positionId: string;
+  roles: WorkRole[];
+  assignments: Assignment[];
   date: string;
-  users: User[];
-  existingAssignments: Assignment[];
-  recentUserIds: Set<string>;
-}): React.ReactElement {
-  const [searchQuery, setSearchQuery] = useState<string>("");
-  const [selectedIds, setSelectedIds] = useState<string[]>([]);
-  const { toast } = useToast();
-  const bulkCreate = useBulkCreateAssignments();
+  onDetailClick: (id: string) => void;
+}) {
+  const dayAssignments = assignments.filter((a) => a.work_date === date);
 
-  const assignedUserIds: Set<string> = useMemo(
-    () => new Set(existingAssignments.map((a: Assignment) => a.user_id)),
-    [existingAssignments],
-  );
-
-  // Sort: staff first, then recently assigned first within each group
-  const sortedAndFilteredUsers: User[] = useMemo(() => {
-    let list: User[] = users;
-    if (searchQuery.trim()) {
-      const q: string = searchQuery.toLowerCase();
-      list = list.filter((u: User) => u.full_name.toLowerCase().includes(q));
-    }
-    return [...list].sort((a: User, b: User) => {
-      // Already assigned always at bottom
-      const aAssigned: boolean = assignedUserIds.has(a.id);
-      const bAssigned: boolean = assignedUserIds.has(b.id);
-      if (aAssigned !== bAssigned) return aAssigned ? 1 : -1;
-      // Recent users first
-      const aRecent: boolean = recentUserIds.has(a.id);
-      const bRecent: boolean = recentUserIds.has(b.id);
-      if (aRecent !== bRecent) return aRecent ? -1 : 1;
-      // Higher role_priority first: staff(4) → supervisor(3) → manager(2) → admin(1)
-      if (a.role_priority !== b.role_priority) return b.role_priority - a.role_priority;
-      // Alphabetical
-      return a.full_name.localeCompare(b.full_name);
-    });
-  }, [users, searchQuery, assignedUserIds, recentUserIds]);
-
-  const toggleUser = useCallback((userId: string): void => {
-    setSelectedIds((prev: string[]) =>
-      prev.includes(userId)
-        ? prev.filter((id: string) => id !== userId)
-        : [...prev, userId],
-    );
-  }, []);
-
-  const handleAssign = useCallback(async (): Promise<void> => {
-    if (selectedIds.length === 0) return;
-    try {
-      await bulkCreate.mutateAsync({
-        store_id: storeId,
-        shift_id: shiftId,
-        position_id: positionId,
-        user_ids: selectedIds,
-        work_date: date,
-      });
-      toast({
-        type: "success",
-        message: `${selectedIds.length} worker(s) assigned!`,
-      });
-      setSelectedIds([]);
-      setSearchQuery("");
-      onClose();
-    } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to assign workers.") });
-    }
-  }, [selectedIds, bulkCreate, storeId, shiftId, positionId, date, toast, onClose]);
-
-  const handleClose = useCallback((): void => {
-    setSelectedIds([]);
-    setSearchQuery("");
-    onClose();
-  }, [onClose]);
-
-  return (
-    <Modal isOpen={isOpen} onClose={handleClose} title="Assign Workers" size="lg">
-      <div className="space-y-4">
-        {/* Search */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
-          <input
-            type="text"
-            placeholder="Search by name..."
-            value={searchQuery}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-              setSearchQuery(e.target.value)
-            }
-            className="w-full pl-9 pr-3 py-2 text-sm bg-surface border border-border rounded-lg text-text placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-accent"
-          />
-        </div>
-
-        {/* Worker list */}
-        <div className="max-h-64 overflow-y-auto border border-border rounded-lg divide-y divide-border">
-          {sortedAndFilteredUsers.length === 0 ? (
-            <p className="text-sm text-text-muted text-center py-4">
-              No workers found.
-            </p>
-          ) : (
-            sortedAndFilteredUsers.map((user: User) => {
-              const isAssigned: boolean = assignedUserIds.has(user.id);
-              const isSelected: boolean = selectedIds.includes(user.id);
-              const isRecent: boolean = recentUserIds.has(user.id);
-              return (
-                <label
-                  key={user.id}
-                  className={cn(
-                    "flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors",
-                    isAssigned
-                      ? "opacity-50 cursor-not-allowed bg-surface"
-                      : "hover:bg-surface-hover",
-                    isSelected && !isAssigned && "bg-accent/5",
-                  )}
-                >
-                  <input
-                    type="checkbox"
-                    checked={isSelected || isAssigned}
-                    disabled={isAssigned}
-                    onChange={() => !isAssigned && toggleUser(user.id)}
-                    className="accent-accent"
-                  />
-                  <span className="text-sm text-text flex-1">
-                    {user.full_name}
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    {isRecent && !isAssigned && (
-                      <Badge variant="warning">Recent</Badge>
-                    )}
-                    <Badge variant="default">{user.role_name}</Badge>
-                    {isAssigned && <Badge variant="default">Assigned</Badge>}
-                  </span>
-                </label>
-              );
-            })
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="flex items-center justify-between pt-2">
-          <span className="text-xs text-text-muted">
-            {selectedIds.length} selected
-          </span>
-          <div className="flex gap-2">
-            <Button variant="secondary" onClick={handleClose}>
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              onClick={handleAssign}
-              isLoading={bulkCreate.isPending}
-              disabled={selectedIds.length === 0}
-            >
-              {selectedIds.length > 0
-                ? `Assign ${selectedIds.length} Worker${selectedIds.length > 1 ? "s" : ""}`
-                : "Assign"}
-            </Button>
-          </div>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-// ─── Reassign Modal ─────────────────────────────────────
-
-function ReassignModal({
-  isOpen,
-  onClose,
-  assignment,
-  users,
-  existingUserIds,
-  recentUserIds,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  assignment: Assignment | null;
-  users: User[];
-  existingUserIds: Set<string>;
-  recentUserIds: Set<string>;
-}): React.ReactElement {
-  const [searchQuery, setSearchQuery] = useState<string>("");
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null);
-  const [isProcessing, setIsProcessing] = useState<boolean>(false);
-  const { toast } = useToast();
-  const deleteAssignment = useDeleteAssignment();
-  const createAssignment = useCreateAssignment();
-
-  const sortedAndFilteredUsers: User[] = useMemo(() => {
-    let list: User[] = users.filter(
-      (u: User) => u.id !== assignment?.user_id,
-    );
-    if (searchQuery.trim()) {
-      const q: string = searchQuery.toLowerCase();
-      list = list.filter((u: User) =>
-        u.full_name.toLowerCase().includes(q),
-      );
-    }
-    return [...list].sort((a: User, b: User) => {
-      // Already assigned always at bottom
-      const aAssigned: boolean = existingUserIds.has(a.id);
-      const bAssigned: boolean = existingUserIds.has(b.id);
-      if (aAssigned !== bAssigned) return aAssigned ? 1 : -1;
-      // Recent users first
-      const aRecent: boolean = recentUserIds.has(a.id);
-      const bRecent: boolean = recentUserIds.has(b.id);
-      if (aRecent !== bRecent) return aRecent ? -1 : 1;
-      // Higher role_priority first: staff(4) → supervisor(3) → manager(2) → admin(1)
-      if (a.role_priority !== b.role_priority) return b.role_priority - a.role_priority;
-      // Alphabetical
-      return a.full_name.localeCompare(b.full_name);
-    });
-  }, [users, searchQuery, assignment, existingUserIds, recentUserIds]);
-
-  const handleReassign = useCallback(async (): Promise<void> => {
-    if (!assignment || !selectedUserId) return;
-    setIsProcessing(true);
-    try {
-      await deleteAssignment.mutateAsync(assignment.id);
-      await createAssignment.mutateAsync({
-        store_id: assignment.store_id,
-        shift_id: assignment.shift_id,
-        position_id: assignment.position_id,
-        user_id: selectedUserId,
-        work_date: assignment.work_date,
-      });
-      toast({ type: "success", message: "Worker reassigned!" });
-      setSelectedUserId(null);
-      setSearchQuery("");
-      onClose();
-    } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to reassign worker.") });
-    } finally {
-      setIsProcessing(false);
-    }
-  }, [assignment, selectedUserId, deleteAssignment, createAssignment, toast, onClose]);
-
-  const handleClose = useCallback((): void => {
-    setSelectedUserId(null);
-    setSearchQuery("");
-    onClose();
-  }, [onClose]);
-
-  return (
-    <Modal isOpen={isOpen} onClose={handleClose} title="Reassign Worker">
-      <div className="space-y-4">
-        {/* Current worker */}
-        {assignment && (
-          <div className="px-3 py-2.5 bg-surface border border-border rounded-lg">
-            <p className="text-xs text-text-muted mb-0.5">Current Worker</p>
-            <p className="text-sm font-medium text-text">
-              {assignment.user_name}
-            </p>
-          </div>
-        )}
-
-        {/* Search */}
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
-          <input
-            type="text"
-            placeholder="Search new worker..."
-            value={searchQuery}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-              setSearchQuery(e.target.value)
-            }
-            className="w-full pl-9 pr-3 py-2 text-sm bg-surface border border-border rounded-lg text-text placeholder:text-text-muted focus:outline-none focus:ring-1 focus:ring-accent"
-          />
-        </div>
-
-        {/* Worker list */}
-        <div className="max-h-48 overflow-y-auto border border-border rounded-lg divide-y divide-border">
-          {sortedAndFilteredUsers.length === 0 ? (
-            <p className="text-sm text-text-muted text-center py-4">
-              No workers found.
-            </p>
-          ) : (
-            sortedAndFilteredUsers.map((user: User) => {
-              const alreadyAssigned: boolean = existingUserIds.has(user.id);
-              const isRecent: boolean = recentUserIds.has(user.id);
-              return (
-                <label
-                  key={user.id}
-                  className={cn(
-                    "flex items-center gap-3 px-3 py-2.5 cursor-pointer transition-colors",
-                    alreadyAssigned
-                      ? "opacity-50 cursor-not-allowed bg-surface"
-                      : "hover:bg-surface-hover",
-                    selectedUserId === user.id &&
-                      !alreadyAssigned &&
-                      "bg-accent/5",
-                  )}
-                >
-                  <input
-                    type="radio"
-                    name="reassign-worker"
-                    checked={selectedUserId === user.id}
-                    disabled={alreadyAssigned}
-                    onChange={() =>
-                      !alreadyAssigned && setSelectedUserId(user.id)
-                    }
-                    className="accent-accent"
-                  />
-                  <span className="text-sm text-text flex-1">
-                    {user.full_name}
-                  </span>
-                  <span className="flex items-center gap-1.5">
-                    {isRecent && !alreadyAssigned && (
-                      <Badge variant="warning">Recent</Badge>
-                    )}
-                    <Badge variant="default">{user.role_name}</Badge>
-                    {alreadyAssigned && (
-                      <Badge variant="default">Already assigned</Badge>
-                    )}
-                  </span>
-                </label>
-              );
-            })
-          )}
-        </div>
-
-        {/* Footer */}
-        <div className="flex justify-end gap-2 pt-2">
-          <Button variant="secondary" onClick={handleClose}>
-            Cancel
-          </Button>
-          <Button
-            variant="primary"
-            onClick={handleReassign}
-            isLoading={isProcessing}
-            disabled={!selectedUserId}
-          >
-            Reassign
-          </Button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-// ─── Checklist Preview Modal ────────────────────────────
-
-function ChecklistPreviewModal({
-  isOpen,
-  onClose,
-  template,
-}: {
-  isOpen: boolean;
-  onClose: () => void;
-  template: ChecklistTemplate | null;
-}): React.ReactElement {
-  const { data: items, isLoading } = useChecklistItems(
-    isOpen ? template?.id : undefined,
-  );
-
-  const verificationIcon: Record<string, React.ReactNode> = {
-    photo: <Camera size={12} className="text-accent" />,
-    text: <Type size={12} className="text-accent" />,
-  };
-
-  return (
-    <Modal isOpen={isOpen} onClose={onClose} title={template?.title ?? "Checklist"} size="md">
-      <div className="space-y-3">
-        {/* Meta info */}
-        <div className="flex items-center gap-2 text-xs text-text-muted">
-          <span>{template?.shift_name}</span>
-          <span>—</span>
-          <span>{template?.position_name}</span>
-          <span className="ml-auto">{template?.item_count ?? 0} items</span>
-        </div>
-
-        {/* Items list */}
-        {isLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <div className="animate-spin rounded-full border-accent border-t-transparent h-6 w-6 border-2" />
-          </div>
-        ) : !items || items.length === 0 ? (
-          <div className="text-center py-8 text-sm text-text-muted">
-            No checklist items yet.
-          </div>
-        ) : (
-          <div className="max-h-80 overflow-y-auto divide-y divide-border border border-border rounded-lg">
-            {items.map((item: ChecklistItem, idx: number) => (
-              <div key={item.id} className="flex items-start gap-3 px-4 py-3">
-                <span className="text-xs text-text-muted mt-0.5 w-5 shrink-0 text-right">
-                  {idx + 1}.
-                </span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-text">{item.title}</p>
-                  {item.description && (
-                    <p className="text-xs text-text-muted mt-0.5">
-                      {item.description}
-                    </p>
-                  )}
-                </div>
-                {item.verification_type !== "none" && (
-                  <span className="flex items-center gap-1 shrink-0">
-                    {verificationIcon[item.verification_type]}
-                    <span className="text-[10px] text-text-muted capitalize">
-                      {item.verification_type}
-                    </span>
-                  </span>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Footer */}
-        <div className="flex justify-end pt-1">
-          <Button variant="secondary" onClick={onClose}>
-            Close
-          </Button>
-        </div>
-      </div>
-    </Modal>
-  );
-}
-
-// ─── Create Checklist Modal ─────────────────────────────
-
-// ─── Store Schedule Section ─────────────────────────────
-
-function StoreScheduleSection({
-  store,
-  date,
-  users,
-}: {
-  store: Store;
-  date: string;
-  users: User[];
-}): React.ReactElement | null {
-  const router = useRouter();
-  const { toast } = useToast();
-  const { data: shifts, isLoading: isLoadingShifts } = useShifts(store.id);
-  const { data: positions, isLoading: isLoadingPositions } = usePositions(
-    store.id,
-  );
-  const { data: templates } = useChecklistTemplates(store.id);
-  const { data: assignmentsData } = useAssignments({
-    store_id: store.id,
-    work_date: date,
-    per_page: 100,
-  });
-
-  // Fetch recent users per shift×position combo via dedicated API
-  const { data: recentUsersData } = useRecentAssignmentUsers(store.id, date);
-
-  /* ---- Modal state ---- */
-  const [deleteTarget, setDeleteTarget] = useState<Assignment | null>(null);
-  const [reassignTarget, setReassignTarget] = useState<Assignment | null>(null);
-  const [bulkAssignCombo, setBulkAssignCombo] = useState<{
-    shiftId: string;
-    positionId: string;
-  } | null>(null);
-  const [previewTemplate, setPreviewTemplate] = useState<ChecklistTemplate | null>(null);
-  /* ---- Mutations ---- */
-  const deleteAssignment = useDeleteAssignment();
-
-  const sortedShifts: Shift[] = useMemo(
-    () =>
-      [...(shifts ?? [])].sort(
-        (a: Shift, b: Shift) => a.sort_order - b.sort_order,
-      ),
-    [shifts],
-  );
-
-  const sortedPositions: Position[] = useMemo(
-    () =>
-      [...(positions ?? [])].sort(
-        (a: Position, b: Position) => a.sort_order - b.sort_order,
-      ),
-    [positions],
-  );
-
-  // Template lookup by "shiftId-positionId"
-  const templatesByCombo: Record<string, ChecklistTemplate[]> = useMemo(() => {
-    const map: Record<string, ChecklistTemplate[]> = {};
-    for (const t of templates ?? []) {
-      const key: string = `${t.shift_id}-${t.position_id}`;
-      if (!map[key]) map[key] = [];
-      map[key].push(t);
-    }
-    return map;
-  }, [templates]);
-
-  // Assignment lookup by "shiftId-positionId" → multiple assignments
-  const assignmentsByCombo: Record<string, Assignment[]> = useMemo(() => {
-    const map: Record<string, Assignment[]> = {};
-    for (const a of assignmentsData?.items ?? []) {
-      const key: string = `${a.shift_id}-${a.position_id}`;
-      if (!map[key]) map[key] = [];
-      map[key].push(a);
-    }
-    return map;
-  }, [assignmentsData]);
-
-  // Recent user IDs by combo key (from dedicated API)
-  const recentUsersByCombo: Record<string, Set<string>> = useMemo(() => {
-    const map: Record<string, Set<string>> = {};
-    for (const r of recentUsersData ?? []) {
-      const key: string = `${r.shift_id}-${r.position_id}`;
-      if (!map[key]) map[key] = new Set<string>();
-      map[key].add(r.user_id);
-    }
-    return map;
-  }, [recentUsersData]);
-
-  // Existing user IDs for the combo being reassigned
-  const reassignExistingUserIds: Set<string> = useMemo(() => {
-    if (!reassignTarget) return new Set<string>();
-    const comboKey: string = `${reassignTarget.shift_id}-${reassignTarget.position_id}`;
-    return new Set(
-      (assignmentsByCombo[comboKey] ?? []).map((a: Assignment) => a.user_id),
-    );
-  }, [reassignTarget, assignmentsByCombo]);
-
-  // Recent user IDs for the combo being reassigned
-  const reassignRecentUserIds: Set<string> = useMemo(() => {
-    if (!reassignTarget) return new Set<string>();
-    const comboKey: string = `${reassignTarget.shift_id}-${reassignTarget.position_id}`;
-    return recentUsersByCombo[comboKey] ?? new Set<string>();
-  }, [reassignTarget, recentUsersByCombo]);
-
-  // Existing assignments for the combo being bulk-assigned
-  const bulkAssignExisting: Assignment[] = useMemo(() => {
-    if (!bulkAssignCombo) return [];
-    const comboKey: string = `${bulkAssignCombo.shiftId}-${bulkAssignCombo.positionId}`;
-    return assignmentsByCombo[comboKey] ?? [];
-  }, [bulkAssignCombo, assignmentsByCombo]);
-
-  // Recent user IDs for the combo being bulk-assigned
-  const bulkAssignRecentUserIds: Set<string> = useMemo(() => {
-    if (!bulkAssignCombo) return new Set<string>();
-    const comboKey: string = `${bulkAssignCombo.shiftId}-${bulkAssignCombo.positionId}`;
-    return recentUsersByCombo[comboKey] ?? new Set<string>();
-  }, [bulkAssignCombo, recentUsersByCombo]);
-
-  /* ---- Handlers ---- */
-  const handleDelete = useCallback(async (): Promise<void> => {
-    if (!deleteTarget) return;
-    try {
-      await deleteAssignment.mutateAsync(deleteTarget.id);
-      toast({ type: "success", message: "Assignment removed." });
-      setDeleteTarget(null);
-    } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to remove assignment.") });
-    }
-  }, [deleteTarget, deleteAssignment, toast]);
-
-  if (isLoadingShifts || isLoadingPositions) {
-    return (
-      <Card className="mb-4" padding="p-6">
-        <p className="text-lg font-bold text-text mb-3">{store.name}</p>
-        <div className="flex items-center justify-center h-16">
-          <div className="animate-spin rounded-full border-accent border-t-transparent h-6 w-6 border-2" />
-        </div>
-      </Card>
-    );
+  if (roles.length === 0) {
+    return <div className="text-center py-20 text-text-muted">No work roles configured</div>;
   }
 
-  // Hide stores with no shifts or positions
-  if (sortedShifts.length === 0 || sortedPositions.length === 0) return null;
-
   return (
-    <Card className="mb-4" padding="p-6">
-      <p className="text-lg font-bold text-text mb-5">{store.name}</p>
+    <div className="space-y-4">
+      {roles.map((role) => {
+        const roleAssignments = dayAssignments.filter(
+          (a) => a.shift_id === role.shift_id && a.position_id === role.position_id,
+        );
+        const filled = roleAssignments.length;
+        const hc = role.required_headcount;
+        const hcVariant = filled < hc ? "danger" : filled === hc ? "success" : "warning";
 
-      <div className="space-y-6">
-        {sortedShifts.map((shift: Shift) =>
-          sortedPositions.map((pos: Position) => {
-            const comboKey: string = `${shift.id}-${pos.id}`;
-            const comboAssignments: Assignment[] =
-              assignmentsByCombo[comboKey] ?? [];
-            const comboTemplates: ChecklistTemplate[] =
-              templatesByCombo[comboKey] ?? [];
-
-            // Hide combos without checklists
-            if (comboTemplates.length === 0) return null;
-
-            return (
-              <div key={comboKey}>
-                {/* Combo header */}
-                <div className="flex items-center gap-3 mb-2.5">
-                  <span className="text-xs font-semibold text-text-muted uppercase tracking-wider">
-                    {shift.name} — {pos.name}
-                  </span>
-                    <button
-                      type="button"
-                      onClick={() => setPreviewTemplate(comboTemplates[0])}
-                      className="flex items-center gap-1 text-[10px] text-success hover:text-accent hover:underline transition-colors cursor-pointer"
-                    >
-                      <FileText size={10} />
-                      {comboTemplates.length === 1
-                        ? comboTemplates[0].title
-                        : `${comboTemplates.length} checklists`}
-                    </button>
+        return (
+          <Card key={role.id} padding="p-4">
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <div className="text-sm font-semibold text-text">
+                  {role.shift_name} · {role.position_name}
                 </div>
-
-                {/* Worker cards row */}
-                <div className="flex flex-wrap gap-3">
-                  {comboAssignments.map((a: Assignment) => (
-                    <WorkerCard
-                      key={a.id}
-                      assignment={a}
-                      onReassign={setReassignTarget}
-                      onDelete={setDeleteTarget}
-                      onClick={(assignment) => router.push(`/schedules/${assignment.id}`)}
-                    />
-                  ))}
-                  <button
-                      type="button"
-                      onClick={() =>
-                        setBulkAssignCombo({
-                          shiftId: shift.id,
-                          positionId: pos.id,
-                        })
-                      }
-                      className="w-44 min-h-[96px] flex items-center justify-center gap-2 rounded-xl border-2 border-dashed border-border text-text-muted hover:border-accent hover:text-accent transition-colors cursor-pointer"
-                    >
-                      <Plus size={16} />
-                      <span className="text-sm">Assign</span>
-                    </button>
+                <div className="text-xs text-text-muted">
+                  {role.default_start_time}–{role.default_end_time}
+                  {role.default_checklist_id && (
+                    <span className="ml-2 px-1.5 py-0.5 bg-accent-muted text-accent text-[10px] rounded font-medium">
+                      Checklist
+                    </span>
+                  )}
                 </div>
               </div>
-            );
-          }),
-        )}
-      </div>
+              <Badge variant={hcVariant}>{filled}/{hc}</Badge>
+            </div>
 
-      {/* Delete Confirmation */}
-      <ConfirmDialog
-        isOpen={deleteTarget !== null}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={handleDelete}
-        title="Remove Assignment"
-        message={`Are you sure you want to remove the assignment for "${deleteTarget?.user_name}"?`}
-        confirmLabel="Remove"
-        isLoading={deleteAssignment.isPending}
-      />
-
-      {/* Reassign Modal */}
-      <ReassignModal
-        isOpen={reassignTarget !== null}
-        onClose={() => setReassignTarget(null)}
-        assignment={reassignTarget}
-        users={users}
-        existingUserIds={reassignExistingUserIds}
-        recentUserIds={reassignRecentUserIds}
-      />
-
-      {/* Bulk Assign Modal */}
-      <BulkAssignModal
-        isOpen={bulkAssignCombo !== null}
-        onClose={() => setBulkAssignCombo(null)}
-        storeId={store.id}
-        shiftId={bulkAssignCombo?.shiftId ?? ""}
-        positionId={bulkAssignCombo?.positionId ?? ""}
-        date={date}
-        users={users}
-        existingAssignments={bulkAssignExisting}
-        recentUserIds={bulkAssignRecentUserIds}
-      />
-
-      {/* Checklist Preview Modal */}
-      <ChecklistPreviewModal
-        isOpen={previewTemplate !== null}
-        onClose={() => setPreviewTemplate(null)}
-        template={previewTemplate}
-      />
-
-    </Card>
+            {roleAssignments.length === 0 ? (
+              <div className="text-xs text-text-muted py-4 text-center">No assignments</div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                {roleAssignments.map((a) => (
+                  <button
+                    key={a.id}
+                    onClick={() => onDetailClick(a.id)}
+                    className="text-left p-3 rounded-lg bg-surface hover:bg-surface-hover transition-colors"
+                  >
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-sm font-medium text-text">{a.user_name}</span>
+                      <span className="text-[10px] text-text-muted">
+                        {a.work_date}
+                      </span>
+                    </div>
+                    <ProgressBar completed={a.completed_items} total={a.total_items} />
+                    <div className="mt-1.5">
+                      <StatusBadge completedItems={a.completed_items} totalItems={a.total_items} />
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </Card>
+        );
+      })}
+    </div>
   );
 }
 
-// ─── Week View ──────────────────────────────────────────
+// ─── Week View ──────────────────────────────────────
 
 function WeekView({
-  weekDays,
-  stores,
-  selectedStoreId,
-  onDayClick,
+  roles,
+  assignments,
+  weekStart,
+  onDetailClick,
 }: {
-  weekDays: string[];
-  stores: Store[];
-  selectedStoreId: string;
-  onDayClick: (dateStr: string) => void;
-}): React.ReactElement {
-  const router = useRouter();
-  const tz = useTimezone();
-  const today: string = todayInTimezone(tz);
+  roles: WorkRole[];
+  assignments: Assignment[];
+  weekStart: Date;
+  onDetailClick: (id: string) => void;
+}) {
+  const days = getWeekDays(weekStart);
+  const todayStr = toDateStr(new Date());
 
-  // Fetch all assignments for the week
-  const { data: weekData, isLoading } = useAssignments({
-    store_id: selectedStoreId || undefined,
-    date_from: weekDays[0],
-    date_to: weekDays[6],
-    per_page: 500,
-  });
-
-  // Group assignments by date → store
-  const grid: Record<string, Record<string, Assignment[]>> = useMemo(() => {
-    const map: Record<string, Record<string, Assignment[]>> = {};
-    for (const a of weekData?.items ?? []) {
-      if (!map[a.work_date]) map[a.work_date] = {};
-      if (!map[a.work_date][a.store_id]) map[a.work_date][a.store_id] = [];
-      map[a.work_date][a.store_id].push(a);
-    }
-    return map;
-  }, [weekData]);
-
-  const filteredStores: Store[] = selectedStoreId
-    ? stores.filter((s) => s.id === selectedStoreId)
-    : stores;
-
-  if (isLoading) {
-    return (
-      <Card padding="p-16">
-        <div className="flex items-center justify-center">
-          <div className="animate-spin rounded-full border-accent border-t-transparent h-6 w-6 border-2" />
-        </div>
-      </Card>
-    );
+  if (roles.length === 0) {
+    return <div className="text-center py-20 text-text-muted">No work roles configured</div>;
   }
 
   return (
-    <Card padding="p-0">
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse min-w-[700px]">
-          <thead>
-            <tr className="border-b border-border">
-              <th className="text-left text-xs font-semibold text-text-muted uppercase tracking-wider p-3 w-32 bg-surface sticky left-0 z-10">
-                Store
-              </th>
-              {weekDays.map((day) => (
-                <th
-                  key={day}
-                  className={cn(
-                    "text-center text-xs font-semibold uppercase tracking-wider p-3 cursor-pointer hover:bg-surface-hover transition-colors",
-                    day === today
-                      ? "text-accent bg-accent/5"
-                      : "text-text-muted",
-                  )}
-                  onClick={() => onDayClick(day)}
-                >
-                  <div>{shortDayName(day)}</div>
-                  <div className="text-sm font-bold mt-0.5">{shortDate(day)}</div>
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {filteredStores.map((store) => (
-              <tr key={store.id} className="border-b border-border last:border-b-0">
-                <td className="p-3 text-sm font-semibold text-text bg-surface sticky left-0 z-10">
-                  {store.name}
-                </td>
-                {weekDays.map((day) => {
-                  const dayAssignments: Assignment[] = (
-                    grid[day]?.[store.id] ?? []
-                  ).slice().sort((a, b) => a.shift_sort_order - b.shift_sort_order);
-
-                  return (
-                    <td
-                      key={day}
-                      className={cn(
-                        "p-2 text-center align-top cursor-pointer hover:bg-surface-hover transition-colors",
-                        day === today && "bg-accent/5",
-                      )}
-                      onClick={() => onDayClick(day)}
-                    >
-                      {dayAssignments.length > 0 ? (
-                        <div className="space-y-1">
-                          {dayAssignments.slice(0, 3).map((a) => {
-                            const aPct: number = a.total_items > 0
-                              ? Math.round((a.completed_items / a.total_items) * 100)
-                              : 0;
-                            return (
-                              <div
-                                key={a.id}
-                                className="relative text-left px-1.5 py-1 rounded-md border border-border cursor-pointer hover:border-accent/50 overflow-hidden"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  router.push(`/schedules/${a.id}`);
-                                }}
-                              >
-                                {/* 배경 채우기 — fill card background by completion % */}
-                                <div
-                                  className="absolute inset-0 bg-accent/40 rounded-md"
-                                  style={{ width: `${aPct}%` }}
-                                />
-                                <div className="relative text-xs text-text truncate">
-                                  {a.user_name}
-                                </div>
-                                <div className="relative text-[10px] text-text-muted truncate">
-                                  {a.shift_name}
-                                </div>
-                              </div>
-                            );
-                          })}
-                          {dayAssignments.length > 3 && (
-                            <div className="text-[10px] text-text-muted">
-                              +{dayAssignments.length - 3} more
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <span className="text-xs text-text-muted/40">—</span>
-                      )}
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </Card>
-  );
-}
-
-// ─── Month View ─────────────────────────────────────────
-
-function MonthView({
-  dateStr,
-  selectedStoreId,
-  onDayClick,
-}: {
-  dateStr: string;
-  selectedStoreId: string;
-  onDayClick: (dateStr: string) => void;
-}): React.ReactElement {
-  const tz = useTimezone();
-  const d = new Date(dateStr + "T00:00:00");
-  const currentMonth: number = d.getMonth();
-  const today: string = todayInTimezone(tz);
-  const weeks: string[][] = getMonthCalendar(dateStr);
-  const monthStart: string = weeks[0][0];
-  const monthEnd: string = weeks[5][6];
-
-  // Fetch all assignments for the visible calendar range
-  const { data: monthData, isLoading } = useAssignments({
-    store_id: selectedStoreId || undefined,
-    date_from: monthStart,
-    date_to: monthEnd,
-    per_page: 1000,
-  });
-
-  // Group by date → count + status breakdown
-  const daySummary: Record<string, { count: number; completed: number; inProgress: number }> = useMemo(() => {
-    const map: Record<string, { count: number; completed: number; inProgress: number }> = {};
-    for (const a of monthData?.items ?? []) {
-      if (!map[a.work_date]) map[a.work_date] = { count: 0, completed: 0, inProgress: 0 };
-      map[a.work_date].count++;
-      if (a.status === "completed") map[a.work_date].completed++;
-      if (a.status === "in_progress") map[a.work_date].inProgress++;
-    }
-    return map;
-  }, [monthData]);
-
-  const dayNames: string[] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
-  if (isLoading) {
-    return (
-      <Card padding="p-16">
-        <div className="flex items-center justify-center">
-          <div className="animate-spin rounded-full border-accent border-t-transparent h-6 w-6 border-2" />
-        </div>
-      </Card>
-    );
-  }
-
-  return (
-    <Card padding="p-0">
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse">
-          <thead>
-            <tr>
-              {dayNames.map((name) => (
-                <th
-                  key={name}
-                  className="text-center text-xs font-semibold text-text-muted uppercase tracking-wider p-3 border-b border-border"
-                >
-                  {name}
-                </th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {weeks.map((week, wi) => (
-              <tr key={wi}>
-                {week.map((day) => {
-                  const dayDate = new Date(day + "T00:00:00");
-                  const isCurrentMonth: boolean = dayDate.getMonth() === currentMonth;
-                  const isToday: boolean = day === today;
-                  const summary = daySummary[day];
-
-                  return (
-                    <td
-                      key={day}
-                      className={cn(
-                        "p-2 border border-border h-24 align-top cursor-pointer hover:bg-surface-hover transition-colors",
-                        !isCurrentMonth && "bg-surface/50",
-                        isToday && "bg-accent/5",
-                      )}
-                      onClick={() => onDayClick(day)}
-                    >
-                      <div className="flex flex-col h-full">
-                        <span
-                          className={cn(
-                            "text-sm font-medium",
-                            isToday
-                              ? "text-accent font-bold"
-                              : isCurrentMonth
-                                ? "text-text"
-                                : "text-text-muted/40",
-                          )}
-                        >
-                          {dayDate.getDate()}
-                        </span>
-                        {summary && (
-                          <div className="mt-1 flex flex-col gap-1">
-                            <div className="flex items-center gap-1">
-                              {/* Status dots */}
-                              {summary.completed > 0 && (
-                                <span className="w-2 h-2 rounded-full bg-success shrink-0" />
-                              )}
-                              {summary.inProgress > 0 && (
-                                <span className="w-2 h-2 rounded-full bg-accent shrink-0" />
-                              )}
-                              {summary.count - summary.completed - summary.inProgress > 0 && (
-                                <span className="w-2 h-2 rounded-full bg-text-muted shrink-0" />
-                              )}
-                              <span className="text-[10px] text-text-secondary ml-auto">
-                                {summary.count}
-                              </span>
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    </td>
-                  );
-                })}
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </Card>
-  );
-}
-
-// ─── Main Page ──────────────────────────────────────────
-
-export default function SchedulesPage(): React.ReactElement {
-  const router = useRouter();
-  const tz = useTimezone();
-
-  const [viewMode, setViewMode] = useState<ViewMode>("day");
-  const [selectedDate, setSelectedDate] = useState<string>(
-    () => todayInTimezone(tz),
-  );
-  const [selectedStoreId, setSelectedStoreId] = useState<string>("");
-
-  const { data: stores } = useStores();
-  const { data: users } = useUsers();
-
-  const activeStores: Store[] = useMemo(
-    () => (stores ?? []).filter((b: Store) => b.is_active),
-    [stores],
-  );
-
-  const activeUsers: User[] = useMemo(
-    () => (users ?? []).filter((u: User) => u.is_active),
-    [users],
-  );
-
-  const dateInputRef = React.useRef<HTMLInputElement>(null);
-
-  // Week view data
-  const weekDays: string[] = useMemo(
-    () => getWeekDays(selectedDate),
-    [selectedDate],
-  );
-
-  // Navigation step per view mode
-  const handlePrev = useCallback((): void => {
-    if (viewMode === "day") setSelectedDate((d) => shiftDate(d, -1));
-    else if (viewMode === "week") setSelectedDate((d) => shiftDate(d, -7));
-    else {
-      setSelectedDate((d) => {
-        const dt = new Date(d + "T00:00:00");
-        dt.setMonth(dt.getMonth() - 1);
-        return toDateStr(dt);
-      });
-    }
-  }, [viewMode]);
-
-  const handleNext = useCallback((): void => {
-    if (viewMode === "day") setSelectedDate((d) => shiftDate(d, 1));
-    else if (viewMode === "week") setSelectedDate((d) => shiftDate(d, 7));
-    else {
-      setSelectedDate((d) => {
-        const dt = new Date(d + "T00:00:00");
-        dt.setMonth(dt.getMonth() + 1);
-        return toDateStr(dt);
-      });
-    }
-  }, [viewMode]);
-
-  // Click a day in week/month view → switch to day view
-  const handleDayClick = useCallback((dateStr: string): void => {
-    setSelectedDate(dateStr);
-    setViewMode("day");
-  }, []);
-
-  // Date label for nav bar
-  const dateLabel: string = useMemo(() => {
-    if (viewMode === "day") return formatFixedDateWithDay(selectedDate);
-    if (viewMode === "week") return weekRangeLabel(weekDays);
-    return monthYearLabel(selectedDate);
-  }, [viewMode, selectedDate, weekDays]);
-
-  // Filtered stores for day view
-  const filteredStores: Store[] = useMemo(() => {
-    if (!selectedStoreId) return activeStores;
-    return activeStores.filter((s) => s.id === selectedStoreId);
-  }, [activeStores, selectedStoreId]);
-
-  // Date range for the current view (used when navigating to List/Logs)
-  const currentDateRange: { from: string; to: string } = useMemo(() => {
-    if (viewMode === "day") return { from: selectedDate, to: selectedDate };
-    if (viewMode === "week") return { from: weekDays[0], to: weekDays[6] };
-    // month: use the visible calendar grid range
-    const weeks = getMonthCalendar(selectedDate);
-    return { from: weeks[0][0], to: weeks[5][6] };
-  }, [viewMode, selectedDate, weekDays]);
-
-  return (
-    <div>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-2xl font-extrabold text-text">Schedules</h1>
-          <p className="text-sm text-text-muted mt-0.5">
-            Manage daily work assignments across all stores
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          {/* View mode toggle */}
-          <div className="flex items-center p-1 bg-surface rounded-lg border border-border">
-            {(["day", "week", "month"] as ViewMode[]).map((mode) => (
-              <button
-                key={mode}
-                type="button"
-                onClick={() => setViewMode(mode)}
+    <Card padding="p-0" className="overflow-x-auto">
+      <table className="w-full border-collapse min-w-[800px]">
+        <thead>
+          <tr>
+            <th className="text-left px-3 py-2 text-xs font-semibold text-text-muted uppercase w-48">
+              Role
+            </th>
+            {days.map((ds) => (
+              <th
+                key={ds}
                 className={cn(
-                  "px-3 py-1.5 text-xs font-medium rounded-md transition-colors capitalize",
-                  viewMode === mode
-                    ? "bg-accent text-white"
-                    : "text-text-secondary hover:text-text hover:bg-surface-hover",
+                  "px-2 py-2 text-center text-xs",
+                  ds === todayStr && "bg-accent/5 rounded-t-lg",
                 )}
               >
-                {mode}
-              </button>
+                <div className="font-semibold text-text-secondary">{shortDay(ds)}</div>
+                <div className={cn("text-text-muted", ds === todayStr && "text-accent font-bold")}>
+                  {shortDate(ds)}
+                </div>
+              </th>
             ))}
-          </div>
+          </tr>
+        </thead>
+        <tbody>
+          {roles.map((role) => (
+            <tr key={role.id} className="border-t border-border">
+              <td className="px-3 py-2 align-top">
+                <div className="text-xs font-semibold text-text">
+                  {role.shift_name} · {role.position_name}
+                </div>
+                <div className="text-[10px] text-text-muted">
+                  {role.default_start_time}–{role.default_end_time} · {role.required_headcount}명
+                </div>
+                {role.default_checklist_id && (
+                  <span className="px-1 py-0.5 bg-accent-muted text-accent text-[9px] rounded font-medium">
+                    Checklist
+                  </span>
+                )}
+              </td>
+              {days.map((ds) => {
+                const cellAssignments = assignments.filter(
+                  (a) =>
+                    a.work_date === ds &&
+                    a.shift_id === role.shift_id &&
+                    a.position_id === role.position_id,
+                );
+                const filled = cellAssignments.length;
+                const hcCls =
+                  filled < role.required_headcount
+                    ? "text-danger"
+                    : filled === role.required_headcount
+                      ? "text-success"
+                      : "text-warning";
 
-          <Button
-            variant="secondary"
-            size="md"
-            onClick={() =>
-              router.push(
-                `/schedules/list?from=${currentDateRange.from}&to=${currentDateRange.to}`,
-              )
-            }
-          >
-            <List size={16} />
-            List
-          </Button>
+                return (
+                  <td
+                    key={ds}
+                    className={cn(
+                      "px-1.5 py-2 align-top border-l border-border min-w-[100px]",
+                      ds === todayStr && "bg-accent/5",
+                      ds < todayStr && "opacity-60",
+                    )}
+                  >
+                    <div className="space-y-1">
+                      {cellAssignments.map((a) => (
+                        <button
+                          key={a.id}
+                          onClick={() => onDetailClick(a.id)}
+                          className="w-full text-left p-1.5 rounded bg-surface hover:bg-surface-hover transition-colors"
+                        >
+                          <div className="text-[11px] font-medium text-text truncate">
+                            {a.user_name}
+                          </div>
+                          <ProgressBar completed={a.completed_items} total={a.total_items} size="xs" />
+                        </button>
+                      ))}
+                      {role.required_headcount > 0 && (
+                        <div className={cn("text-[10px] font-medium text-center", hcCls)}>
+                          {filled}/{role.required_headcount}
+                        </div>
+                      )}
+                    </div>
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </Card>
+  );
+}
 
-          <div className="relative group">
-            <Button
-              variant="secondary"
-              size="md"
-              disabled
-            >
-              <Settings size={16} />
-              Manage
-            </Button>
-            <span className="absolute -bottom-8 left-1/2 -translate-x-1/2 px-2 py-1 text-xs text-white bg-text rounded-md whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
-              Coming Soon
-            </span>
-          </div>
+// ─── Month View ─────────────────────────────────────
+
+function MonthView({
+  assignments,
+  year,
+  month,
+  onDayClick,
+}: {
+  assignments: Assignment[];
+  year: number;
+  month: number;
+  onDayClick: (dateStr: string) => void;
+}) {
+  const todayStr = toDateStr(new Date());
+  const firstDay = new Date(year, month, 1);
+  const startOffset = firstDay.getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const prevMonthDays = new Date(year, month, 0).getDate();
+
+  const cells: {
+    dayNum: number;
+    dateStr: string;
+    otherMonth: boolean;
+  }[] = [];
+
+  for (let i = 0; i < 42; i++) {
+    if (i < startOffset) {
+      const dayNum = prevMonthDays - startOffset + i + 1;
+      const pm = month === 0 ? 11 : month - 1;
+      const py = month === 0 ? year - 1 : year;
+      cells.push({
+        dayNum,
+        dateStr: `${py}-${String(pm + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`,
+        otherMonth: true,
+      });
+    } else if (i >= startOffset + daysInMonth) {
+      const dayNum = i - startOffset - daysInMonth + 1;
+      const nm = month === 11 ? 0 : month + 1;
+      const ny = month === 11 ? year + 1 : year;
+      cells.push({
+        dayNum,
+        dateStr: `${ny}-${String(nm + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`,
+        otherMonth: true,
+      });
+    } else {
+      const dayNum = i - startOffset + 1;
+      cells.push({
+        dayNum,
+        dateStr: `${year}-${String(month + 1).padStart(2, "0")}-${String(dayNum).padStart(2, "0")}`,
+        otherMonth: false,
+      });
+    }
+  }
+
+  return (
+    <div className="grid grid-cols-7 gap-px bg-border rounded-lg overflow-hidden">
+      {/* Header */}
+      {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
+        <div key={d} className="bg-surface px-2 py-2 text-center text-[10px] font-semibold text-text-muted uppercase">
+          {d}
         </div>
-      </div>
+      ))}
 
-      {/* Store tab bar */}
-      <div className="flex items-center gap-1 mb-4 p-1 bg-surface rounded-lg border border-border overflow-x-auto">
-        <button
-          type="button"
-          onClick={() => setSelectedStoreId("")}
-          className={cn(
-            "px-4 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap",
-            selectedStoreId === ""
-              ? "bg-accent text-white"
-              : "text-text-secondary hover:text-text hover:bg-surface-hover",
-          )}
-        >
-          All Stores
-        </button>
-        {activeStores.map((store: Store) => (
+      {/* Cells */}
+      {cells.map((cell) => {
+        const dayAssignments = assignments.filter((a) => a.work_date === cell.dateStr);
+        const isToday = cell.dateStr === todayStr;
+
+        return (
           <button
-            key={store.id}
-            type="button"
-            onClick={() => setSelectedStoreId(store.id)}
+            key={cell.dateStr}
+            onClick={() => onDayClick(cell.dateStr)}
             className={cn(
-              "px-4 py-1.5 text-sm font-medium rounded-md transition-colors whitespace-nowrap",
-              selectedStoreId === store.id
-                ? "bg-accent text-white"
-                : "text-text-secondary hover:text-text hover:bg-surface-hover",
+              "bg-card p-2 min-h-[80px] text-left hover:bg-surface-hover transition-colors",
+              cell.otherMonth && "opacity-40",
+              isToday && "ring-1 ring-accent ring-inset",
             )}
           >
-            {store.name}
+            <div
+              className={cn(
+                "text-xs font-medium mb-1",
+                isToday ? "text-accent font-bold" : "text-text-secondary",
+              )}
+            >
+              {cell.dayNum}
+            </div>
+            {dayAssignments.length > 0 && (
+              <>
+                <div className="flex flex-wrap gap-0.5 mb-1">
+                  {dayAssignments.slice(0, 8).map((a) => {
+                    const status =
+                      a.status === "completed"
+                        ? "bg-success"
+                        : a.status === "in_progress"
+                          ? "bg-accent"
+                          : "bg-text-muted";
+                    return <div key={a.id} className={cn("w-1.5 h-1.5 rounded-full", status)} />;
+                  })}
+                </div>
+                <div className="text-[10px] text-text-muted">
+                  {dayAssignments.length} assigned
+                </div>
+              </>
+            )}
           </button>
-        ))}
-      </div>
+        );
+      })}
+    </div>
+  );
+}
 
-      {/* Date Navigation Bar */}
-      <div className="flex items-center justify-center gap-4 mb-6 py-3 px-4 bg-card rounded-xl border border-border">
-        <button
-          type="button"
-          onClick={handlePrev}
-          className="p-2 rounded-lg text-text-muted hover:text-text hover:bg-surface transition-colors"
-        >
-          <ChevronLeft size={20} />
-        </button>
+// ─── List View ──────────────────────────────────────
 
-        <div className="relative flex items-center gap-2 overflow-hidden">
-          <span className="text-lg font-bold text-text">
-            {dateLabel}
-          </span>
-          {viewMode === "day" && (
-            <>
-              <button
-                type="button"
-                onClick={() => dateInputRef.current?.showPicker()}
-                className="relative z-10 p-1.5 rounded-lg text-text-muted hover:text-accent hover:bg-surface transition-colors"
-              >
-                <Calendar size={18} />
-              </button>
-              <input
-                ref={dateInputRef}
-                type="date"
-                value={selectedDate}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  setSelectedDate(e.target.value)
-                }
-                className="absolute inset-0 opacity-0 pointer-events-none"
-                tabIndex={-1}
-              />
-            </>
-          )}
-        </div>
+const LIST_COLS = [
+  { key: "work_date", label: "Date" },
+  { key: "user_name", label: "Worker" },
+  { key: "role", label: "Role" },
+  { key: "progress", label: "Progress" },
+  { key: "status", label: "Status" },
+] as const;
 
-        <button
-          type="button"
-          onClick={handleNext}
-          className="p-2 rounded-lg text-text-muted hover:text-text hover:bg-surface transition-colors"
-        >
-          <ChevronRight size={20} />
-        </button>
-      </div>
+function ListView({
+  assignments,
+  sortKey,
+  sortAsc,
+  onSort,
+  onDetailClick,
+}: {
+  assignments: Assignment[];
+  sortKey: string;
+  sortAsc: boolean;
+  onSort: (key: string) => void;
+  onDetailClick: (id: string) => void;
+}) {
+  const sorted = useMemo(() => {
+    const rows = [...assignments];
+    rows.sort((a, b) => {
+      let va: string | number = "";
+      let vb: string | number = "";
 
-      {/* View content */}
-      {viewMode === "day" && (
-        <>
-          {filteredStores.length === 0 ? (
-            <Card padding="p-16">
-              <p className="text-center text-sm text-text-muted">
-                No active stores found.
-              </p>
-            </Card>
-          ) : (
-            filteredStores.map((store: Store) => (
-              <StoreScheduleSection
-                key={store.id}
-                store={store}
-                date={selectedDate}
-                users={activeUsers}
-              />
-            ))
-          )}
-        </>
-      )}
+      if (sortKey === "work_date") { va = a.work_date; vb = b.work_date; }
+      else if (sortKey === "user_name") { va = a.user_name; vb = b.user_name; }
+      else if (sortKey === "role") { va = `${a.shift_name} ${a.position_name}`; vb = `${b.shift_name} ${b.position_name}`; }
+      else if (sortKey === "progress") {
+        va = a.total_items > 0 ? a.completed_items / a.total_items : 0;
+        vb = b.total_items > 0 ? b.completed_items / b.total_items : 0;
+      } else if (sortKey === "status") { va = a.status; vb = b.status; }
 
-      {viewMode === "week" && (
-        <WeekView
-          weekDays={weekDays}
-          stores={activeStores}
-          selectedStoreId={selectedStoreId}
-          onDayClick={handleDayClick}
-        />
-      )}
+      if (va < vb) return sortAsc ? -1 : 1;
+      if (va > vb) return sortAsc ? 1 : -1;
+      return 0;
+    });
+    return rows;
+  }, [assignments, sortKey, sortAsc]);
 
-      {viewMode === "month" && (
-        <MonthView
-          dateStr={selectedDate}
-          selectedStoreId={selectedStoreId}
-          onDayClick={handleDayClick}
-        />
-      )}
+  if (sorted.length === 0) {
+    return <div className="text-center py-20 text-text-muted">No assignments for this range</div>;
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full border-collapse">
+        <thead>
+          <tr className="border-b border-border">
+            {LIST_COLS.map((col) => {
+              const isSorted = sortKey === col.key;
+              return (
+                <th
+                  key={col.key}
+                  onClick={() => onSort(col.key)}
+                  className="text-left px-3 py-2.5 text-xs font-semibold text-text-muted uppercase cursor-pointer hover:text-text transition-colors"
+                >
+                  <span className="inline-flex items-center gap-1">
+                    {col.label}
+                    {isSorted && (sortAsc ? <ChevronUp size={12} /> : <ChevronDown size={12} />)}
+                  </span>
+                </th>
+              );
+            })}
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((a) => (
+            <tr
+              key={a.id}
+              onClick={() => onDetailClick(a.id)}
+              className="border-b border-border/50 hover:bg-surface-hover cursor-pointer transition-colors"
+            >
+              <td className="px-3 py-2.5 text-sm text-text">{longDate(a.work_date)}</td>
+              <td className="px-3 py-2.5 text-sm font-medium text-text">{a.user_name}</td>
+              <td className="px-3 py-2.5 text-sm text-text-secondary">
+                {a.shift_name} · {a.position_name}
+              </td>
+              <td className="px-3 py-2.5">
+                <ProgressBar completed={a.completed_items} total={a.total_items} />
+              </td>
+              <td className="px-3 py-2.5">
+                <StatusBadge completedItems={a.completed_items} totalItems={a.total_items} />
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
