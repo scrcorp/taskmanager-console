@@ -33,8 +33,6 @@ function getNotificationHref(referenceType: string | null, referenceId: string |
       return `/schedules/manage/${referenceId}`;
     case "attendance":
       return `/attendances/${referenceId}`;
-    case "work_assignment":
-      return `/schedules/${referenceId}`;
     default:
       return null;
   }
@@ -82,8 +80,8 @@ export default function NotificationsPage() {
    *  Return badge variant based on notification type. */
   const typeBadge = (type: string): { variant: "accent" | "warning" | "success" | "default"; label: string } => {
     switch (type) {
-      case "assignment":
-        return { variant: "accent", label: "Assignment" };
+      case "schedule":
+        return { variant: "accent", label: "Schedule" };
       case "task":
         return { variant: "warning", label: "Task" };
       case "announcement":

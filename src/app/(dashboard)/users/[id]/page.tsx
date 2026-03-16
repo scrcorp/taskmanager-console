@@ -4,7 +4,7 @@
  * 스태프 상세 페이지 -- 사용자 프로필, 수정, 활성/비활성 토글, 삭제, 매장 할당을 관리합니다.
  *
  * Staff Detail Page -- Manages user profile, editing, active toggle,
- * deletion, and store assignments.
+ * deletion, and store memberships.
  */
 
 import React, { useState, useMemo, useCallback, useEffect } from "react";
@@ -104,7 +104,7 @@ export default function UserDetailPage(): React.ReactElement {
   /* ---- Role change confirmation state ----------------------------------- */
   const [isRoleChangeOpen, setIsRoleChangeOpen] = useState<boolean>(false);
 
-  /* ---- Store assignment state -------------------------------------------- */
+  /* ---- Store membership state -------------------------------------------- */
   const [storeChecks, setStoreChecks] = useState<Record<string, StoreCheckState>>({});
   const [isStoreEditing, setIsStoreEditing] = useState<boolean>(false);
   const [unmanageConfirm, setUnmanageConfirm] = useState<{ storeId: string; storeName: string } | null>(null);
@@ -608,14 +608,14 @@ export default function UserDetailPage(): React.ReactElement {
         )}
       </div>
 
-      {/* Recent Assignments Section (Placeholder) */}
+      {/* Recent Schedules Section (Placeholder) */}
       <div className="bg-card border border-border rounded-xl p-6">
         <h2 className="text-lg font-bold text-text mb-4">
-          Recent Assignments
+          Recent Schedules
         </h2>
         <div className="text-center py-6">
           <p className="text-sm text-text-muted">
-            Recent assignment history will be displayed here.
+            Recent schedule history will be displayed here.
           </p>
         </div>
       </div>
@@ -739,8 +739,8 @@ export default function UserDetailPage(): React.ReactElement {
         >
           <div className="space-y-4">
             <p className="text-sm text-text-secondary">
-              &quot;{unmanageConfirm.storeName}&quot; management assignment will be removed.
-              Do you also want to remove the work assignment?
+              &quot;{unmanageConfirm.storeName}&quot; management role will be removed.
+              Do you also want to remove the schedule?
             </p>
             <div className="flex justify-end gap-2 pt-2">
               <Button

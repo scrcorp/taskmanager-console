@@ -96,6 +96,24 @@ export const useChecklistInstance = (
 };
 
 /**
+ * 스케줄 ID로 체크리스트 인스턴스 조회
+ */
+export const useChecklistInstanceBySchedule = (
+  scheduleId: string | undefined,
+): UseQueryResult<ChecklistInstance, Error> => {
+  return useQuery<ChecklistInstance, Error>({
+    queryKey: ["checklist-instances", "by-schedule", scheduleId],
+    queryFn: async (): Promise<ChecklistInstance> => {
+      const response: AxiosResponse<ChecklistInstance> = await api.get(
+        `/admin/checklist-instances/by-schedule/${scheduleId}`,
+      );
+      return response.data;
+    },
+    enabled: !!scheduleId,
+  });
+};
+
+/**
  * 아이템 리뷰 upsert 훅 -- 체크리스트 아이템에 리뷰를 생성/수정합니다 (result만).
  *
  * Custom hook to upsert a review on a checklist item (result only).

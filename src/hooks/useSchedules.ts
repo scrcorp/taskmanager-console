@@ -3,11 +3,23 @@ import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
 import type { Schedule, ScheduleCreate, ScheduleUpdate, PaginatedResponse } from "@/types";
 
+export const useSchedule = (
+  id: string | undefined,
+): UseQueryResult<Schedule, Error> => {
+  return useQuery<Schedule, Error>({
+    queryKey: ["schedules", id],
+    queryFn: async () => {
+      const res: AxiosResponse<Schedule> = await api.get(`/admin/schedules/${id}`);
+      return res.data;
+    },
+    enabled: !!id,
+  });
+};
+
 export const useSchedules = (
-  filters: { period_id?: string; store_id?: string; user_id?: string; date_from?: string; date_to?: string; status?: string; page?: number; per_page?: number } = {},
+  filters: { store_id?: string; user_id?: string; date_from?: string; date_to?: string; status?: string; page?: number; per_page?: number } = {},
 ): UseQueryResult<PaginatedResponse<Schedule>, Error> => {
   const params: Record<string, string | number> = {};
-  if (filters.period_id) params.period_id = filters.period_id;
   if (filters.store_id) params.store_id = filters.store_id;
   if (filters.user_id) params.user_id = filters.user_id;
   if (filters.date_from) params.date_from = filters.date_from;

@@ -1,10 +1,10 @@
 "use client";
 
 /**
- * 스케줄 Overview 페이지 — 스케줄 엔트리 + 배정 현황을 Day/Week/Month/List 뷰로 조회.
+ * 스케줄 Overview 페이지 — 스케줄 현황을 Day/Week/Month/List 뷰로 조회.
  *
- * Shows schedule entries (from manage page) and work assignments (with checklist progress)
- * across Day, Week, Month calendar views and a List view with flexible date range.
+ * Shows confirmed schedule entries across Day, Week, Month calendar views
+ * and a List view with flexible date range.
  */
 
 import React, { useState, useMemo, useCallback } from "react";
@@ -19,26 +19,17 @@ import {
 } from "lucide-react";
 import { useStores } from "@/hooks/useStores";
 import { useWorkRoles } from "@/hooks/useWorkRoles";
-import { useAssignments } from "@/hooks/useAssignments";
 import { useSchedules } from "@/hooks/useSchedules";
 import { useReviewSummary } from "@/hooks/useChecklistInstances";
 import { Card, Badge } from "@/components/ui";
 import { cn } from "@/lib/utils";
-import type { Store, Assignment, WorkRole } from "@/types";
+import type { Store, Schedule, WorkRole } from "@/types";
 
 // ─── View types ─────────────────────────────────────
 
 type CalView = "day" | "week" | "month";
 type MainView = "calendar" | "list";
 type ListPreset = "today" | "week" | "month" | "custom";
-type DisplayStatus = "not_started" | "in_progress" | "in_review";
-
-function getDisplayStatus(a: Assignment): DisplayStatus {
-  if (a.completed_items === 0) return "not_started";
-  if (a.total_items > 0 && a.completed_items >= a.total_items) return "in_review";
-  return "in_progress";
-}
-
 
 // ─── Date helpers ───────────────────────────────────
 
@@ -167,74 +158,19 @@ export default function ScheduleOverviewPage(): React.ReactElement {
 
   // Fetch data
   const { data: workRoles } = useWorkRoles(effectiveStoreId || undefined);
-  const { data: assignmentsData, isLoading: assignmentsLoading } = useAssignments({
-    store_id: effectiveStoreId || undefined,
-    date_from: dateRange.from,
-    date_to: dateRange.to,
-    status: "assigned",
-    per_page: 500,
-  });
 
-  // Also fetch in_progress and completed for overview
-  const { data: inProgressData } = useAssignments({
-    store_id: effectiveStoreId || undefined,
-    date_from: dateRange.from,
-    date_to: dateRange.to,
-    status: "in_progress",
-    per_page: 500,
-  });
-  const { data: completedData } = useAssignments({
-    store_id: effectiveStoreId || undefined,
-    date_from: dateRange.from,
-    date_to: dateRange.to,
-    status: "completed",
-    per_page: 500,
-  });
-
-  // Schedule entries — manage 페이지에서 생성한 항목도 표시
-  const { data: entriesData, isLoading: entriesLoading } = useSchedules({
+  // Schedule entries
+  const { data: schedulesData, isLoading } = useSchedules({
     store_id: effectiveStoreId || undefined,
     date_from: dateRange.from,
     date_to: dateRange.to,
     per_page: 500,
   });
-  const isLoading = assignmentsLoading || entriesLoading;
 
-  // Map schedule entries → Assignment-like objects for unified display
-  // Schedule entries from manage page that don't yet have a linked work_assignment
-  const entryAssignments = useMemo((): Assignment[] => {
-    const scheduleEntries = entriesData?.items ?? [];
-    const roles = workRoles ?? [];
-    return scheduleEntries
-      .filter((e) => e.status !== "cancelled")
-      .map((entry) => {
-        const role = roles.find((r) => r.id === entry.work_role_id);
-        return {
-          id: `se_${entry.id}`,
-          store_id: entry.store_id,
-          store_name: entry.store_name || "",
-          shift_id: role?.shift_id || "",
-          shift_name: role?.shift_name || "",
-          shift_sort_order: role?.sort_order || 0,
-          position_id: role?.position_id || "",
-          position_name: role?.position_name || "",
-          user_id: entry.user_id,
-          user_name: entry.user_name || "?",
-          work_date: entry.work_date,
-          status: "assigned" as const,
-          total_items: 0,
-          completed_items: 0,
-          created_at: entry.created_at,
-        };
-      });
-  }, [entriesData, workRoles]);
-
-  const allAssignments = useMemo(() => [
-    ...(assignmentsData?.items ?? []),
-    ...(inProgressData?.items ?? []),
-    ...(completedData?.items ?? []),
-    ...entryAssignments,
-  ], [assignmentsData, inProgressData, completedData, entryAssignments]);
+  const allSchedules = useMemo(
+    () => (schedulesData?.items ?? []).filter((s) => s.status !== "cancelled"),
+    [schedulesData],
+  );
 
   // Review summary from server
   const { data: reviewSummary } = useReviewSummary({
@@ -284,23 +220,20 @@ export default function ScheduleOverviewPage(): React.ReactElement {
   // ─── Summary stats ──────────────────────────────
 
   const summary = useMemo(() => {
-    const total = allAssignments.length;
+    const total = allSchedules.length;
     const rv = reviewSummary;
-    // Assignment: completed = all items approved, not started = 0 items checked, rest = in progress
     const fullyApproved = rv?.fully_approved_assignments ?? 0;
-    const notStarted = allAssignments.filter((a) => a.completed_items === 0).length;
-    const inProgress = total - fullyApproved - notStarted;
     const pct = total > 0 ? Math.round((fullyApproved / total) * 100) : 0;
     // Item completion = approved (pass) / total items
     const totalItems = rv?.total_items ?? 0;
     const passCount = rv?.pass ?? 0;
     const itemPct = totalItems > 0 ? Math.round((passCount / totalItems) * 100) : 0;
-    return { total, completed: fullyApproved, inProgress: Math.max(0, inProgress), notStarted, pct,
+    return { total, completed: fullyApproved, pct,
       totalItems, passCount, itemPct,
       pass: passCount, fail: rv?.fail ?? 0, caution: rv?.caution ?? 0,
       unreviewed: rv?.unreviewed ?? 0,
     };
-  }, [allAssignments, reviewSummary]);
+  }, [allSchedules, reviewSummary]);
 
   // Range label for summary
   const rangeLabel = useMemo(() => {
@@ -370,13 +303,12 @@ export default function ScheduleOverviewPage(): React.ReactElement {
         Summary — {rangeLabel}
       </p>
       <div className="space-y-4 mb-6">
-        {/* Assignment */}
+        {/* Schedule */}
         <div>
-          <p className="text-[10px] text-text-muted uppercase tracking-wider font-semibold mb-2">Assignment</p>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          <p className="text-[10px] text-text-muted uppercase tracking-wider font-semibold mb-2">Schedule</p>
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             <PctCard label="Completion" sub={`${summary.completed}/${summary.total}`} pct={summary.pct} />
-            <MiniCard label="Not Started" value={summary.notStarted} color="text-text-muted" dot="bg-text-muted" />
-            <MiniCard label="In Progress" value={summary.inProgress} color="text-blue-400" dot="bg-blue-400" />
+            <MiniCard label="Total" value={summary.total} color="text-accent" dot="bg-accent" />
             <MiniCard label="Completed" value={summary.completed} color="text-success" dot="bg-success" />
           </div>
         </div>
@@ -526,32 +458,32 @@ export default function ScheduleOverviewPage(): React.ReactElement {
             />
           </div>
           <span className="text-xs text-text-muted ml-auto">
-            {allAssignments.length} assignments
+            {allSchedules.length} schedules
           </span>
         </div>
       )}
 
-      {/* Assignments */}
+      {/* Schedules */}
       {isLoading ? (
         <div className="text-center py-20 text-text-muted">Loading...</div>
       ) : mainView === "calendar" ? (
         calView === "day" ? (
           <DayView
             roles={activeRoles}
-            assignments={allAssignments}
+            schedules={allSchedules}
             date={toDateStr(currentDate)}
             onDetailClick={goToDetail}
           />
         ) : calView === "week" ? (
           <WeekView
             roles={activeRoles}
-            assignments={allAssignments}
+            schedules={allSchedules}
             weekStart={weekStart}
             onDetailClick={goToDetail}
           />
         ) : (
           <MonthView
-            assignments={allAssignments}
+            schedules={allSchedules}
             year={monthYear.year}
             month={monthYear.month}
             onDayClick={goToDay}
@@ -559,7 +491,8 @@ export default function ScheduleOverviewPage(): React.ReactElement {
         )
       ) : (
         <ListView
-          assignments={allAssignments}
+          schedules={allSchedules}
+          roles={activeRoles}
           sortKey={sortKey}
           sortAsc={sortAsc}
           onSort={handleSort}
@@ -615,55 +548,28 @@ function MiniCard({
   );
 }
 
-// ─── Progress Bar (inline) ──────────────────────────
-
-function ProgressBar({
-  completed,
-  total,
-  size = "sm",
-}: {
-  completed: number;
-  total: number;
-  size?: "sm" | "xs";
-}) {
-  const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
-  const status = completed === 0 ? "pending" : completed >= total ? "done" : "active";
-  const barColor = status === "done" ? "bg-success" : status === "active" ? "bg-accent" : "bg-text-muted";
-
-  return (
-    <div className="flex items-center gap-1.5">
-      <div className={cn("rounded-full overflow-hidden bg-surface", size === "sm" ? "w-16 h-1.5" : "w-10 h-1")}>
-        <div className={cn("h-full rounded-full", barColor)} style={{ width: `${pct}%` }} />
-      </div>
-      <span className="text-[10px] text-text-muted whitespace-nowrap">
-        {completed}/{total}
-      </span>
-    </div>
-  );
-}
-
 // ─── Status Badge ───────────────────────────────────
 
-function StatusBadge({ completedItems, totalItems }: { completedItems: number; totalItems: number }) {
-  if (completedItems === 0) return <Badge variant="default">Not Started</Badge>;
-  if (totalItems > 0 && completedItems >= totalItems) return <Badge variant="accent">In Review</Badge>;
-  return <Badge variant="accent">In Progress</Badge>;
+function ScheduleStatusBadge({ status }: { status: string }) {
+  if (status === "confirmed") return <Badge variant="success">Confirmed</Badge>;
+  if (status === "cancelled") return <Badge variant="danger">Cancelled</Badge>;
+  return <Badge variant="default">{status}</Badge>;
 }
 
 // ─── Day View ───────────────────────────────────────
 
 function DayView({
   roles,
-  assignments,
+  schedules,
   date,
   onDetailClick,
 }: {
   roles: WorkRole[];
-  assignments: Assignment[];
+  schedules: Schedule[];
   date: string;
   onDetailClick: (id: string) => void;
 }) {
-  const dayAssignments = assignments.filter((a) => a.work_date === date);
+  const daySchedules = schedules.filter((s) => s.work_date === date);
 
   if (roles.length === 0) {
     return <div className="text-center py-20 text-text-muted">No work roles configured</div>;
@@ -672,10 +578,10 @@ function DayView({
   return (
     <div className="space-y-4">
       {roles.map((role) => {
-        const roleAssignments = dayAssignments.filter(
-          (a) => a.shift_id === role.shift_id && a.position_id === role.position_id,
+        const roleSchedules = daySchedules.filter(
+          (s) => s.work_role_id === role.id,
         );
-        const filled = roleAssignments.length;
+        const filled = roleSchedules.length;
         const hc = role.required_headcount;
         const hcVariant = filled < hc ? "danger" : filled === hc ? "success" : "warning";
 
@@ -698,26 +604,23 @@ function DayView({
               <Badge variant={hcVariant}>{filled}/{hc}</Badge>
             </div>
 
-            {roleAssignments.length === 0 ? (
-              <div className="text-xs text-text-muted py-4 text-center">No assignments</div>
+            {roleSchedules.length === 0 ? (
+              <div className="text-xs text-text-muted py-4 text-center">No schedules</div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                {roleAssignments.map((a) => (
+                {roleSchedules.map((s) => (
                   <button
-                    key={a.id}
-                    onClick={() => onDetailClick(a.id)}
+                    key={s.id}
+                    onClick={() => onDetailClick(s.id)}
                     className="text-left p-3 rounded-lg bg-surface hover:bg-surface-hover transition-colors"
                   >
                     <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-sm font-medium text-text">{a.user_name}</span>
+                      <span className="text-sm font-medium text-text">{s.user_name}</span>
                       <span className="text-[10px] text-text-muted">
-                        {a.work_date}
+                        {s.start_time && s.end_time ? `${s.start_time}–${s.end_time}` : s.work_date}
                       </span>
                     </div>
-                    <ProgressBar completed={a.completed_items} total={a.total_items} />
-                    <div className="mt-1.5">
-                      <StatusBadge completedItems={a.completed_items} totalItems={a.total_items} />
-                    </div>
+                    <ScheduleStatusBadge status={s.status} />
                   </button>
                 ))}
               </div>
@@ -733,12 +636,12 @@ function DayView({
 
 function WeekView({
   roles,
-  assignments,
+  schedules,
   weekStart,
   onDetailClick,
 }: {
   roles: WorkRole[];
-  assignments: Assignment[];
+  schedules: Schedule[];
   weekStart: Date;
   onDetailClick: (id: string) => void;
 }) {
@@ -790,13 +693,10 @@ function WeekView({
                 )}
               </td>
               {days.map((ds) => {
-                const cellAssignments = assignments.filter(
-                  (a) =>
-                    a.work_date === ds &&
-                    a.shift_id === role.shift_id &&
-                    a.position_id === role.position_id,
+                const cellSchedules = schedules.filter(
+                  (s) => s.work_date === ds && s.work_role_id === role.id,
                 );
-                const filled = cellAssignments.length;
+                const filled = cellSchedules.length;
                 const hcCls =
                   filled < role.required_headcount
                     ? "text-danger"
@@ -814,16 +714,20 @@ function WeekView({
                     )}
                   >
                     <div className="space-y-1">
-                      {cellAssignments.map((a) => (
+                      {cellSchedules.map((s) => (
                         <button
-                          key={a.id}
-                          onClick={() => onDetailClick(a.id)}
+                          key={s.id}
+                          onClick={() => onDetailClick(s.id)}
                           className="w-full text-left p-1.5 rounded bg-surface hover:bg-surface-hover transition-colors"
                         >
                           <div className="text-[11px] font-medium text-text truncate">
-                            {a.user_name}
+                            {s.user_name}
                           </div>
-                          <ProgressBar completed={a.completed_items} total={a.total_items} size="xs" />
+                          {s.start_time && s.end_time && (
+                            <div className="text-[10px] text-text-muted">
+                              {s.start_time}–{s.end_time}
+                            </div>
+                          )}
                         </button>
                       ))}
                       {role.required_headcount > 0 && (
@@ -846,12 +750,12 @@ function WeekView({
 // ─── Month View ─────────────────────────────────────
 
 function MonthView({
-  assignments,
+  schedules,
   year,
   month,
   onDayClick,
 }: {
-  assignments: Assignment[];
+  schedules: Schedule[];
   year: number;
   month: number;
   onDayClick: (dateStr: string) => void;
@@ -908,7 +812,7 @@ function MonthView({
 
       {/* Cells */}
       {cells.map((cell) => {
-        const dayAssignments = assignments.filter((a) => a.work_date === cell.dateStr);
+        const daySchedules = schedules.filter((s) => s.work_date === cell.dateStr);
         const isToday = cell.dateStr === todayStr;
 
         return (
@@ -929,21 +833,15 @@ function MonthView({
             >
               {cell.dayNum}
             </div>
-            {dayAssignments.length > 0 && (
+            {daySchedules.length > 0 && (
               <>
                 <div className="flex flex-wrap gap-0.5 mb-1">
-                  {dayAssignments.slice(0, 8).map((a) => {
-                    const status =
-                      a.status === "completed"
-                        ? "bg-success"
-                        : a.status === "in_progress"
-                          ? "bg-accent"
-                          : "bg-text-muted";
-                    return <div key={a.id} className={cn("w-1.5 h-1.5 rounded-full", status)} />;
-                  })}
+                  {daySchedules.slice(0, 8).map((s) => (
+                    <div key={s.id} className="w-1.5 h-1.5 rounded-full bg-success" />
+                  ))}
                 </div>
                 <div className="text-[10px] text-text-muted">
-                  {dayAssignments.length} assigned
+                  {daySchedules.length} scheduled
                 </div>
               </>
             )}
@@ -960,46 +858,52 @@ const LIST_COLS = [
   { key: "work_date", label: "Date" },
   { key: "user_name", label: "Worker" },
   { key: "role", label: "Role" },
-  { key: "progress", label: "Progress" },
+  { key: "time", label: "Time" },
   { key: "status", label: "Status" },
 ] as const;
 
 function ListView({
-  assignments,
+  schedules,
+  roles,
   sortKey,
   sortAsc,
   onSort,
   onDetailClick,
 }: {
-  assignments: Assignment[];
+  schedules: Schedule[];
+  roles: WorkRole[];
   sortKey: string;
   sortAsc: boolean;
   onSort: (key: string) => void;
   onDetailClick: (id: string) => void;
 }) {
+  const getRoleName = useCallback((wrId: string | null) => {
+    if (!wrId) return "—";
+    const r = roles.find((wr) => wr.id === wrId);
+    return r ? `${r.shift_name} · ${r.position_name}` : "—";
+  }, [roles]);
+
   const sorted = useMemo(() => {
-    const rows = [...assignments];
+    const rows = [...schedules];
     rows.sort((a, b) => {
       let va: string | number = "";
       let vb: string | number = "";
 
       if (sortKey === "work_date") { va = a.work_date; vb = b.work_date; }
-      else if (sortKey === "user_name") { va = a.user_name; vb = b.user_name; }
-      else if (sortKey === "role") { va = `${a.shift_name} ${a.position_name}`; vb = `${b.shift_name} ${b.position_name}`; }
-      else if (sortKey === "progress") {
-        va = a.total_items > 0 ? a.completed_items / a.total_items : 0;
-        vb = b.total_items > 0 ? b.completed_items / b.total_items : 0;
-      } else if (sortKey === "status") { va = a.status; vb = b.status; }
+      else if (sortKey === "user_name") { va = a.user_name || ""; vb = b.user_name || ""; }
+      else if (sortKey === "role") { va = getRoleName(a.work_role_id); vb = getRoleName(b.work_role_id); }
+      else if (sortKey === "time") { va = a.start_time || ""; vb = b.start_time || ""; }
+      else if (sortKey === "status") { va = a.status; vb = b.status; }
 
       if (va < vb) return sortAsc ? -1 : 1;
       if (va > vb) return sortAsc ? 1 : -1;
       return 0;
     });
     return rows;
-  }, [assignments, sortKey, sortAsc]);
+  }, [schedules, sortKey, sortAsc, getRoleName]);
 
   if (sorted.length === 0) {
-    return <div className="text-center py-20 text-text-muted">No assignments for this range</div>;
+    return <div className="text-center py-20 text-text-muted">No schedules for this range</div>;
   }
 
   return (
@@ -1025,22 +929,22 @@ function ListView({
           </tr>
         </thead>
         <tbody>
-          {sorted.map((a) => (
+          {sorted.map((s) => (
             <tr
-              key={a.id}
-              onClick={() => onDetailClick(a.id)}
+              key={s.id}
+              onClick={() => onDetailClick(s.id)}
               className="border-b border-border/50 hover:bg-surface-hover cursor-pointer transition-colors"
             >
-              <td className="px-3 py-2.5 text-sm text-text">{longDate(a.work_date)}</td>
-              <td className="px-3 py-2.5 text-sm font-medium text-text">{a.user_name}</td>
+              <td className="px-3 py-2.5 text-sm text-text">{longDate(s.work_date)}</td>
+              <td className="px-3 py-2.5 text-sm font-medium text-text">{s.user_name}</td>
               <td className="px-3 py-2.5 text-sm text-text-secondary">
-                {a.shift_name} · {a.position_name}
+                {getRoleName(s.work_role_id)}
+              </td>
+              <td className="px-3 py-2.5 text-sm text-text-secondary">
+                {s.start_time && s.end_time ? `${s.start_time}–${s.end_time}` : "—"}
               </td>
               <td className="px-3 py-2.5">
-                <ProgressBar completed={a.completed_items} total={a.total_items} />
-              </td>
-              <td className="px-3 py-2.5">
-                <StatusBadge completedItems={a.completed_items} totalItems={a.total_items} />
+                <ScheduleStatusBadge status={s.status} />
               </td>
             </tr>
           ))}

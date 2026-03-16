@@ -49,14 +49,6 @@ export {
 } from "./useChecklists";
 
 export {
-  useAssignments,
-  useAssignment,
-  useCreateAssignment,
-  useBulkCreateAssignments,
-  useDeleteAssignment,
-} from "./useAssignments";
-
-export {
   useAnnouncements,
   useAnnouncement,
   useAnnouncementReads,
@@ -86,12 +78,13 @@ export { usePermissions } from "./usePermissions";
 export {
   useChecklistInstances,
   useChecklistInstance,
+  useChecklistInstanceBySchedule,
   useUpsertItemReview,
   useDeleteItemReview,
   usePresignedUrl,
 } from "./useChecklistInstances";
 
-export { useSchedules, useCreateSchedule, useUpdateSchedule, useDeleteSchedule, useGenerateFromRequests } from "./useSchedules";
+export { useSchedule, useSchedules, useCreateSchedule, useUpdateSchedule, useDeleteSchedule, useGenerateFromRequests } from "./useSchedules";
 
 export {
   useAttendances,

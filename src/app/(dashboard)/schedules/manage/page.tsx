@@ -30,11 +30,13 @@ import {
   Settings,
   Lock,
   Unlock,
+  Trash2,
+  AlertTriangle,
 } from "lucide-react";
 import { useStores } from "@/hooks/useStores";
 import { useWorkRoles } from "@/hooks/useWorkRoles";
 import { useUsers } from "@/hooks/useUsers";
-import { useSchedules } from "@/hooks/useSchedules";
+import { useSchedules, useCreateSchedule, useUpdateSchedule, useDeleteSchedule } from "@/hooks/useSchedules";
 import {
   useScheduleRequests,
   useAdminCreateRequest,
@@ -43,14 +45,14 @@ import {
   useRevertRequest,
   useDeleteRequest,
   useConfirmRequests,
+  useConfirmPreview,
 } from "@/hooks/useScheduleRequests";
 import { usePermissions } from "@/hooks/usePermissions";
 import { Card, Badge, Modal, Select, Button } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
 import { cn, parseApiError } from "@/lib/utils";
-import { useAssignments } from "@/hooks/useAssignments";
 import { useSchedulePeriods, useCreateSchedulePeriod, useTransitionPeriod } from "@/hooks/useSchedulePeriods";
-import type { Store, User, WorkRole, Schedule, ScheduleRequestItem, Assignment, SchedulePeriod } from "@/types";
+import type { Store, User, WorkRole, Schedule, ScheduleRequestItem, SchedulePeriod, ScheduleConfirmPreview } from "@/types";
 
 // ─── Types ──────────────────────────────────────────
 
@@ -59,7 +61,7 @@ type ViewMode = "role" | "staff";
 /** Unified item for grid display — either a schedule entry or a staff request */
 interface GridItem {
   id: string;
-  kind: "entry" | "request" | "assignment";
+  kind: "entry" | "request";
   user_id: string;
   work_role_id: string | null;
   work_date: string;
@@ -71,7 +73,6 @@ interface GridItem {
   note: string | null;
   entry?: Schedule;
   request?: ScheduleRequestItem;
-  assignment?: Assignment;
   // Original value tracking (for modified requests)
   original_start_time?: string | null;
   original_end_time?: string | null;
@@ -113,8 +114,16 @@ function timeToMin(t: string | null): number {
 }
 function calcHours(e: { start_time: string; end_time: string; break_start_time: string | null; break_end_time: string | null }): number {
   if (!e.start_time || !e.end_time) return 0;
-  let total = timeToMin(e.end_time) - timeToMin(e.start_time);
-  if (e.break_start_time && e.break_end_time) total -= timeToMin(e.break_end_time) - timeToMin(e.break_start_time);
+  let startMin = timeToMin(e.start_time);
+  let endMin = timeToMin(e.end_time);
+  if (endMin <= startMin) endMin += 24 * 60; // overnight shift
+  let total = endMin - startMin;
+  if (e.break_start_time && e.break_end_time) {
+    let bsMin = timeToMin(e.break_start_time);
+    let beMin = timeToMin(e.break_end_time);
+    if (beMin <= bsMin) beMin += 24 * 60;
+    total -= beMin - bsMin;
+  }
   return Math.max(0, total / 60);
 }
 
@@ -132,8 +141,8 @@ function toGridItem(e: Schedule): GridItem {
 function requestToGridItem(r: ScheduleRequestItem): GridItem {
   return {
     id: r.id, kind: "request", user_id: r.user_id, work_role_id: r.work_role_id,
-    work_date: r.work_date, start_time: r.preferred_start_time || "09:00",
-    end_time: r.preferred_end_time || "18:00",
+    work_date: r.work_date, start_time: r.preferred_start_time || "",
+    end_time: r.preferred_end_time || "",
     break_start_time: r.break_start_time, break_end_time: r.break_end_time,
     status: `req_${r.status}`, note: r.note, request: r,
     original_start_time: r.original_preferred_start_time,
@@ -147,21 +156,14 @@ function requestToGridItem(r: ScheduleRequestItem): GridItem {
   };
 }
 
-function assignmentToGridItem(a: Assignment): GridItem {
-  return {
-    id: a.id, kind: "assignment", user_id: a.user_id, work_role_id: null,
-    work_date: a.work_date, start_time: "", end_time: "",
-    break_start_time: null, break_end_time: null,
-    status: `asgn_${a.status}`, note: null, assignment: a,
-  };
-}
+
 
 // ─── Status config ──────────────────────────────────
 
 /** Sort priority: lower = higher in cell */
 const STATUS_PRIORITY: Record<string, number> = {
   confirmed: 0, approved: 0, cancelled: 6,
-  req_accepted: 1, asgn_assigned: 2, asgn_in_progress: 2, asgn_completed: 2,
+  req_accepted: 1,
   req_modified: 3, req_submitted: 4, req_rejected: 5,
 };
 
@@ -182,10 +184,6 @@ const STATUS_CONFIG: Record<string, {
   cancelled:        { label: "Cancelled", badge: "danger",  borderColor: "border-l-danger",  bg: "bg-danger/10",   nameColor: "text-danger",     timeColor: "text-text-muted",     dashed: false, faded: true,  strikethrough: true },
   // Legacy: approved (same as confirmed)
   approved:         { label: "Approved",  badge: "success", borderColor: "border-l-success", bg: "bg-surface",     nameColor: "text-text",       timeColor: "text-text-secondary", dashed: false, faded: false, strikethrough: false },
-  // Assignments → treat as confirmed (green solid)
-  asgn_assigned:    { label: "Assigned",  badge: "success", borderColor: "border-l-success", bg: "bg-surface",     nameColor: "text-text",       timeColor: "text-text-secondary", dashed: false, faded: false, strikethrough: false },
-  asgn_in_progress: { label: "Assigned",  badge: "success", borderColor: "border-l-success", bg: "bg-surface",     nameColor: "text-text",       timeColor: "text-text-secondary", dashed: false, faded: false, strikethrough: false },
-  asgn_completed:   { label: "Assigned",  badge: "success", borderColor: "border-l-success", bg: "bg-surface",     nameColor: "text-text",       timeColor: "text-text-secondary", dashed: false, faded: false, strikethrough: false },
   // Request (dashed) — request=purple, modified=yellow, rejected=red
   req_submitted:    { label: "Request",   badge: "accent",  borderColor: "border-l-accent",  bg: "bg-accent/10",   nameColor: "text-accent",     timeColor: "text-accent-light",   dashed: true,  faded: false, strikethrough: false },
   req_accepted:     { label: "Accepted",  badge: "success", borderColor: "border-l-success", bg: "bg-success/10",  nameColor: "text-success",    timeColor: "text-text-secondary", dashed: true,  faded: false, strikethrough: false },
@@ -225,6 +223,8 @@ export default function ScheduleManagePage(): React.ReactElement {
   const weekDays = useMemo(() => getWeekDays(weekStart), [weekStart]);
   const isFutureWeek = weekDays[0] > todayStr;
   const isPastWeek = weekDays[6] < todayStr;
+  const isCurrentWeek = weekDays[0] <= todayStr && weekDays[6] >= todayStr;
+  const isLocked = isPastWeek || isCurrentWeek; // 이번 주 이하는 잠금
 
   // Store selection
   const { data: stores } = useStores();
@@ -233,7 +233,7 @@ export default function ScheduleManagePage(): React.ReactElement {
 
   // Data
   const { data: workRoles } = useWorkRoles(effectiveStoreId || undefined);
-  const { data: usersData } = useUsers();
+  const { data: usersData } = useUsers({ store_id: effectiveStoreId || undefined, is_active: true });
   const { data: entriesData, isLoading } = useSchedules({
     store_id: effectiveStoreId || undefined,
     date_from: weekDays[0],
@@ -246,29 +246,18 @@ export default function ScheduleManagePage(): React.ReactElement {
     date_to: weekDays[6],
     per_page: 500,
   });
-  const { data: assignmentsData } = useAssignments({
-    store_id: effectiveStoreId || undefined,
-    date_from: weekDays[0],
-    date_to: weekDays[6],
-    per_page: 500,
-  });
-
   const activeRoles = useMemo(() => (workRoles ?? []).filter((r) => r.is_active), [workRoles]);
   const entries = useMemo(() => entriesData?.items ?? [], [entriesData]);
   const requests = useMemo(() => requestsData?.items ?? [], [requestsData]);
-  const assignments = useMemo(() => assignmentsData?.items ?? [], [assignmentsData]);
   const users = useMemo(() => usersData ?? [], [usersData]);
 
-  // Merge entries + requests + assignments
+  // Merge entries + requests
   const gridItems = useMemo(() => {
     const entryItems = entries.map(toGridItem);
     const linkedRequestIds = new Set(entries.filter((e) => e.request_id).map((e) => e.request_id));
     const requestItems = requests.filter((r) => !linkedRequestIds.has(r.id)).map(requestToGridItem);
-    // Exclude assignments that overlap with a schedule (same user+date+store)
-    const scheduleKeys = new Set(entries.map((e) => `${e.user_id}_${e.work_date}_${e.store_id}`));
-    const assignmentItems = assignments.filter((a) => !scheduleKeys.has(`${a.user_id}_${a.work_date}_${a.store_id}`)).map(assignmentToGridItem);
-    return [...entryItems, ...requestItems, ...assignmentItems];
-  }, [entries, requests, assignments]);
+    return [...entryItems, ...requestItems];
+  }, [entries, requests]);
 
   // Period — 주간 상태 추적 (sv_draft → gm_review → finalized)
   const { data: periodsData } = useSchedulePeriods({
@@ -291,16 +280,22 @@ export default function ScheduleManagePage(): React.ReactElement {
   // 자동 period 생성 (SV가 처음 열 때, period 없으면 sv_draft로 생성)
   const autoCreatedRef = useRef<string>("");
   useEffect(() => {
-    if (!effectiveStoreId || isPastWeek || currentPeriod || createPeriod.isPending) return;
+    if (!effectiveStoreId || isLocked || currentPeriod || createPeriod.isPending) return;
     const key = `${effectiveStoreId}_${weekDays[0]}`;
     if (autoCreatedRef.current === key) return;
     autoCreatedRef.current = key;
+    // S3: request_deadline 기본값 = 주 시작 2일 전
+    const periodStartDate = new Date(weekDays[0] + "T00:00:00");
+    const deadlineDate = new Date(periodStartDate);
+    deadlineDate.setDate(deadlineDate.getDate() - 2);
+    const requestDeadline = toDateStr(deadlineDate);
     createPeriod.mutate({
       store_id: effectiveStoreId,
       period_start: weekDays[0],
       period_end: weekDays[6],
+      request_deadline: requestDeadline,
     });
-  }, [effectiveStoreId, weekDays, isPastWeek, currentPeriod, createPeriod]);
+  }, [effectiveStoreId, weekDays, isLocked, currentPeriod, createPeriod]);
 
   // Mutations — all request-based pre-confirm
   const adminCreateRequest = useAdminCreateRequest();
@@ -309,10 +304,21 @@ export default function ScheduleManagePage(): React.ReactElement {
   const revertRequest = useRevertRequest();
   const deleteRequest = useDeleteRequest();
   const confirmRequests = useConfirmRequests();
+  const confirmPreview = useConfirmPreview();
+  const createSchedule = useCreateSchedule();
+  const updateSchedule = useUpdateSchedule();
+  const deleteSchedule = useDeleteSchedule();
+
+  // GM+ edit mode for confirmed/locked weeks
+  const [editMode, setEditMode] = useState(false);
+  // Reset edit mode on week change
+  useEffect(() => { setEditMode(false); }, [weekStart]);
 
   // Modals
   const [assignModal, setAssignModal] = useState<{ open: boolean; date: string; role?: WorkRole; userId?: string }>({ open: false, date: "" });
   const [detailModal, setDetailModal] = useState<{ open: boolean; item: GridItem | null; mode: "view" | "edit" | "reject" }>({ open: false, item: null, mode: "view" });
+  const [confirmPreviewModal, setConfirmPreviewModal] = useState<{ open: boolean; preview: ScheduleConfirmPreview | null }>({ open: false, preview: null });
+  const [confirmErrorsModal, setConfirmErrorsModal] = useState<{ open: boolean; errors: string[] }>({ open: false, errors: [] });
 
   // ─── Helpers ────────────────────────────────────
   const getUserName = useCallback((uid: string) => users.find((u) => u.id === uid)?.full_name || "?", [users]);
@@ -336,22 +342,38 @@ export default function ScheduleManagePage(): React.ReactElement {
 
   const handleAddRequest = useCallback(async (data: { userId: string; workRoleId: string; startTime: string; endTime: string; breakStartTime?: string; breakEndTime?: string }) => {
     try {
-      await adminCreateRequest.mutateAsync({
-        store_id: effectiveStoreId,
-        user_id: data.userId,
-        work_role_id: data.workRoleId || undefined,
-        work_date: assignModal.date,
-        preferred_start_time: data.startTime,
-        preferred_end_time: data.endTime,
-        break_start_time: data.breakStartTime,
-        break_end_time: data.breakEndTime,
-      });
-      setAssignModal({ open: false, date: "" });
-      toast({ type: "success", message: "Request added" });
+      if (editMode) {
+        // Edit mode: 스케줄 직접 생성 (confirmed)
+        await createSchedule.mutateAsync({
+          store_id: effectiveStoreId,
+          user_id: data.userId,
+          work_role_id: data.workRoleId || undefined,
+          work_date: assignModal.date,
+          start_time: data.startTime,
+          end_time: data.endTime,
+          break_start_time: data.breakStartTime,
+          break_end_time: data.breakEndTime,
+        });
+        setAssignModal({ open: false, date: "" });
+        toast({ type: "success", message: "Schedule added" });
+      } else {
+        await adminCreateRequest.mutateAsync({
+          store_id: effectiveStoreId,
+          user_id: data.userId,
+          work_role_id: data.workRoleId || undefined,
+          work_date: assignModal.date,
+          preferred_start_time: data.startTime,
+          preferred_end_time: data.endTime,
+          break_start_time: data.breakStartTime,
+          break_end_time: data.breakEndTime,
+        });
+        setAssignModal({ open: false, date: "" });
+        toast({ type: "success", message: "Request added" });
+      }
     } catch (err) {
       toast({ type: "error", message: parseApiError(err, "Operation failed") });
     }
-  }, [adminCreateRequest, effectiveStoreId, assignModal.date, toast]);
+  }, [editMode, adminCreateRequest, createSchedule, effectiveStoreId, assignModal.date, currentPeriod, toast]);
 
   // ─── Detail Modal ─────────────────────────────
   const openDetail = useCallback((item: GridItem) => {
@@ -362,10 +384,27 @@ export default function ScheduleManagePage(): React.ReactElement {
     setDetailModal({ open: false, item: null, mode: "view" });
   }, []);
 
-  // ─── Drag & Drop handler — modifies request in-place ──
+  // ─── Drag & Drop handler — requests in-place, entries in editMode ──
   const handleDrop = useCallback(async (itemId: string, newDate: string, newTargetId: string, targetType: "user" | "role") => {
     const item = gridItems.find((g) => g.id === itemId);
-    if (!item || item.kind !== "request") return;
+    if (!item) return;
+
+    if (item.kind === "entry") {
+      // W3: editMode에서 entry 드래그 지원
+      if (!editMode) return;
+      const updates: Record<string, string> = {};
+      if (item.work_date !== newDate) updates.work_date = newDate;
+      if (targetType === "user" && item.user_id !== newTargetId) updates.user_id = newTargetId;
+      if (targetType === "role" && item.work_role_id !== newTargetId) updates.work_role_id = newTargetId;
+      if (Object.keys(updates).length === 0) return;
+      try {
+        await updateSchedule.mutateAsync({ id: item.id, data: updates });
+        toast({ type: "success", message: "Schedule moved" });
+      } catch (err) {
+        toast({ type: "error", message: parseApiError(err, "Move failed") });
+      }
+      return;
+    }
 
     const updates: Record<string, string> = {};
     if (item.work_date !== newDate) updates.work_date = newDate;
@@ -379,7 +418,7 @@ export default function ScheduleManagePage(): React.ReactElement {
     } catch (err) {
       toast({ type: "error", message: parseApiError(err, "Move failed") });
     }
-  }, [gridItems, adminUpdateRequest, toast]);
+  }, [gridItems, editMode, adminUpdateRequest, updateSchedule, toast]);
 
   // ─── Close Requests (open → sv_draft) ──────────
   const handleCloseRequests = useCallback(async () => {
@@ -434,15 +473,14 @@ export default function ScheduleManagePage(): React.ReactElement {
     }
   }, [currentPeriod, transitionPeriod, toast]);
 
-  // ─── Confirm handler ──────────────────────────
-  const handleConfirm = useCallback(async () => {
+  // ─── Confirm (실제 실행) ───────────────────────
+  const doConfirm = useCallback(async () => {
     if (!effectiveStoreId) return;
     try {
       const result = await confirmRequests.mutateAsync({
         store_id: effectiveStoreId,
         date_from: weekDays[0],
         date_to: weekDays[6],
-        period_id: currentPeriod?.id,
       });
       // period를 finalized로 전환
       if (currentPeriod && currentPeriod.status !== "finalized") {
@@ -463,38 +501,67 @@ export default function ScheduleManagePage(): React.ReactElement {
           if (p.status === "gm_review") {
             await transitionPeriod.mutateAsync({ id: p.id, action: "finalize" });
           }
-        } catch { /* period 전환 실패해도 confirm + assignment는 이미 성공 */ }
+        } catch (e) {
+          // W5: period 전환 실패 시 toast로 알림 (confirm 자체는 성공)
+          const msg = e instanceof Error ? e.message : "Unknown error";
+          toast({ type: "error", message: `Period 전환 실패: ${msg}` });
+        }
       }
-      const msg = [`${result.entries_created} entries`];
-      if (result.requests_rejected) msg.push(`${result.requests_rejected} rejected`);
-      if (result.errors.length) msg.push(`${result.errors.length} errors`);
-      toast({ type: "success", message: `Confirmed: ${msg.join(", ")}` });
+      // C2: errors 배열 있으면 다이얼로그로 상세 표시
+      if (result.errors.length > 0) {
+        setConfirmErrorsModal({ open: true, errors: result.errors });
+      } else {
+        const msg = [`${result.entries_created} entries confirmed`];
+        if (result.requests_rejected) msg.push(`${result.requests_rejected} rejected`);
+        toast({ type: "success", message: msg.join(", ") });
+      }
     } catch (err) {
       toast({ type: "error", message: parseApiError(err, "Confirm failed") });
     }
   }, [effectiveStoreId, weekDays, confirmRequests, currentPeriod, transitionPeriod, toast]);
+
+  // ─── Confirm: Preview → Confirm flow (S1/S2) ──
+  const handleConfirm = useCallback(async () => {
+    if (!effectiveStoreId) return;
+    try {
+      const preview = await confirmPreview.mutateAsync({
+        store_id: effectiveStoreId,
+        date_from: weekDays[0],
+        date_to: weekDays[6],
+      });
+      setConfirmPreviewModal({ open: true, preview });
+    } catch {
+      // preview 엔드포인트 없을 수 있음 — 바로 confirm 실행
+      doConfirm();
+    }
+  }, [effectiveStoreId, weekDays, confirmPreview, doConfirm]);
 
   // ─── Workflow status ──────────────────────────
   const isConfirmed = useMemo(() => entries.some((e) => e.status === "confirmed"), [entries]);
   const isSubmittedToGM = periodStatus === "gm_review" || periodStatus === "finalized";
 
   const workflowStep = useMemo(() => {
-    if (isPastWeek) return 4;
+    if (isLocked) return 4;
     if (isConfirmed || periodStatus === "finalized") return 4;
     if (isSubmittedToGM) return 3;
     if (periodStatus === "sv_draft" || periodStatus === "closed") return 2;
     const hasModified = requests.some((r) => r.status === "modified");
     if (hasModified) return 2;
     return 1;
-  }, [isPastWeek, isConfirmed, isSubmittedToGM, periodStatus, requests]);
+  }, [isLocked, isConfirmed, isSubmittedToGM, periodStatus, requests]);
 
-  // canEdit: GM은 과거 주만 아니면 항상 편집 가능, SV는 sv_draft(또는 period 없음) 상태에서만 편집 가능
+  // canEdit: 잠금 주(과거+이번주)는 기본 불가, GM+는 editMode로 진입 가능
   const canEdit = useMemo(() => {
-    if (isPastWeek) return false;
-    if (isGMOrAbove) return true; // GM은 confirm 후에도 편집 가능
-    // SV: submit 전이고 confirm 전에만
-    return !isSubmittedToGM && !isConfirmed;
-  }, [isPastWeek, isGMOrAbove, isSubmittedToGM, isConfirmed]);
+    // GM+ edit mode: 잠금/확정 주에서도 편집 가능
+    if (editMode && isGMOrAbove) return true;
+    if (isLocked) return false;
+    if (isGMOrAbove) {
+      // GM: close 이후(sv_draft/gm_review)에서만 편집, finalized 후에도 가능
+      return periodStatus !== "open";
+    }
+    // SV: sv_draft 상태에서만 편집, submit 전이고 confirm 전에만
+    return periodStatus === "sv_draft" && !isSubmittedToGM && !isConfirmed;
+  }, [editMode, isLocked, isGMOrAbove, periodStatus, isSubmittedToGM, isConfirmed]);
 
   // ─── Render ───────────────────────────────────
   return (
@@ -504,7 +571,7 @@ export default function ScheduleManagePage(): React.ReactElement {
         <div>
           <h1 className="text-2xl font-extrabold text-text">Manage Schedules</h1>
           <p className="text-sm text-text-muted mt-0.5 flex items-center gap-2">
-            {isPastWeek ? <Badge variant="default">Past</Badge>
+            {isLocked ? <Badge variant="default">{isPastWeek ? "Past" : "Current Week"}</Badge>
               : periodStatus === "finalized" || isConfirmed ? <Badge variant="success">Published</Badge>
               : periodStatus === "gm_review" ? <Badge variant="accent">GM Review</Badge>
               : periodStatus === "sv_draft" ? <Badge variant="warning">SV Editing</Badge>
@@ -591,10 +658,28 @@ export default function ScheduleManagePage(): React.ReactElement {
         </div>
         {/* Bulk Actions */}
         <div className="flex items-center gap-2">
-          {isPastWeek || (isConfirmed && periodStatus === "finalized") ? (
-            <span className="text-xs text-success font-semibold flex items-center gap-1">
-              <Check size={14} /> Published
-            </span>
+          {/* C3: finalized 또는 isConfirmed이면 Published 표시 */}
+          {isLocked || isConfirmed || periodStatus === "finalized" ? (
+            isGMOrAbove ? (
+              editMode ? (
+                <Button variant="secondary" size="sm" onClick={() => setEditMode(false)}>
+                  <X size={14} /> Exit Edit Mode
+                </Button>
+              ) : (
+                <>
+                  <span className="text-xs text-success font-semibold flex items-center gap-1">
+                    <Check size={14} /> Published
+                  </span>
+                  <Button variant="ghost" size="sm" onClick={() => setEditMode(true)}>
+                    <Edit3 size={14} /> Edit
+                  </Button>
+                </>
+              )
+            ) : (
+              <span className="text-xs text-success font-semibold flex items-center gap-1">
+                <Check size={14} /> Published
+              </span>
+            )
           ) : isGMOrAbove ? (
             <>
               {periodStatus === "open" && (
@@ -609,33 +694,47 @@ export default function ScheduleManagePage(): React.ReactElement {
                   <Unlock size={14} /> {transitionPeriod.isPending ? "Reopening..." : "Reopen Requests"}
                 </Button>
               )}
-              <Button variant="primary" size="sm" onClick={handleConfirm}
-                disabled={confirmRequests.isPending || requests.length === 0}>
-                <Check size={14} /> {confirmRequests.isPending ? "Confirming..." : "Confirm & Publish"}
-              </Button>
+              {/* C3: finalized/isConfirmed 아닐 때만 표시 */}
+              {periodStatus !== "open" && (
+                <Button variant="primary" size="sm" onClick={handleConfirm}
+                  disabled={confirmRequests.isPending || confirmPreview.isPending}>
+                  <Check size={14} /> {(confirmRequests.isPending || confirmPreview.isPending) ? "Loading..." : "Confirm & Publish"}
+                </Button>
+              )}
             </>
-          ) : isSubmittedToGM ? (
-            <span className="text-xs text-accent font-semibold flex items-center gap-1">
-              <Send size={14} /> Submitted — Waiting for GM
-            </span>
           ) : (
+            // SV 버튼 (W4: periodStatus별 분기)
             <>
-              {periodStatus === "open" && (
-                <Button variant="ghost" size="sm" onClick={handleCloseRequests}
-                  disabled={transitionPeriod.isPending}>
-                  <Lock size={14} /> {transitionPeriod.isPending ? "Closing..." : "Close Requests"}
-                </Button>
+              {/* gm_review 또는 finalized: 대기 메시지만 */}
+              {(periodStatus === "gm_review") && (
+                <span className="text-xs text-accent font-semibold flex items-center gap-1">
+                  <Send size={14} /> Submitted — Waiting for GM
+                </span>
               )}
-              {(periodStatus === "sv_draft" || periodStatus === "closed") && (
-                <Button variant="ghost" size="sm" onClick={handleReopenRequests}
-                  disabled={transitionPeriod.isPending}>
-                  <Unlock size={14} /> {transitionPeriod.isPending ? "Reopening..." : "Reopen Requests"}
-                </Button>
+              {/* sv_draft 이하에서만 버튼 표시 */}
+              {(periodStatus === "open" || periodStatus === "sv_draft" || periodStatus === "closed" || !periodStatus) && (
+                <>
+                  {periodStatus === "open" && (
+                    <Button variant="ghost" size="sm" onClick={handleCloseRequests}
+                      disabled={transitionPeriod.isPending}>
+                      <Lock size={14} /> {transitionPeriod.isPending ? "Closing..." : "Close Requests"}
+                    </Button>
+                  )}
+                  {(periodStatus === "sv_draft" || periodStatus === "closed") && (
+                    <Button variant="ghost" size="sm" onClick={handleReopenRequests}
+                      disabled={transitionPeriod.isPending}>
+                      <Unlock size={14} /> {transitionPeriod.isPending ? "Reopening..." : "Reopen Requests"}
+                    </Button>
+                  )}
+                  {/* W4: sv_draft 상태일 때만 Submit to GM */}
+                  {(periodStatus === "sv_draft") && (
+                    <Button variant="primary" size="sm" onClick={handleSubmitToGM}
+                      disabled={transitionPeriod.isPending}>
+                      <Send size={14} /> {transitionPeriod.isPending ? "Submitting..." : "Submit to GM"}
+                    </Button>
+                  )}
+                </>
               )}
-              <Button variant="primary" size="sm" onClick={handleSubmitToGM}
-                disabled={transitionPeriod.isPending || requests.length === 0}>
-                <Send size={14} /> {transitionPeriod.isPending ? "Submitting..." : "Submit to GM"}
-              </Button>
             </>
           )}
         </div>
@@ -646,7 +745,7 @@ export default function ScheduleManagePage(): React.ReactElement {
         {/* Confirmed (solid) */}
         <div className="flex items-center gap-1.5 text-xs text-text-muted">
           <div className="w-4 h-3 rounded-sm border border-border border-l-[3px] border-l-success bg-surface" />
-          Approved
+          Confirmed
         </div>
         <div className="flex items-center gap-1.5 text-xs text-text-muted">
           <div className="w-4 h-3 rounded-sm border border-border border-l-[3px] border-l-warning bg-surface" />
@@ -693,8 +792,10 @@ export default function ScheduleManagePage(): React.ReactElement {
       <AddRequestModal
         open={assignModal.open} date={assignModal.date} role={assignModal.role}
         userId={assignModal.userId} roles={activeRoles} users={users}
-        isLoading={adminCreateRequest.isPending} onAdd={handleAddRequest}
+        isLoading={editMode ? createSchedule.isPending : adminCreateRequest.isPending}
+        onAdd={handleAddRequest}
         onClose={() => setAssignModal({ open: false, date: "" })}
+        editMode={editMode}
       />
 
       {/* Detail Modal — request-based editing */}
@@ -718,9 +819,9 @@ export default function ScheduleManagePage(): React.ReactElement {
               toast({ type: "error", message: parseApiError(err, "Operation failed") });
             }
           }}
-          onRejectRequest={async (id) => {
+          onRejectRequest={async (id, reason) => {
             try {
-              const updated = await updateRequestStatus.mutateAsync({ id, status: "rejected" });
+              const updated = await updateRequestStatus.mutateAsync({ id, status: "rejected", rejection_reason: reason || null });
               setDetailModal({ open: true, item: requestToGridItem(updated), mode: "view" });
               toast({ type: "success", message: "Request rejected" });
             } catch (err) {
@@ -745,9 +846,99 @@ export default function ScheduleManagePage(): React.ReactElement {
               toast({ type: "error", message: parseApiError(err, "Operation failed") });
             }
           }}
+          onDeleteSchedule={async (id) => {
+            try {
+              await deleteSchedule.mutateAsync(id);
+              closeDetail();
+              toast({ type: "success", message: "Schedule deleted" });
+            } catch (err) {
+              toast({ type: "error", message: parseApiError(err, "Operation failed") });
+            }
+          }}
+          editMode={editMode}
           isUpdating={adminUpdateRequest.isPending}
-          isDeleting={deleteRequest.isPending}
+          isDeleting={deleteRequest.isPending || deleteSchedule.isPending}
         />
+      )}
+
+      {/* S1/S2: Confirm Preview Dialog */}
+      {confirmPreviewModal.open && confirmPreviewModal.preview && (
+        <Modal isOpen={confirmPreviewModal.open} onClose={() => setConfirmPreviewModal({ open: false, preview: null })}
+          title="Confirm & Publish — Preview">
+          <div className="space-y-4">
+            <div className="flex gap-4">
+              <div className="flex-1 bg-success/10 rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold text-success">{confirmPreviewModal.preview.will_confirm}</div>
+                <div className="text-xs text-text-muted mt-1">Will be confirmed</div>
+              </div>
+              <div className="flex-1 bg-warning/10 rounded-lg p-3 text-center">
+                <div className="text-2xl font-bold text-warning">{confirmPreviewModal.preview.will_skip_rejected}</div>
+                <div className="text-xs text-text-muted mt-1">Skipped (rejected)</div>
+              </div>
+              {confirmPreviewModal.preview.will_fail.length > 0 && (
+                <div className="flex-1 bg-danger/10 rounded-lg p-3 text-center">
+                  <div className="text-2xl font-bold text-danger">{confirmPreviewModal.preview.will_fail.length}</div>
+                  <div className="text-xs text-text-muted mt-1">Will fail</div>
+                </div>
+              )}
+            </div>
+            {/* S2: will_confirm === 0 경고 */}
+            {confirmPreviewModal.preview.will_confirm === 0 && (
+              <div className="flex items-start gap-2 bg-warning/10 border border-warning/30 rounded-lg p-3">
+                <AlertTriangle size={16} className="text-warning mt-0.5 shrink-0" />
+                <p className="text-sm text-warning">확정할 요청이 없습니다. 빈 주를 확정하시겠습니까?</p>
+              </div>
+            )}
+            {confirmPreviewModal.preview.will_fail.length > 0 && (
+              <div>
+                <p className="text-xs font-semibold text-text-muted uppercase mb-2">실패 예상 항목</p>
+                <div className="space-y-1 max-h-40 overflow-y-auto">
+                  {confirmPreviewModal.preview.will_fail.map((f) => (
+                    <div key={f.request_id} className="text-xs bg-danger/5 border border-danger/20 rounded px-2 py-1.5">
+                      <span className="font-medium text-text">{f.user_name}</span>
+                      <span className="text-text-muted"> · {f.work_date}</span>
+                      <span className="text-danger"> — {f.reason}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+            <div className="flex justify-end gap-2 pt-2 border-t border-border">
+              <Button variant="ghost" size="sm" onClick={() => setConfirmPreviewModal({ open: false, preview: null })}>
+                Cancel
+              </Button>
+              <Button variant="primary" size="sm" onClick={() => { setConfirmPreviewModal({ open: false, preview: null }); doConfirm(); }}
+                disabled={confirmRequests.isPending}>
+                <Check size={14} /> {confirmRequests.isPending ? "Confirming..." : "Confirm & Publish"}
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
+
+      {/* C2: Confirm Errors Dialog */}
+      {confirmErrorsModal.open && (
+        <Modal isOpen={confirmErrorsModal.open} onClose={() => setConfirmErrorsModal({ open: false, errors: [] })}
+          title="Confirm 결과 — 일부 실패">
+          <div className="space-y-3">
+            <div className="flex items-start gap-2 bg-warning/10 border border-warning/30 rounded-lg p-3">
+              <AlertTriangle size={16} className="text-warning mt-0.5 shrink-0" />
+              <p className="text-sm text-text">일부 요청이 처리되지 않았습니다.</p>
+            </div>
+            <div className="space-y-1 max-h-60 overflow-y-auto">
+              {confirmErrorsModal.errors.map((e, i) => (
+                <div key={i} className="text-xs bg-danger/5 border border-danger/20 rounded px-2 py-1.5 text-danger">
+                  {e}
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end pt-2 border-t border-border">
+              <Button variant="primary" size="sm" onClick={() => setConfirmErrorsModal({ open: false, errors: [] })}>
+                확인
+              </Button>
+            </div>
+          </div>
+        </Modal>
       )}
     </div>
   );
@@ -880,10 +1071,7 @@ function RoleGrid({ roles, items, weekDays, todayStr, canEdit, onChipClick, onAd
                 </div>
               </td>
               {weekDays.map((ds) => {
-                const cellItems = sortGridItems(items.filter((e) => e.work_date === ds && (
-                  e.work_role_id === role.id ||
-                  (e.assignment && e.assignment.shift_id === role.shift_id && e.assignment.position_id === role.position_id)
-                )));
+                const cellItems = sortGridItems(items.filter((e) => e.work_date === ds && e.work_role_id === role.id));
                 const nonCancelled = cellItems.filter((e) => e.status !== "cancelled" && e.status !== "req_rejected");
                 const filled = nonCancelled.length;
                 const hc = role.required_headcount;
@@ -895,7 +1083,7 @@ function RoleGrid({ roles, items, weekDays, todayStr, canEdit, onChipClick, onAd
                       <div className="space-y-1">
                         {cellItems.map((item) => (
                           <EntryChip key={item.id} item={item} label={getUserName(item.user_id)}
-                            onClick={() => onChipClick(item)} canDrag={canEdit && item.kind !== "assignment"} />
+                            onClick={() => onChipClick(item)} canDrag={canEdit} />
                         ))}
                         {canEdit && (
                           <button onClick={() => onAddClick(ds, role)}
@@ -972,8 +1160,8 @@ function StaffGrid({ users, items, weekDays, todayStr, storeId, canEdit, onChipC
                       <div className="space-y-1">
                         {cellItems.map((item) => (
                           <EntryChip key={item.id} item={item}
-                            label={item.assignment ? `${item.assignment.shift_name} · ${item.assignment.position_name}` : getRoleName(item.work_role_id)}
-                            onClick={() => onChipClick(item)} canDrag={canEdit && item.kind !== "assignment"} />
+                            label={getRoleName(item.work_role_id)}
+                            onClick={() => onChipClick(item)} canDrag={canEdit} />
                         ))}
                         {canEdit && (
                           <button onClick={() => onAddClick(ds, undefined, user.id)}
@@ -1000,11 +1188,12 @@ function StaffGrid({ users, items, weekDays, todayStr, storeId, canEdit, onChipC
 
 // ─── Add Request Modal ──────────────────────────────
 
-function AddRequestModal({ open, date, role, userId, roles, users, isLoading, onAdd, onClose }: {
+function AddRequestModal({ open, date, role, userId, roles, users, isLoading, onAdd, onClose, editMode = false }: {
   open: boolean; date: string; role?: WorkRole; userId?: string;
   roles: WorkRole[]; users: User[]; isLoading: boolean;
   onAdd: (data: { userId: string; workRoleId: string; startTime: string; endTime: string; breakStartTime?: string; breakEndTime?: string }) => void;
   onClose: () => void;
+  editMode?: boolean;
 }) {
   const [selectedUser, setSelectedUser] = useState("");
   const [selectedRole, setSelectedRole] = useState("");
@@ -1036,7 +1225,7 @@ function AddRequestModal({ open, date, role, userId, roles, users, isLoading, on
   const userOptions = [{ value: "", label: "Select employee" }, ...users.filter((u) => u.is_active).map((u) => ({ value: u.id, label: u.full_name }))];
 
   return (
-    <Modal isOpen={open} onClose={onClose} title="Add Request" size="sm">
+    <Modal isOpen={open} onClose={onClose} title={editMode ? "Add Schedule" : "Add Request"} size="sm">
       <div className="space-y-4">
         <div className="text-sm text-text-secondary">
           {date && `${shortDate(date)} (${shortDay(date)})`}
@@ -1089,16 +1278,18 @@ function AddRequestModal({ open, date, role, userId, roles, users, isLoading, on
 // ─── Detail Modal — Request-based editing ───────────
 
 function DetailModal({ open, item, users, roles, canEdit, isGMOrAbove, onClose, getUserName, getRoleName,
-  onUpdateRequest, onRejectRequest, onRevertRequest, onDeleteRequest, isUpdating, isDeleting }: {
+  onUpdateRequest, onRejectRequest, onRevertRequest, onDeleteRequest, onDeleteSchedule, editMode, isUpdating, isDeleting }: {
   open: boolean; item: GridItem; users: User[]; roles: WorkRole[];
   canEdit: boolean; isGMOrAbove: boolean;
   onClose: () => void;
   getUserName: (uid: string) => string;
   getRoleName: (wrId: string | null) => string;
   onUpdateRequest: (id: string, data: Record<string, string | null | undefined>) => void;
-  onRejectRequest: (id: string) => void;
+  onRejectRequest: (id: string, reason?: string) => void;
   onRevertRequest: (id: string) => void;
   onDeleteRequest: (id: string) => void;
+  onDeleteSchedule: (id: string) => void;
+  editMode: boolean;
   isUpdating: boolean; isDeleting: boolean;
 }) {
   const [mode, setMode] = useState<"view" | "edit" | "reject">("view");
@@ -1130,7 +1321,6 @@ function DetailModal({ open, item, users, roles, canEdit, isGMOrAbove, onClose, 
   const cfg = STATUS_CONFIG[item.status] || STATUS_CONFIG.confirmed;
   const hours = calcHours(item);
   const isRequest = item.kind === "request";
-  const isAssignment = item.kind === "assignment";
   const isModified = item.status === "req_modified";
   const isRejected = item.status === "req_rejected";
   const isAdminCreated = !!item.created_by;
@@ -1154,7 +1344,7 @@ function DetailModal({ open, item, users, roles, canEdit, isGMOrAbove, onClose, 
   const userOptions = users.filter((u) => u.is_active).map((u) => ({ value: u.id, label: u.full_name }));
 
   return (
-    <Modal isOpen={open} onClose={onClose} title={isAssignment ? "Work Assignment" : isRequest ? "Schedule Request" : "Schedule Entry"} size="sm">
+    <Modal isOpen={open} onClose={onClose} title={isRequest ? "Schedule Request" : "Schedule Entry"} size="sm">
       <div className="space-y-4">
         {/* Status + Date */}
         <div className="flex items-center justify-between">
@@ -1174,9 +1364,7 @@ function DetailModal({ open, item, users, roles, canEdit, isGMOrAbove, onClose, 
           <div className="flex justify-between">
             <span className="text-xs text-text-muted">Role</span>
             <span className="text-sm text-text">
-              {isAssignment && item.assignment
-                ? `${item.assignment.shift_name} · ${item.assignment.position_name}`
-                : getRoleName(item.work_role_id)}
+              {getRoleName(item.work_role_id)}
             </span>
           </div>
         </div>
@@ -1269,7 +1457,16 @@ function DetailModal({ open, item, users, roles, canEdit, isGMOrAbove, onClose, 
               </div>
             )}
 
-            {/* Actions */}
+            {/* Actions — edit mode: delete schedule entry */}
+            {editMode && item.kind === "entry" && (
+              <div className="flex justify-end pt-2">
+                <Button variant="danger" size="sm" onClick={() => onDeleteSchedule(item.id)} disabled={isDeleting}>
+                  <Trash2 size={14} /> {isDeleting ? "Deleting..." : "Delete Schedule"}
+                </Button>
+              </div>
+            )}
+
+            {/* Actions — request editing */}
             {canEdit && isRequest && (
               <div className="flex justify-between pt-2">
                 <div className="flex gap-2">
@@ -1374,7 +1571,7 @@ function DetailModal({ open, item, users, roles, canEdit, isGMOrAbove, onClose, 
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="secondary" size="sm" onClick={() => setMode("view")}>Cancel</Button>
               <Button variant="primary" size="sm"
-                onClick={() => onRejectRequest(item.id)}>
+                onClick={() => onRejectRequest(item.id, rejectReason || undefined)}>
                 <X size={14} /> Reject
               </Button>
             </div>

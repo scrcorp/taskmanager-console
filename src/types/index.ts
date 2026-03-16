@@ -175,50 +175,6 @@ export interface ChecklistItem {
   sort_order: number;
 }
 
-// Assignment
-export interface Assignment {
-  id: string;
-  store_id: string;
-  store_name: string;
-  shift_id: string;
-  shift_name: string;
-  shift_sort_order: number;
-  position_id: string;
-  position_name: string;
-  user_id: string;
-  user_name: string;
-  work_date: string;
-  status: "assigned" | "in_progress" | "completed";
-  total_items: number;
-  completed_items: number;
-  created_at: string;
-}
-
-export interface AssignmentDetail extends Assignment {
-  checklist_snapshot: ChecklistSnapshotItem[] | null;
-  checklist_instance_id?: string | null;
-}
-
-export interface ChecklistSnapshotItem {
-  item_index: number;
-  title: string;
-  description: string | null;
-  verification_type: string;
-  is_completed: boolean;
-  completed_at: string | null;
-  completed_tz: string | null;
-  review?: {
-    id: string;
-    reviewer_id: string;
-    reviewer_name: string | null;
-    result: "pass" | "fail" | "caution";
-    comment: string | null;
-    photo_url: string | null;
-    created_at: string;
-    updated_at: string;
-  } | null;
-}
-
 // Announcement
 export interface Announcement {
   id: string;
@@ -384,16 +340,6 @@ export interface ChecklistItemUpdate {
   sort_order?: number;
 }
 
-/** 근무 배정 생성 요청 타입.
- * Work assignment creation request payload. */
-export interface AssignmentCreate {
-  store_id: string;
-  shift_id: string;
-  position_id: string;
-  user_id: string;
-  work_date: string;
-}
-
 /** 공지사항 생성 요청 타입.
  * Announcement creation request payload. */
 export interface AnnouncementCreate {
@@ -438,19 +384,6 @@ export interface UserFilters {
   is_active?: boolean;
 }
 
-/** 배정 목록 필터 파라미터 타입.
- * Assignment list filter parameters. */
-export interface AssignmentFilters {
-  store_id?: string;
-  user_id?: string;
-  work_date?: string;
-  date_from?: string;
-  date_to?: string;
-  status?: string;
-  page?: number;
-  per_page?: number;
-}
-
 /** 추가 업무 목록 필터 파라미터 타입.
  * Additional task list filter parameters. */
 export interface TaskFilters {
@@ -465,7 +398,6 @@ export interface TaskFilters {
 export interface ChecklistInstance {
   id: string;
   template_id: string | null;
-  work_assignment_id: string;
   store_id: string;
   user_id: string;
   work_date: string;
@@ -901,7 +833,6 @@ export interface SchedulePeriodUpdate {
 // Schedule Request
 export interface ScheduleRequestItem {
   id: string;
-  period_id: string | null;
   user_id: string;
   user_name: string | null;
   store_id: string;
@@ -956,7 +887,12 @@ export interface ScheduleConfirmRequest {
   store_id: string;
   date_from: string;
   date_to: string;
-  period_id?: string;
+}
+
+export interface ScheduleConfirmPreview {
+  will_confirm: number;
+  will_skip_rejected: number;
+  will_fail: Array<{ request_id: string; user_name: string; work_date: string; reason: string }>;
 }
 
 export interface ScheduleConfirmResult {
@@ -970,7 +906,6 @@ export interface ScheduleConfirmResult {
 export interface Schedule {
   id: string;
   organization_id: string;
-  period_id: string | null;
   request_id: string | null;
   user_id: string;
   user_name: string | null;
@@ -993,7 +928,6 @@ export interface Schedule {
 }
 
 export interface ScheduleCreate {
-  period_id?: string | null;
   request_id?: string | null;
   user_id: string;
   store_id: string;

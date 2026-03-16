@@ -18,8 +18,6 @@ import {
   mockUserStores,
   mockTemplates,
   mockChecklistItems,
-  mockAssignments,
-  mockAssignmentDetails,
   mockAnnouncements,
   mockTasks,
   mockNotifications,
@@ -311,41 +309,6 @@ export async function handleMockRequest(
       const body = JSON.parse(config.data as string);
       const existing = mockUsers.find((u) => u.id === userId);
       return mockResponse({ ...existing, ...body }, config);
-    }
-    if (method === "delete") {
-      return mockResponse(null, config);
-    }
-  }
-
-  // ─── Assignments ───────────────────────────────
-
-  if (url.endsWith("/admin/work-assignments/bulk") && method === "post") {
-    return mockResponse([mockAssignments[0]], config);
-  }
-
-  if (url.endsWith("/admin/work-assignments") && method === "get") {
-    let filtered = [...mockAssignments];
-    if (params.status) filtered = filtered.filter((a) => a.status === params.status);
-    if (params.store_id) filtered = filtered.filter((a) => a.store_id === params.store_id);
-    if (params.work_date) filtered = filtered.filter((a) => a.work_date === params.work_date);
-    const page: number = parseInt(params.page ?? "1", 10);
-    const perPage: number = parseInt(params.per_page ?? "20", 10);
-    return mockResponse(paginate(filtered, page, perPage), config);
-  }
-
-  if (url.endsWith("/admin/work-assignments") && method === "post") {
-    const body = JSON.parse(config.data as string);
-    return mockResponse(
-      { id: newId(), ...body, store_name: "Mock Store", shift_name: "Mock Shift", position_name: "Mock Position", user_name: "Mock User", status: "assigned", total_items: 0, completed_items: 0, created_at: new Date().toISOString() },
-      config,
-    );
-  }
-
-  const assignmentMatch: RegExpMatchArray | null = url.match(/\/admin\/work-assignments\/([^/]+)$/);
-  if (assignmentMatch) {
-    const assignId: string = assignmentMatch[1];
-    if (method === "get") {
-      return mockResponse(mockAssignmentDetails[assignId] ?? mockAssignmentDetails[mockAssignments[0].id], config);
     }
     if (method === "delete") {
       return mockResponse(null, config);
