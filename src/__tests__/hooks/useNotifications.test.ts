@@ -36,8 +36,8 @@ function createWrapper() {
 }
 
 const mockNotif: Notification = {
-  id: "n1", type: "assignment", message: "New assignment",
-  reference_type: "work_assignment", reference_id: "a1",
+  id: "n1", type: "schedule", message: "New schedule",
+  reference_type: "schedule", reference_id: "a1",
   is_read: false, created_at: "2026-02-01T00:00:00Z",
 };
 

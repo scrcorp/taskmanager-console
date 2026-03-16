@@ -14,9 +14,6 @@ import type {
   User,
   ChecklistTemplate,
   ChecklistItem,
-  Assignment,
-  AssignmentDetail,
-  ChecklistSnapshotItem,
   Announcement,
   AdditionalTask,
   Notification,
@@ -33,7 +30,6 @@ const SHIFT_IDS = ["shift-001", "shift-002", "shift-003"] as const;
 const POS_IDS = ["pos-001", "pos-002", "pos-003"] as const;
 const TMPL_IDS = ["tmpl-001", "tmpl-002", "tmpl-003", "tmpl-004"] as const;
 const ITEM_IDS = ["item-001", "item-002", "item-003", "item-004", "item-005", "item-006", "item-007"] as const;
-const ASSIGN_IDS = ["assign-001", "assign-002", "assign-003", "assign-004", "assign-005"] as const;
 const ANN_IDS = ["ann-001", "ann-002", "ann-003", "ann-004"] as const;
 const TASK_IDS = ["task-001", "task-002", "task-003"] as const;
 const NOTIF_IDS = ["notif-001", "notif-002", "notif-003", "notif-004", "notif-005"] as const;
@@ -129,7 +125,7 @@ export const mockUsers: User[] = [
   { id: USER_IDS[4], username: "inactive01", full_name: "Choi Former", email: "choi@taskmanager.io", phone: null, role_name: "Staff", role_priority: 40, is_active: false, created_at: "2025-02-20T09:00:00Z" },
 ];
 
-/** 사용자별 소속 매장 (User store assignments) */
+/** 사용자별 소속 매장 (User store memberships) */
 export const mockUserStores: Record<string, Store[]> = {
   [USER_IDS[0]]: [mockStores[0], mockStores[1], mockStores[2]],
   [USER_IDS[1]]: [mockStores[0], mockStores[1]],
@@ -169,30 +165,6 @@ export const mockChecklistItems: Record<string, ChecklistItem[]> = {
   ],
 };
 
-// ─── Assignments ──────────────────────────────────────
-
-export const mockAssignments: Assignment[] = [
-  { id: ASSIGN_IDS[0], store_id: STORE_IDS[0], store_name: "Seoul Station Branch", shift_id: SHIFT_IDS[0], shift_name: "Morning (06:00-14:00)", shift_sort_order: 1, position_id: POS_IDS[0], position_name: "Floor Manager", user_id: USER_IDS[2], user_name: "Lee Staff", work_date: "2026-02-17", status: "completed", total_items: 3, completed_items: 3, created_at: "2026-02-16T08:00:00Z" },
-  { id: ASSIGN_IDS[1], store_id: STORE_IDS[0], store_name: "Seoul Station Branch", shift_id: SHIFT_IDS[1], shift_name: "Afternoon (14:00-22:00)", shift_sort_order: 2, position_id: POS_IDS[1], position_name: "Cashier", user_id: USER_IDS[3], user_name: "Park Worker", work_date: "2026-02-17", status: "in_progress", total_items: 1, completed_items: 0, created_at: "2026-02-16T08:00:00Z" },
-  { id: ASSIGN_IDS[2], store_id: STORE_IDS[1], store_name: "Gangnam Branch", shift_id: "shift-004", shift_name: "Day Shift", shift_sort_order: 1, position_id: "pos-004", position_name: "Barista", user_id: USER_IDS[2], user_name: "Lee Staff", work_date: "2026-02-17", status: "assigned", total_items: 0, completed_items: 0, created_at: "2026-02-16T09:00:00Z" },
-  { id: ASSIGN_IDS[3], store_id: STORE_IDS[0], store_name: "Seoul Station Branch", shift_id: SHIFT_IDS[0], shift_name: "Morning (06:00-14:00)", shift_sort_order: 1, position_id: POS_IDS[2], position_name: "Stock Clerk", user_id: USER_IDS[1], user_name: "Kim Manager", work_date: "2026-02-18", status: "assigned", total_items: 3, completed_items: 0, created_at: "2026-02-17T07:00:00Z" },
-  { id: ASSIGN_IDS[4], store_id: STORE_IDS[1], store_name: "Gangnam Branch", shift_id: "shift-005", shift_name: "Night Shift", shift_sort_order: 2, position_id: "pos-005", position_name: "Server", user_id: USER_IDS[3], user_name: "Park Worker", work_date: "2026-02-18", status: "assigned", total_items: 0, completed_items: 0, created_at: "2026-02-17T07:00:00Z" },
-];
-
-const mockSnapshotItems: ChecklistSnapshotItem[] = [
-  { item_index: 0, title: "Check floor cleanliness", description: "Inspect all aisles and common areas", verification_type: "photo", is_completed: true, completed_at: "2026-02-17T07:30:00Z", completed_tz: "Asia/Seoul" },
-  { item_index: 1, title: "Verify POS system operational", description: null, verification_type: "none", is_completed: true, completed_at: "2026-02-17T07:45:00Z", completed_tz: "Asia/Seoul" },
-  { item_index: 2, title: "Temperature check display units", description: "Record temperature readings for all refrigerated units", verification_type: "text", is_completed: true, completed_at: "2026-02-17T08:00:00Z", completed_tz: "Asia/Seoul" },
-];
-
-export const mockAssignmentDetails: Record<string, AssignmentDetail> = {
-  [ASSIGN_IDS[0]]: { ...mockAssignments[0], checklist_snapshot: mockSnapshotItems },
-  [ASSIGN_IDS[1]]: { ...mockAssignments[1], checklist_snapshot: [{ ...mockSnapshotItems[0], title: "Count register float", description: "Verify starting cash amount", verification_type: "text", is_completed: false, completed_at: null }] },
-  [ASSIGN_IDS[2]]: { ...mockAssignments[2], checklist_snapshot: null },
-  [ASSIGN_IDS[3]]: { ...mockAssignments[3], checklist_snapshot: mockSnapshotItems.map((s) => ({ ...s, is_completed: false, completed_at: null })) },
-  [ASSIGN_IDS[4]]: { ...mockAssignments[4], checklist_snapshot: null },
-};
-
 // ─── Announcements ────────────────────────────────────
 
 export const mockAnnouncements: Announcement[] = [
@@ -213,9 +185,9 @@ export const mockTasks: AdditionalTask[] = [
 // ─── Notifications ────────────────────────────────────
 
 export const mockNotifications: Notification[] = [
-  { id: NOTIF_IDS[0], type: "assignment", message: "New assignment for Seoul Station Branch - Morning shift on Feb 18", reference_type: "assignment", reference_id: ASSIGN_IDS[3], is_read: false, created_at: "2026-02-17T07:00:00Z" },
+  { id: NOTIF_IDS[0], type: "schedule", message: "New schedule for Seoul Station Branch - Morning shift on Feb 18", reference_type: "schedule", reference_id: "schedule-001", is_read: false, created_at: "2026-02-17T07:00:00Z" },
   { id: NOTIF_IDS[1], type: "task", message: "Task 'Restock cleaning supplies' is now urgent", reference_type: "task", reference_id: TASK_IDS[0], is_read: false, created_at: "2026-02-16T15:00:00Z" },
   { id: NOTIF_IDS[2], type: "announcement", message: "New announcement: New Hygiene Policy Effective March 1st", reference_type: "announcement", reference_id: ANN_IDS[0], is_read: false, created_at: "2026-02-15T09:00:00Z" },
-  { id: NOTIF_IDS[3], type: "assignment", message: "Assignment completed by Lee Staff for Seoul Station Morning shift", reference_type: "assignment", reference_id: ASSIGN_IDS[0], is_read: true, created_at: "2026-02-17T08:05:00Z" },
+  { id: NOTIF_IDS[3], type: "schedule", message: "Schedule confirmed for Lee Staff at Seoul Station Morning shift", reference_type: "schedule", reference_id: "schedule-002", is_read: true, created_at: "2026-02-17T08:05:00Z" },
   { id: NOTIF_IDS[4], type: "task", message: "Task 'Fix broken display shelf' marked as completed", reference_type: "task", reference_id: TASK_IDS[2], is_read: true, created_at: "2026-02-16T10:00:00Z" },
 ];

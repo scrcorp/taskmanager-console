@@ -1,60 +1,56 @@
 "use client";
 
 /**
- * 배정 상세 페이지 -- 배정 정보와 체크리스트 상세 (리뷰 모드 포함)를 표시합니다.
+ * 스케줄 상세 페이지 -- 스케줄 정보와 체크리스트 상세 (리뷰 모드 포함)를 표시합니다.
  *
- * Assignment detail page showing assignment info and checklist detail
+ * Schedule detail page showing schedule info and checklist detail
  * with review mode support.
  */
 
 import React, { useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ChevronLeft, Trash2 } from "lucide-react";
-import { useAssignment, useDeleteAssignment } from "@/hooks/useAssignments";
-import { useChecklistInstance } from "@/hooks/useChecklistInstances";
+import { ChevronLeft, Trash2, Clock, Calendar, MapPin, User, Briefcase } from "lucide-react";
+import { useSchedule, useDeleteSchedule } from "@/hooks/useSchedules";
+import { useChecklistInstanceBySchedule } from "@/hooks/useChecklistInstances";
 import { Button, Card, Badge, LoadingSpinner, EmptyState, ConfirmDialog } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
 import { formatFixedDate, parseApiError } from "@/lib/utils";
 import { ChecklistInstanceDetail } from "@/components/checklists/ChecklistInstanceDetail";
 import { useTimezone } from "@/hooks/useTimezone";
 
-const statusBadgeVariant: Record<string, "default" | "warning" | "success"> = {
-  assigned: "default",
-  in_progress: "warning",
-  completed: "success",
+const statusBadgeVariant: Record<string, "default" | "success" | "danger"> = {
+  confirmed: "success",
+  cancelled: "danger",
 };
 const statusLabel: Record<string, string> = {
-  assigned: "Assigned",
-  in_progress: "In Progress",
-  completed: "Completed",
+  confirmed: "Confirmed",
+  cancelled: "Cancelled",
 };
 
-export default function AssignmentDetailPage(): React.ReactElement {
+export default function ScheduleDetailPage(): React.ReactElement {
   const params = useParams();
   const router = useRouter();
   const { toast } = useToast();
   const tz = useTimezone();
 
-  const assignmentId: string = params.id as string;
-  const { data: assignment, isLoading } = useAssignment(assignmentId);
-  const deleteAssignment = useDeleteAssignment();
-
-  const instanceId: string | undefined = assignment?.checklist_instance_id ?? undefined;
-  const { data: instance } = useChecklistInstance(instanceId);
+  const scheduleId: string = params.id as string;
+  const { data: schedule, isLoading } = useSchedule(scheduleId);
+  const { data: instance, isLoading: isInstanceLoading } = useChecklistInstanceBySchedule(scheduleId);
+  const deleteSchedule = useDeleteSchedule();
 
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
 
   const handleDelete = useCallback(() => {
-    deleteAssignment.mutate(assignmentId, {
+    deleteSchedule.mutate(scheduleId, {
       onSuccess: () => {
-        toast({ type: "success", message: "Assignment deleted successfully." });
+        toast({ type: "success", message: "스케줄이 삭제되었습니다." });
         router.push("/schedules");
       },
       onError: (err) => {
-        toast({ type: "error", message: parseApiError(err, "Failed to delete assignment.") });
+        toast({ type: "error", message: parseApiError(err, "스케줄 삭제에 실패했습니다.") });
       },
     });
-  }, [assignmentId, deleteAssignment, toast, router]);
+  }, [scheduleId, deleteSchedule, toast, router]);
 
   if (isLoading) {
     return (
@@ -64,22 +60,39 @@ export default function AssignmentDetailPage(): React.ReactElement {
     );
   }
 
-  if (!assignment) {
+  if (!schedule) {
     return (
       <div>
         <Button variant="ghost" size="sm" onClick={() => router.back()}>
           <ChevronLeft size={16} />
           Back to Schedules
         </Button>
-        <EmptyState message="Assignment not found." />
+        <EmptyState message="Schedule not found." />
       </div>
     );
   }
 
-  const percentage =
-    assignment.total_items > 0
-      ? Math.round((assignment.completed_items / assignment.total_items) * 100)
-      : 0;
+  const formatTime = (t: string | null) => {
+    if (!t) return "-";
+    return t.slice(0, 5);
+  };
+
+  const timeRange = schedule.start_time || schedule.end_time
+    ? `${formatTime(schedule.start_time)} ~ ${formatTime(schedule.end_time)}`
+    : "-";
+
+  const breakRange = schedule.break_start_time || schedule.break_end_time
+    ? `${formatTime(schedule.break_start_time)} ~ ${formatTime(schedule.break_end_time)}`
+    : "-";
+
+  const workHours = schedule.net_work_minutes > 0
+    ? `${Math.floor(schedule.net_work_minutes / 60)}h ${schedule.net_work_minutes % 60}m`
+    : "-";
+
+  // Checklist progress from instance
+  const totalItems = instance?.total_items ?? 0;
+  const completedItems = instance?.completed_items ?? 0;
+  const percentage = totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0;
 
   return (
     <div>
@@ -88,44 +101,90 @@ export default function AssignmentDetailPage(): React.ReactElement {
         Back to Schedules
       </Button>
 
-      {/* Assignment Summary */}
+      {/* Schedule Summary */}
       <Card className="mb-6">
         <div className="flex items-start justify-between mb-4">
-          <h1 className="text-xl font-bold text-text">Assignment Detail</h1>
-          <Button variant="danger" size="sm" onClick={() => setIsDeleteOpen(true)}>
-            <Trash2 size={14} />
-            Delete
-          </Button>
-        </div>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div>
-            <p className="text-xs text-text-muted mb-1">Worker</p>
-            <p className="text-sm font-medium text-text">{assignment.user_name}</p>
-          </div>
-          <div>
-            <p className="text-xs text-text-muted mb-1">Store</p>
-            <p className="text-sm font-medium text-text">{assignment.store_name}</p>
-          </div>
-          <div>
-            <p className="text-xs text-text-muted mb-1">Shift</p>
-            <p className="text-sm font-medium text-text">{assignment.shift_name}</p>
-          </div>
-          <div>
-            <p className="text-xs text-text-muted mb-1">Position</p>
-            <p className="text-sm font-medium text-text">{assignment.position_name}</p>
-          </div>
-          <div>
-            <p className="text-xs text-text-muted mb-1">Date</p>
-            <p className="text-sm font-medium text-text">{formatFixedDate(assignment.work_date)}</p>
-          </div>
-          <div>
-            <p className="text-xs text-text-muted mb-1">Status</p>
-            <Badge variant={statusBadgeVariant[assignment.status] ?? "default"}>
-              {statusLabel[assignment.status] ?? assignment.status}
+          <h1 className="text-xl font-bold text-text">Schedule Detail</h1>
+          <div className="flex items-center gap-2">
+            <Badge variant={statusBadgeVariant[schedule.status] ?? "default"}>
+              {statusLabel[schedule.status] ?? schedule.status}
             </Badge>
+            {schedule.status !== "cancelled" && (
+              <Button variant="danger" size="sm" onClick={() => setIsDeleteOpen(true)}>
+                <Trash2 size={14} />
+                Delete
+              </Button>
+            )}
           </div>
-          <div className="col-span-2">
-            <p className="text-xs text-text-muted mb-1">Progress</p>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+          <div className="flex items-start gap-2">
+            <User size={14} className="text-text-muted mt-0.5 shrink-0" />
+            <div>
+              <p className="text-xs text-text-muted mb-1">Worker</p>
+              <p className="text-sm font-medium text-text">{schedule.user_name ?? "-"}</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-2">
+            <MapPin size={14} className="text-text-muted mt-0.5 shrink-0" />
+            <div>
+              <p className="text-xs text-text-muted mb-1">Store</p>
+              <p className="text-sm font-medium text-text">{schedule.store_name ?? "-"}</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-2">
+            <Briefcase size={14} className="text-text-muted mt-0.5 shrink-0" />
+            <div>
+              <p className="text-xs text-text-muted mb-1">Work Role</p>
+              <p className="text-sm font-medium text-text">{schedule.work_role_name ?? "-"}</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-2">
+            <Calendar size={14} className="text-text-muted mt-0.5 shrink-0" />
+            <div>
+              <p className="text-xs text-text-muted mb-1">Date</p>
+              <p className="text-sm font-medium text-text">{formatFixedDate(schedule.work_date)}</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-2">
+            <Clock size={14} className="text-text-muted mt-0.5 shrink-0" />
+            <div>
+              <p className="text-xs text-text-muted mb-1">Work Time</p>
+              <p className="text-sm font-medium text-text">{timeRange}</p>
+            </div>
+          </div>
+          <div className="flex items-start gap-2">
+            <Clock size={14} className="text-text-muted mt-0.5 shrink-0" />
+            <div>
+              <p className="text-xs text-text-muted mb-1">Net Work</p>
+              <p className="text-sm font-medium text-text">{workHours}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Break time & note */}
+        {(breakRange !== "-" || schedule.note) && (
+          <div className="mt-4 pt-4 border-t border-border grid grid-cols-2 md:grid-cols-3 gap-4">
+            {breakRange !== "-" && (
+              <div>
+                <p className="text-xs text-text-muted mb-1">Break Time</p>
+                <p className="text-sm text-text">{breakRange}</p>
+              </div>
+            )}
+            {schedule.note && (
+              <div className="col-span-2">
+                <p className="text-xs text-text-muted mb-1">Note</p>
+                <p className="text-sm text-text">{schedule.note}</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Checklist Progress */}
+        {totalItems > 0 && (
+          <div className="mt-4 pt-4 border-t border-border">
+            <p className="text-xs text-text-muted mb-2">Checklist Progress</p>
             <div className="flex items-center gap-3">
               <div className="flex-1 h-2 bg-surface rounded-full overflow-hidden">
                 <div
@@ -134,24 +193,30 @@ export default function AssignmentDetailPage(): React.ReactElement {
                 />
               </div>
               <span className="text-sm font-medium text-text">
-                {assignment.completed_items}/{assignment.total_items} ({percentage}%)
+                {completedItems}/{totalItems} ({percentage}%)
               </span>
             </div>
           </div>
-        </div>
+        )}
       </Card>
 
       {/* Checklist with review mode */}
       {instance && <ChecklistInstanceDetail instance={instance} timezone={tz} />}
 
+      {!instance && !isLoading && !isInstanceLoading && (
+        <Card>
+          <EmptyState message="No checklist assigned to this schedule." />
+        </Card>
+      )}
+
       <ConfirmDialog
         isOpen={isDeleteOpen}
         onClose={() => setIsDeleteOpen(false)}
         onConfirm={handleDelete}
-        title="Delete Assignment"
-        message="Are you sure you want to delete this assignment? This action cannot be undone."
+        title="Delete Schedule"
+        message="Are you sure you want to delete this schedule? This action cannot be undone."
         confirmLabel="Delete"
-        isLoading={deleteAssignment.isPending}
+        isLoading={deleteSchedule.isPending}
       />
     </div>
   );
