@@ -398,6 +398,7 @@ export interface TaskFilters {
 export interface ChecklistInstance {
   id: string;
   template_id: string | null;
+  schedule_id: string | null;
   store_id: string;
   user_id: string;
   work_date: string;
@@ -496,6 +497,10 @@ export interface ChecklistInstanceFilters {
   status?: string;
   page?: number;
   per_page?: number;
+  /** date_from/date_to is client-side only — server filters by work_date (single date).
+   * Used by useScheduleChecklistMap to post-filter fetched results. */
+  date_from?: string;
+  date_to?: string;
 }
 
 // Schedule (legacy types removed — ScheduleEntry renamed to Schedule)

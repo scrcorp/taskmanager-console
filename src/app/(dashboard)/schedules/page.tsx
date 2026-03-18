@@ -20,10 +20,10 @@ import {
 import { useStores } from "@/hooks/useStores";
 import { useWorkRoles } from "@/hooks/useWorkRoles";
 import { useSchedules } from "@/hooks/useSchedules";
-import { useReviewSummary } from "@/hooks/useChecklistInstances";
+import { useReviewSummary, useScheduleChecklistMap } from "@/hooks/useChecklistInstances";
 import { Card, Badge } from "@/components/ui";
 import { cn } from "@/lib/utils";
-import type { Store, Schedule, WorkRole } from "@/types";
+import type { ChecklistInstance, Store, Schedule, WorkRole } from "@/types";
 
 // ─── View types ─────────────────────────────────────
 
@@ -178,6 +178,13 @@ export default function ScheduleOverviewPage(): React.ReactElement {
     date_from: dateRange.from,
     date_to: dateRange.to,
   });
+
+  // Checklist instance map (schedule_id → instance) for progress display in cards
+  const { data: checklistMap } = useScheduleChecklistMap(
+    effectiveStoreId || undefined,
+    dateRange.from,
+    dateRange.to,
+  );
 
   const activeRoles = useMemo(
     () => (workRoles ?? []).filter((r) => r.is_active),
@@ -471,6 +478,7 @@ export default function ScheduleOverviewPage(): React.ReactElement {
             roles={activeRoles}
             schedules={allSchedules}
             date={toDateStr(currentDate)}
+            checklistMap={checklistMap}
             onDetailClick={goToDetail}
           />
         ) : calView === "week" ? (
@@ -478,6 +486,7 @@ export default function ScheduleOverviewPage(): React.ReactElement {
             roles={activeRoles}
             schedules={allSchedules}
             weekStart={weekStart}
+            checklistMap={checklistMap}
             onDetailClick={goToDetail}
           />
         ) : (
@@ -492,6 +501,7 @@ export default function ScheduleOverviewPage(): React.ReactElement {
         <ListView
           schedules={allSchedules}
           roles={activeRoles}
+          checklistMap={checklistMap}
           sortKey={sortKey}
           sortAsc={sortAsc}
           onSort={handleSort}
@@ -555,17 +565,86 @@ function ScheduleStatusBadge({ status }: { status: string }) {
   return <Badge variant="default">{status}</Badge>;
 }
 
+// ─── Checklist Progress Chip ────────────────────────
+
+/** 체크리스트 진행 상황 칩 — 완료 항목 수, 상태 뱃지, 색상 코딩된 진행 바를 표시합니다.
+ * Shows completed_items/total_items, status badge, and color-coded progress bar. */
+function ChecklistProgressChip({ instance }: { instance: ChecklistInstance }) {
+  const { total_items, completed_items, status } = instance;
+  const pct = total_items > 0 ? Math.round((completed_items / total_items) * 100) : 0;
+
+  // Status → badge variant + bar color
+  const statusConfig: Record<string, { variant: "default" | "accent" | "success" | "warning" | "danger"; bar: string; label: string }> = {
+    pending:     { variant: "default",  bar: "bg-text-muted", label: "Pending" },
+    in_progress: { variant: "accent",   bar: "bg-accent",     label: "In Progress" },
+    completed:   { variant: "success",  bar: "bg-success",    label: "Completed" },
+    rejected:    { variant: "danger",   bar: "bg-danger",     label: "Rejected" },
+    resubmitted: { variant: "warning",  bar: "bg-warning",    label: "Resubmitted" },
+  };
+  const cfg = statusConfig[status] ?? statusConfig.pending;
+
+  return (
+    <div className="mt-1.5">
+      <div className="flex items-center justify-between mb-0.5">
+        <Badge variant={cfg.variant} className="text-[9px] px-1.5 py-0">{cfg.label}</Badge>
+        <span className="text-[9px] text-text-muted">{completed_items}/{total_items}</span>
+      </div>
+      <div className="h-1 bg-surface rounded-full overflow-hidden">
+        <div
+          className={cn("h-full rounded-full transition-all", cfg.bar)}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+/** 인라인 진행 바 + 텍스트 — 리스트 뷰의 테이블 셀 용.
+ * Compact inline progress bar + text for table cells in list view. */
+function ChecklistProgressInline({ instance }: { instance: ChecklistInstance }) {
+  const { total_items, completed_items, status } = instance;
+  const pct = total_items > 0 ? Math.round((completed_items / total_items) * 100) : 0;
+
+  const statusConfig: Record<string, { variant: "default" | "accent" | "success" | "warning" | "danger"; bar: string; label: string }> = {
+    pending:     { variant: "default",  bar: "bg-text-muted", label: "Pending" },
+    in_progress: { variant: "accent",   bar: "bg-accent",     label: "In Progress" },
+    completed:   { variant: "success",  bar: "bg-success",    label: "Completed" },
+    rejected:    { variant: "danger",   bar: "bg-danger",     label: "Rejected" },
+    resubmitted: { variant: "warning",  bar: "bg-warning",    label: "Resubmitted" },
+  };
+  const cfg = statusConfig[status] ?? statusConfig.pending;
+
+  return (
+    <div className="flex items-center gap-2 min-w-[120px]">
+      <Badge variant={cfg.variant}>{cfg.label}</Badge>
+      <div className="flex items-center gap-1.5 flex-1">
+        <div className="flex-1 h-1.5 bg-surface rounded-full overflow-hidden">
+          <div
+            className={cn("h-full rounded-full transition-all", cfg.bar)}
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <span className="text-[10px] text-text-muted whitespace-nowrap">
+          {completed_items}/{total_items}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 // ─── Day View ───────────────────────────────────────
 
 function DayView({
   roles,
   schedules,
   date,
+  checklistMap,
   onDetailClick,
 }: {
   roles: WorkRole[];
   schedules: Schedule[];
   date: string;
+  checklistMap?: Map<string, ChecklistInstance>;
   onDetailClick: (id: string) => void;
 }) {
   const daySchedules = schedules.filter((s) => s.work_date === date);
@@ -607,21 +686,25 @@ function DayView({
               <div className="text-xs text-text-muted py-4 text-center">No schedules</div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                {roleSchedules.map((s) => (
-                  <button
-                    key={s.id}
-                    onClick={() => onDetailClick(s.id)}
-                    className="text-left p-3 rounded-lg bg-surface hover:bg-surface-hover transition-colors"
-                  >
-                    <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-sm font-medium text-text">{s.user_name ?? "-"}</span>
-                      <span className="text-[10px] text-text-muted">
-                        {s.start_time && s.end_time ? `${s.start_time}–${s.end_time}` : s.work_date}
-                      </span>
-                    </div>
-                    <ScheduleStatusBadge status={s.status} />
-                  </button>
-                ))}
+                {roleSchedules.map((s) => {
+                  const instance = checklistMap?.get(s.id);
+                  return (
+                    <button
+                      key={s.id}
+                      onClick={() => onDetailClick(s.id)}
+                      className="text-left p-3 rounded-lg bg-surface hover:bg-surface-hover transition-colors"
+                    >
+                      <div className="flex items-center justify-between mb-1.5">
+                        <span className="text-sm font-medium text-text">{s.user_name ?? "-"}</span>
+                        <span className="text-[10px] text-text-muted">
+                          {s.start_time && s.end_time ? `${s.start_time}–${s.end_time}` : s.work_date}
+                        </span>
+                      </div>
+                      <ScheduleStatusBadge status={s.status} />
+                      {instance && <ChecklistProgressChip instance={instance} />}
+                    </button>
+                  );
+                })}
               </div>
             )}
           </Card>
@@ -637,11 +720,13 @@ function WeekView({
   roles,
   schedules,
   weekStart,
+  checklistMap,
   onDetailClick,
 }: {
   roles: WorkRole[];
   schedules: Schedule[];
   weekStart: Date;
+  checklistMap?: Map<string, ChecklistInstance>;
   onDetailClick: (id: string) => void;
 }) {
   const days = getWeekDays(weekStart);
@@ -713,22 +798,26 @@ function WeekView({
                     )}
                   >
                     <div className="space-y-1">
-                      {cellSchedules.map((s) => (
-                        <button
-                          key={s.id}
-                          onClick={() => onDetailClick(s.id)}
-                          className="w-full text-left p-1.5 rounded bg-surface hover:bg-surface-hover transition-colors"
-                        >
-                          <div className="text-[11px] font-medium text-text truncate">
-                            {s.user_name ?? "-"}
-                          </div>
-                          {s.start_time && s.end_time && (
-                            <div className="text-[10px] text-text-muted">
-                              {s.start_time}–{s.end_time}
+                      {cellSchedules.map((s) => {
+                        const instance = checklistMap?.get(s.id);
+                        return (
+                          <button
+                            key={s.id}
+                            onClick={() => onDetailClick(s.id)}
+                            className="w-full text-left p-1.5 rounded bg-surface hover:bg-surface-hover transition-colors"
+                          >
+                            <div className="text-[11px] font-medium text-text truncate">
+                              {s.user_name ?? "-"}
                             </div>
-                          )}
-                        </button>
-                      ))}
+                            {s.start_time && s.end_time && (
+                              <div className="text-[10px] text-text-muted">
+                                {s.start_time}–{s.end_time}
+                              </div>
+                            )}
+                            {instance && <ChecklistProgressChip instance={instance} />}
+                          </button>
+                        );
+                      })}
                       {role.required_headcount > 0 && (
                         <div className={cn("text-[10px] font-medium text-center", hcCls)}>
                           {filled}/{role.required_headcount}
@@ -859,11 +948,13 @@ const LIST_COLS = [
   { key: "role", label: "Role" },
   { key: "time", label: "Time" },
   { key: "status", label: "Status" },
+  { key: "checklist", label: "Checklist" },
 ] as const;
 
 function ListView({
   schedules,
   roles,
+  checklistMap,
   sortKey,
   sortAsc,
   onSort,
@@ -871,6 +962,7 @@ function ListView({
 }: {
   schedules: Schedule[];
   roles: WorkRole[];
+  checklistMap?: Map<string, ChecklistInstance>;
   sortKey: string;
   sortAsc: boolean;
   onSort: (key: string) => void;
@@ -928,25 +1020,35 @@ function ListView({
           </tr>
         </thead>
         <tbody>
-          {sorted.map((s) => (
-            <tr
-              key={s.id}
-              onClick={() => onDetailClick(s.id)}
-              className="border-b border-border/50 hover:bg-surface-hover cursor-pointer transition-colors"
-            >
-              <td className="px-3 py-2.5 text-sm text-text">{longDate(s.work_date)}</td>
-              <td className="px-3 py-2.5 text-sm font-medium text-text">{s.user_name ?? "-"}</td>
-              <td className="px-3 py-2.5 text-sm text-text-secondary">
-                {getRoleName(s.work_role_id)}
-              </td>
-              <td className="px-3 py-2.5 text-sm text-text-secondary">
-                {s.start_time && s.end_time ? `${s.start_time}–${s.end_time}` : "—"}
-              </td>
-              <td className="px-3 py-2.5">
-                <ScheduleStatusBadge status={s.status} />
-              </td>
-            </tr>
-          ))}
+          {sorted.map((s) => {
+            const instance = checklistMap?.get(s.id);
+            return (
+              <tr
+                key={s.id}
+                onClick={() => onDetailClick(s.id)}
+                className="border-b border-border/50 hover:bg-surface-hover cursor-pointer transition-colors"
+              >
+                <td className="px-3 py-2.5 text-sm text-text">{longDate(s.work_date)}</td>
+                <td className="px-3 py-2.5 text-sm font-medium text-text">{s.user_name ?? "-"}</td>
+                <td className="px-3 py-2.5 text-sm text-text-secondary">
+                  {getRoleName(s.work_role_id)}
+                </td>
+                <td className="px-3 py-2.5 text-sm text-text-secondary">
+                  {s.start_time && s.end_time ? `${s.start_time}–${s.end_time}` : "—"}
+                </td>
+                <td className="px-3 py-2.5">
+                  <ScheduleStatusBadge status={s.status} />
+                </td>
+                <td className="px-3 py-2.5">
+                  {instance ? (
+                    <ChecklistProgressInline instance={instance} />
+                  ) : (
+                    <span className="text-xs text-text-muted">—</span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

@@ -94,6 +94,44 @@ export const useChecklistInstance = (
 };
 
 /**
+ * 스케줄 ID → 체크리스트 인스턴스 맵 — 스케줄 오버뷰 페이지에서 진행 상황을 표시할 때 사용.
+ *
+ * Builds a Map<scheduleId, ChecklistInstance> for the given store and date range.
+ * Server only supports single work_date filter, so we fetch without date filter
+ * (by store_id + large per_page) and filter client-side by date range.
+ *
+ * @param storeId - 매장 UUID (Store UUID)
+ * @param dateFrom - 시작 날짜 "YYYY-MM-DD" (Start date)
+ * @param dateTo - 종료 날짜 "YYYY-MM-DD" (End date)
+ */
+export const useScheduleChecklistMap = (
+  storeId: string | undefined,
+  dateFrom: string,
+  dateTo: string,
+): UseQueryResult<Map<string, ChecklistInstance>, Error> => {
+  return useQuery<Map<string, ChecklistInstance>, Error>({
+    queryKey: ["checklist-instances-map", storeId, dateFrom, dateTo],
+    queryFn: async (): Promise<Map<string, ChecklistInstance>> => {
+      // Fetch all instances for the store (no work_date filter) — filter by date range client-side
+      const params: Record<string, string | number> = { per_page: 500 };
+      if (storeId) params.store_id = storeId;
+      const response: AxiosResponse<PaginatedResponse<ChecklistInstance>> =
+        await api.get("/admin/checklist-instances", { params });
+      const map = new Map<string, ChecklistInstance>();
+      for (const inst of response.data.items) {
+        // Client-side date range filter
+        if (inst.work_date < dateFrom || inst.work_date > dateTo) continue;
+        if (inst.schedule_id) {
+          map.set(inst.schedule_id, inst);
+        }
+      }
+      return map;
+    },
+    enabled: !!storeId && !!dateFrom && !!dateTo,
+  });
+};
+
+/**
  * 스케줄 ID로 체크리스트 인스턴스 조회
  */
 export const useChecklistInstanceBySchedule = (
