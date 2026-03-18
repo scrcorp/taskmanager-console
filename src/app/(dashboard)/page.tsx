@@ -30,7 +30,7 @@ import {
   useStores,
   useUsers,
   useAnnouncements,
-  useAssignments,
+  useSchedules,
   useUnreadCount,
   useChecklistCompletion,
   useAttendanceSummary,
@@ -196,8 +196,8 @@ export default function DashboardPage(): React.ReactElement {
   const { data: users, isLoading: usersLoading } = useUsers();
   const { data: announcementsData, isLoading: announcementsLoading } =
     useAnnouncements();
-  const { data: assignmentsData, isLoading: assignmentsLoading } =
-    useAssignments({ work_date: today, per_page: 200 });
+  const { data: schedulesData, isLoading: schedulesLoading } =
+    useSchedules({ date_from: today, date_to: today, per_page: 200 });
   const { data: unreadCount, isLoading: unreadLoading } = useUnreadCount();
 
   // ─── Dashboard API hooks ──────────────────────────
@@ -222,7 +222,7 @@ export default function DashboardPage(): React.ReactElement {
   } = useEvaluationSummary();
 
   const isTopLoading: boolean =
-    storesLoading || usersLoading || announcementsLoading || assignmentsLoading || unreadLoading;
+    storesLoading || usersLoading || announcementsLoading || schedulesLoading || unreadLoading;
 
   // ─── Store options for filter ─────────────────────
   const storeOptions = useMemo(() => {
@@ -238,7 +238,7 @@ export default function DashboardPage(): React.ReactElement {
   const statCards: StatCardData[] = useMemo(() => {
     const storeCount: number = Array.isArray(stores) ? stores.length : 0;
     const userCount: number = Array.isArray(users) ? users.length : 0;
-    const assignmentCount: number = assignmentsData?.total ?? 0;
+    const scheduleCount: number = schedulesData?.total ?? 0;
     const notifCount: number =
       typeof unreadCount === "number" ? unreadCount : 0;
 
@@ -262,8 +262,8 @@ export default function DashboardPage(): React.ReactElement {
         href: "/users",
       },
       {
-        label: "Today's Assignments",
-        value: assignmentCount,
+        label: "Today's Schedules",
+        value: scheduleCount,
         icon: <ClipboardCheck className="h-5 w-5" />,
         colorClass: "text-warning",
         bgClass: "bg-warning-muted",
@@ -286,7 +286,7 @@ export default function DashboardPage(): React.ReactElement {
         href: "/notifications",
       },
     ];
-  }, [stores, users, assignmentsData, unreadCount, checklistCompletion]);
+  }, [stores, users, schedulesData, unreadCount, checklistCompletion]);
 
   // ─── Overtime alert count ─────────────────────────
   const overtimeAlertUsers = useMemo(() => {
@@ -461,7 +461,7 @@ export default function DashboardPage(): React.ReactElement {
               />
               <div className="flex-1 space-y-3">
                 <div>
-                  <div className="text-xs text-text-muted">Total Assignments</div>
+                  <div className="text-xs text-text-muted">Total Schedules</div>
                   <div className="text-lg font-bold text-text">
                     {checklistCompletion.total_assignments}
                   </div>
@@ -566,7 +566,7 @@ export default function DashboardPage(): React.ReactElement {
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     <div className="w-2.5 h-2.5 rounded-full bg-danger" />
-                    <span className="text-sm text-text truncate">{u.user_name}</span>
+                    <span className="text-sm text-text truncate">{u.user_name ?? "-"}</span>
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
                     <span className="text-xs text-text-muted">
@@ -683,7 +683,7 @@ export default function DashboardPage(): React.ReactElement {
                 </div>
                 <div className="flex items-center gap-2 mt-2">
                   {ann.store_name && <Badge variant="accent">{ann.store_name}</Badge>}
-                  <span className="text-xs text-text-muted">by {ann.created_by_name}</span>
+                  <span className="text-xs text-text-muted">by {ann.created_by_name ?? "Unknown"}</span>
                 </div>
               </div>
             ))}

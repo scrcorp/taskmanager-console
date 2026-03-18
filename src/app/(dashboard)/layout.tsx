@@ -29,10 +29,12 @@ export default function DashboardLayout({
   const { user, fetchMe } = useAuthStore();
   const toggle = useSidebarStore((s) => s.toggle);
 
-  // 인증 체크 — 토큰 없으면 로그인으로, 사용자 정보 없으면 조회
+  // 인증 체크 — 토큰 없으면 로그인으로 (returnUrl 포함), 사용자 정보 없으면 조회
   useEffect(() => {
     if (!isAuthenticated()) {
-      router.push("/login");
+      const currentPath = window.location.pathname + window.location.search;
+      const returnUrl = currentPath !== "/" ? `?returnUrl=${encodeURIComponent(currentPath)}` : "";
+      router.push(`/login${returnUrl}`);
       return;
     }
     if (!user) fetchMe();

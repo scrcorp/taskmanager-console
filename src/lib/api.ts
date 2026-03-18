@@ -105,7 +105,8 @@ api.interceptors.response.use(
         isRefreshing = false;
         processQueue(error, null);
         clearTokens();
-        window.location.href = "/login";
+        const returnUrl = window.location.pathname + window.location.search;
+        window.location.href = `/login?returnUrl=${encodeURIComponent(returnUrl)}`;
         return Promise.reject(error);
       }
 
@@ -124,7 +125,8 @@ api.interceptors.response.use(
         // refresh 실패 → 토큰 삭제 후 로그인 페이지로
         processQueue(refreshError, null);
         clearTokens();
-        window.location.href = "/login";
+        const returnUrl = window.location.pathname + window.location.search;
+        window.location.href = `/login?returnUrl=${encodeURIComponent(returnUrl)}`;
         return Promise.reject(refreshError);
       } finally {
         isRefreshing = false;

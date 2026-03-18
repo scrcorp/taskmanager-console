@@ -112,7 +112,7 @@ export interface AttendanceSummary {
 }
 
 export interface OvertimeSummary {
-  users: { user_id: string; user_name: string; total_hours: number; max_weekly: number; over_hours: number }[];
+  users: { user_id: string; user_name: string | null; total_hours: number; max_weekly: number; over_hours: number }[];
 }
 
 export interface EvaluationSummary {
@@ -175,50 +175,6 @@ export interface ChecklistItem {
   sort_order: number;
 }
 
-// Assignment
-export interface Assignment {
-  id: string;
-  store_id: string;
-  store_name: string;
-  shift_id: string;
-  shift_name: string;
-  shift_sort_order: number;
-  position_id: string;
-  position_name: string;
-  user_id: string;
-  user_name: string;
-  work_date: string;
-  status: "assigned" | "in_progress" | "completed";
-  total_items: number;
-  completed_items: number;
-  created_at: string;
-}
-
-export interface AssignmentDetail extends Assignment {
-  checklist_snapshot: ChecklistSnapshotItem[] | null;
-  checklist_instance_id?: string | null;
-}
-
-export interface ChecklistSnapshotItem {
-  item_index: number;
-  title: string;
-  description: string | null;
-  verification_type: string;
-  is_completed: boolean;
-  completed_at: string | null;
-  completed_tz: string | null;
-  review?: {
-    id: string;
-    reviewer_id: string;
-    reviewer_name: string | null;
-    result: "pass" | "fail" | "caution";
-    comment: string | null;
-    photo_url: string | null;
-    created_at: string;
-    updated_at: string;
-  } | null;
-}
-
 // Announcement
 export interface Announcement {
   id: string;
@@ -226,7 +182,7 @@ export interface Announcement {
   content: string;
   store_id: string | null;
   store_name: string | null;
-  created_by_name: string;
+  created_by_name: string | null;
   created_at: string;
 }
 
@@ -240,7 +196,7 @@ export interface AdditionalTask {
   priority: "normal" | "urgent";
   status: "pending" | "in_progress" | "completed";
   due_date: string | null;
-  created_by_name: string;
+  created_by_name: string | null;
   assignee_names: string[];
   created_at: string;
 }
@@ -384,16 +340,6 @@ export interface ChecklistItemUpdate {
   sort_order?: number;
 }
 
-/** 근무 배정 생성 요청 타입.
- * Work assignment creation request payload. */
-export interface AssignmentCreate {
-  store_id: string;
-  shift_id: string;
-  position_id: string;
-  user_id: string;
-  work_date: string;
-}
-
 /** 공지사항 생성 요청 타입.
  * Announcement creation request payload. */
 export interface AnnouncementCreate {
@@ -438,19 +384,6 @@ export interface UserFilters {
   is_active?: boolean;
 }
 
-/** 배정 목록 필터 파라미터 타입.
- * Assignment list filter parameters. */
-export interface AssignmentFilters {
-  store_id?: string;
-  user_id?: string;
-  work_date?: string;
-  date_from?: string;
-  date_to?: string;
-  status?: string;
-  page?: number;
-  per_page?: number;
-}
-
 /** 추가 업무 목록 필터 파라미터 타입.
  * Additional task list filter parameters. */
 export interface TaskFilters {
@@ -465,14 +398,16 @@ export interface TaskFilters {
 export interface ChecklistInstance {
   id: string;
   template_id: string | null;
-  work_assignment_id: string;
+  schedule_id: string | null;
   store_id: string;
   user_id: string;
   work_date: string;
-  snapshot: ChecklistInstanceSnapshotItem[];
+  items: ChecklistInstanceItem[];
   total_items: number;
   completed_items: number;
   status: "pending" | "in_progress" | "completed";
+  score?: number | null;
+  score_note?: string | null;
   created_at: string;
   updated_at: string;
   store_name?: string;
@@ -480,80 +415,78 @@ export interface ChecklistInstance {
   template_title?: string;
 }
 
-/** 리뷰 결과 변경 히스토리 항목.
- * Review result change history item. */
-export interface ReviewHistoryItem {
+/** 체크리스트 인스턴스 아이템 파일 (제출/리뷰/채팅 첨부).
+ * File attached to a checklist instance item. */
+export interface ChecklistItemFile {
   id: string;
-  changed_by: string;
-  changed_by_name: string | null;
-  old_result: string | null;
-  new_result: string;
-  created_at: string;
+  context: "submission" | "review" | "chat";
+  context_id: string | null;
+  file_url: string;
+  file_type: string;
+  sort_order: number;
 }
 
-/** 완료 히스토리 (재제출 아카이브) 항목.
- * Completion history item — archived evidence from resubmission. */
-export interface CompletionHistoryItem {
+/** 체크리스트 아이템 제출 기록.
+ * Submission record for a checklist instance item. */
+export interface ChecklistItemSubmission {
   id: string;
-  photo_url: string | null;
+  version: number;
   note: string | null;
-  location: { lat: number; lng: number } | null;
+  location: object | null;
+  submitted_by: string | null;
+  submitted_by_name: string | null;
   submitted_at: string;
+}
+
+/** 리뷰 결과 변경 로그.
+ * Review result change log entry. */
+export interface ChecklistItemReviewLog {
+  id: string;
+  old_result: string | null;
+  new_result: string | null;
+  comment: string | null;
+  changed_by: string | null;
+  changed_by_name: string | null;
   created_at: string;
 }
 
-export interface ChecklistInstanceSnapshotItem {
+/** 체크리스트 아이템 메시지 (채팅).
+ * Chat message on a checklist instance item. */
+export interface ChecklistItemMessage {
+  id: string;
+  author_id: string | null;
+  author_name: string | null;
+  content: string | null;
+  created_at: string;
+}
+
+/** 체크리스트 인스턴스 아이템 (새 형식).
+ * Checklist instance item — flat structure with inline review state. */
+export interface ChecklistInstanceItem {
+  id: string;
   item_index: number;
   title: string;
   description: string | null;
-  verification_type: "none" | "photo" | "text" | "both";
-  is_completed?: boolean;
-  completed_at?: string | null;
-  completed_timezone?: string | null;
-  completed_by?: string | null;
-  completed_by_name?: string | null;
-  photo_url?: string | null;
-  note?: string | null;
-  location?: { lat: number; lng: number } | null;
-  resubmission_count?: number;
-  completion_history?: CompletionHistoryItem[];
-  review?: {
-    id: string;
-    reviewer_id: string;
-    reviewer_name: string | null;
-    result: "pass" | "fail" | "caution" | "pending_re_review";
-    contents: ReviewContent[];
-    history: ReviewHistoryItem[];
-    created_at: string;
-    updated_at: string;
-  } | null;
-}
+  verification_type: string;
+  min_photos: number;
+  max_photos: number | null;
+  sort_order: number;
 
-/** 리뷰 콘텐츠 (텍스트/사진/영상).
- * Review content item — text, photo, or video attached to a review. */
-export interface ReviewContent {
-  id: string;
-  review_id: string;
-  author_id: string;
-  author_name: string | null;
-  type: "text" | "photo" | "video";
-  content: string;
-  created_at: string;
-}
+  is_completed: boolean;
+  completed_at: string | null;
+  completed_tz: string | null;
+  completed_by: string | null;
+  completed_by_name: string | null;
 
-/** 체크리스트 아이템 리뷰 응답 타입.
- * Checklist item review response type. */
-export interface ChecklistItemReview {
-  id: string;
-  instance_id: string;
-  item_index: number;
-  reviewer_id: string;
+  review_result: "pass" | "fail" | "pending_re_review" | null;
+  reviewer_id: string | null;
   reviewer_name: string | null;
-  result: "pass" | "fail" | "caution" | "pending_re_review";
-  contents: ReviewContent[];
-  history: ReviewHistoryItem[];
-  created_at: string;
-  updated_at: string;
+  reviewed_at: string | null;
+
+  files: ChecklistItemFile[];
+  submissions: ChecklistItemSubmission[];
+  reviews_log: ChecklistItemReviewLog[];
+  messages: ChecklistItemMessage[];
 }
 
 /** 체크리스트 인스턴스 목록 필터 파라미터 타입.
@@ -564,71 +497,13 @@ export interface ChecklistInstanceFilters {
   status?: string;
   page?: number;
   per_page?: number;
-}
-
-// Schedule
-/** 스케줄 응답 타입 — SV가 작성하고 GM이 승인하는 스케줄.
- *  Schedule response type — draft created by SV, approved by GM. */
-export interface Schedule {
-  id: string;
-  organization_id: string;
-  store_id: string;
-  store_name: string;
-  user_id: string;
-  user_name: string;
-  shift_id: string | null;
-  shift_name: string | null;
-  position_id: string | null;
-  position_name: string | null;
-  work_date: string;
-  start_time: string | null;
-  end_time: string | null;
-  status: "draft" | "pending" | "approved" | "cancelled";
-  note: string | null;
-  created_by: string | null;
-  created_by_name: string | null;
-  approved_by: string | null;
-  approved_by_name: string | null;
-  approved_at: string | null;
-  work_assignment_id: string | null;
-  created_at: string;
-}
-
-/** 스케줄 생성 요청 타입.
- *  Schedule creation request payload. */
-export interface ScheduleCreate {
-  store_id: string;
-  user_id: string;
-  shift_id?: string | null;
-  position_id?: string | null;
-  work_date: string;
-  start_time?: string | null;
-  end_time?: string | null;
-  note?: string | null;
-}
-
-/** 스케줄 수정 요청 타입.
- *  Schedule update request payload (partial). */
-export interface ScheduleUpdate {
-  shift_id?: string | null;
-  position_id?: string | null;
-  start_time?: string | null;
-  end_time?: string | null;
-  note?: string | null;
-}
-
-/** 스케줄 목록 필터 파라미터 타입.
- *  Schedule list filter parameters. */
-export interface ScheduleFilters {
-  store_id?: string;
-  user_id?: string;
-  work_date?: string;
+  /** date_from/date_to is client-side only — server filters by work_date (single date).
+   * Used by useScheduleChecklistMap to post-filter fetched results. */
   date_from?: string;
   date_to?: string;
-  status?: string;
-  page?: number;
-  per_page?: number;
 }
+
+// Schedule (legacy types removed — ScheduleEntry renamed to Schedule)
 
 // Attendance
 /** 근태 기록 응답 타입.
@@ -862,3 +737,224 @@ export interface PaginatedResponse<T> {
   page: number;
   per_page: number;
 }
+
+// ─── Schedule System ────────────────────────────────
+
+// Work Role
+export interface WorkRole {
+  id: string;
+  store_id: string;
+  shift_id: string;
+  shift_name: string | null;
+  position_id: string;
+  position_name: string | null;
+  name: string | null;
+  default_start_time: string | null;
+  default_end_time: string | null;
+  break_start_time: string | null;
+  break_end_time: string | null;
+  required_headcount: number;
+  default_checklist_id: string | null;
+  is_active: boolean;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WorkRoleCreate {
+  shift_id: string;
+  position_id: string;
+  name?: string | null;
+  default_start_time?: string | null;
+  default_end_time?: string | null;
+  break_start_time?: string | null;
+  break_end_time?: string | null;
+  required_headcount?: number;
+  default_checklist_id?: string | null;
+  is_active?: boolean;
+  sort_order?: number;
+}
+
+export interface WorkRoleUpdate {
+  name?: string | null;
+  default_start_time?: string | null;
+  default_end_time?: string | null;
+  break_start_time?: string | null;
+  break_end_time?: string | null;
+  required_headcount?: number;
+  default_checklist_id?: string | null;
+  is_active?: boolean;
+  sort_order?: number;
+}
+
+// Break Rule
+export interface BreakRule {
+  id: string;
+  store_id: string;
+  max_continuous_minutes: number;
+  break_duration_minutes: number;
+  max_daily_work_minutes: number;
+  work_hour_calc_basis: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BreakRuleUpsert {
+  max_continuous_minutes?: number;
+  break_duration_minutes?: number;
+  max_daily_work_minutes?: number;
+  work_hour_calc_basis?: string;
+}
+
+// Schedule Period
+export interface SchedulePeriod {
+  id: string;
+  organization_id: string;
+  store_id: string;
+  store_name: string | null;
+  period_start: string;
+  period_end: string;
+  request_deadline: string | null;
+  status: "open" | "closed" | "sv_draft" | "gm_review" | "finalized";
+  created_by: string | null;
+  created_by_name: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SchedulePeriodCreate {
+  store_id: string;
+  period_start: string;
+  period_end: string;
+  request_deadline?: string | null;
+}
+
+export interface SchedulePeriodUpdate {
+  period_start?: string;
+  period_end?: string;
+  request_deadline?: string | null;
+}
+
+// Schedule Request
+export interface ScheduleRequestItem {
+  id: string;
+  user_id: string;
+  user_name: string | null;
+  store_id: string;
+  store_name: string | null;
+  work_role_id: string | null;
+  work_role_name: string | null;
+  work_date: string;
+  preferred_start_time: string | null;
+  preferred_end_time: string | null;
+  break_start_time: string | null;
+  break_end_time: string | null;
+  note: string | null;
+  status: "submitted" | "accepted" | "modified" | "rejected";
+  submitted_at: string;
+  created_at: string;
+  // Original value tracking (admin modification)
+  original_preferred_start_time: string | null;
+  original_preferred_end_time: string | null;
+  original_work_role_id: string | null;
+  original_user_id: string | null;
+  original_user_name: string | null;
+  original_work_date: string | null;
+  created_by: string | null;
+  rejection_reason: string | null;
+}
+
+export interface ScheduleRequestAdminCreate {
+  store_id: string;
+  user_id: string;
+  work_role_id?: string | null;
+  work_date: string;
+  preferred_start_time?: string | null;
+  preferred_end_time?: string | null;
+  break_start_time?: string | null;
+  break_end_time?: string | null;
+  note?: string | null;
+}
+
+export interface ScheduleRequestAdminUpdate {
+  user_id?: string | null;
+  work_role_id?: string | null;
+  work_date?: string | null;
+  preferred_start_time?: string | null;
+  preferred_end_time?: string | null;
+  break_start_time?: string | null;
+  break_end_time?: string | null;
+  note?: string | null;
+  rejection_reason?: string | null;
+}
+
+export interface ScheduleConfirmRequest {
+  store_id: string;
+  date_from: string;
+  date_to: string;
+}
+
+export interface ScheduleConfirmPreview {
+  will_confirm: number;
+  will_skip_rejected: number;
+  will_fail: Array<{ request_id: string; user_name: string; work_date: string; reason: string }>;
+}
+
+export interface ScheduleConfirmResult {
+  entries_created: number;
+  requests_confirmed: number;
+  requests_rejected: number;
+  errors: string[];
+}
+
+// Schedule
+export interface Schedule {
+  id: string;
+  organization_id: string;
+  request_id: string | null;
+  user_id: string;
+  user_name: string | null;
+  store_id: string;
+  store_name: string | null;
+  work_role_id: string | null;
+  work_role_name: string | null;
+  work_date: string;
+  start_time: string | null;
+  end_time: string | null;
+  break_start_time: string | null;
+  break_end_time: string | null;
+  net_work_minutes: number;
+  status: "confirmed" | "cancelled";
+  created_by: string | null;
+  approved_by: string | null;
+  note: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ScheduleCreate {
+  request_id?: string | null;
+  user_id: string;
+  store_id: string;
+  work_role_id?: string | null;
+  work_date: string;
+  start_time: string;
+  end_time: string;
+  break_start_time?: string | null;
+  break_end_time?: string | null;
+  note?: string | null;
+  force?: boolean;
+}
+
+export interface ScheduleUpdate {
+  user_id?: string | null;
+  work_role_id?: string | null;
+  work_date?: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
+  break_start_time?: string | null;
+  break_end_time?: string | null;
+  note?: string | null;
+  force?: boolean;
+}
+

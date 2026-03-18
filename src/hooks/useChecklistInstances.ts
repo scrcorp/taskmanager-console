@@ -10,9 +10,8 @@ import api from "@/lib/api";
 import type {
   ChecklistInstance,
   ChecklistInstanceFilters,
-  ChecklistItemReview,
+  ChecklistItemMessage,
   PaginatedResponse,
-  ReviewContent,
 } from "@/types";
 
 /**
@@ -43,6 +42,34 @@ export const useChecklistInstances = (
   });
 };
 
+export interface ReviewSummary {
+  total_items: number;
+  completed_items: number;
+  reviewed_items: number;
+  pass: number;
+  fail: number;
+  pending_re_review: number;
+  unreviewed: number;
+  total_assignments: number;
+  fully_approved_assignments: number;
+}
+
+export const useReviewSummary = (
+  filters: { store_id?: string; date_from?: string; date_to?: string } = {},
+): UseQueryResult<ReviewSummary, Error> => {
+  const params: Record<string, string> = {};
+  if (filters.store_id) params.store_id = filters.store_id;
+  if (filters.date_from) params.date_from = filters.date_from;
+  if (filters.date_to) params.date_to = filters.date_to;
+  return useQuery<ReviewSummary, Error>({
+    queryKey: ["review-summary", params],
+    queryFn: async () => {
+      const res: AxiosResponse<ReviewSummary> = await api.get("/admin/checklist-instances/review-summary", { params });
+      return res.data;
+    },
+  });
+};
+
 /**
  * 체크리스트 인스턴스 상세 조회 훅 -- 특정 인스턴스의 상세 정보를 가져옵니다.
  *
@@ -67,12 +94,68 @@ export const useChecklistInstance = (
 };
 
 /**
+ * 스케줄 ID → 체크리스트 인스턴스 맵 — 스케줄 오버뷰 페이지에서 진행 상황을 표시할 때 사용.
+ *
+ * Builds a Map<scheduleId, ChecklistInstance> for the given store and date range.
+ * Server only supports single work_date filter, so we fetch without date filter
+ * (by store_id + large per_page) and filter client-side by date range.
+ *
+ * @param storeId - 매장 UUID (Store UUID)
+ * @param dateFrom - 시작 날짜 "YYYY-MM-DD" (Start date)
+ * @param dateTo - 종료 날짜 "YYYY-MM-DD" (End date)
+ */
+export const useScheduleChecklistMap = (
+  storeId: string | undefined,
+  dateFrom: string,
+  dateTo: string,
+): UseQueryResult<Map<string, ChecklistInstance>, Error> => {
+  return useQuery<Map<string, ChecklistInstance>, Error>({
+    queryKey: ["checklist-instances-map", storeId, dateFrom, dateTo],
+    queryFn: async (): Promise<Map<string, ChecklistInstance>> => {
+      // Fetch all instances for the store (no work_date filter) — filter by date range client-side
+      const params: Record<string, string | number> = { per_page: 500 };
+      if (storeId) params.store_id = storeId;
+      const response: AxiosResponse<PaginatedResponse<ChecklistInstance>> =
+        await api.get("/admin/checklist-instances", { params });
+      const map = new Map<string, ChecklistInstance>();
+      for (const inst of response.data.items) {
+        // Client-side date range filter
+        if (inst.work_date < dateFrom || inst.work_date > dateTo) continue;
+        if (inst.schedule_id) {
+          map.set(inst.schedule_id, inst);
+        }
+      }
+      return map;
+    },
+    enabled: !!storeId && !!dateFrom && !!dateTo,
+  });
+};
+
+/**
+ * 스케줄 ID로 체크리스트 인스턴스 조회
+ */
+export const useChecklistInstanceBySchedule = (
+  scheduleId: string | undefined,
+): UseQueryResult<ChecklistInstance, Error> => {
+  return useQuery<ChecklistInstance, Error>({
+    queryKey: ["checklist-instances", "by-schedule", scheduleId],
+    queryFn: async (): Promise<ChecklistInstance> => {
+      const response: AxiosResponse<ChecklistInstance> = await api.get(
+        `/admin/checklist-instances/by-schedule/${scheduleId}`,
+      );
+      return response.data;
+    },
+    enabled: !!scheduleId,
+  });
+};
+
+/**
  * 아이템 리뷰 upsert 훅 -- 체크리스트 아이템에 리뷰를 생성/수정합니다 (result만).
  *
  * Custom hook to upsert a review on a checklist item (result only).
  */
 export function useUpsertItemReview(): UseMutationResult<
-  ChecklistItemReview,
+  { review_result: "pass" | "fail" | "pending_re_review" | null; reviewer_id: string | null; reviewer_name: string | null; reviewed_at: string | null },
   Error,
   {
     instanceId: string;
@@ -83,37 +166,42 @@ export function useUpsertItemReview(): UseMutationResult<
   }
 > {
   const queryClient = useQueryClient();
-  return useMutation<
-    ChecklistItemReview,
-    Error,
-    {
-      instanceId: string;
-      itemIndex: number;
-      result: string;
-      comment_text?: string;
-      comment_photo_url?: string;
-    }
-  >({
+  return useMutation({
     mutationFn: async ({
       instanceId,
       itemIndex,
       result,
       comment_text,
       comment_photo_url,
-    }): Promise<ChecklistItemReview> => {
+    }) => {
       const body: Record<string, string> = { result };
       if (comment_text) body.comment_text = comment_text;
       if (comment_photo_url) body.comment_photo_url = comment_photo_url;
-      const response: AxiosResponse<ChecklistItemReview> = await api.put(
+      const response: AxiosResponse<{ review_result: "pass" | "fail" | "pending_re_review" | null; reviewer_id: string | null; reviewer_name: string | null; reviewed_at: string | null }> = await api.put(
         `/admin/checklist-instances/${instanceId}/items/${itemIndex}/review`,
         body,
       );
       return response.data;
     },
-    onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: ["checklist-instances", variables.instanceId],
-      });
+    onSuccess: (data, variables) => {
+      // Optimistic patch for instant O/X feedback — no refetch needed
+      queryClient.setQueryData<ChecklistInstance>(
+        ["checklist-instances", variables.instanceId],
+        (prev) => {
+          if (!prev) return prev;
+          const newItems = prev.items.map((item) => {
+            if (item.item_index !== variables.itemIndex) return item;
+            return {
+              ...item,
+              review_result: data.review_result,
+              reviewer_id: data.reviewer_id,
+              reviewer_name: data.reviewer_name,
+              reviewed_at: data.reviewed_at,
+            };
+          });
+          return { ...prev, items: newItems };
+        },
+      );
     },
   });
 }
@@ -140,26 +228,35 @@ export function useDeleteItemReview(): UseMutationResult<
       );
     },
     onSuccess: (_data, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: ["checklist-instances", variables.instanceId],
-      });
+      // Optimistic patch for instant O/X feedback — no refetch needed
+      queryClient.setQueryData<ChecklistInstance>(
+        ["checklist-instances", variables.instanceId],
+        (prev) => {
+          if (!prev) return prev;
+          const newItems = prev.items.map((item) => {
+            if (item.item_index !== variables.itemIndex) return item;
+            return { ...item, review_result: null, reviewer_id: null, reviewer_name: null, reviewed_at: null };
+          });
+          return { ...prev, items: newItems };
+        },
+      );
     },
   });
 }
 
 /**
- * 리뷰 콘텐츠 추가 훅 -- 리뷰에 텍스트/사진/영상을 추가합니다.
+ * 리뷰 메시지 추가 훅 -- 아이템에 텍스트 메시지를 추가합니다.
  *
- * Custom hook to add content (text/photo/video) to a review.
+ * Custom hook to add a message (text/photo) to a checklist item.
  */
 export function useAddReviewContent(): UseMutationResult<
-  ReviewContent,
+  ChecklistItemMessage,
   Error,
   { instanceId: string; itemIndex: number; type: string; content: string }
 > {
   const queryClient = useQueryClient();
   return useMutation<
-    ReviewContent,
+    ChecklistItemMessage,
     Error,
     { instanceId: string; itemIndex: number; type: string; content: string }
   >({
@@ -168,8 +265,8 @@ export function useAddReviewContent(): UseMutationResult<
       itemIndex,
       type,
       content,
-    }): Promise<ReviewContent> => {
-      const response: AxiosResponse<ReviewContent> = await api.post(
+    }): Promise<ChecklistItemMessage> => {
+      const response: AxiosResponse<ChecklistItemMessage> = await api.post(
         `/admin/checklist-instances/${instanceId}/items/${itemIndex}/review/contents`,
         { type, content },
       );
@@ -177,7 +274,7 @@ export function useAddReviewContent(): UseMutationResult<
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
-        queryKey: ["checklist-instances", variables.instanceId],
+        queryKey: ["checklist-instances"],
       });
     },
   });
@@ -206,7 +303,7 @@ export function useDeleteReviewContent(): UseMutationResult<
     },
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
-        queryKey: ["checklist-instances", variables.instanceId],
+        queryKey: ["checklist-instances"],
       });
     },
   });
@@ -232,6 +329,96 @@ export function usePresignedUrl(): UseMutationResult<
         content_type,
       });
       return response.data;
+    },
+  });
+}
+
+/**
+ * 인스턴스 점수 업데이트 훅 -- 체크리스트 인스턴스에 점수와 메모를 저장합니다.
+ *
+ * Custom hook to PATCH score and score_note on a checklist instance.
+ */
+export function useUpdateScore(): UseMutationResult<
+  ChecklistInstance,
+  Error,
+  { instanceId: string; score: number | null; score_note?: string }
+> {
+  const queryClient = useQueryClient();
+  return useMutation<
+    ChecklistInstance,
+    Error,
+    { instanceId: string; score: number | null; score_note?: string }
+  >({
+    mutationFn: async ({ instanceId, score, score_note }): Promise<ChecklistInstance> => {
+      const response: AxiosResponse<ChecklistInstance> = await api.patch(
+        `/admin/checklist-instances/${instanceId}/score`,
+        { score, score_note },
+      );
+      return response.data;
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["checklist-instances"],
+      });
+    },
+  });
+}
+
+/**
+ * 일괄 리뷰 훅 -- 여러 아이템을 한 번에 pass/fail로 처리합니다.
+ *
+ * Custom hook to bulk-review multiple checklist items at once.
+ */
+export function useBulkReview(): UseMutationResult<
+  { updated: number },
+  Error,
+  { instanceId: string; item_indexes: number[]; result: string }
+> {
+  const queryClient = useQueryClient();
+  return useMutation<
+    { updated: number },
+    Error,
+    { instanceId: string; item_indexes: number[]; result: string }
+  >({
+    mutationFn: async ({ instanceId, item_indexes, result }): Promise<{ updated: number }> => {
+      const response: AxiosResponse<{ updated: number }> = await api.post(
+        `/admin/checklist-instances/${instanceId}/items/bulk-review`,
+        { item_indexes, result },
+      );
+      return response.data;
+    },
+    onSuccess: (_data, variables) => {
+      // Instant feedback via setQueryData — no refetch needed
+      queryClient.setQueryData<ChecklistInstance>(
+        ["checklist-instances", variables.instanceId],
+        (prev) => {
+          if (!prev) return prev;
+          const resultValue = variables.result as "pass" | "fail" | "pending_re_review" | null;
+          const newItems = prev.items.map((item) =>
+            variables.item_indexes.includes(item.item_index)
+              ? { ...item, review_result: resultValue }
+              : item,
+          );
+          return { ...prev, items: newItems };
+        },
+      );
+    },
+  });
+}
+
+/**
+ * 리포트 전송 훅 -- 체크리스트 인스턴스 리포트를 전송합니다.
+ *
+ * Custom hook to send a report for a checklist instance.
+ */
+export function useSendReport(): UseMutationResult<
+  void,
+  Error,
+  { instanceId: string }
+> {
+  return useMutation<void, Error, { instanceId: string }>({
+    mutationFn: async ({ instanceId }): Promise<void> => {
+      await api.post(`/admin/checklist-instances/${instanceId}/report`);
     },
   });
 }

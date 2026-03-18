@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useMemo, useCallback, useEffect } from "react";
-import { useRouter, useParams } from "next/navigation";
+import { useRouter, useParams, useSearchParams } from "next/navigation";
 import {
   ChevronLeft,
   Plus,
@@ -52,6 +52,7 @@ import {
   useDeleteShiftPreset,
 } from "@/hooks/useShiftPresets";
 import { useLaborLaw, useUpsertLaborLaw } from "@/hooks/useLaborLaw";
+import { useWorkRoles } from "@/hooks/useWorkRoles";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import {
@@ -73,6 +74,7 @@ import type {
   ChecklistTemplate,
   ChecklistItem,
   ShiftPreset,
+  WorkRole,
 } from "@/types";
 
 /* -------------------------------------------------------------------------- */
@@ -80,7 +82,7 @@ import type {
 /* -------------------------------------------------------------------------- */
 
 /** 탭 이름 타입 / Tab name type */
-type TabName = "shifts-positions" | "checklists" | "settings";
+type TabName = "shifts-positions" | "work-roles" | "checklists" | "settings";
 
 /** 시프트/포지션 폼 데이터 / Shift/Position form data */
 interface ShiftPositionFormData {
@@ -164,6 +166,7 @@ function hasVerificationType(value: string, type: "photo" | "text"): boolean {
 
 const TAB_OPTIONS: { value: TabName; label: string }[] = [
   { value: "shifts-positions", label: "Shifts & Positions" },
+  { value: "work-roles", label: "Work Roles" },
   { value: "checklists", label: "Checklists" },
   { value: "settings", label: "Settings" },
 ];
@@ -184,8 +187,13 @@ export default function StoreDetailPage(): React.ReactElement {
   const canManageChecklists = hasPermission(PERMISSIONS.CHECKLISTS_CREATE);
   const canUpdateSettings = hasPermission(PERMISSIONS.STORES_UPDATE);
 
-  /** 현재 활성 탭 / Currently active tab */
-  const [activeTab, setActiveTab] = useState<TabName>("shifts-positions");
+  /** 현재 활성 탭 / Currently active tab — URL ?tab= 파라미터로 초기값 설정 */
+  const searchParams = useSearchParams();
+  const [activeTab, setActiveTab] = useState<TabName>(() => {
+    const tab = searchParams.get("tab");
+    const valid: TabName[] = ["shifts-positions", "work-roles", "checklists", "settings"];
+    return valid.includes(tab as TabName) ? (tab as TabName) : "shifts-positions";
+  });
 
   /* ---- Data hooks -------------------------------------------------------- */
   const { data: store, isLoading: storeLoading } = useStore(storeId);
@@ -194,6 +202,7 @@ export default function StoreDetailPage(): React.ReactElement {
     usePositions(storeId);
   const { data: templates, isLoading: templatesLoading } =
     useChecklistTemplates(storeId);
+  const { data: workRoles, isLoading: workRolesLoading } = useWorkRoles(storeId);
 
   /* ---- Shift CRUD -------------------------------------------------------- */
   const createShift = useCreateShift();
@@ -1296,6 +1305,64 @@ export default function StoreDetailPage(): React.ReactElement {
             confirmLabel="Delete"
             isLoading={deletePosition.isPending}
           />
+        </div>
+      )}
+
+      {/* ================================================================== */}
+      {/*  Work Roles Tab (embedded, links to full page)                     */}
+      {/* ================================================================== */}
+      {activeTab === "work-roles" && (
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold text-text">
+              Work Roles
+              <span className="text-sm font-normal text-text-muted ml-2">
+                ({(workRoles ?? []).length})
+              </span>
+            </h2>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => router.push(`/stores/${storeId}/work-roles`)}
+            >
+              <Settings size={14} />
+              Manage Work Roles
+            </Button>
+          </div>
+
+          {workRolesLoading ? (
+            <div className="flex justify-center py-12"><LoadingSpinner /></div>
+          ) : (workRoles ?? []).length === 0 ? (
+            <div className="text-center py-12 bg-card border-2 border-dashed border-border rounded-xl">
+              <p className="text-text-muted">No work roles configured yet.</p>
+              <p className="text-xs text-text-muted mt-1">Checklists with shift+position will auto-register as work roles.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {(workRoles ?? []).map((wr: WorkRole) => (
+                <div
+                  key={wr.id}
+                  className="bg-card border border-border rounded-xl p-3 flex items-center justify-between"
+                >
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-text">
+                        {wr.shift_name} · {wr.position_name}
+                      </span>
+                      {!wr.is_active && <Badge variant="default">Inactive</Badge>}
+                    </div>
+                    <div className="text-xs text-text-muted mt-0.5">
+                      {wr.default_start_time && wr.default_end_time
+                        ? `${wr.default_start_time}–${wr.default_end_time}`
+                        : "No default time"
+                      }
+                      {" · "}Headcount: {wr.required_headcount}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 

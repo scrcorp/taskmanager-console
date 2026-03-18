@@ -7,6 +7,8 @@ import {
   Store,
   Users,
   CalendarClock,
+  CalendarRange,
+  ClipboardList,
   Clock,
   CheckSquare,
   Zap,
@@ -17,7 +19,6 @@ import {
   Star,
   ChevronDown,
   ChevronRight,
-  List,
   Settings,
   FileSearch,
   FileText,
@@ -53,8 +54,9 @@ const navItems: NavItem[] = [
     label: "Schedules",
     icon: CalendarClock,
     children: [
-      { href: "/schedules/list", label: "List", icon: List },
-      { href: "/schedules/completion-log", label: "Logs", icon: FileSearch, indent: true },
+      { href: "/schedules", label: "Overview", icon: CalendarRange },
+      { href: "/schedules/manage", label: "Manage", icon: ClipboardList },
+      { href: "/schedules/log", label: "Log", icon: FileSearch },
       { href: "/attendances", label: "Attendance", icon: Clock },
     ],
   },
@@ -138,8 +140,7 @@ export function Sidebar({ onNavClick }: { onNavClick?: () => void }) {
   }, []);
 
   const getChildHref = (href: string): string => {
-    if (href === "/schedules/list") return `/schedules/list?from=${currentWeek.from}&to=${currentWeek.to}`;
-    if (href === "/schedules/completion-log") return `/schedules/completion-log?from=${currentWeek.from}&to=${currentWeek.to}`;
+    if (href === "/schedules/log") return `/schedules/log?from=${currentWeek.from}&to=${currentWeek.to}`;
     if (href === "/attendances") return `/attendances?from=${currentWeek.from}&to=${currentWeek.to}`;
     return href;
   };
@@ -216,7 +217,10 @@ export function Sidebar({ onNavClick }: { onNavClick?: () => void }) {
               {hasChildren && isExpanded && (
                 <div className="mt-0.5 ml-6 space-y-0.5">
                   {item.children!.map((child) => {
-                    const childActive = pathname.startsWith(child.href);
+                    // 정확 매치: /schedules → /schedules만, /schedules/manage → /schedules/manage만
+                    const childActive = child.href === item.href
+                      ? pathname === child.href
+                      : pathname.startsWith(child.href);
                     const ChildIcon = child.icon;
                     return (
                       <Link
