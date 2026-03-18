@@ -10,16 +10,26 @@
  * - 로그인 성공 시 대시보드(/)로 리다이렉트
  */
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useAuthStore } from "@/stores/authStore";
 import { getCompanyCode } from "@/lib/auth";
 import { CompanyCodeModal } from "@/components/ui/CompanyCodeModal";
 import { AxiosError } from "axios";
 
-/** 로그인 페이지 — 회사코드 + 아이디/비밀번호 인증 */
+/** 로그인 페이지 — Suspense 래퍼 (useSearchParams용) */
 export default function LoginPage() {
+  return (
+    <Suspense>
+      <LoginContent />
+    </Suspense>
+  );
+}
+
+/** 로그인 콘텐츠 — 회사코드 + 아이디/비밀번호 인증 */
+function LoginContent() {
   const router = useRouter();
+  const searchParams = useSearchParams();
   const { login, isLoading } = useAuthStore();
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -50,7 +60,8 @@ export default function LoginPage() {
 
     try {
       await login(username, password);
-      router.push("/");
+      const returnUrl = searchParams.get("returnUrl") || "/";
+      router.push(returnUrl);
     } catch (err) {
       if (err instanceof AxiosError) {
         const status = err.response?.status;

@@ -148,7 +148,7 @@ export default function AnnouncementDetailPage(): React.ReactElement {
             </h1>
             <div className="flex items-center gap-3 flex-wrap">
               <span className="text-sm text-text-secondary">
-                {announcement.created_by_name}
+                {announcement.created_by_name ?? "Unknown"}
               </span>
               <span className="text-xs text-text-muted">
                 {formatDate(announcement.created_at, tz)}

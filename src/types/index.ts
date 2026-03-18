@@ -112,7 +112,7 @@ export interface AttendanceSummary {
 }
 
 export interface OvertimeSummary {
-  users: { user_id: string; user_name: string; total_hours: number; max_weekly: number; over_hours: number }[];
+  users: { user_id: string; user_name: string | null; total_hours: number; max_weekly: number; over_hours: number }[];
 }
 
 export interface EvaluationSummary {
@@ -182,7 +182,7 @@ export interface Announcement {
   content: string;
   store_id: string | null;
   store_name: string | null;
-  created_by_name: string;
+  created_by_name: string | null;
   created_at: string;
 }
 
@@ -196,7 +196,7 @@ export interface AdditionalTask {
   priority: "normal" | "urgent";
   status: "pending" | "in_progress" | "completed";
   due_date: string | null;
-  created_by_name: string;
+  created_by_name: string | null;
   assignee_names: string[];
   created_at: string;
 }
@@ -401,10 +401,12 @@ export interface ChecklistInstance {
   store_id: string;
   user_id: string;
   work_date: string;
-  snapshot: ChecklistInstanceSnapshotItem[];
+  items: ChecklistInstanceItem[];
   total_items: number;
   completed_items: number;
   status: "pending" | "in_progress" | "completed";
+  score?: number | null;
+  score_note?: string | null;
   created_at: string;
   updated_at: string;
   store_name?: string;
@@ -412,80 +414,78 @@ export interface ChecklistInstance {
   template_title?: string;
 }
 
-/** 리뷰 결과 변경 히스토리 항목.
- * Review result change history item. */
-export interface ReviewHistoryItem {
+/** 체크리스트 인스턴스 아이템 파일 (제출/리뷰/채팅 첨부).
+ * File attached to a checklist instance item. */
+export interface ChecklistItemFile {
   id: string;
-  changed_by: string;
-  changed_by_name: string | null;
-  old_result: string | null;
-  new_result: string;
-  created_at: string;
+  context: "submission" | "review" | "chat";
+  context_id: string | null;
+  file_url: string;
+  file_type: string;
+  sort_order: number;
 }
 
-/** 완료 히스토리 (재제출 아카이브) 항목.
- * Completion history item — archived evidence from resubmission. */
-export interface CompletionHistoryItem {
+/** 체크리스트 아이템 제출 기록.
+ * Submission record for a checklist instance item. */
+export interface ChecklistItemSubmission {
   id: string;
-  photo_url: string | null;
+  version: number;
   note: string | null;
-  location: { lat: number; lng: number } | null;
+  location: object | null;
+  submitted_by: string | null;
+  submitted_by_name: string | null;
   submitted_at: string;
+}
+
+/** 리뷰 결과 변경 로그.
+ * Review result change log entry. */
+export interface ChecklistItemReviewLog {
+  id: string;
+  old_result: string | null;
+  new_result: string | null;
+  comment: string | null;
+  changed_by: string | null;
+  changed_by_name: string | null;
   created_at: string;
 }
 
-export interface ChecklistInstanceSnapshotItem {
+/** 체크리스트 아이템 메시지 (채팅).
+ * Chat message on a checklist instance item. */
+export interface ChecklistItemMessage {
+  id: string;
+  author_id: string | null;
+  author_name: string | null;
+  content: string | null;
+  created_at: string;
+}
+
+/** 체크리스트 인스턴스 아이템 (새 형식).
+ * Checklist instance item — flat structure with inline review state. */
+export interface ChecklistInstanceItem {
+  id: string;
   item_index: number;
   title: string;
   description: string | null;
-  verification_type: "none" | "photo" | "text" | "both";
-  is_completed?: boolean;
-  completed_at?: string | null;
-  completed_timezone?: string | null;
-  completed_by?: string | null;
-  completed_by_name?: string | null;
-  photo_url?: string | null;
-  note?: string | null;
-  location?: { lat: number; lng: number } | null;
-  resubmission_count?: number;
-  completion_history?: CompletionHistoryItem[];
-  review?: {
-    id: string;
-    reviewer_id: string;
-    reviewer_name: string | null;
-    result: "pass" | "fail" | "caution" | "pending_re_review";
-    contents: ReviewContent[];
-    history: ReviewHistoryItem[];
-    created_at: string;
-    updated_at: string;
-  } | null;
-}
+  verification_type: string;
+  min_photos: number;
+  max_photos: number | null;
+  sort_order: number;
 
-/** 리뷰 콘텐츠 (텍스트/사진/영상).
- * Review content item — text, photo, or video attached to a review. */
-export interface ReviewContent {
-  id: string;
-  review_id: string;
-  author_id: string;
-  author_name: string | null;
-  type: "text" | "photo" | "video";
-  content: string;
-  created_at: string;
-}
+  is_completed: boolean;
+  completed_at: string | null;
+  completed_tz: string | null;
+  completed_by: string | null;
+  completed_by_name: string | null;
 
-/** 체크리스트 아이템 리뷰 응답 타입.
- * Checklist item review response type. */
-export interface ChecklistItemReview {
-  id: string;
-  instance_id: string;
-  item_index: number;
-  reviewer_id: string;
+  review_result: "pass" | "fail" | "pending_re_review" | null;
+  reviewer_id: string | null;
   reviewer_name: string | null;
-  result: "pass" | "fail" | "caution" | "pending_re_review";
-  contents: ReviewContent[];
-  history: ReviewHistoryItem[];
-  created_at: string;
-  updated_at: string;
+  reviewed_at: string | null;
+
+  files: ChecklistItemFile[];
+  submissions: ChecklistItemSubmission[];
+  reviews_log: ChecklistItemReviewLog[];
+  messages: ChecklistItemMessage[];
 }
 
 /** 체크리스트 인스턴스 목록 필터 파라미터 타입.

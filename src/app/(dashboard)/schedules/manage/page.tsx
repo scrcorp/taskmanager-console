@@ -895,7 +895,7 @@ export default function ScheduleManagePage(): React.ReactElement {
                 <div className="space-y-1 max-h-40 overflow-y-auto">
                   {confirmPreviewModal.preview.will_fail.map((f) => (
                     <div key={f.request_id} className="text-xs bg-danger/5 border border-danger/20 rounded px-2 py-1.5">
-                      <span className="font-medium text-text">{f.user_name}</span>
+                      <span className="font-medium text-text">{f.user_name ?? "-"}</span>
                       <span className="text-text-muted"> · {f.work_date}</span>
                       <span className="text-danger"> — {f.reason}</span>
                     </div>
@@ -1390,7 +1390,7 @@ function DetailModal({ open, item, users, roles, canEdit, isGMOrAbove, onClose, 
               {userChanged && (
                 <div className="flex items-center gap-2 text-xs">
                   <span className="text-text-muted w-16 shrink-0">Assignee</span>
-                  <span className="text-text-secondary">{item.original_user_name}</span>
+                  <span className="text-text-secondary">{item.original_user_name ?? "-"}</span>
                   <span className="text-warning">→</span>
                   <span className="text-text font-medium">{getUserName(item.user_id)}</span>
                 </div>

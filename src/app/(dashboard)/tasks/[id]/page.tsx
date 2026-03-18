@@ -200,7 +200,7 @@ export default function TaskDetailPage() {
               <User size={12} className="inline mr-1" />
               Created By
             </div>
-            <div className="text-text">{task.created_by_name}</div>
+            <div className="text-text">{task.created_by_name ?? "Unknown"}</div>
           </div>
           <div>
             <div className="text-xs text-text-muted mb-0.5">

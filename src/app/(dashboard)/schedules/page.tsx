@@ -230,7 +230,7 @@ export default function ScheduleOverviewPage(): React.ReactElement {
     const itemPct = totalItems > 0 ? Math.round((passCount / totalItems) * 100) : 0;
     return { total, completed: fullyApproved, pct,
       totalItems, passCount, itemPct,
-      pass: passCount, fail: rv?.fail ?? 0, caution: rv?.caution ?? 0,
+      pass: passCount, fail: rv?.fail ?? 0,
       unreviewed: rv?.unreviewed ?? 0,
     };
   }, [allSchedules, reviewSummary]);
@@ -322,7 +322,6 @@ export default function ScheduleOverviewPage(): React.ReactElement {
             <PctCard label="Completion" sub={`${summary.pass}/${summary.totalItems}`} pct={summary.itemPct} />
             <MiniCard label="Pending" value={summary.unreviewed} color="text-text-muted" dot="bg-text-muted" />
             <MiniCard label="Rejected" value={summary.fail} color="text-danger" dot="bg-danger" />
-            <MiniCard label="Caution" value={summary.caution} color="text-warning" dot="bg-warning" />
             <MiniCard label="Approved" value={summary.pass} color="text-success" dot="bg-success" />
           </div>
         </div>
@@ -615,7 +614,7 @@ function DayView({
                     className="text-left p-3 rounded-lg bg-surface hover:bg-surface-hover transition-colors"
                   >
                     <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-sm font-medium text-text">{s.user_name}</span>
+                      <span className="text-sm font-medium text-text">{s.user_name ?? "-"}</span>
                       <span className="text-[10px] text-text-muted">
                         {s.start_time && s.end_time ? `${s.start_time}–${s.end_time}` : s.work_date}
                       </span>
@@ -721,7 +720,7 @@ function WeekView({
                           className="w-full text-left p-1.5 rounded bg-surface hover:bg-surface-hover transition-colors"
                         >
                           <div className="text-[11px] font-medium text-text truncate">
-                            {s.user_name}
+                            {s.user_name ?? "-"}
                           </div>
                           {s.start_time && s.end_time && (
                             <div className="text-[10px] text-text-muted">
@@ -936,7 +935,7 @@ function ListView({
               className="border-b border-border/50 hover:bg-surface-hover cursor-pointer transition-colors"
             >
               <td className="px-3 py-2.5 text-sm text-text">{longDate(s.work_date)}</td>
-              <td className="px-3 py-2.5 text-sm font-medium text-text">{s.user_name}</td>
+              <td className="px-3 py-2.5 text-sm font-medium text-text">{s.user_name ?? "-"}</td>
               <td className="px-3 py-2.5 text-sm text-text-secondary">
                 {getRoleName(s.work_role_id)}
               </td>

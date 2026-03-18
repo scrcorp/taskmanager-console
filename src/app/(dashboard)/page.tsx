@@ -566,7 +566,7 @@ export default function DashboardPage(): React.ReactElement {
                 >
                   <div className="flex items-center gap-2 min-w-0">
                     <div className="w-2.5 h-2.5 rounded-full bg-danger" />
-                    <span className="text-sm text-text truncate">{u.user_name}</span>
+                    <span className="text-sm text-text truncate">{u.user_name ?? "-"}</span>
                   </div>
                   <div className="flex items-center gap-3 shrink-0">
                     <span className="text-xs text-text-muted">
@@ -683,7 +683,7 @@ export default function DashboardPage(): React.ReactElement {
                 </div>
                 <div className="flex items-center gap-2 mt-2">
                   {ann.store_name && <Badge variant="accent">{ann.store_name}</Badge>}
-                  <span className="text-xs text-text-muted">by {ann.created_by_name}</span>
+                  <span className="text-xs text-text-muted">by {ann.created_by_name ?? "Unknown"}</span>
                 </div>
               </div>
             ))}
