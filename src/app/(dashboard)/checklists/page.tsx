@@ -9,6 +9,7 @@
  */
 
 import React, { useState, useMemo, useCallback, useRef, DragEvent } from "react";
+import { useUrlParams } from "@/hooks/useUrlParams";
 import { Plus, ChevronRight, Trash2, Edit, Upload, Download, FileSpreadsheet, X } from "lucide-react";
 import {
   useAllChecklistTemplates,
@@ -112,10 +113,11 @@ export default function ChecklistsPage(): React.ReactElement {
   const { hasPermission } = usePermissions();
   const canManageChecklists = hasPermission(PERMISSIONS.CHECKLISTS_CREATE);
 
-  /* ---- Filter state ---- */
-  const [filterStoreId, setFilterStoreId] = useState<string>("");
-  const [filterShiftId, setFilterShiftId] = useState<string>("");
-  const [filterPositionId, setFilterPositionId] = useState<string>("");
+  /* ---- Filter state (URL-persisted) ---- */
+  const [urlParams, setUrlParams] = useUrlParams({ store: "", shift: "", position: "" });
+  const filterStoreId = urlParams.store;
+  const filterShiftId = urlParams.shift;
+  const filterPositionId = urlParams.position;
 
   /* ---- Data hooks ---- */
   const { data: stores } = useStores();
@@ -279,9 +281,7 @@ export default function ChecklistsPage(): React.ReactElement {
       toast({ type: "success", message: "Checklist template created! Add items below." });
       setIsCreateOpen(false);
       // 필터를 생성한 템플릿의 store로 설정하여 목록에 보이게 함
-      setFilterStoreId(createStoreId);
-      setFilterShiftId("");
-      setFilterPositionId("");
+      setUrlParams({ store: createStoreId, shift: null, position: null });
       setCreateTitle("");
       setCreateStoreId("");
       setCreateShiftId("");
@@ -618,9 +618,7 @@ export default function ChecklistsPage(): React.ReactElement {
               label="Store"
               value={filterStoreId}
               onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
-                setFilterStoreId(e.target.value);
-                setFilterShiftId("");
-                setFilterPositionId("");
+                setUrlParams({ store: e.target.value, shift: null, position: null });
               }}
               options={[
                 { value: "", label: "All Stores" },
@@ -633,7 +631,7 @@ export default function ChecklistsPage(): React.ReactElement {
               label="Shift"
               value={filterShiftId}
               onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                setFilterShiftId(e.target.value)
+                setUrlParams({ shift: e.target.value })
               }
               options={[
                 { value: "", label: "All Shifts" },
@@ -650,7 +648,7 @@ export default function ChecklistsPage(): React.ReactElement {
               label="Position"
               value={filterPositionId}
               onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-                setFilterPositionId(e.target.value)
+                setUrlParams({ position: e.target.value })
               }
               options={[
                 { value: "", label: "All Positions" },

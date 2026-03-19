@@ -10,6 +10,7 @@
 
 import React, { useState, useMemo, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
+import { useUrlParams } from "@/hooks/useUrlParams";
 import { Plus, Search, Edit, Trash2, X, GripVertical } from "lucide-react";
 import {
   DndContext,
@@ -148,8 +149,9 @@ export default function StoresPage(): React.ReactElement {
   const createShift = useCreateShift();
   const createPosition = useCreatePosition();
 
-  /** 검색어 상태 / Search query state */
-  const [searchQuery, setSearchQuery] = useState<string>("");
+  /** 검색어 상태 (URL-persisted) / Search query state */
+  const [urlParams, setUrlParams] = useUrlParams({ search: "" });
+  const searchQuery = urlParams.search;
 
   /** 생성 모달 상태 / Create modal state */
   const [isCreateOpen, setIsCreateOpen] = useState<boolean>(false);
@@ -461,7 +463,7 @@ export default function StoresPage(): React.ReactElement {
             placeholder="Search stores..."
             value={searchQuery}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-              setSearchQuery(e.target.value)
+              setUrlParams({ search: e.target.value })
             }
             className="w-full rounded-lg border border-border bg-surface pl-9 pr-3 py-2 text-sm text-text placeholder:text-text-muted transition-colors focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent"
           />

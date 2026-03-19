@@ -8,6 +8,7 @@
 
 import React, { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { useUrlParams } from "@/hooks/useUrlParams";
 import { Plus, Edit, Trash2 } from "lucide-react";
 import {
   useAnnouncements,
@@ -45,8 +46,9 @@ export default function AnnouncementsPage(): React.ReactElement {
   const tz = useTimezone();
   const canManageAnnouncements = hasPermission(PERMISSIONS.ANNOUNCEMENTS_CREATE);
 
-  // -- Pagination state --
-  const [page, setPage] = useState<number>(1);
+  // -- Pagination state (URL-persisted) --
+  const [urlParams, setUrlParams] = useUrlParams({ page: "1" });
+  const page = Number(urlParams.page);
 
   // -- Modal state --
   const [isFormOpen, setIsFormOpen] = useState<boolean>(false);
@@ -246,7 +248,7 @@ export default function AnnouncementsPage(): React.ReactElement {
 
       {/* Pagination */}
       <div className="mt-4 flex justify-center">
-        <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+        <Pagination page={page} totalPages={totalPages} onPageChange={(p: number) => setUrlParams({ page: String(p) })} />
       </div>
 
       {/* Create/Edit Modal */}

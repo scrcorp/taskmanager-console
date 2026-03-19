@@ -7,6 +7,7 @@
  */
 
 import React, { useState, useCallback } from "react";
+import { useUrlParams } from "@/hooks/useUrlParams";
 import { Plus, Trash2 } from "lucide-react";
 import {
   useEvalTemplates,
@@ -42,9 +43,10 @@ export default function EvaluationsPage(): React.ReactElement {
   const tz = useTimezone();
   const isGMOrAbove = hasPermission(PERMISSIONS.EVALUATIONS_CREATE);
 
-  const [activeTab, setActiveTab] = useState<"templates" | "evaluations">("templates");
-  const [templatePage, setTemplatePage] = useState<number>(1);
-  const [evalPage, setEvalPage] = useState<number>(1);
+  const [urlParams, setUrlParams] = useUrlParams({ tab: "templates", tpage: "1", epage: "1" });
+  const activeTab = (urlParams.tab === "evaluations" ? "evaluations" : "templates") as "templates" | "evaluations";
+  const templatePage = Number(urlParams.tpage);
+  const evalPage = Number(urlParams.epage);
 
   // Template modal
   const [isTemplateFormOpen, setIsTemplateFormOpen] = useState(false);
@@ -119,7 +121,7 @@ export default function EvaluationsPage(): React.ReactElement {
       {/* Tabs */}
       <div className="flex gap-2 mb-6">
         <button
-          onClick={() => setActiveTab("templates")}
+          onClick={() => setUrlParams({ tab: "templates" })}
           className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
             activeTab === "templates"
               ? "bg-accent text-white"
@@ -129,7 +131,7 @@ export default function EvaluationsPage(): React.ReactElement {
           Templates ({templatesData?.total ?? 0})
         </button>
         <button
-          onClick={() => setActiveTab("evaluations")}
+          onClick={() => setUrlParams({ tab: "evaluations" })}
           className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
             activeTab === "evaluations"
               ? "bg-accent text-white"
@@ -185,7 +187,7 @@ export default function EvaluationsPage(): React.ReactElement {
             <Pagination
               page={templatePage}
               totalPages={Math.ceil((templatesData?.total ?? 0) / PER_PAGE)}
-              onPageChange={setTemplatePage}
+              onPageChange={(p: number) => setUrlParams({ tpage: String(p) })}
             />
           )}
         </Card>
@@ -227,7 +229,7 @@ export default function EvaluationsPage(): React.ReactElement {
             <Pagination
               page={evalPage}
               totalPages={Math.ceil((evalsData?.total ?? 0) / PER_PAGE)}
-              onPageChange={setEvalPage}
+              onPageChange={(p: number) => setUrlParams({ epage: String(p) })}
             />
           )}
         </Card>

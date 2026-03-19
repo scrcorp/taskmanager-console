@@ -8,6 +8,7 @@
 
 import React, { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { useUrlParams } from "@/hooks/useUrlParams";
 import { Plus, Trash2 } from "lucide-react";
 import { useTasks, useCreateTask, useDeleteTask } from "@/hooks/useTasks";
 import { useStores } from "@/hooks/useStores";
@@ -59,11 +60,12 @@ export default function TasksPage(): React.ReactElement {
   const { hasPermission } = usePermissions();
   const canManageTasks = hasPermission(PERMISSIONS.TASKS_CREATE);
 
-  // -- Filter state --
-  const [filterStoreId, setFilterStoreId] = useState<string>("");
-  const [filterStatus, setFilterStatus] = useState<string>("");
-  const [filterPriority, setFilterPriority] = useState<string>("");
-  const [page, setPage] = useState<number>(1);
+  // -- Filter state (URL-persisted) --
+  const [urlParams, setUrlParams] = useUrlParams({ store: "", status: "", priority: "", page: "1" });
+  const filterStoreId = urlParams.store;
+  const filterStatus = urlParams.status;
+  const filterPriority = urlParams.priority;
+  const page = Number(urlParams.page);
 
   // -- Create modal state --
   const [isCreateOpen, setIsCreateOpen] = useState<boolean>(false);
@@ -293,8 +295,7 @@ export default function TasksPage(): React.ReactElement {
               options={storeFilterOptions}
               value={filterStoreId}
               onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
-                setFilterStoreId(e.target.value);
-                setPage(1);
+                setUrlParams({ store: e.target.value, page: null });
               }}
             />
           </div>
@@ -304,8 +305,7 @@ export default function TasksPage(): React.ReactElement {
               options={statusOptions}
               value={filterStatus}
               onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
-                setFilterStatus(e.target.value);
-                setPage(1);
+                setUrlParams({ status: e.target.value, page: null });
               }}
             />
           </div>
@@ -315,8 +315,7 @@ export default function TasksPage(): React.ReactElement {
               options={priorityFilterOptions}
               value={filterPriority}
               onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
-                setFilterPriority(e.target.value);
-                setPage(1);
+                setUrlParams({ priority: e.target.value, page: null });
               }}
             />
           </div>
@@ -336,7 +335,7 @@ export default function TasksPage(): React.ReactElement {
 
       {/* Pagination */}
       <div className="mt-4 flex justify-center">
-        <Pagination page={page} totalPages={totalPages} onPageChange={setPage} />
+        <Pagination page={page} totalPages={totalPages} onPageChange={(p: number) => setUrlParams({ page: String(p) })} />
       </div>
 
       {/* Create Task Modal */}
