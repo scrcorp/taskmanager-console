@@ -418,8 +418,13 @@ export default function UserDetailPage(): React.ReactElement {
                   <span className="text-xs text-text-muted block">
                     Email
                   </span>
-                  <span className="text-sm text-text-secondary">
+                  <span className="text-sm text-text-secondary flex items-center gap-1.5">
                     {user.email || "-"}
+                    {user.email && (
+                      user.email_verified
+                        ? <span className="text-xs text-success" title="Verified">✓ Verified</span>
+                        : <span className="text-xs text-warning" title="Not verified">Not verified</span>
+                    )}
                   </span>
                 </div>
                 <div>

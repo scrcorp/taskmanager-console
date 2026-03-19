@@ -40,6 +40,22 @@ export default function DashboardLayout({
     if (!user) fetchMe();
   }, []);
 
+  // 이메일 미인증 → 인증 페이지로 리다이렉트
+  useEffect(() => {
+    if (user && !user.email_verified) {
+      router.push("/verify-email");
+    }
+  }, [user]);
+
+  // user 로드 전 또는 이메일 미인증 → 로딩 화면 (대시보드 깜빡임 방지)
+  if (!user || !user.email_verified) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-bg">
+        <div className="animate-spin w-8 h-8 border-3 border-accent border-t-transparent rounded-full" />
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen overflow-hidden">
       {/* Desktop sidebar */}

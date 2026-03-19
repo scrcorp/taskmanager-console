@@ -15,6 +15,7 @@ export interface UserMe {
   username: string;
   full_name: string;
   email: string | null;
+  email_verified: boolean;
   phone: string | null;
   role_name: string;
   role_priority: number;
@@ -135,6 +136,7 @@ export interface User {
   username: string;
   full_name: string;
   email: string | null;
+  email_verified: boolean;
   phone: string | null;
   role_name: string;
   role_priority: number;

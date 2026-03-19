@@ -212,8 +212,13 @@ export default function UsersPage(): React.ReactElement {
         header: "Email",
         hideOnMobile: true,
         render: (user: User) => (
-          <span className="text-text-secondary text-sm">
+          <span className="text-text-secondary text-sm flex items-center gap-1.5">
             {user.email || "-"}
+            {user.email && (
+              user.email_verified
+                ? <span title="Verified" className="text-success text-xs">✓</span>
+                : <span title="Not verified" className="text-warning text-xs">!</span>
+            )}
           </span>
         ),
       },
