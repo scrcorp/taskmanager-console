@@ -10,6 +10,7 @@
 
 import React, { useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { useUrlParams } from "@/hooks/useUrlParams";
 import { Plus, Search } from "lucide-react";
 import { useUsers, useCreateUser } from "@/hooks/useUsers";
 import { useStores } from "@/hooks/useStores";
@@ -83,8 +84,14 @@ export default function UsersPage(): React.ReactElement {
   const { data: roles } = useRoles();
   const createUser = useCreateUser();
 
-  /** 필터 상태 / Filter state */
-  const [filters, setFilters] = useState<UserFilters>(INITIAL_FILTERS);
+  /** 필터 상태 (URL-persisted) / Filter state */
+  const [urlParams, setUrlParams] = useUrlParams({ role: "", active: "", search: "" });
+  const filters: UserFilters = {
+    store_id: "",
+    role_name: urlParams.role,
+    is_active: urlParams.active,
+    search: urlParams.search,
+  };
 
   /** 생성 모달 상태 / Create modal state */
   const [isCreateOpen, setIsCreateOpen] = useState<boolean>(false);
@@ -276,10 +283,7 @@ export default function UsersPage(): React.ReactElement {
               placeholder="Search staff..."
               value={filters.search}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                setFilters((prev: UserFilters) => ({
-                  ...prev,
-                  search: e.target.value,
-                }))
+                setUrlParams({ search: e.target.value })
               }
               className="w-full rounded-lg border border-border bg-surface pl-9 pr-3 py-2 text-sm text-text placeholder:text-text-muted transition-colors focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent"
             />
@@ -299,10 +303,7 @@ export default function UsersPage(): React.ReactElement {
             ]}
             value={filters.role_name}
             onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-              setFilters((prev: UserFilters) => ({
-                ...prev,
-                role_name: e.target.value,
-              }))
+              setUrlParams({ role: e.target.value })
             }
           />
         </div>
@@ -318,10 +319,7 @@ export default function UsersPage(): React.ReactElement {
             ]}
             value={filters.is_active}
             onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-              setFilters((prev: UserFilters) => ({
-                ...prev,
-                is_active: e.target.value,
-              }))
+              setUrlParams({ active: e.target.value })
             }
           />
         </div>
@@ -331,7 +329,7 @@ export default function UsersPage(): React.ReactElement {
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setFilters(INITIAL_FILTERS)}
+            onClick={() => setUrlParams({ role: null, active: null, search: null })}
           >
             Clear Filters
           </Button>

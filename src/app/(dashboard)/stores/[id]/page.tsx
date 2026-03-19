@@ -9,7 +9,8 @@
  */
 
 import React, { useState, useMemo, useCallback, useEffect } from "react";
-import { useRouter, useParams, useSearchParams } from "next/navigation";
+import { useRouter, useParams } from "next/navigation";
+import { useUrlParams } from "@/hooks/useUrlParams";
 import {
   ChevronLeft,
   Plus,
@@ -187,13 +188,12 @@ export default function StoreDetailPage(): React.ReactElement {
   const canManageChecklists = hasPermission(PERMISSIONS.CHECKLISTS_CREATE);
   const canUpdateSettings = hasPermission(PERMISSIONS.STORES_UPDATE);
 
-  /** 현재 활성 탭 / Currently active tab — URL ?tab= 파라미터로 초기값 설정 */
-  const searchParams = useSearchParams();
-  const [activeTab, setActiveTab] = useState<TabName>(() => {
-    const tab = searchParams.get("tab");
-    const valid: TabName[] = ["shifts-positions", "work-roles", "checklists", "settings"];
-    return valid.includes(tab as TabName) ? (tab as TabName) : "shifts-positions";
-  });
+  /** 현재 활성 탭 (URL-persisted) / Currently active tab */
+  const [urlParams, setUrlParams] = useUrlParams({ tab: "shifts-positions" });
+  const activeTab: TabName = (["shifts-positions", "work-roles", "checklists", "settings"] as TabName[]).includes(urlParams.tab as TabName)
+    ? (urlParams.tab as TabName)
+    : "shifts-positions";
+  const setActiveTab = useCallback((tab: TabName) => setUrlParams({ tab }), [setUrlParams]);
 
   /* ---- Data hooks -------------------------------------------------------- */
   const { data: store, isLoading: storeLoading } = useStore(storeId);

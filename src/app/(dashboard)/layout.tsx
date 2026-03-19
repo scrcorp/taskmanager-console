@@ -11,7 +11,7 @@
  * 사용자 정보 없으면 fetchMe()로 자동 조회.
  */
 
-import { useEffect } from "react";
+import { Suspense, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Menu } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
@@ -68,7 +68,9 @@ export default function DashboardLayout({
         </div>
 
         <main className="flex-1 overflow-auto p-4 md:p-8">
-          <div className="max-w-[1100px]">{children}</div>
+          <div className="max-w-[1100px]">
+            <Suspense>{children}</Suspense>
+          </div>
         </main>
       </div>
     </div>

@@ -9,6 +9,7 @@
 
 import React, { useState, useMemo, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { useUrlParams } from "@/hooks/useUrlParams";
 import {
   ChevronLeft,
   ChevronRight,
@@ -116,28 +117,41 @@ function getListPresetRange(preset: ListPreset): { from: string; to: string } {
 export default function ScheduleOverviewPage(): React.ReactElement {
   const router = useRouter();
 
-  // View state
-  const [mainView, setMainView] = useState<MainView>("calendar");
-  const [calView, setCalView] = useState<CalView>("week");
-  const [currentDate, setCurrentDate] = useState<Date>(() => new Date());
-  const [weekStart, setWeekStart] = useState<Date>(() => getWeekStart(new Date()));
-  const [monthYear, setMonthYear] = useState<{ year: number; month: number }>(() => ({
-    year: new Date().getFullYear(),
-    month: new Date().getMonth(),
-  }));
+  // View state (URL-persisted)
+  const defaultListRange = getListPresetRange("week");
+  const [urlParams, setUrlParams] = useUrlParams({
+    store: "",
+    view: "calendar",
+    cv: "week",
+    date: toDateStr(new Date()),
+    preset: "week",
+    from: defaultListRange.from,
+    to: defaultListRange.to,
+    sort: "work_date",
+    asc: "true",
+  });
+
+  const mainView = (urlParams.view === "list" ? "list" : "calendar") as MainView;
+  const calView = (["day", "week", "month"].includes(urlParams.cv) ? urlParams.cv : "week") as CalView;
+  const currentDate = useMemo(() => new Date(urlParams.date + "T00:00:00"), [urlParams.date]);
+  const weekStart = useMemo(() => getWeekStart(new Date(urlParams.date + "T00:00:00")), [urlParams.date]);
+  const monthYear = useMemo(() => {
+    const d = new Date(urlParams.date + "T00:00:00");
+    return { year: d.getFullYear(), month: d.getMonth() };
+  }, [urlParams.date]);
 
   // Store selection
   const { data: stores } = useStores();
-  const [storeId, setStoreId] = useState<string>("");
+  const storeId = urlParams.store;
 
   // List view date range
-  const [listPreset, setListPreset] = useState<ListPreset>("week");
-  const [listFrom, setListFrom] = useState<string>(() => getListPresetRange("week").from);
-  const [listTo, setListTo] = useState<string>(() => getListPresetRange("week").to);
+  const listPreset = (["today", "week", "month", "custom"].includes(urlParams.preset) ? urlParams.preset : "week") as ListPreset;
+  const listFrom = urlParams.from;
+  const listTo = urlParams.to;
 
   // List sort
-  const [sortKey, setSortKey] = useState<string>("work_date");
-  const [sortAsc, setSortAsc] = useState<boolean>(true);
+  const sortKey = urlParams.sort;
+  const sortAsc = urlParams.asc !== "false";
 
   // Auto-select first store
   const effectiveStoreId = storeId || stores?.[0]?.id || "";
@@ -194,29 +208,36 @@ export default function ScheduleOverviewPage(): React.ReactElement {
   // ─── Navigation ─────────────────────────────────
 
   const goToday = useCallback(() => {
-    const now = new Date();
-    setCurrentDate(new Date(now));
-    setWeekStart(getWeekStart(now));
-    setMonthYear({ year: now.getFullYear(), month: now.getMonth() });
-  }, []);
+    setUrlParams({ date: toDateStr(new Date()) });
+  }, [setUrlParams]);
 
   const goPrev = useCallback(() => {
-    if (calView === "day") setCurrentDate((d) => addDays(d, -1));
-    else if (calView === "week") setWeekStart((d) => addDays(d, -7));
-    else setMonthYear((m) => {
-      const nm = m.month - 1;
-      return nm < 0 ? { year: m.year - 1, month: 11 } : { year: m.year, month: nm };
-    });
-  }, [calView]);
+    if (calView === "day") {
+      setUrlParams({ date: toDateStr(addDays(currentDate, -1)) });
+    } else if (calView === "week") {
+      setUrlParams({ date: toDateStr(addDays(weekStart, -7)) });
+    } else {
+      const nm = monthYear.month - 1;
+      const newDate = nm < 0
+        ? new Date(monthYear.year - 1, 11, 1)
+        : new Date(monthYear.year, nm, 1);
+      setUrlParams({ date: toDateStr(newDate) });
+    }
+  }, [calView, currentDate, weekStart, monthYear, setUrlParams]);
 
   const goNext = useCallback(() => {
-    if (calView === "day") setCurrentDate((d) => addDays(d, 1));
-    else if (calView === "week") setWeekStart((d) => addDays(d, 7));
-    else setMonthYear((m) => {
-      const nm = m.month + 1;
-      return nm > 11 ? { year: m.year + 1, month: 0 } : { year: m.year, month: nm };
-    });
-  }, [calView]);
+    if (calView === "day") {
+      setUrlParams({ date: toDateStr(addDays(currentDate, 1)) });
+    } else if (calView === "week") {
+      setUrlParams({ date: toDateStr(addDays(weekStart, 7)) });
+    } else {
+      const nm = monthYear.month + 1;
+      const newDate = nm > 11
+        ? new Date(monthYear.year + 1, 0, 1)
+        : new Date(monthYear.year, nm, 1);
+      setUrlParams({ date: toDateStr(newDate) });
+    }
+  }, [calView, currentDate, weekStart, monthYear, setUrlParams]);
 
   const dateLabel = useMemo(() => {
     if (calView === "day") return dayLabel(currentDate);
@@ -251,36 +272,31 @@ export default function ScheduleOverviewPage(): React.ReactElement {
   // ─── List preset handler ────────────────────────
 
   const handlePresetChange = useCallback((preset: ListPreset) => {
-    setListPreset(preset);
     if (preset !== "custom") {
       const range = getListPresetRange(preset);
-      setListFrom(range.from);
-      setListTo(range.to);
+      setUrlParams({ preset, from: range.from, to: range.to });
+    } else {
+      setUrlParams({ preset });
     }
-  }, []);
+  }, [setUrlParams]);
 
   const handleListFromChange = useCallback((v: string) => {
-    setListFrom(v);
-    setListPreset("custom");
-  }, []);
+    setUrlParams({ from: v, preset: "custom" });
+  }, [setUrlParams]);
 
   const handleListToChange = useCallback((v: string) => {
-    setListTo(v);
-    setListPreset("custom");
-  }, []);
+    setUrlParams({ to: v, preset: "custom" });
+  }, [setUrlParams]);
 
   // ─── Sort handler ──────────────────────────────
 
   const handleSort = useCallback((key: string) => {
-    setSortKey((prev) => {
-      if (prev === key) {
-        setSortAsc((a) => !a);
-        return key;
-      }
-      setSortAsc(true);
-      return key;
-    });
-  }, []);
+    if (sortKey === key) {
+      setUrlParams({ asc: sortAsc ? "false" : "true" });
+    } else {
+      setUrlParams({ sort: key, asc: "true" });
+    }
+  }, [sortKey, sortAsc, setUrlParams]);
 
   // ─── Navigate to detail ─────────────────────────
 
@@ -292,9 +308,8 @@ export default function ScheduleOverviewPage(): React.ReactElement {
   // ─── Click month day → switch to day view ───────
 
   const goToDay = useCallback((dateStr: string) => {
-    setCurrentDate(new Date(dateStr + "T00:00:00"));
-    setCalView("day");
-  }, []);
+    setUrlParams({ date: dateStr, cv: "day" });
+  }, [setUrlParams]);
 
   // ─── Render ─────────────────────────────────────
 
@@ -344,7 +359,7 @@ export default function ScheduleOverviewPage(): React.ReactElement {
           {(stores ?? []).map((s: Store) => (
             <button
               key={s.id}
-              onClick={() => setStoreId(s.id)}
+              onClick={() => setUrlParams({ store: s.id })}
               className={cn(
                 "px-3 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-colors",
                 s.id === effectiveStoreId
@@ -364,7 +379,7 @@ export default function ScheduleOverviewPage(): React.ReactElement {
             {(["day", "week", "month"] as CalView[]).map((v) => (
               <button
                 key={v}
-                onClick={() => setCalView(v)}
+                onClick={() => setUrlParams({ cv: v })}
                 className={cn(
                   "px-3 py-1 rounded-md text-xs font-medium capitalize transition-colors",
                   calView === v
@@ -381,7 +396,7 @@ export default function ScheduleOverviewPage(): React.ReactElement {
         {/* Calendar / List toggle */}
         <div className="flex bg-surface rounded-lg p-0.5">
           <button
-            onClick={() => setMainView("calendar")}
+            onClick={() => setUrlParams({ view: "calendar" })}
             className={cn(
               "p-1.5 rounded-md transition-colors",
               mainView === "calendar"
@@ -393,7 +408,7 @@ export default function ScheduleOverviewPage(): React.ReactElement {
             <Calendar size={16} />
           </button>
           <button
-            onClick={() => setMainView("list")}
+            onClick={() => setUrlParams({ view: "list" })}
             className={cn(
               "p-1.5 rounded-md transition-colors",
               mainView === "list"

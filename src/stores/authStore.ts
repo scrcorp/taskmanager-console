@@ -61,14 +61,17 @@ export const useAuthStore = create<AuthState>((set) => ({
     window.location.href = "/login";
   },
 
-  /** 사용자 정보 재조회 — 실패 시 토큰 삭제 (만료/무효 토큰 정리) */
+  /** 사용자 정보 재조회 — 401/403만 토큰 삭제 (네트워크 에러 등은 토큰 유지) */
   fetchMe: async () => {
     try {
       const res = await api.get("/auth/me");
       set({ user: res.data });
-    } catch {
-      clearTokens();
-      set({ user: null });
+    } catch (err: unknown) {
+      const status = (err as { response?: { status?: number } })?.response?.status;
+      if (status === 401 || status === 403) {
+        clearTokens();
+        set({ user: null });
+      }
     }
   },
 }));
