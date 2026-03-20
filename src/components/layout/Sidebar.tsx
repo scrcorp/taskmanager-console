@@ -280,6 +280,7 @@ export function Sidebar({ onNavClick }: { onNavClick?: () => void }) {
           <LogOut size={16} />
         </button>
       </div>
+
     </aside>
   );
 }
