@@ -5,15 +5,14 @@
  * 필터링, 검색, 생성 기능을 제공합니다.
  *
  * Staff List Page -- User management page with filtering, search, and creation.
- * Supports filtering by store, role, and active status.
+ * Supports filtering by role and inactive toggle.
  */
 
-import React, { useState, useMemo, useCallback } from "react";
+import React, { useState, useMemo, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useUrlParams } from "@/hooks/useUrlParams";
 import { Plus, Search } from "lucide-react";
 import { useUsers, useCreateUser } from "@/hooks/useUsers";
-import { useStores } from "@/hooks/useStores";
 import { useRoles } from "@/hooks/useRoles";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -24,7 +23,7 @@ import { formatDate, parseApiError } from "@/lib/utils";
 import { useTimezone } from "@/hooks/useTimezone";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@/lib/permissions";
-import type { User, Store, Role } from "@/types";
+import type { User, Role } from "@/types";
 
 /** 사용자 생성 폼 데이터 / User creation form data */
 interface UserFormData {
@@ -34,14 +33,6 @@ interface UserFormData {
   email: string;
   phone: string;
   role_id: string;
-}
-
-/** 필터 상태 인터페이스 / Filter state interface */
-interface UserFilters {
-  store_id: string;
-  role_name: string;
-  is_active: string;
-  search: string;
 }
 
 /** 테이블 컬럼 타입 / Table column type */
@@ -63,13 +54,7 @@ const INITIAL_FORM: UserFormData = {
   role_id: "",
 };
 
-/** 초기 필터 상태 / Initial filter state */
-const INITIAL_FILTERS: UserFilters = {
-  store_id: "",
-  role_name: "",
-  is_active: "",
-  search: "",
-};
+const STORAGE_KEY = "showInactiveUsers";
 
 export default function UsersPage(): React.ReactElement {
   const router = useRouter();
@@ -80,18 +65,26 @@ export default function UsersPage(): React.ReactElement {
 
   /** 데이터 훅 / Data hooks */
   const { data: users, isLoading: usersLoading } = useUsers();
-  const { data: stores } = useStores();
   const { data: roles } = useRoles();
   const createUser = useCreateUser();
 
   /** 필터 상태 (URL-persisted) / Filter state */
-  const [urlParams, setUrlParams] = useUrlParams({ role: "", active: "", search: "" });
-  const filters: UserFilters = {
-    store_id: "",
-    role_name: urlParams.role,
-    is_active: urlParams.active,
-    search: urlParams.search,
-  };
+  const [urlParams, setUrlParams] = useUrlParams({ role: "", search: "" });
+
+  /** Show Inactive 체크박스 상태 (localStorage) */
+  const [showInactive, setShowInactive] = useState<boolean>(false);
+
+  /** localStorage에서 초기값 로드 */
+  useEffect(() => {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    if (stored === "true") setShowInactive(true);
+  }, []);
+
+  /** 체크박스 변경 시 localStorage 저장 */
+  const handleToggleInactive = useCallback((checked: boolean) => {
+    setShowInactive(checked);
+    localStorage.setItem(STORAGE_KEY, String(checked));
+  }, []);
 
   /** 생성 모달 상태 / Create modal state */
   const [isCreateOpen, setIsCreateOpen] = useState<boolean>(false);
@@ -102,21 +95,25 @@ export default function UsersPage(): React.ReactElement {
     () => (Array.isArray(users) ? users : []),
     [users],
   );
-  const storeList: Store[] = useMemo(
-    () => (Array.isArray(stores) ? stores : []),
-    [stores],
-  );
   const roleList: Role[] = useMemo(
     () => (Array.isArray(roles) ? roles : []),
     [roles],
   );
 
-  /** 필터링된 사용자 목록 / Filtered user list */
+  /** Inactive 사용자 수 / Inactive user count */
+  const inactiveCount: number = useMemo(
+    () => userList.filter((u: User) => !u.is_active).length,
+    [userList],
+  );
+
+  /** 필터링 + 정렬된 사용자 목록 / Filtered and sorted user list */
   const filteredUsers: User[] = useMemo(() => {
     let result: User[] = userList;
 
-    if (filters.search.trim()) {
-      const query: string = filters.search.toLowerCase();
+    // 검색 필터
+    const search = urlParams.search.trim();
+    if (search) {
+      const query: string = search.toLowerCase();
       result = result.filter(
         (user: User) =>
           user.full_name.toLowerCase().includes(query) ||
@@ -125,19 +122,30 @@ export default function UsersPage(): React.ReactElement {
       );
     }
 
-    if (filters.role_name) {
+    // 역할 필터
+    if (urlParams.role) {
       result = result.filter(
-        (user: User) => user.role_name === filters.role_name,
+        (user: User) => user.role_name === urlParams.role,
       );
     }
 
-    if (filters.is_active !== "") {
-      const isActive: boolean = filters.is_active === "true";
-      result = result.filter((user: User) => user.is_active === isActive);
+    // Inactive 필터: 체크 해제 시 Active만 표시
+    if (!showInactive) {
+      result = result.filter((user: User) => user.is_active);
+    } else {
+      // 체크 시: Active 먼저, Inactive는 이름순으로 하단 배치
+      result = [...result].sort((a: User, b: User) => {
+        if (a.is_active === b.is_active) {
+          // 같은 상태끼리는 이름순
+          return a.full_name.localeCompare(b.full_name);
+        }
+        // Active가 먼저
+        return a.is_active ? -1 : 1;
+      });
     }
 
     return result;
-  }, [userList, filters]);
+  }, [userList, urlParams.search, urlParams.role, showInactive]);
 
   /** 사용자 생성 핸들러 / Handle user creation */
   const handleCreate = useCallback(async (): Promise<void> => {
@@ -186,8 +194,8 @@ export default function UsersPage(): React.ReactElement {
   );
 
   /** 테이블 컬럼 정의 / Table column definitions */
-  const columns: Column<User>[] = useMemo(
-    () => [
+  const columns: Column<User>[] = useMemo(() => {
+    const cols: Column<User>[] = [
       {
         key: "full_name",
         header: "Full Name",
@@ -222,7 +230,11 @@ export default function UsersPage(): React.ReactElement {
           </span>
         ),
       },
-      {
+    ];
+
+    // Status 컬럼은 Show Inactive 켜졌을 때만 표시
+    if (showInactive) {
+      cols.push({
         key: "is_active",
         header: "Status",
         render: (user: User) => (
@@ -230,20 +242,22 @@ export default function UsersPage(): React.ReactElement {
             {user.is_active ? "Active" : "Inactive"}
           </Badge>
         ),
-      },
-      {
-        key: "created_at",
-        header: "Created",
-        hideOnMobile: true,
-        render: (user: User) => (
-          <span className="text-text-muted text-xs">
-            {formatDate(user.created_at, tz)}
-          </span>
-        ),
-      },
-    ],
-    [getRoleBadgeVariant, tz],
-  );
+      });
+    }
+
+    cols.push({
+      key: "created_at",
+      header: "Created",
+      hideOnMobile: true,
+      render: (user: User) => (
+        <span className="text-text-muted text-xs">
+          {formatDate(user.created_at, tz)}
+        </span>
+      ),
+    });
+
+    return cols;
+  }, [getRoleBadgeVariant, tz, showInactive]);
 
   /** 고유 역할 이름 목록 / Unique role names from users */
   const uniqueRoleNames: string[] = useMemo(() => {
@@ -252,6 +266,12 @@ export default function UsersPage(): React.ReactElement {
     );
     return Array.from(names).sort();
   }, [userList]);
+
+  /** Inactive 행 스타일 / Inactive row styling */
+  const getRowClassName = useCallback(
+    (user: User): string => (user.is_active ? "" : "opacity-50"),
+    [],
+  );
 
   if (usersLoading) {
     return (
@@ -286,7 +306,7 @@ export default function UsersPage(): React.ReactElement {
             <input
               type="text"
               placeholder="Search staff..."
-              value={filters.search}
+              value={urlParams.search}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
                 setUrlParams({ search: e.target.value })
               }
@@ -306,35 +326,35 @@ export default function UsersPage(): React.ReactElement {
                 label: roleName,
               })),
             ]}
-            value={filters.role_name}
+            value={urlParams.role}
             onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
               setUrlParams({ role: e.target.value })
             }
           />
         </div>
 
-        {/* Active Status Filter */}
-        <div className="w-full md:w-40">
-          <Select
-            label="Status"
-            options={[
-              { value: "", label: "All Status" },
-              { value: "true", label: "Active" },
-              { value: "false", label: "Inactive" },
-            ]}
-            value={filters.is_active}
-            onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-              setUrlParams({ active: e.target.value })
+        {/* Show Inactive Checkbox */}
+        <label className="flex items-center gap-2 cursor-pointer text-sm text-text-secondary hover:text-text transition-colors py-2 ml-auto select-none">
+          <input
+            type="checkbox"
+            checked={showInactive}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              handleToggleInactive(e.target.checked)
             }
+            className="h-4 w-4 rounded border-border text-accent focus:ring-accent cursor-pointer"
           />
-        </div>
+          Show Inactive
+          {inactiveCount > 0 && (
+            <span className="text-text-muted text-xs">({inactiveCount})</span>
+          )}
+        </label>
 
         {/* Clear Filters */}
-        {(filters.search || filters.role_name || filters.is_active) && (
+        {(urlParams.search || urlParams.role) && (
           <Button
             variant="ghost"
             size="sm"
-            onClick={() => setUrlParams({ role: null, active: null, search: null })}
+            onClick={() => setUrlParams({ role: null, search: null })}
           >
             Clear Filters
           </Button>
@@ -348,6 +368,7 @@ export default function UsersPage(): React.ReactElement {
         isLoading={usersLoading}
         onRowClick={handleRowClick}
         emptyMessage="No staff members found."
+        rowClassName={showInactive ? getRowClassName : undefined}
       />
 
       {/* Create User Modal */}
