@@ -25,6 +25,8 @@ export interface UserMe {
   company_code: string;
   is_active: boolean;
   permissions: string[];
+  password_changed_at: string | null;
+  must_change_password: boolean;
 }
 
 // Organization

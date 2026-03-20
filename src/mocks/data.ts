@@ -50,6 +50,8 @@ export const mockMe: UserMe = {
   organization_timezone: "America/New_York",
   company_code: "DEMO",
   is_active: true,
+  password_changed_at: null,
+  must_change_password: false,
   permissions: [
     "announcements:create", "announcements:delete", "announcements:read", "announcements:update",
     "audit_log:read", "checklists:create", "checklists:delete", "checklists:read", "checklists:update",

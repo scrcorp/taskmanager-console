@@ -12,6 +12,7 @@
 
 import { Suspense, useState, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import Link from "next/link";
 import { useAuthStore } from "@/stores/authStore";
 import { getCompanyCode } from "@/lib/auth";
 import { CompanyCodeModal } from "@/components/ui/CompanyCodeModal";
@@ -149,6 +150,23 @@ function LoginContent() {
           >
             {isLoading ? "Logging in..." : "Log In"}
           </button>
+
+          {/* 아이디/비밀번호 찾기 링크 */}
+          <div className="flex items-center justify-center gap-4 mt-4">
+            <Link
+              href="/login/find-username"
+              className="text-sm text-text-muted hover:text-accent transition-colors"
+            >
+              Find Username
+            </Link>
+            <span className="text-border text-sm">|</span>
+            <Link
+              href="/login/reset-password"
+              className="text-sm text-text-muted hover:text-accent transition-colors"
+            >
+              Forgot Password?
+            </Link>
+          </div>
         </form>
       </div>
 

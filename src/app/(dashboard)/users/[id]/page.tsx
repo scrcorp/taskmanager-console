@@ -16,6 +16,7 @@ import {
   ToggleLeft,
   ToggleRight,
   Store as StoreIcon,
+  ShieldAlert,
 } from "lucide-react";
 import {
   useUser,
@@ -36,6 +37,8 @@ import { formatDate, parseApiError } from "@/lib/utils";
 import { useTimezone } from "@/hooks/useTimezone";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@/lib/permissions";
+import { useAdminResetPassword } from "@/hooks/usePassword";
+import { ResetPasswordResultModal } from "@/components/auth/ResetPasswordResultModal";
 import type { User, Store, Role, UserStoreAssignment } from "@/types";
 
 /* -------------------------------------------------------------------------- */
@@ -76,7 +79,7 @@ export default function UserDetailPage(): React.ReactElement {
   const params = useParams();
   const userId: string = params.id as string;
   const { toast } = useToast();
-  const { hasPermission } = usePermissions();
+  const { hasPermission, priority: myPriority } = usePermissions();
   const tz = useTimezone();
   const canManageUsers = hasPermission(PERMISSIONS.USERS_UPDATE);
 
@@ -92,6 +95,7 @@ export default function UserDetailPage(): React.ReactElement {
   const toggleActive = useToggleUserActive();
   const deleteUser = useDeleteUser();
   const syncUserStores = useSyncUserStores();
+  const adminResetPassword = useAdminResetPassword();
 
   /* ---- Edit modal state -------------------------------------------------- */
   const [isEditOpen, setIsEditOpen] = useState<boolean>(false);
@@ -100,6 +104,10 @@ export default function UserDetailPage(): React.ReactElement {
 
   /* ---- Delete dialog state ----------------------------------------------- */
   const [isDeleteOpen, setIsDeleteOpen] = useState<boolean>(false);
+
+  /* ---- Reset password state ---------------------------------------------- */
+  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState<boolean>(false);
+  const [resetResult, setResetResult] = useState<{ temporaryPassword: string } | null>(null);
 
   /* ---- Role change confirmation state ----------------------------------- */
   const [isRoleChangeOpen, setIsRoleChangeOpen] = useState<boolean>(false);
@@ -255,6 +263,17 @@ export default function UserDetailPage(): React.ReactElement {
       toast({ type: "error", message: parseApiError(err, "Failed to delete staff member.") });
     }
   }, [userId, deleteUser, toast, router]);
+
+  /** 관리자 비밀번호 초기화 */
+  const handleResetPassword = useCallback(async (): Promise<void> => {
+    try {
+      const result = await adminResetPassword.mutateAsync(userId);
+      setIsResetConfirmOpen(false);
+      setResetResult({ temporaryPassword: result.temporary_password });
+    } catch (err) {
+      toast({ type: "error", message: parseApiError(err, "Failed to reset password.") });
+    }
+  }, [userId, adminResetPassword, toast]);
 
   /** 관리 체크박스 토글 */
   const handleManagerToggle = useCallback((storeId: string, storeName: string, checked: boolean): void => {
@@ -613,6 +632,31 @@ export default function UserDetailPage(): React.ReactElement {
         )}
       </div>
 
+      {/* Account Security Section — Owner는 전체, GM(20)은 하위 직원(SV/Staff)에만 표시 */}
+      {canManageUsers && myPriority <= 20 && userRolePriority > myPriority && (
+        <div className="bg-card border border-border rounded-xl p-6 mb-6">
+          <div className="flex items-center gap-2 mb-4">
+            <ShieldAlert className="h-5 w-5 text-danger" />
+            <h2 className="text-lg font-bold text-text">Account Security</h2>
+          </div>
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm text-text">Reset this employee&apos;s password</p>
+              <p className="text-xs text-text-muted mt-1">
+                A temporary password will be generated and sent to their email.
+              </p>
+            </div>
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={() => setIsResetConfirmOpen(true)}
+            >
+              Reset Password
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Recent Schedules Section (Placeholder) */}
       <div className="bg-card border border-border rounded-xl p-6">
         <h2 className="text-lg font-bold text-text mb-4">
@@ -734,6 +778,28 @@ export default function UserDetailPage(): React.ReactElement {
         confirmLabel="Delete"
         isLoading={deleteUser.isPending}
       />
+
+      {/* Reset Password Confirmation Dialog */}
+      <ConfirmDialog
+        isOpen={isResetConfirmOpen}
+        onClose={() => setIsResetConfirmOpen(false)}
+        onConfirm={handleResetPassword}
+        title="Reset Password"
+        message={`Are you sure you want to reset the password for "${user.full_name}"? A temporary password will be generated and sent to their email. They will be logged out from all devices.`}
+        confirmLabel="Reset Password"
+        isLoading={adminResetPassword.isPending}
+      />
+
+      {/* Reset Password Result Modal */}
+      {resetResult && (
+        <ResetPasswordResultModal
+          isOpen={true}
+          onClose={() => setResetResult(null)}
+          temporaryPassword={resetResult.temporaryPassword}
+          employeeName={user.full_name}
+          employeeEmail={user.email}
+        />
+      )}
 
       {/* Unmanage Store Confirmation — 관리매장 해제 시 근무매장 유지 여부 */}
       {unmanageConfirm && (

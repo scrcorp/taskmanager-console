@@ -134,6 +134,17 @@ export {
 
 export { useOrganization, useUpdateOrganization } from "./useOrganization";
 
+export {
+  useFindUsername,
+  useFindUsernameSendCode,
+  useFindUsernameVerifyCode,
+  useResetPasswordSendCode,
+  useResetPasswordVerifyCode,
+  useResetPasswordConfirm,
+  useChangePassword,
+  useAdminResetPassword,
+} from "./usePassword";
+
 export { useTimezone } from "./useTimezone";
 
 export { useWorkRoles, useCreateWorkRole, useUpdateWorkRole, useDeleteWorkRole } from "./useWorkRoles";
