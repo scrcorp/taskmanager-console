@@ -550,13 +550,15 @@ export default function ScheduleManagePage(): React.ReactElement {
     return 1;
   }, [isLocked, isConfirmed, isSubmittedToGM, periodStatus, requests]);
 
-  // canEdit: 잠금 주(과거+이번주)는 기본 불가, GM+는 editMode로 진입 가능
+  // canEdit: published/잠금 주는 기본 불가, GM+는 editMode로 진입 가능
   const canEdit = useMemo(() => {
     // GM+ edit mode: 잠금/확정 주에서도 편집 가능
     if (editMode && isGMOrAbove) return true;
     if (isLocked) return false;
+    // Published(finalized/confirmed) → view only, Edit 버튼으로 진입 필요
+    if (periodStatus === "finalized" || isConfirmed) return false;
     if (isGMOrAbove) {
-      // GM: close 이후(sv_draft/gm_review)에서만 편집, finalized 후에도 가능
+      // GM: close 이후(sv_draft/gm_review)에서 편집
       return periodStatus !== "open";
     }
     // SV: sv_draft 상태에서만 편집, submit 전이고 confirm 전에만
