@@ -33,12 +33,14 @@ export function ChangePasswordModal({
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [currentPasswordError, setCurrentPasswordError] = useState("");
+  const [success, setSuccess] = useState(false);
 
   const handleClose = () => {
     setCurrentPassword("");
     setNewPassword("");
     setConfirmPassword("");
     setCurrentPasswordError("");
+    setSuccess(false);
     onClose();
   };
 
@@ -63,8 +65,7 @@ export function ChangePasswordModal({
       });
       // 새 토큰으로 교체 (현재 세션 유지)
       setTokens(result.access_token, result.refresh_token);
-      toast({ type: "success", message: "Password changed successfully." });
-      handleClose();
+      setSuccess(true);
     } catch (err) {
       const msg = parseApiError(err, "Failed to change password.");
       if (msg.toLowerCase().includes("incorrect") || msg.toLowerCase().includes("wrong")) {
@@ -79,7 +80,20 @@ export function ChangePasswordModal({
     !currentPassword || !newPassword || !confirmPassword || changePassword.isPending;
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title="Change Password" size="sm">
+    <Modal isOpen={isOpen} onClose={handleClose} title={success ? "" : "Change Password"} size="sm">
+      {success ? (
+        <div className="text-center py-4">
+          <div className="w-14 h-14 rounded-full bg-success/15 flex items-center justify-center mx-auto mb-4">
+            <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-success"><polyline points="20 6 9 17 4 12"/></svg>
+          </div>
+          <h3 className="text-lg font-bold text-text mb-1">Password Changed</h3>
+          <p className="text-sm text-text-secondary mb-1">Your password has been changed successfully.</p>
+          <p className="text-xs text-text-muted mb-6">All other devices have been logged out.</p>
+          <Button variant="primary" size="sm" onClick={handleClose} className="min-w-[100px]">
+            Done
+          </Button>
+        </div>
+      ) : (
       <form onSubmit={handleSubmit} className="space-y-4">
         <p className="text-sm text-text-secondary">
           Enter your current password and set a new one.
@@ -164,6 +178,7 @@ export function ChangePasswordModal({
           </Button>
         </div>
       </form>
+      )}
     </Modal>
   );
 }
