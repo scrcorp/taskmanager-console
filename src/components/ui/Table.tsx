@@ -29,6 +29,7 @@ interface TableProps<T> {
   isLoading?: boolean;
   onRowClick?: (item: T) => void;
   emptyMessage?: string;
+  rowClassName?: (item: T) => string;
 }
 
 function SkeletonRow({ columnCount }: { columnCount: number }): React.ReactElement {
@@ -49,6 +50,7 @@ export function Table<T extends { id?: string }>({
   isLoading = false,
   onRowClick,
   emptyMessage = "No data available.",
+  rowClassName,
 }: TableProps<T>): React.ReactElement {
   const skeletonRowCount: number = 5;
 
@@ -93,6 +95,7 @@ export function Table<T extends { id?: string }>({
                 className={cn(
                   "border-b border-border transition-colors duration-150",
                   onRowClick && "cursor-pointer hover:bg-surface-hover",
+                  rowClassName?.(item),
                 )}
               >
                 {columns.map((column: Column<T>) => (

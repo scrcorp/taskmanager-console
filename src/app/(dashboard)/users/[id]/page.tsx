@@ -12,7 +12,6 @@ import { useRouter, useParams } from "next/navigation";
 import {
   ChevronLeft,
   Edit,
-  Trash2,
   ToggleLeft,
   ToggleRight,
   Store as StoreIcon,
@@ -22,7 +21,6 @@ import {
   useUser,
   useUpdateUser,
   useToggleUserActive,
-  useDeleteUser,
   useUserStores,
   useSyncUserStores,
 } from "@/hooks/useUsers";
@@ -93,7 +91,6 @@ export default function UserDetailPage(): React.ReactElement {
   /* ---- Mutation hooks ---------------------------------------------------- */
   const updateUser = useUpdateUser();
   const toggleActive = useToggleUserActive();
-  const deleteUser = useDeleteUser();
   const syncUserStores = useSyncUserStores();
   const adminResetPassword = useAdminResetPassword();
 
@@ -101,9 +98,6 @@ export default function UserDetailPage(): React.ReactElement {
   const [isEditOpen, setIsEditOpen] = useState<boolean>(false);
   const [editForm, setEditForm] =
     useState<UserEditFormData>(INITIAL_EDIT_FORM);
-
-  /* ---- Delete dialog state ----------------------------------------------- */
-  const [isDeleteOpen, setIsDeleteOpen] = useState<boolean>(false);
 
   /* ---- Reset password state ---------------------------------------------- */
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState<boolean>(false);
@@ -252,17 +246,6 @@ export default function UserDetailPage(): React.ReactElement {
       toast({ type: "error", message: parseApiError(err, "Failed to toggle active status.") });
     }
   }, [userId, user, toggleActive, toast]);
-
-  /** 사용자 삭제 / Delete user */
-  const handleDelete = useCallback(async (): Promise<void> => {
-    try {
-      await deleteUser.mutateAsync(userId);
-      toast({ type: "success", message: "Staff member deleted successfully!" });
-      router.push("/users");
-    } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to delete staff member.") });
-    }
-  }, [userId, deleteUser, toast, router]);
 
   /** 관리자 비밀번호 초기화 */
   const handleResetPassword = useCallback(async (): Promise<void> => {
@@ -490,14 +473,6 @@ export default function UserDetailPage(): React.ReactElement {
                     Activate
                   </>
                 )}
-              </Button>
-              <Button
-                variant="danger"
-                size="sm"
-                onClick={() => setIsDeleteOpen(true)}
-              >
-                <Trash2 className="h-4 w-4" />
-                Delete
               </Button>
             </div>
           )}
@@ -766,17 +741,6 @@ export default function UserDetailPage(): React.ReactElement {
         message="Changing the role will affect this user's permissions and store access. Are you sure?"
         confirmLabel="Change Role"
         isLoading={updateUser.isPending}
-      />
-
-      {/* Delete Confirmation Dialog */}
-      <ConfirmDialog
-        isOpen={isDeleteOpen}
-        onClose={() => setIsDeleteOpen(false)}
-        onConfirm={handleDelete}
-        title="Delete Staff Member"
-        message={`Are you sure you want to delete "${user.full_name}"? This action cannot be undone.`}
-        confirmLabel="Delete"
-        isLoading={deleteUser.isPending}
       />
 
       {/* Reset Password Confirmation Dialog */}
