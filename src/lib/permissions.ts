@@ -44,4 +44,8 @@ export const PERMISSIONS = {
   DAILY_REPORTS_DELETE: "daily_reports:delete",
   DASHBOARD_READ: "dashboard:read",
   AUDIT_LOG_READ: "completion_log:read",
+  INVENTORY_READ: "inventory:read",
+  INVENTORY_CREATE: "inventory:create",
+  INVENTORY_UPDATE: "inventory:update",
+  INVENTORY_DELETE: "inventory:delete",
 } as const;

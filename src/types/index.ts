@@ -975,3 +975,319 @@ export interface ScheduleUpdate {
   force?: boolean;
 }
 
+// ─── Inventory ────────────────────────────────────────────────────────────────
+
+/** 재고 카테고리 (2단계 셀프참조).
+ * Inventory category — supports 2-level hierarchy (parent + subcategory). */
+export interface InventoryCategory {
+  id: string;
+  organization_id: string;
+  name: string;
+  parent_id: string | null;
+  sort_order: number;
+  product_count?: number;
+  children?: InventoryCategory[];
+  created_at: string;
+  updated_at: string;
+}
+
+/** 공용 제품 마스터.
+ * Inventory product master shared across organization. */
+export interface InventoryProduct {
+  id: string;
+  organization_id: string;
+  name: string;
+  code: string;
+  barcode: string | null;
+  category_id: string | null;
+  category_name: string | null;
+  subcategory_id: string | null;
+  subcategory_name: string | null;
+  sub_unit: string | null;
+  sub_unit_ratio: number | null;
+  image_url: string | null;
+  description: string | null;
+  is_active: boolean;
+  store_count?: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 제품 상세 (매장 사용현황 포함).
+ * Product detail with list of stores currently using it. */
+export interface InventoryProductDetail extends InventoryProduct {
+  store_inventories: StoreInventoryItem[];
+}
+
+/** 매장별 재고 항목.
+ * Store inventory item — product stock within a specific store. */
+export interface StoreInventoryItem {
+  id: string;
+  store_id: string;
+  store_name: string | null;
+  product_id: string;
+  product_name: string | null;
+  product_code: string | null;
+  product_image_url: string | null;
+  sub_unit: string | null;
+  sub_unit_ratio: number | null;
+  current_quantity: number;
+  min_quantity: number;
+  is_frequent: boolean;
+  is_active: boolean;
+  last_audited_at: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 매장 재고 요약.
+ * Store inventory summary stats. */
+export interface StoreInventorySummary {
+  total: number;
+  in_stock: number;
+  low_stock: number;
+  out_of_stock: number;
+  // Server returns these field names
+  normal?: number;
+  low?: number;
+  out?: number;
+}
+
+/** 재고 트랜잭션.
+ * Inventory transaction record — stock_in / stock_out / adjustment. */
+export interface InventoryTransaction {
+  id: string;
+  store_inventory_id: string;
+  product_id: string;
+  product_name: string | null;
+  product_code: string | null;
+  sub_unit: string | null;
+  sub_unit_ratio: number | null;
+  type: "stock_in" | "stock_out" | "adjustment";
+  quantity: number;
+  before_quantity: number;
+  after_quantity: number;
+  reason: string | null;
+  created_by: string | null;
+  created_by_name: string | null;
+  created_at: string;
+}
+
+/** 재고조사 기록.
+ * Inventory audit record. */
+export interface InventoryAudit {
+  id: string;
+  store_id: string;
+  audited_by: string | null;
+  audited_by_name: string | null;
+  status: "in_progress" | "completed";
+  items_checked: number;
+  discrepancy_count: number;
+  started_at: string;
+  completed_at: string | null;
+  note: string | null;
+  created_at: string;
+}
+
+/** 재고조사 항목.
+ * Inventory audit item — per-product result. */
+export interface AuditItem {
+  id: string;
+  audit_id: string;
+  store_inventory_id: string;
+  product_id: string;
+  product_name: string | null;
+  product_code: string | null;
+  sub_unit: string | null;
+  sub_unit_ratio: number | null;
+  system_quantity: number;
+  actual_quantity: number;
+  difference: number;
+  created_at: string;
+}
+
+/** 재고조사 상세 (항목 포함).
+ * Inventory audit detail with individual items. */
+export interface InventoryAuditDetail extends InventoryAudit {
+  items: AuditItem[];
+}
+
+/** 매장별 재고조사 설정.
+ * Audit settings per store. */
+export interface AuditSetting {
+  id: string;
+  store_id: string;
+  frequency: "daily" | "weekly" | "custom";
+  day_of_week: number | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// ─── Inventory Request Types ──────────────────────────────────────────────────
+
+/** 카테고리 생성 요청.
+ * Inventory category creation request payload. */
+export interface InventoryCategoryCreate {
+  name: string;
+  parent_id?: string | null;
+  sort_order?: number;
+}
+
+/** 카테고리 수정 요청.
+ * Inventory category update request payload. */
+export interface InventoryCategoryUpdate {
+  name?: string;
+  sort_order?: number;
+}
+
+/** 제품 생성 요청.
+ * Inventory product creation request payload. */
+export interface InventoryProductCreate {
+  name: string;
+  code?: string | null;
+  auto_code?: boolean;
+  category_id?: string | null;
+  subcategory_id?: string | null;
+  sub_unit?: string | null;
+  sub_unit_ratio?: number | null;
+  image_url?: string | null;
+  description?: string | null;
+  /** 제품 생성과 동시에 매장 재고 등록 (optional). */
+  stores?: {
+    store_id: string;
+    min_quantity: number;
+    initial_quantity: number;
+    is_frequent: boolean;
+  }[];
+}
+
+/** 제품 수정 요청.
+ * Inventory product update request payload. */
+export interface InventoryProductUpdate {
+  name?: string;
+  code?: string | null;
+  category_id?: string | null;
+  subcategory_id?: string | null;
+  sub_unit?: string | null;
+  sub_unit_ratio?: number | null;
+  image_url?: string | null;
+  description?: string | null;
+  is_active?: boolean;
+}
+
+/** 제품 목록 필터 파라미터.
+ * Product list filter parameters. */
+export interface InventoryProductFilters {
+  category_id?: string;
+  subcategory_id?: string;
+  is_active?: boolean;
+  search?: string;
+  search_field?: "all" | "name" | "code";
+  page?: number;
+  per_page?: number;
+}
+
+/** 매장 재고 목록 필터 파라미터.
+ * Store inventory list filter parameters. */
+export interface StoreInventoryFilters {
+  category_id?: string;
+  search?: string;
+  search_field?: "all" | "name" | "code";
+  stock_status?: "in_stock" | "low_stock" | "out_of_stock";
+  is_frequent?: boolean;
+  page?: number;
+  per_page?: number;
+}
+
+/** 매장 재고 설정 수정 요청.
+ * Store inventory item update request. */
+export interface StoreInventoryItemUpdate {
+  min_quantity?: number;
+  is_frequent?: boolean;
+  is_active?: boolean;
+}
+
+/** 매장 재고 일괄 추가 요청.
+ * Bulk add products to store request. */
+export interface BulkAddStoreInventoryRequest {
+  items: {
+    product_id: string;
+    min_quantity: number;
+    initial_quantity: number;
+    is_frequent: boolean;
+  }[];
+}
+
+/** 입출고 트랜잭션 생성 요청.
+ * Inventory transaction creation request. */
+export interface InventoryTransactionCreate {
+  type: "stock_in" | "stock_out" | "adjustment";
+  quantity: number;
+  reason?: string | null;
+}
+
+/** 다건 입고 요청.
+ * Bulk stock-in request. */
+export interface BulkStockInRequest {
+  items: {
+    store_inventory_id: string;
+    quantity: number;
+    reason?: string | null;
+  }[];
+}
+
+/** 다건 출고 요청.
+ * Bulk stock-out request. */
+export interface BulkStockOutRequest {
+  items: {
+    store_inventory_id: string;
+    quantity: number;
+    reason?: string | null;
+  }[];
+}
+
+/** 입출고 히스토리 필터 파라미터.
+ * Transaction history filter parameters. */
+export interface InventoryTransactionFilters {
+  product_id?: string;
+  type?: "stock_in" | "stock_out" | "adjustment";
+  date_from?: string;
+  date_to?: string;
+  page?: number;
+  per_page?: number;
+}
+
+/** 재고조사 설정 수정 요청.
+ * Audit settings update request. */
+export interface AuditSettingUpdate {
+  frequency?: "daily" | "weekly" | "custom";
+  day_of_week?: number | null;
+}
+
+// ─── Sub Unit Types ───────────────────────────────────────────────────────────
+
+/** 서브유닛 (박스, 팩 등 묶음 단위).
+ * Sub unit — a named bulk-packaging unit (e.g. box, pack, case). */
+export interface InventorySubUnit {
+  id: string;
+  organization_id: string;
+  name: string;
+  code: string;
+  product_count: number;
+  created_at: string;
+  updated_at: string;
+}
+
+/** 서브유닛 생성 요청.
+ * Sub unit creation request payload. */
+export interface InventorySubUnitCreate {
+  name: string;
+  code?: string | null;
+}
+
+/** 서브유닛 수정 요청.
+ * Sub unit update request payload. */
+export interface InventorySubUnitUpdate {
+  name: string;
+}
+

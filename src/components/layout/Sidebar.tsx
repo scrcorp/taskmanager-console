@@ -23,6 +23,11 @@ import {
   FileSearch,
   FileText,
   X,
+  Package,
+  Tag,
+  Warehouse,
+  History,
+  ClipboardCheck,
 } from "lucide-react";
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useAuthStore } from "@/stores/authStore";
@@ -70,6 +75,18 @@ const navItems: NavItem[] = [
     icon: FileText,
     children: [
       { href: "/daily-reports/templates", label: "Templates", icon: Settings },
+    ],
+  },
+  {
+    href: "/inventory",
+    label: "Inventory",
+    icon: Package,
+    children: [
+      { href: "/inventory", label: "Products", icon: Package },
+      { href: "/inventory/categories", label: "Categories", icon: Tag },
+      { href: "/inventory/stores", label: "Store Inventory", icon: Warehouse },
+      { href: "/inventory/transactions", label: "Transactions", icon: History },
+      { href: "/inventory/audits", label: "Audits", icon: ClipboardCheck },
     ],
   },
   { href: "/notifications", label: "Alerts", icon: Bell },
@@ -139,10 +156,38 @@ export function Sidebar({ onNavClick }: { onNavClick?: () => void }) {
     return { from: fmt(monday), to: fmt(sunday) };
   }, []);
 
-  const getChildHref = (href: string): string => {
+  // 현재 pathname에서 storeId 추출 (/inventory/stores/{storeId}/...)
+  const currentStoreId = useMemo(() => {
+    const match = pathname.match(/^\/inventory\/stores\/([^/]+)/);
+    return match ? match[1] : null;
+  }, [pathname]);
+
+  const resolveChildHref = (href: string): string => {
     if (href === "/schedules/log") return `/schedules/log?from=${currentWeek.from}&to=${currentWeek.to}`;
     if (href === "/attendances") return `/attendances?from=${currentWeek.from}&to=${currentWeek.to}`;
+    // Dynamic store-scoped links — substitute storeId if available
+    if (href.includes("__storeId__")) {
+      if (!currentStoreId) return "/inventory/stores";
+      return href.replace("__storeId__", currentStoreId);
+    }
     return href;
+  };
+
+  const isChildActive = (child: NavChild, parentHref: string): boolean => {
+    // Dynamic store-scoped sub-items: active when pathname matches the resolved href
+    if (child.href.includes("__storeId__")) {
+      if (!currentStoreId) return false;
+      const resolved = child.href.replace("__storeId__", currentStoreId);
+      return pathname.startsWith(resolved);
+    }
+    if (child.href === parentHref) return pathname === child.href;
+    return pathname.startsWith(child.href);
+  };
+
+  const shouldShowChild = (child: NavChild): boolean => {
+    // Only show Transactions/Audits when on a store inventory page
+    if (child.href.includes("__storeId__")) return !!currentStoreId;
+    return true;
   };
 
   const toggleExpand = (href: string) => {
@@ -216,16 +261,13 @@ export function Sidebar({ onNavClick }: { onNavClick?: () => void }) {
               {/* 서브메뉴 */}
               {hasChildren && isExpanded && (
                 <div className="mt-0.5 ml-6 space-y-0.5">
-                  {item.children!.map((child) => {
-                    // 정확 매치: /schedules → /schedules만, /schedules/manage → /schedules/manage만
-                    const childActive = child.href === item.href
-                      ? pathname === child.href
-                      : pathname.startsWith(child.href);
+                  {item.children!.filter(shouldShowChild).map((child) => {
+                    const childActive = isChildActive(child, item.href);
                     const ChildIcon = child.icon;
                     return (
                       <Link
                         key={child.href}
-                        href={getChildHref(child.href)}
+                        href={resolveChildHref(child.href)}
                         onClick={onNavClick}
                         className={cn(
                           "flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-colors",
