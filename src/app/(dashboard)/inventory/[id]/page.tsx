@@ -10,7 +10,7 @@
 import React, { useState, useCallback } from "react";
 import { useRouter, useParams } from "next/navigation";
 import { ChevronLeft, Package, Edit, Power } from "lucide-react";
-import { useProduct, useUpdateProduct, useDeactivateProduct } from "@/hooks/useInventory";
+import { useProduct, useUpdateProduct, useDeactivateProduct, useActivateProduct, useDeleteProduct } from "@/hooks/useInventory";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@/lib/permissions";
 import {
@@ -46,11 +46,14 @@ export default function ProductDetailPage(): React.ReactElement {
 
   const [isEditOpen, setIsEditOpen] = useState(false);
   const [isDeactivateOpen, setIsDeactivateOpen] = useState(false);
+  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [editFormData, setEditFormData] = useState<ProductFormData | null>(null);
 
   const { data: product, isLoading } = useProduct(productId);
   const updateProduct = useUpdateProduct();
   const deactivateProduct = useDeactivateProduct();
+  const activateProduct = useActivateProduct();
+  const deleteProduct = useDeleteProduct();
 
   const storeInventories = product?.store_inventories ?? [];
 
@@ -152,6 +155,33 @@ export default function ProductDetailPage(): React.ReactElement {
     });
   }, [product, deactivateProduct, toast, router]);
 
+  const handleActivate = useCallback(() => {
+    if (!product) return;
+    activateProduct.mutate(product.id, {
+      onSuccess: () => {
+        toast({ type: "success", message: "Product activated." });
+        router.refresh();
+      },
+      onError: (err) => {
+        toast({ type: "error", message: parseApiError(err, "Failed to activate.") });
+      },
+    });
+  }, [product, activateProduct, toast, router]);
+
+  const handleDelete = useCallback(() => {
+    if (!product) return;
+    deleteProduct.mutate(product.id, {
+      onSuccess: () => {
+        toast({ type: "success", message: "Product permanently deleted." });
+        setIsDeleteOpen(false);
+        router.push("/inventory");
+      },
+      onError: (err) => {
+        toast({ type: "error", message: parseApiError(err, "Failed to delete.") });
+      },
+    });
+  }, [product, deleteProduct, toast, router]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -195,12 +225,31 @@ export default function ProductDetailPage(): React.ReactElement {
         )}
         {canDelete && product.is_active && (
           <Button
-            variant="danger"
+            variant="secondary"
             size="sm"
             onClick={() => setIsDeactivateOpen(true)}
           >
             <Power size={14} />
             Deactivate
+          </Button>
+        )}
+        {canUpdate && !product.is_active && (
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={handleActivate}
+            isLoading={activateProduct.isPending}
+          >
+            Activate
+          </Button>
+        )}
+        {canDelete && (
+          <Button
+            variant="danger"
+            size="sm"
+            onClick={() => setIsDeleteOpen(true)}
+          >
+            Delete
           </Button>
         )}
       </div>
@@ -336,6 +385,16 @@ export default function ProductDetailPage(): React.ReactElement {
         message="Are you sure you want to deactivate this product? Store inventory records will be preserved."
         confirmLabel="Deactivate"
         isLoading={deactivateProduct.isPending}
+      />
+
+      <ConfirmDialog
+        isOpen={isDeleteOpen}
+        onClose={() => setIsDeleteOpen(false)}
+        onConfirm={handleDelete}
+        title="Permanently Delete Product"
+        message="This will permanently delete this product and ALL related data including store inventory, stock in/out history, and audit records. This action CANNOT be undone."
+        confirmLabel="Delete Permanently"
+        isLoading={deleteProduct.isPending}
       />
     </div>
   );

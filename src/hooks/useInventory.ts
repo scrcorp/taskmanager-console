@@ -246,8 +246,12 @@ export const useDownloadProductTemplate = (): (() => Promise<void>) => {
 export interface ProductImportResult {
   created: number;
   linked: number;
-  skipped: number;
+  skipped: string[] | number;
   errors: string[];
+  error?: string;
+  warnings?: string[];
+  validation_errors?: string[];
+  rows_parsed?: number;
 }
 
 /**
@@ -405,6 +409,31 @@ export const useDeactivateProduct = (): UseMutationResult<void, Error, string> =
   return useMutation<void, Error, string>({
     mutationFn: async (id: string): Promise<void> => {
       await api.delete(`/admin/inventory/products/${id}`);
+    },
+    onSuccess: (): void => {
+      queryClient.invalidateQueries({ queryKey: ["inventory", "products"] });
+    },
+  });
+};
+
+export const useActivateProduct = (): UseMutationResult<InventoryProduct, Error, string> => {
+  const queryClient: QueryClient = useQueryClient();
+  return useMutation<InventoryProduct, Error, string>({
+    mutationFn: async (id: string): Promise<InventoryProduct> => {
+      const response: AxiosResponse<InventoryProduct> = await api.post(`/admin/inventory/products/${id}/activate`);
+      return response.data;
+    },
+    onSuccess: (): void => {
+      queryClient.invalidateQueries({ queryKey: ["inventory", "products"] });
+    },
+  });
+};
+
+export const useDeleteProduct = (): UseMutationResult<void, Error, string> => {
+  const queryClient: QueryClient = useQueryClient();
+  return useMutation<void, Error, string>({
+    mutationFn: async (id: string): Promise<void> => {
+      await api.post(`/admin/inventory/products/${id}/delete`);
     },
     onSuccess: (): void => {
       queryClient.invalidateQueries({ queryKey: ["inventory", "products"] });

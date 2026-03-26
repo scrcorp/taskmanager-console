@@ -171,6 +171,8 @@ export {
   useCreateProduct,
   useUpdateProduct,
   useDeactivateProduct,
+  useActivateProduct,
+  useDeleteProduct,
   useStoreInventory,
   useStoreInventorySummary,
   useBulkAddStoreInventory,

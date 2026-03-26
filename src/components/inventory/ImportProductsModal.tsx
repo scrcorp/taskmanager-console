@@ -186,28 +186,44 @@ export function ImportProductsModal({ isOpen, onClose }: ImportProductsModalProp
             <p className="text-sm font-semibold text-text">Import Results</p>
             <div className="grid grid-cols-3 gap-3 text-center">
               <div className="rounded-lg bg-success-muted p-3">
-                <div className="text-xl font-bold text-success">{result.created}</div>
+                <div className="text-xl font-bold text-success">{result.created ?? 0}</div>
                 <div className="text-xs text-text-muted mt-0.5">Created</div>
               </div>
               <div className="rounded-lg bg-accent-muted p-3">
-                <div className="text-xl font-bold text-accent">{result.linked}</div>
+                <div className="text-xl font-bold text-accent">{result.linked ?? 0}</div>
                 <div className="text-xs text-text-muted mt-0.5">Linked to stores</div>
               </div>
               <div className="rounded-lg bg-surface-hover p-3">
-                <div className="text-xl font-bold text-text-secondary">{result.skipped}</div>
+                <div className="text-xl font-bold text-text-secondary">{Array.isArray(result.skipped) ? result.skipped.length : result.skipped ?? 0}</div>
                 <div className="text-xs text-text-muted mt-0.5">Skipped</div>
               </div>
             </div>
-            {result.errors.length > 0 && (
+            {((result.errors?.length ?? 0) > 0 || result.error || (result.validation_errors?.length ?? 0) > 0) && (
               <div className="rounded-lg bg-danger-muted border border-danger/20 p-3">
+                {result.error && (
+                  <p className="text-sm font-medium text-danger mb-2">{result.error}</p>
+                )}
                 <p className="text-xs font-medium text-danger mb-2">
-                  {result.errors.length} error(s):
+                  {(result.errors?.length || 0) + (result.validation_errors?.length || 0)} error(s):
                 </p>
                 <ul className="space-y-1 max-h-32 overflow-y-auto">
-                  {result.errors.map((err, i) => (
-                    <li key={i} className="text-xs text-danger/80">
-                      {err}
-                    </li>
+                  {(result.errors ?? []).map((err, i) => (
+                    <li key={`e-${i}`} className="text-xs text-danger/80">{err}</li>
+                  ))}
+                  {(result.validation_errors ?? []).map((err, i) => (
+                    <li key={`v-${i}`} className="text-xs text-danger/80">{err}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {((result.warnings?.length ?? 0) > 0) && (
+              <div className="rounded-lg bg-warning-muted border border-warning/20 p-3">
+                <p className="text-xs font-medium text-warning mb-2">
+                  {result.warnings?.length ?? 0} warning(s):
+                </p>
+                <ul className="space-y-1 max-h-32 overflow-y-auto">
+                  {(result.warnings ?? []).map((w, i) => (
+                    <li key={`w-${i}`} className="text-xs text-warning/80">{w}</li>
                   ))}
                 </ul>
               </div>
