@@ -73,6 +73,15 @@ export default function TransactionsPage(): React.ReactElement {
     render?: (item: InventoryTransaction) => React.ReactNode;
     className?: string;
   }[] = [
+    ...(!storeId ? [{
+      key: "store",
+      header: "Store",
+      render: () => {
+        const effectiveId = storeId || stores?.[0]?.id;
+        const store = (stores ?? []).find((s: Store) => s.id === effectiveId);
+        return <span className="text-xs text-text-secondary">{store?.name ?? "—"}</span>;
+      },
+    }] : []),
     {
       key: "created_at",
       header: "Date",

@@ -173,6 +173,7 @@ export {
   useDeactivateProduct,
   useActivateProduct,
   useDeleteProduct,
+  useRemoveStoreInventoryItem,
   useStoreInventory,
   useStoreInventorySummary,
   useBulkAddStoreInventory,

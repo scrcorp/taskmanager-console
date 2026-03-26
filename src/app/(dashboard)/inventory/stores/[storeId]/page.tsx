@@ -29,6 +29,7 @@ import {
   useCategories,
   useProducts,
   useCreateProduct,
+  useRemoveStoreInventoryItem,
 } from "@/hooks/useInventory";
 import { useStores } from "@/hooks/useStores";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -42,6 +43,7 @@ import {
   Select,
   Input,
   Pagination,
+  ConfirmDialog,
 } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
 import { parseApiError, formatDateTime } from "@/lib/utils";
@@ -82,6 +84,7 @@ export default function StoreInventoryPage(): React.ReactElement {
   const { toast } = useToast();
   const { hasPermission } = usePermissions();
   const canManage = hasPermission(PERMISSIONS.INVENTORY_CREATE);
+  const canDelete = hasPermission(PERMISSIONS.INVENTORY_DELETE);
 
   // -- URL-persisted filters --
   const [urlParams, setUrlParams] = useUrlParams({
@@ -114,6 +117,7 @@ export default function StoreInventoryPage(): React.ReactElement {
 
   // -- Detail modal --
   const [detailItem, setDetailItem] = useState<StoreInventoryItem | null>(null);
+  const [removeItemId, setRemoveItemId] = useState<string | null>(null);
 
   // -- Add products modal (Step 1: select, Step 2: configure, Step "create": inline product creation) --
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -145,6 +149,7 @@ export default function StoreInventoryPage(): React.ReactElement {
   );
 
   const bulkAdd = useBulkAddStoreInventory(storeId);
+  const removeItem = useRemoveStoreInventoryItem(storeId);
   const updateItem = useUpdateStoreInventoryItem(storeId);
   const createProduct = useCreateProduct();
 
@@ -267,6 +272,26 @@ export default function StoreInventoryPage(): React.ReactElement {
         </span>
       ),
     },
+    ...(canDelete
+      ? [
+          {
+            key: "actions",
+            header: "",
+            render: (item: StoreInventoryItem): React.ReactNode => (
+              <button
+                type="button"
+                onClick={(e: React.MouseEvent) => {
+                  e.stopPropagation();
+                  setRemoveItemId(item.id);
+                }}
+                className="px-2 py-1 rounded text-xs text-danger hover:bg-danger-muted transition-colors cursor-pointer"
+              >
+                Remove
+              </button>
+            ),
+          },
+        ]
+      : []),
   ];
 
   const handleRowClick = useCallback((item: StoreInventoryItem) => {
@@ -850,6 +875,27 @@ export default function StoreInventoryPage(): React.ReactElement {
           </div>
         )}
       </Modal>
+
+      <ConfirmDialog
+        isOpen={removeItemId !== null}
+        onClose={() => setRemoveItemId(null)}
+        onConfirm={() => {
+          if (!removeItemId) return;
+          removeItem.mutate(removeItemId, {
+            onSuccess: () => {
+              toast({ type: "success", message: "Product removed from store." });
+              setRemoveItemId(null);
+            },
+            onError: (err) => {
+              toast({ type: "error", message: parseApiError(err, "Failed to remove.") });
+            },
+          });
+        }}
+        title="Remove Product from Store"
+        message="This will remove this product from the store inventory. The product itself will remain in the catalog."
+        confirmLabel="Remove"
+        isLoading={removeItem.isPending}
+      />
     </div>
   );
 }

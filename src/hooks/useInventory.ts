@@ -540,6 +540,20 @@ export const useUpdateStoreInventoryItem = (
   });
 };
 
+export const useRemoveStoreInventoryItem = (
+  storeId: string,
+): UseMutationResult<void, Error, string> => {
+  const queryClient: QueryClient = useQueryClient();
+  return useMutation<void, Error, string>({
+    mutationFn: async (itemId: string): Promise<void> => {
+      await api.delete(`/admin/stores/${storeId}/inventory/${itemId}`);
+    },
+    onSuccess: (): void => {
+      queryClient.invalidateQueries({ queryKey: ["inventory", "stores", storeId] });
+    },
+  });
+};
+
 // ─── Transaction Hooks ────────────────────────────────────────────────────────
 
 /**

@@ -1016,10 +1016,19 @@ export interface InventoryProduct {
   updated_at: string;
 }
 
+export interface StoreInventoryBrief {
+  id?: string;
+  store_id: string;
+  store_name: string;
+  current_quantity: number;
+  min_quantity: number;
+  is_frequent: boolean;
+}
+
 /** 제품 상세 (매장 사용현황 포함).
  * Product detail with list of stores currently using it. */
 export interface InventoryProductDetail extends InventoryProduct {
-  store_inventories: StoreInventoryItem[];
+  stores: StoreInventoryBrief[];
 }
 
 /** 매장별 재고 항목.

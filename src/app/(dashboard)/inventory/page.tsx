@@ -450,6 +450,24 @@ export default function InventoryPage(): React.ReactElement {
         </div>
       </Card>
 
+      {/* Bulk action bar */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-accent-muted border border-accent/20 mb-3">
+          <input
+            type="checkbox"
+            checked={selectedIds.size === products.length}
+            onChange={toggleSelectAll}
+            className="w-4 h-4 accent-accent cursor-pointer"
+          />
+          <span className="text-sm font-medium text-text">{selectedIds.size} selected</span>
+          <div className="flex-1" />
+          <button onClick={() => setBulkAction("activate")} className="px-3 py-1.5 rounded-lg text-xs font-medium text-success bg-success-muted hover:bg-success/20 transition-colors">Activate</button>
+          <button onClick={() => setBulkAction("deactivate")} className="px-3 py-1.5 rounded-lg text-xs font-medium text-warning bg-warning-muted hover:bg-warning/20 transition-colors">Deactivate</button>
+          <button onClick={() => setBulkAction("delete")} className="px-3 py-1.5 rounded-lg text-xs font-medium text-danger bg-danger-muted hover:bg-danger/20 transition-colors">Delete</button>
+          <button onClick={clearSelection} className="px-2 py-1.5 text-xs text-text-muted hover:text-text transition-colors">Clear</button>
+        </div>
+      )}
+
       {/* Table */}
       <Card padding="p-0">
         <Table<InventoryProduct>
@@ -457,6 +475,7 @@ export default function InventoryPage(): React.ReactElement {
           data={products}
           isLoading={isLoading}
           onRowClick={handleRowClick}
+          rowClassName={(item) => selectedIds.has(item.id) ? "!bg-accent-muted" : ""}
           emptyMessage="No products found."
         />
       </Card>
@@ -521,6 +540,22 @@ export default function InventoryPage(): React.ReactElement {
         message="This will permanently delete this product and ALL related data including store inventory, stock in/out history, and audit records. This action CANNOT be undone."
         confirmLabel="Delete Permanently"
         isLoading={deleteProduct.isPending}
+      />
+
+      <ConfirmDialog
+        isOpen={bulkAction !== null}
+        onClose={() => setBulkAction(null)}
+        onConfirm={handleBulkAction}
+        title={`Bulk ${bulkAction === "delete" ? "Delete" : bulkAction === "deactivate" ? "Deactivate" : "Activate"} — ${selectedIds.size} product(s)`}
+        message={
+          bulkAction === "delete"
+            ? `This will permanently delete ${selectedIds.size} product(s) and ALL related data. This action CANNOT be undone.`
+            : bulkAction === "deactivate"
+            ? `${selectedIds.size} product(s) will be deactivated.`
+            : `${selectedIds.size} product(s) will be activated.`
+        }
+        confirmLabel={bulkAction === "delete" ? "Delete All" : bulkAction === "deactivate" ? "Deactivate All" : "Activate All"}
+        isLoading={bulkLoading}
       />
     </div>
   );

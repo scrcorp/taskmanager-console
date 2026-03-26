@@ -54,6 +54,7 @@ export default function AuditsPage(): React.ReactElement {
   const auditItems: AuditItem[] = auditDetail?.items ?? [];
 
   const columns: { key: string; header: string; render?: (item: InventoryAudit) => React.ReactNode }[] = [
+    ...(!storeId ? [{ key: "store" as const, header: "Store", render: (item: InventoryAudit) => { const store = (stores ?? []).find((s: Store) => s.id === effectiveStoreId); return <span className="text-xs text-text-secondary">{store?.name ?? "—"}</span>; } }] : []),
     { key: "completed_at", header: "Date", render: (item) => <span className="text-sm text-text-secondary">{item.completed_at ? formatDateTime(item.completed_at) : formatDate(item.started_at)}</span> },
     { key: "by", header: "By", render: (item) => <span className="text-sm text-text">{item.created_by_name ?? "—"}</span> },
     { key: "items", header: "Items", render: (item) => <span className="text-sm text-text-secondary">{item.items_count ?? 0}</span> },
