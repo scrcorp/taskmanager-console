@@ -71,6 +71,7 @@ interface ItemFormData {
   title: string;
   description: string;
   verification_type: string;
+  min_photos: number;
   recurrence_days: number[];
 }
 
@@ -78,6 +79,7 @@ const INITIAL_ITEM_FORM: ItemFormData = {
   title: "",
   description: "",
   verification_type: "none",
+  min_photos: 1,
   recurrence_days: [],
 };
 
@@ -510,6 +512,7 @@ export default function ChecklistsPage(): React.ReactElement {
         title: itemCreateForm.title.trim(),
         description: itemCreateForm.description.trim() || undefined,
         verification_type: itemCreateForm.verification_type,
+        min_photos: itemCreateForm.verification_type.includes("photo") ? itemCreateForm.min_photos : 0,
         recurrence_type: recurrence.recurrence_type,
         recurrence_days: recurrence.recurrence_days,
         sort_order: nextOrder,
@@ -530,6 +533,7 @@ export default function ChecklistsPage(): React.ReactElement {
         title: item.title,
         description: item.description || "",
         verification_type: item.verification_type,
+        min_photos: item.min_photos ?? 1,
         recurrence_days: item.recurrence_type === "daily" ? [] : (item.recurrence_days || []),
       });
       setIsItemEditOpen(true);
@@ -547,6 +551,7 @@ export default function ChecklistsPage(): React.ReactElement {
         title: itemEditForm.title.trim(),
         description: itemEditForm.description.trim() || undefined,
         verification_type: itemEditForm.verification_type,
+        min_photos: itemEditForm.verification_type.includes("photo") ? itemEditForm.min_photos : 0,
         recurrence_type: recurrence.recurrence_type,
         recurrence_days: recurrence.recurrence_days,
       });
@@ -1248,8 +1253,8 @@ export default function ChecklistsPage(): React.ReactElement {
                 className={cn(
                   "px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors",
                   itemCreateForm.recurrence_days.length === 7
-                    ? "bg-primary text-white border-primary"
-                    : "bg-card text-text-secondary border-border hover:border-primary",
+                    ? "bg-accent text-white border-accent"
+                    : "bg-card text-text-secondary border-border hover:border-accent",
                 )}
               >
                 All
@@ -1269,8 +1274,8 @@ export default function ChecklistsPage(): React.ReactElement {
                   className={cn(
                     "px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors",
                     itemCreateForm.recurrence_days.includes(idx)
-                      ? "bg-primary text-white border-primary"
-                      : "bg-card text-text-secondary border-border hover:border-primary",
+                      ? "bg-accent text-white border-accent"
+                      : "bg-card text-text-secondary border-border hover:border-accent",
                   )}
                 >
                   {day}
@@ -1322,6 +1327,24 @@ export default function ChecklistsPage(): React.ReactElement {
                   : itemCreateForm.verification_type}
               </span>
             </div>
+            {itemCreateForm.verification_type.includes("photo") && (
+              <div className="flex items-center gap-2 mt-2">
+                <label className="text-xs text-secondary">Min photos:</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={itemCreateForm.min_photos}
+                  onChange={(e) =>
+                    setItemCreateForm((prev: ItemFormData) => ({
+                      ...prev,
+                      min_photos: Math.max(1, parseInt(e.target.value) || 1),
+                    }))
+                  }
+                  className="w-16 px-2 py-1 text-sm border border-border rounded-md bg-card text-text"
+                />
+              </div>
+            )}
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <Button
@@ -1397,8 +1420,8 @@ export default function ChecklistsPage(): React.ReactElement {
                 className={cn(
                   "px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors",
                   itemEditForm.recurrence_days.length === 7
-                    ? "bg-primary text-white border-primary"
-                    : "bg-card text-text-secondary border-border hover:border-primary",
+                    ? "bg-accent text-white border-accent"
+                    : "bg-card text-text-secondary border-border hover:border-accent",
                 )}
               >
                 All
@@ -1418,8 +1441,8 @@ export default function ChecklistsPage(): React.ReactElement {
                   className={cn(
                     "px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors",
                     itemEditForm.recurrence_days.includes(idx)
-                      ? "bg-primary text-white border-primary"
-                      : "bg-card text-text-secondary border-border hover:border-primary",
+                      ? "bg-accent text-white border-accent"
+                      : "bg-card text-text-secondary border-border hover:border-accent",
                   )}
                 >
                   {day}
@@ -1471,6 +1494,24 @@ export default function ChecklistsPage(): React.ReactElement {
                   : itemEditForm.verification_type}
               </span>
             </div>
+            {itemEditForm.verification_type.includes("photo") && (
+              <div className="flex items-center gap-2 mt-2">
+                <label className="text-xs text-secondary">Min photos:</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={itemEditForm.min_photos}
+                  onChange={(e) =>
+                    setItemEditForm((prev: ItemFormData) => ({
+                      ...prev,
+                      min_photos: Math.max(1, parseInt(e.target.value) || 1),
+                    }))
+                  }
+                  className="w-16 px-2 py-1 text-sm border border-border rounded-md bg-card text-text"
+                />
+              </div>
+            )}
           </div>
           <div className="flex justify-end gap-2 pt-2">
             <Button

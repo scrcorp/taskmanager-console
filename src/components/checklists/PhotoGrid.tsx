@@ -4,6 +4,7 @@
  * 사진 그리드 컴포넌트 -- 1장은 전체, 2-3장은 행, 4장 이상은 그리드(+N 오버레이).
  *
  * Displays multiple photos: 1=single, 2-3=row, 4+=grid with "+N more" overlay.
+ * Clicking any photo opens Lightbox gallery with left/right navigation.
  */
 
 import React, { useState } from "react";
@@ -17,7 +18,7 @@ interface PhotoGridProps {
 }
 
 export function PhotoGrid({ urls, maxVisible = 4, className }: PhotoGridProps): React.ReactElement | null {
-  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
   if (urls.length === 0) return null;
 
@@ -53,12 +54,12 @@ export function PhotoGrid({ urls, maxVisible = 4, className }: PhotoGridProps): 
                 src={url}
                 alt={`Photo ${i + 1}`}
                 className={imgClass}
-                onClick={() => setLightboxSrc(url)}
+                onClick={() => setLightboxIndex(i)}
               />
               {isLast && overflow > 0 && (
                 <button
                   type="button"
-                  onClick={() => setLightboxSrc(url)}
+                  onClick={() => setLightboxIndex(i)}
                   className="absolute inset-0 flex items-center justify-center bg-black/50 rounded text-white text-sm font-bold"
                 >
                   +{overflow + 1}
@@ -69,11 +70,12 @@ export function PhotoGrid({ urls, maxVisible = 4, className }: PhotoGridProps): 
         })}
       </div>
 
-      {lightboxSrc && (
+      {lightboxIndex !== null && (
         <Lightbox
           isOpen
-          onClose={() => setLightboxSrc(null)}
-          src={lightboxSrc}
+          onClose={() => setLightboxIndex(null)}
+          urls={urls}
+          initialIndex={lightboxIndex}
         />
       )}
     </>

@@ -77,10 +77,10 @@ export default function AuditsPage(): React.ReactElement {
       ),
     },
     {
-      key: "audited_by_name",
-      header: "Auditor",
+      key: "created_by_name",
+      header: "By",
       render: (item) => (
-        <span className="text-sm text-text">{item.audited_by_name ?? "—"}</span>
+        <span className="text-sm text-text">{item.created_by_name ?? "—"}</span>
       ),
     },
     {
@@ -95,7 +95,7 @@ export default function AuditsPage(): React.ReactElement {
       key: "items_checked",
       header: "Items Checked",
       render: (item) => (
-        <span className="text-sm text-text-secondary">{item.items_checked}</span>
+        <span className="text-sm text-text-secondary">{item.items_count ?? item.items_checked ?? 0}</span>
       ),
     },
     {
@@ -105,10 +105,10 @@ export default function AuditsPage(): React.ReactElement {
         <span
           className={cn(
             "text-sm font-medium",
-            item.discrepancy_count > 0 ? "text-danger" : "text-success",
+            item.discrepancies ?? item.discrepancy_count ?? 0 > 0 ? "text-danger" : "text-success",
           )}
         >
-          {item.discrepancy_count}
+          {item.discrepancies ?? item.discrepancy_count ?? 0}
         </span>
       ),
     },
@@ -187,20 +187,20 @@ export default function AuditsPage(): React.ReactElement {
               </div>
               <div>
                 <span className="text-text-muted">Auditor: </span>
-                <span className="text-text">{auditDetail.audited_by_name ?? "—"}</span>
+                <span className="text-text">{auditDetail.created_by_name ?? "—"}</span>
               </div>
               <div>
                 <span className="text-text-muted">Items: </span>
-                <span className="text-text">{auditDetail.items_checked}</span>
+                <span className="text-text">{auditDetail.items_count ?? auditDetail.items_checked ?? 0}</span>
               </div>
               <div>
                 <span className="text-text-muted">Discrepancies: </span>
                 <span
                   className={
-                    auditDetail.discrepancy_count > 0 ? "text-danger font-bold" : "text-success"
+                    auditDetail.discrepancies ?? auditDetail.discrepancy_count ?? 0 > 0 ? "text-danger font-bold" : "text-success"
                   }
                 >
-                  {auditDetail.discrepancy_count}
+                  {auditDetail.discrepancies ?? auditDetail.discrepancy_count ?? 0}
                 </span>
               </div>
             </div>

@@ -22,11 +22,12 @@ import type { InventoryTransaction, Store } from "@/types";
 const PER_PAGE = 30;
 
 function typeBadge(type: InventoryTransaction["type"]): {
-  variant: "success" | "warning" | "accent";
+  variant: "success" | "warning" | "accent" | "info";
   label: string;
 } {
   if (type === "stock_in") return { variant: "success", label: "Stock In" };
   if (type === "stock_out") return { variant: "warning", label: "Stock Out" };
+  if (type === "audit") return { variant: "info", label: "Audit" };
   return { variant: "accent", label: "Adjustment" };
 }
 
@@ -63,6 +64,7 @@ export default function TransactionsPage(): React.ReactElement {
     { value: "stock_in", label: "Stock In" },
     { value: "stock_out", label: "Stock Out" },
     { value: "adjustment", label: "Adjustment" },
+    { value: "audit", label: "Audit" },
   ];
 
   const columns: {
