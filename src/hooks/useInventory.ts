@@ -279,6 +279,45 @@ export const useImportProducts = (): UseMutationResult<
   });
 };
 
+/** Preview import item from server */
+export interface ImportPreviewItem {
+  row: number;
+  name: string;
+  code: string | null;
+  category: string;
+  store_codes: string;
+  existing_code: string | null;
+  duplicate_name: string | null;
+  action: "link" | "create";
+}
+
+/** Preview import response from server */
+export interface ImportPreviewResult {
+  items?: ImportPreviewItem[];
+  total?: number;
+  error?: string;
+}
+
+/**
+ * Excel import preview — parse and check duplicates without creating.
+ */
+export const usePreviewImport = (): UseMutationResult<
+  ImportPreviewResult,
+  Error,
+  FormData
+> => {
+  return useMutation<ImportPreviewResult, Error, FormData>({
+    mutationFn: async (formData: FormData): Promise<ImportPreviewResult> => {
+      const response: AxiosResponse<ImportPreviewResult> = await api.post(
+        "/admin/inventory/products/preview-import",
+        formData,
+        { headers: { "Content-Type": "multipart/form-data" } },
+      );
+      return response.data;
+    },
+  });
+};
+
 // ─── Product Code Generation ───────────────────────────────────────────────────
 
 /**

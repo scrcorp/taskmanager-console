@@ -147,21 +147,30 @@ export default function InventoryPage(): React.ReactElement {
   /** 테이블 컬럼 정의 */
   const columns: {
     key: string;
-    header: string;
+    header: string | React.ReactNode;
     render?: (item: InventoryProduct) => React.ReactNode;
     className?: string;
   }[] = [
     {
       key: "select",
-      header: "",
-      className: "w-10",
-      render: (item) => (
+      header: (
         <input
           type="checkbox"
-          checked={selectedIds.has(item.id)}
-          onChange={(e) => { e.stopPropagation(); toggleSelect(item.id); }}
+          checked={products.length > 0 && selectedIds.size === products.length}
+          onChange={toggleSelectAll}
           className="w-4 h-4 accent-accent cursor-pointer"
         />
+      ),
+      className: "w-10",
+      render: (item) => (
+        <div onClick={(e) => e.stopPropagation()}>
+          <input
+            type="checkbox"
+            checked={selectedIds.has(item.id)}
+            onChange={() => toggleSelect(item.id)}
+            className="w-4 h-4 accent-accent cursor-pointer"
+          />
+        </div>
       ),
     },
     {
@@ -453,18 +462,11 @@ export default function InventoryPage(): React.ReactElement {
       {/* Bulk action bar */}
       {selectedIds.size > 0 && (
         <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-accent-muted border border-accent/20 mb-3">
-          <input
-            type="checkbox"
-            checked={selectedIds.size === products.length}
-            onChange={toggleSelectAll}
-            className="w-4 h-4 accent-accent cursor-pointer"
-          />
           <span className="text-sm font-medium text-text">{selectedIds.size} selected</span>
           <div className="flex-1" />
           <button onClick={() => setBulkAction("activate")} className="px-3 py-1.5 rounded-lg text-xs font-medium text-success bg-success-muted hover:bg-success/20 transition-colors">Activate</button>
           <button onClick={() => setBulkAction("deactivate")} className="px-3 py-1.5 rounded-lg text-xs font-medium text-warning bg-warning-muted hover:bg-warning/20 transition-colors">Deactivate</button>
           <button onClick={() => setBulkAction("delete")} className="px-3 py-1.5 rounded-lg text-xs font-medium text-danger bg-danger-muted hover:bg-danger/20 transition-colors">Delete</button>
-          <button onClick={clearSelection} className="px-2 py-1.5 text-xs text-text-muted hover:text-text transition-colors">Clear</button>
         </div>
       )}
 
