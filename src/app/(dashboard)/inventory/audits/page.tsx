@@ -54,12 +54,10 @@ export default function AuditsPage(): React.ReactElement {
   const auditItems: AuditItem[] = auditDetail?.items ?? [];
 
   const columns: { key: string; header: string; render?: (item: InventoryAudit) => React.ReactNode }[] = [
-    { key: "started_at", header: "Date", render: (item) => <span className="text-sm text-text-secondary">{formatDate(item.started_at)}</span> },
-    { key: "auditor", header: "Auditor", render: (item) => <span className="text-sm text-text">{item.audited_by_name ?? "—"}</span> },
-    { key: "status", header: "Status", render: (item) => { const b = auditStatusBadge(item.status); return <Badge variant={b.variant}>{b.label}</Badge>; } },
-    { key: "items", header: "Items", render: (item) => <span className="text-sm text-text-secondary">{item.items_checked}</span> },
-    { key: "disc", header: "Discrepancies", render: (item) => <span className={cn("text-sm font-medium", item.discrepancy_count > 0 ? "text-danger" : "text-success")}>{item.discrepancy_count}</span> },
-    { key: "completed", header: "Completed", render: (item) => <span className="text-xs text-text-muted">{item.completed_at ? formatDateTime(item.completed_at) : "—"}</span> },
+    { key: "completed_at", header: "Date", render: (item) => <span className="text-sm text-text-secondary">{item.completed_at ? formatDateTime(item.completed_at) : formatDate(item.started_at)}</span> },
+    { key: "by", header: "By", render: (item) => <span className="text-sm text-text">{item.created_by_name ?? "—"}</span> },
+    { key: "items", header: "Items", render: (item) => <span className="text-sm text-text-secondary">{item.items_count ?? 0}</span> },
+    { key: "disc", header: "Discrepancies", render: (item) => <span className={cn("text-sm font-medium", (item.discrepancies ?? 0) > 0 ? "text-danger" : "text-success")}>{item.discrepancies ?? 0}</span> },
   ];
 
   return (
@@ -98,7 +96,7 @@ export default function AuditsPage(): React.ReactElement {
           <div className="flex flex-col gap-4">
             <div className="flex gap-4 flex-wrap text-sm">
               <div><span className="text-text-muted">Date: </span><span className="text-text">{formatDate(auditDetail.started_at)}</span></div>
-              <div><span className="text-text-muted">Auditor: </span><span className="text-text">{auditDetail.audited_by_name ?? "—"}</span></div>
+              <div><span className="text-text-muted">Auditor: </span><span className="text-text">{auditDetail.created_by_name ?? "—"}</span></div>
               <div><span className="text-text-muted">Items: </span><span className="text-text">{auditDetail.items_checked}</span></div>
               <div><span className="text-text-muted">Discrepancies: </span><span className={auditDetail.discrepancy_count > 0 ? "text-danger font-bold" : "text-success"}>{auditDetail.discrepancy_count}</span></div>
             </div>

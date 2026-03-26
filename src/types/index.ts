@@ -1066,7 +1066,7 @@ export interface InventoryTransaction {
   product_code: string | null;
   sub_unit: string | null;
   sub_unit_ratio: number | null;
-  type: "stock_in" | "stock_out" | "adjustment";
+  type: "stock_in" | "stock_out" | "adjustment" | "audit";
   quantity: number;
   before_quantity: number;
   after_quantity: number;
@@ -1081,11 +1081,13 @@ export interface InventoryTransaction {
 export interface InventoryAudit {
   id: string;
   store_id: string;
-  audited_by: string | null;
-  audited_by_name: string | null;
+  created_by: string | null;
+  created_by_name: string | null;
   status: "in_progress" | "completed";
-  items_checked: number;
-  discrepancy_count: number;
+  items_count: number;
+  items_checked: number;  // alias
+  discrepancies: number;
+  discrepancy_count: number;  // alias
   started_at: string;
   completed_at: string | null;
   note: string | null;
@@ -1224,7 +1226,7 @@ export interface BulkAddStoreInventoryRequest {
 /** 입출고 트랜잭션 생성 요청.
  * Inventory transaction creation request. */
 export interface InventoryTransactionCreate {
-  type: "stock_in" | "stock_out" | "adjustment";
+  type: "stock_in" | "stock_out" | "adjustment" | "audit";
   quantity: number;
   reason?: string | null;
 }
