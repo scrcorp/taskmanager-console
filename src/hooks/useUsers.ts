@@ -120,6 +120,7 @@ interface UpdateUserData {
   phone?: string;
   role_id?: string;
   password?: string;
+  hourly_rate?: number | null;
 }
 
 /**

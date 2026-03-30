@@ -75,9 +75,9 @@ export const mockRoles: Role[] = [
 // ─── Stores ───────────────────────────────────────────
 
 export const mockStores: Store[] = [
-  { id: STORE_IDS[0], organization_id: ORG_ID, name: "Seoul Station Branch", address: "서울특별시 중구 세종대로 12", is_active: true, operating_hours: null, max_work_hours_weekly: null, timezone: null, created_at: "2025-06-01T09:00:00Z" },
-  { id: STORE_IDS[1], organization_id: ORG_ID, name: "Gangnam Branch", address: "서울특별시 강남구 테헤란로 123", is_active: true, operating_hours: null, max_work_hours_weekly: null, timezone: null, created_at: "2025-07-15T10:00:00Z" },
-  { id: STORE_IDS[2], organization_id: ORG_ID, name: "Busan Branch", address: "부산광역시 해운대구 센텀로 45", is_active: false, operating_hours: null, max_work_hours_weekly: null, timezone: null, created_at: "2025-08-20T11:00:00Z" },
+  { id: STORE_IDS[0], organization_id: ORG_ID, name: "Seoul Station Branch", address: "서울특별시 중구 세종대로 12", is_active: true, operating_hours: null, max_work_hours_weekly: null, timezone: null, default_hourly_rate: null, created_at: "2025-06-01T09:00:00Z" },
+  { id: STORE_IDS[1], organization_id: ORG_ID, name: "Gangnam Branch", address: "서울특별시 강남구 테헤란로 123", is_active: true, operating_hours: null, max_work_hours_weekly: null, timezone: null, default_hourly_rate: null, created_at: "2025-07-15T10:00:00Z" },
+  { id: STORE_IDS[2], organization_id: ORG_ID, name: "Busan Branch", address: "부산광역시 해운대구 센텀로 45", is_active: false, operating_hours: null, max_work_hours_weekly: null, timezone: null, default_hourly_rate: null, created_at: "2025-08-20T11:00:00Z" },
 ];
 
 // ─── Shifts ───────────────────────────────────────────
@@ -121,11 +121,11 @@ export const mockStoreDetails: Record<string, StoreDetail> = {
 // ─── Users ────────────────────────────────────────────
 
 export const mockUsers: User[] = [
-  { id: USER_IDS[0], username: "admin", full_name: "Admin User", email: "admin@taskmanager.io", email_verified: true, phone: "010-1234-5678", role_name: "Owner", role_priority: 10, is_active: true, created_at: "2025-01-01T00:00:00Z" },
-  { id: USER_IDS[1], username: "manager01", full_name: "Kim Manager", email: "kim@taskmanager.io", email_verified: true, phone: "010-2345-6789", role_name: "GM", role_priority: 20, is_active: true, created_at: "2025-03-15T09:00:00Z" },
-  { id: USER_IDS[2], username: "staff01", full_name: "Lee Staff", email: "lee@taskmanager.io", email_verified: true, phone: "010-3456-7890", role_name: "Staff", role_priority: 40, is_active: true, created_at: "2025-04-01T09:00:00Z" },
-  { id: USER_IDS[3], username: "staff02", full_name: "Park Worker", email: null, email_verified: false, phone: "010-4567-8901", role_name: "Staff", role_priority: 40, is_active: true, created_at: "2025-05-10T09:00:00Z" },
-  { id: USER_IDS[4], username: "inactive01", full_name: "Choi Former", email: "choi@taskmanager.io", email_verified: false, phone: null, role_name: "Staff", role_priority: 40, is_active: false, created_at: "2025-02-20T09:00:00Z" },
+  { id: USER_IDS[0], username: "admin", full_name: "Admin User", email: "admin@taskmanager.io", email_verified: true, phone: "010-1234-5678", role_name: "Owner", role_priority: 10, is_active: true, hourly_rate: null, created_at: "2025-01-01T00:00:00Z" },
+  { id: USER_IDS[1], username: "manager01", full_name: "Kim Manager", email: "kim@taskmanager.io", email_verified: true, phone: "010-2345-6789", role_name: "GM", role_priority: 20, is_active: true, hourly_rate: 25, created_at: "2025-03-15T09:00:00Z" },
+  { id: USER_IDS[2], username: "staff01", full_name: "Lee Staff", email: "lee@taskmanager.io", email_verified: true, phone: "010-3456-7890", role_name: "Staff", role_priority: 40, is_active: true, hourly_rate: 15, created_at: "2025-04-01T09:00:00Z" },
+  { id: USER_IDS[3], username: "staff02", full_name: "Park Worker", email: null, email_verified: false, phone: "010-4567-8901", role_name: "Staff", role_priority: 40, is_active: true, hourly_rate: 12, created_at: "2025-05-10T09:00:00Z" },
+  { id: USER_IDS[4], username: "inactive01", full_name: "Choi Former", email: "choi@taskmanager.io", email_verified: false, phone: null, role_name: "Staff", role_priority: 40, is_active: false, hourly_rate: null, created_at: "2025-02-20T09:00:00Z" },
 ];
 
 /** 사용자별 소속 매장 (User store memberships) */

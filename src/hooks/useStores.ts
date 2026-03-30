@@ -94,6 +94,7 @@ interface UpdateStoreData {
   is_active?: boolean;
   max_work_hours_weekly?: number | null;
   timezone?: string | null;
+  default_hourly_rate?: number | null;
 }
 
 /**

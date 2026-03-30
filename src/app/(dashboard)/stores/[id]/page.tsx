@@ -83,7 +83,7 @@ import type {
 /* -------------------------------------------------------------------------- */
 
 /** 탭 이름 타입 / Tab name type */
-type TabName = "shifts-positions" | "work-roles" | "checklists" | "settings";
+type TabName = "shifts-positions" | "checklists" | "settings";
 
 /** 시프트/포지션 폼 데이터 / Shift/Position form data */
 interface ShiftPositionFormData {
@@ -167,7 +167,7 @@ function hasVerificationType(value: string, type: "photo" | "text"): boolean {
 
 const TAB_OPTIONS: { value: TabName; label: string }[] = [
   { value: "shifts-positions", label: "Shifts & Positions" },
-  { value: "work-roles", label: "Work Roles" },
+  // Work Roles moved to /schedules/settings
   { value: "checklists", label: "Checklists" },
   { value: "settings", label: "Settings" },
 ];
@@ -190,7 +190,7 @@ export default function StoreDetailPage(): React.ReactElement {
 
   /** 현재 활성 탭 (URL-persisted) / Currently active tab */
   const [urlParams, setUrlParams] = useUrlParams({ tab: "shifts-positions" });
-  const activeTab: TabName = (["shifts-positions", "work-roles", "checklists", "settings"] as TabName[]).includes(urlParams.tab as TabName)
+  const activeTab: TabName = (["shifts-positions", "checklists", "settings"] as TabName[]).includes(urlParams.tab as TabName)
     ? (urlParams.tab as TabName)
     : "shifts-positions";
   const setActiveTab = useCallback((tab: TabName) => setUrlParams({ tab }), [setUrlParams]);
@@ -293,6 +293,7 @@ export default function StoreDetailPage(): React.ReactElement {
   const updateStore = useUpdateStore();
   const [maxWorkHoursWeekly, setMaxWorkHoursWeekly] = useState<string>("");
   const [storeTimezone, setStoreTimezone] = useState<string>("");
+  const [storeDefaultHourlyRate, setStoreDefaultHourlyRate] = useState<string>("");
 
   /* ---- Settings: Shift Presets ------------------------------------------- */
   const { data: shiftPresets, isLoading: presetsLoading } = useShiftPresets(storeId);
@@ -311,11 +312,12 @@ export default function StoreDetailPage(): React.ReactElement {
   const upsertLaborLaw = useUpsertLaborLaw();
   const [laborForm, setLaborForm] = useState<LaborLawFormData>(INITIAL_LABOR_FORM);
 
-  /** 매장 데이터가 로드되면 maxWorkHoursWeekly 동기화 / Sync maxWorkHoursWeekly when store loads */
+  /** 매장 데이터가 로드되면 설정 동기화 / Sync settings when store data loads */
   useEffect(() => {
     if (store) {
       setMaxWorkHoursWeekly(store.max_work_hours_weekly?.toString() ?? "");
       setStoreTimezone(store.timezone ?? "");
+      setStoreDefaultHourlyRate(store.default_hourly_rate != null ? String(store.default_hourly_rate) : "");
     }
   }, [store]);
 
@@ -873,6 +875,22 @@ export default function StoreDetailPage(): React.ReactElement {
     }
   }, [storeTimezone, updateStore, storeId, toast]);
 
+  /** 매장 기본 시급 저장 / Save store default hourly rate */
+  const handleSaveDefaultHourlyRate = useCallback(async (): Promise<void> => {
+    const rateStr = storeDefaultHourlyRate.trim();
+    const val = rateStr === "" ? null : Number(rateStr);
+    if (val !== null && (isNaN(val) || val < 0)) {
+      toast({ type: "error", message: "Please enter a valid hourly rate." });
+      return;
+    }
+    try {
+      await updateStore.mutateAsync({ id: storeId, default_hourly_rate: val });
+      toast({ type: "success", message: "Default hourly rate updated!" });
+    } catch (err) {
+      toast({ type: "error", message: parseApiError(err, "Failed to update hourly rate.") });
+    }
+  }, [storeDefaultHourlyRate, updateStore, storeId, toast]);
+
   /** 시프트 프리셋 생성 / Create shift preset */
   const handleCreatePreset = useCallback(async (): Promise<void> => {
     if (!presetCreateForm.name.trim() || !presetCreateForm.shift_id || !presetCreateForm.start_time || !presetCreateForm.end_time) return;
@@ -1308,63 +1326,7 @@ export default function StoreDetailPage(): React.ReactElement {
         </div>
       )}
 
-      {/* ================================================================== */}
-      {/*  Work Roles Tab (embedded, links to full page)                     */}
-      {/* ================================================================== */}
-      {activeTab === "work-roles" && (
-        <div>
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-lg font-bold text-text">
-              Work Roles
-              <span className="text-sm font-normal text-text-muted ml-2">
-                ({(workRoles ?? []).length})
-              </span>
-            </h2>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => router.push(`/stores/${storeId}/work-roles`)}
-            >
-              <Settings size={14} />
-              Manage Work Roles
-            </Button>
-          </div>
-
-          {workRolesLoading ? (
-            <div className="flex justify-center py-12"><LoadingSpinner /></div>
-          ) : (workRoles ?? []).length === 0 ? (
-            <div className="text-center py-12 bg-card border-2 border-dashed border-border rounded-xl">
-              <p className="text-text-muted">No work roles configured yet.</p>
-              <p className="text-xs text-text-muted mt-1">Checklists with shift+position will auto-register as work roles.</p>
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {(workRoles ?? []).map((wr: WorkRole) => (
-                <div
-                  key={wr.id}
-                  className="bg-card border border-border rounded-xl p-3 flex items-center justify-between"
-                >
-                  <div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-sm font-semibold text-text">
-                        {wr.shift_name} · {wr.position_name}
-                      </span>
-                      {!wr.is_active && <Badge variant="default">Inactive</Badge>}
-                    </div>
-                    <div className="text-xs text-text-muted mt-0.5">
-                      {wr.default_start_time && wr.default_end_time
-                        ? `${wr.default_start_time}–${wr.default_end_time}`
-                        : "No default time"
-                      }
-                      {" · "}Headcount: {wr.required_headcount}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
+      {/* Work Roles tab moved to /schedules/settings */}
 
       {/* ================================================================== */}
       {/*  Checklists Tab                                                    */}
@@ -1959,7 +1921,40 @@ export default function StoreDetailPage(): React.ReactElement {
             </div>
           </div>
 
-          {/* ---- Section 2: Timezone ---- */}
+          {/* ---- Section 2: Default Hourly Rate ---- */}
+          <div className="bg-card border border-border rounded-xl p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Scale className="h-5 w-5 text-accent" />
+              <h2 className="text-lg font-bold text-text">Default Hourly Rate</h2>
+            </div>
+            <div className="max-w-sm space-y-4">
+              <Input
+                label="Default Hourly Rate ($/hr)"
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="e.g. 15.00 — leave blank to use org default"
+                value={storeDefaultHourlyRate}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setStoreDefaultHourlyRate(e.target.value)
+                }
+                disabled={!canUpdateSettings}
+              />
+              <div className="flex justify-end">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleSaveDefaultHourlyRate}
+                  isLoading={updateStore.isPending}
+                  disabled={!canUpdateSettings}
+                >
+                  Save
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* ---- Section 3: Timezone ---- */}
           <div className="bg-card border border-border rounded-xl p-6">
             <div className="flex items-center gap-2 mb-4">
               <Globe className="h-5 w-5 text-accent" />

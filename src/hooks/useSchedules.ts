@@ -87,3 +87,36 @@ export const useGenerateFromRequests = (): UseMutationResult<Schedule[], Error, 
     onSuccess: () => { qc.invalidateQueries({ queryKey: ["schedules"] }); },
   });
 };
+
+export const useConfirmSchedule = (): UseMutationResult<Schedule, Error, string> => {
+  const qc = useQueryClient();
+  return useMutation<Schedule, Error, string>({
+    mutationFn: async (id) => {
+      const res: AxiosResponse<Schedule> = await api.post(`/admin/schedules/${id}/confirm`);
+      return res.data;
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["schedules"] }); },
+  });
+};
+
+export const useRejectSchedule = (): UseMutationResult<Schedule, Error, { id: string; reason?: string }> => {
+  const qc = useQueryClient();
+  return useMutation<Schedule, Error, { id: string; reason?: string }>({
+    mutationFn: async ({ id, reason }) => {
+      const res: AxiosResponse<Schedule> = await api.post(`/admin/schedules/${id}/reject`, reason ? { reason } : undefined);
+      return res.data;
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["schedules"] }); },
+  });
+};
+
+export const useBulkConfirmSchedules = (): UseMutationResult<{ confirmed: number; errors: string[] }, Error, { store_id: string; date_from: string; date_to: string }> => {
+  const qc = useQueryClient();
+  return useMutation<{ confirmed: number; errors: string[] }, Error, { store_id: string; date_from: string; date_to: string }>({
+    mutationFn: async (params) => {
+      const res: AxiosResponse<{ confirmed: number; errors: string[] }> = await api.post("/admin/schedules/bulk-confirm", params);
+      return res.data;
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["schedules"] }); },
+  });
+};

@@ -60,12 +60,20 @@ const navItems: NavItem[] = [
     icon: CalendarClock,
     children: [
       { href: "/schedules", label: "Overview", icon: CalendarRange },
-      { href: "/schedules/manage", label: "Manage", icon: ClipboardList },
-      { href: "/schedules/log", label: "Log", icon: FileSearch },
+      { href: "/schedules/settings", label: "Settings", icon: Settings },
       { href: "/attendances", label: "Attendance", icon: Clock },
     ],
   },
-  { href: "/checklists", label: "Checklists", icon: CheckSquare },
+  {
+    href: "/checklists/progress",
+    label: "Checklists",
+    icon: CheckSquare,
+    children: [
+      { href: "/checklists/progress", label: "Progress & Review", icon: ClipboardCheck },
+      { href: "/checklists", label: "Templates", icon: ClipboardList },
+      // { href: "/checklists/log", label: "Log", icon: FileSearch }, // TODO: Log 기능 정비 후 재활성화
+    ],
+  },
   { href: "/tasks", label: "Tasks", icon: Zap },
   { href: "/announcements", label: "Notices", icon: Megaphone },
   { href: "/evaluations", label: "Evaluations", icon: Star },
@@ -163,7 +171,7 @@ export function Sidebar({ onNavClick }: { onNavClick?: () => void }) {
   }, [pathname]);
 
   const resolveChildHref = (href: string): string => {
-    if (href === "/schedules/log") return `/schedules/log?from=${currentWeek.from}&to=${currentWeek.to}`;
+    if (href === "/checklists/log") return `/checklists/log?from=${currentWeek.from}&to=${currentWeek.to}`;
     if (href === "/attendances") return `/attendances?from=${currentWeek.from}&to=${currentWeek.to}`;
     // Dynamic store-scoped links — substitute storeId if available
     if (href.includes("__storeId__")) {
@@ -181,6 +189,12 @@ export function Sidebar({ onNavClick }: { onNavClick?: () => void }) {
       return pathname.startsWith(resolved);
     }
     if (child.href === parentHref) return pathname === child.href;
+    // Exact match for leaf paths to avoid "/checklists" matching "/checklists/progress"
+    const siblings = navItems.find((n) => n.href === parentHref || n.children?.some((c) => c.href === child.href))?.children ?? [];
+    const moreSpecificSibling = siblings.some(
+      (s) => s.href !== child.href && s.href.startsWith(child.href) && pathname.startsWith(s.href),
+    );
+    if (moreSpecificSibling) return false;
     return pathname.startsWith(child.href);
   };
 

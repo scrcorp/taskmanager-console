@@ -26,6 +26,7 @@ export const useOrganization = (): UseQueryResult<Organization, Error> => {
 interface UpdateOrganizationData {
   name?: string;
   timezone?: string;
+  default_hourly_rate?: number | null;
 }
 
 /** 현재 조직 수정 훅 — PUT /admin/organizations/me */
