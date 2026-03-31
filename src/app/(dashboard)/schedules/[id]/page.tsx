@@ -1,22 +1,20 @@
 "use client";
 
 /**
- * 스케줄 상세 페이지 -- 스케줄 정보와 체크리스트 상세 (리뷰 모드 포함)를 표시합니다.
+ * 스케줄 상세 페이지 -- 스케줄 정보를 표시합니다.
+ * 체크리스트 리뷰는 /checklists/progress 에서 진행.
  *
- * Schedule detail page showing schedule info and checklist detail
- * with review mode support.
+ * Schedule detail page showing schedule info.
+ * Checklist review moved to /checklists/progress.
  */
 
 import React, { useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ChevronLeft, Trash2, Clock, Calendar, MapPin, User, Briefcase } from "lucide-react";
 import { useSchedule, useDeleteSchedule } from "@/hooks/useSchedules";
-import { useChecklistInstanceBySchedule } from "@/hooks/useChecklistInstances";
 import { Button, Card, Badge, LoadingSpinner, EmptyState, ConfirmDialog } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
 import { formatFixedDate, parseApiError } from "@/lib/utils";
-import { ChecklistInstanceDetail } from "@/components/checklists/ChecklistInstanceDetail";
-import { useTimezone } from "@/hooks/useTimezone";
 
 const statusBadgeVariant: Record<string, "default" | "success" | "danger"> = {
   confirmed: "success",
@@ -31,11 +29,9 @@ export default function ScheduleDetailPage(): React.ReactElement {
   const params = useParams();
   const router = useRouter();
   const { toast } = useToast();
-  const tz = useTimezone();
 
   const scheduleId: string = params.id as string;
   const { data: schedule, isLoading } = useSchedule(scheduleId);
-  const { data: instance, isLoading: isInstanceLoading } = useChecklistInstanceBySchedule(scheduleId);
   const deleteSchedule = useDeleteSchedule();
 
   const [isDeleteOpen, setIsDeleteOpen] = useState(false);
@@ -88,11 +84,6 @@ export default function ScheduleDetailPage(): React.ReactElement {
   const workHours = schedule.net_work_minutes > 0
     ? `${Math.floor(schedule.net_work_minutes / 60)}h ${schedule.net_work_minutes % 60}m`
     : "-";
-
-  // Checklist progress from instance
-  const totalItems = instance?.total_items ?? 0;
-  const completedItems = instance?.completed_items ?? 0;
-  const percentage = totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0;
 
   return (
     <div>
@@ -181,33 +172,7 @@ export default function ScheduleDetailPage(): React.ReactElement {
           </div>
         )}
 
-        {/* Checklist Progress */}
-        {totalItems > 0 && (
-          <div className="mt-4 pt-4 border-t border-border">
-            <p className="text-xs text-text-muted mb-2">Checklist Progress</p>
-            <div className="flex items-center gap-3">
-              <div className="flex-1 h-2 bg-surface rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-accent rounded-full transition-all"
-                  style={{ width: `${percentage}%` }}
-                />
-              </div>
-              <span className="text-sm font-medium text-text">
-                {completedItems}/{totalItems} ({percentage}%)
-              </span>
-            </div>
-          </div>
-        )}
       </Card>
-
-      {/* Checklist with review mode */}
-      {instance && <ChecklistInstanceDetail instance={instance} timezone={tz} />}
-
-      {!instance && !isLoading && !isInstanceLoading && (
-        <Card>
-          <EmptyState message="No checklist assigned to this schedule." />
-        </Card>
-      )}
 
       <ConfirmDialog
         isOpen={isDeleteOpen}

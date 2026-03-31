@@ -36,6 +36,7 @@ export interface Organization {
   code: string;
   is_active: boolean;
   timezone: string;
+  default_hourly_rate: number;
   created_at: string;
 }
 
@@ -50,6 +51,7 @@ export interface Store {
   day_start_time: Record<string, string> | null;
   max_work_hours_weekly: number | null;
   timezone: string | null;
+  default_hourly_rate: number | null;
   created_at: string;
 }
 
@@ -143,6 +145,7 @@ export interface User {
   phone: string | null;
   role_name: string;
   role_priority: number;
+  hourly_rate: number | null;
   is_active: boolean;
   created_at: string;
 }
@@ -250,6 +253,7 @@ export interface StoreUpdate {
   is_active?: boolean;
   max_work_hours_weekly?: number | null;
   timezone?: string | null;
+  default_hourly_rate?: number | null;
 }
 
 /** 역할 생성 요청 타입.
@@ -285,6 +289,7 @@ export interface UserUpdate {
   phone?: string | null;
   role_id?: string;
   is_active?: boolean;
+  hourly_rate?: number | null;
 }
 
 /** 시간대 생성 요청 타입.
@@ -761,7 +766,8 @@ export interface WorkRole {
   default_end_time: string | null;
   break_start_time: string | null;
   break_end_time: string | null;
-  required_headcount: number;
+  headcount: Record<string, number>; // {"all": 1, "sun": 1, "mon": 1, ...}
+  use_per_day_headcount: boolean;
   default_checklist_id: string | null;
   is_active: boolean;
   sort_order: number;
@@ -777,7 +783,8 @@ export interface WorkRoleCreate {
   default_end_time?: string | null;
   break_start_time?: string | null;
   break_end_time?: string | null;
-  required_headcount?: number;
+  headcount?: Record<string, number> | null; // {"all": 1, "sun": 1, "mon": 1, ...}
+  use_per_day_headcount?: boolean;
   default_checklist_id?: string | null;
   is_active?: boolean;
   sort_order?: number;
@@ -789,7 +796,8 @@ export interface WorkRoleUpdate {
   default_end_time?: string | null;
   break_start_time?: string | null;
   break_end_time?: string | null;
-  required_headcount?: number;
+  headcount?: Record<string, number> | null; // {"all": 1, "sun": 1, "mon": 1, ...}
+  use_per_day_headcount?: boolean;
   default_checklist_id?: string | null;
   is_active?: boolean;
   sort_order?: number;
@@ -859,6 +867,7 @@ export interface ScheduleRequestItem {
   break_end_time: string | null;
   note: string | null;
   status: "submitted" | "accepted" | "modified" | "rejected";
+  hourly_rate: number;
   submitted_at: string;
   created_at: string;
   // Original value tracking (admin modification)
@@ -932,7 +941,12 @@ export interface Schedule {
   break_start_time: string | null;
   break_end_time: string | null;
   net_work_minutes: number;
-  status: "confirmed" | "cancelled";
+  /** Effective hourly rate for labor cost calculation (org → store → user → schedule override cascade) */
+  hourly_rate: number;
+  status: "requested" | "confirmed" | "rejected" | "cancelled";
+  submitted_at: string | null;
+  is_modified: boolean;
+  rejection_reason: string | null;
   created_by: string | null;
   approved_by: string | null;
   note: string | null;
@@ -950,6 +964,8 @@ export interface ScheduleCreate {
   end_time: string;
   break_start_time?: string | null;
   break_end_time?: string | null;
+  /** Override the auto-calculated hourly rate. Omit to use org/store/user cascade. */
+  hourly_rate?: number | null;
   note?: string | null;
   force?: boolean;
 }
@@ -975,6 +991,8 @@ export interface ScheduleUpdate {
   end_time?: string | null;
   break_start_time?: string | null;
   break_end_time?: string | null;
+  /** Override the auto-calculated hourly rate. Omit to use org/store/user cascade. */
+  hourly_rate?: number | null;
   note?: string | null;
   force?: boolean;
 }

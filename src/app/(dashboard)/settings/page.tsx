@@ -12,6 +12,7 @@ import { Building2, Lock } from "lucide-react";
 import { useOrganization, useUpdateOrganization } from "@/hooks";
 import { useAuthStore } from "@/stores/authStore";
 import { Button } from "@/components/ui/Button";
+import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useToast } from "@/components/ui/Toast";
@@ -29,10 +30,12 @@ export default function SettingsPage(): React.ReactElement {
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
 
   const [timezone, setTimezone] = useState<string>("");
+  const [defaultHourlyRate, setDefaultHourlyRate] = useState<string>("");
 
   useEffect(() => {
     if (org) {
       setTimezone(org.timezone || "");
+      setDefaultHourlyRate(org.default_hourly_rate > 0 ? String(org.default_hourly_rate) : "");
     }
   }, [org]);
 
@@ -41,11 +44,17 @@ export default function SettingsPage(): React.ReactElement {
       toast({ type: "error", message: "Please select a timezone." });
       return;
     }
+    const rateStr = defaultHourlyRate.trim();
+    const rateVal = rateStr === "" ? null : Number(rateStr);
+    if (rateVal !== null && (isNaN(rateVal) || rateVal < 0)) {
+      toast({ type: "error", message: "Default hourly rate must be a positive number." });
+      return;
+    }
     try {
-      await updateOrg.mutateAsync({ timezone });
-      toast({ type: "success", message: "Organization timezone updated!" });
+      await updateOrg.mutateAsync({ timezone, default_hourly_rate: rateVal });
+      toast({ type: "success", message: "Organization settings updated!" });
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to update timezone.") });
+      toast({ type: "error", message: parseApiError(err, "Failed to update settings.") });
     }
   };
 
@@ -86,6 +95,18 @@ export default function SettingsPage(): React.ReactElement {
             }
             options={TIMEZONE_OPTIONS}
             placeholder="Select timezone"
+          />
+
+          <Input
+            label="Default Hourly Rate (optional)"
+            type="number"
+            min="0"
+            step="0.01"
+            placeholder="e.g. 15.00"
+            value={defaultHourlyRate}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setDefaultHourlyRate(e.target.value)
+            }
           />
 
           <div className="flex justify-end pt-2">

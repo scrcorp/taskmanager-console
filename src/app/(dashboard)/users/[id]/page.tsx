@@ -49,6 +49,8 @@ interface UserEditFormData {
   email: string;
   phone: string;
   role_id: string;
+  /** 개인 시급 — 빈 문자열이면 변경 없음 / Personal hourly rate — empty string means no change */
+  hourly_rate: string;
 }
 
 /** 매장 배정 체크박스 상태 */
@@ -61,11 +63,19 @@ interface StoreCheckState {
 /*  Constants                                                                 */
 /* -------------------------------------------------------------------------- */
 
+function getRoleBadgeVariant(roleName: string): "accent" | "warning" | "default" {
+  const name = roleName.toLowerCase();
+  if (name.includes("admin") || name.includes("super") || name.includes("owner")) return "accent";
+  if (name.includes("manager") || name === "gm") return "warning";
+  return "default";
+}
+
 const INITIAL_EDIT_FORM: UserEditFormData = {
   full_name: "",
   email: "",
   phone: "",
   role_id: "",
+  hourly_rate: "",
 };
 
 /* -------------------------------------------------------------------------- */
@@ -183,6 +193,7 @@ export default function UserDetailPage(): React.ReactElement {
       email: user.email || "",
       phone: user.phone || "",
       role_id: "",
+      hourly_rate: user.hourly_rate != null ? String(user.hourly_rate) : "",
     });
     setIsEditOpen(true);
   }, [user]);
@@ -203,6 +214,17 @@ export default function UserDetailPage(): React.ReactElement {
   /** 사용자 수정 저장 / Save user edits */
   const handleUpdate = useCallback(async (): Promise<void> => {
     if (!editForm.full_name.trim()) return;
+
+    // Parse hourly_rate — empty string = no change (keep existing), explicit value = override
+    const hourlyRateStr = editForm.hourly_rate.trim();
+    const hourlyRateVal = hourlyRateStr === "" ? undefined
+      : hourlyRateStr === "0" ? null
+      : Number(hourlyRateStr);
+    if (hourlyRateVal !== undefined && hourlyRateVal !== null && isNaN(hourlyRateVal)) {
+      toast({ type: "error", message: "Hourly rate must be a valid number." });
+      return;
+    }
+
     try {
       const payload: {
         id: string;
@@ -210,6 +232,7 @@ export default function UserDetailPage(): React.ReactElement {
         email?: string;
         phone?: string;
         role_id?: string;
+        hourly_rate?: number | null;
       } = {
         id: userId,
         full_name: editForm.full_name.trim(),
@@ -218,6 +241,9 @@ export default function UserDetailPage(): React.ReactElement {
       };
       if (editForm.role_id) {
         payload.role_id = editForm.role_id;
+      }
+      if (hourlyRateVal !== undefined) {
+        payload.hourly_rate = hourlyRateVal;
       }
       await updateUser.mutateAsync(payload);
       toast({ type: "success", message: "Staff member updated successfully!" });
@@ -334,15 +360,7 @@ export default function UserDetailPage(): React.ReactElement {
   }, [serverCheckState]);
 
   /** 역할 뱃지 변형 결정 / Determine role badge variant */
-  const getRoleBadgeVariant = useCallback(
-    (roleName: string): "accent" | "warning" | "default" => {
-      const name: string = roleName.toLowerCase();
-      if (name.includes("admin") || name.includes("super")) return "accent";
-      if (name.includes("manager")) return "warning";
-      return "default";
-    },
-    [],
-  );
+  // getRoleBadgeVariant moved to module scope for sub-component access
 
   /* ======================================================================== */
   /*  Loading & Error States                                                  */
@@ -454,7 +472,7 @@ export default function UserDetailPage(): React.ReactElement {
             <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
               <Button variant="secondary" size="sm" onClick={handleOpenEdit}>
                 <Edit className="h-4 w-4" />
-                Edit
+                Edit Profile
               </Button>
               <Button
                 variant="ghost"
@@ -476,6 +494,46 @@ export default function UserDetailPage(): React.ReactElement {
               </Button>
             </div>
           )}
+        </div>
+      </div>
+
+      {/* Role & Pay — two separate cards side by side */}
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+        {/* Role Card */}
+        <div className="bg-card border border-border rounded-xl p-5">
+          <RoleEditor
+            currentRoleName={user.role_name}
+            roleList={roleList}
+            myPriority={myPriority}
+            canEdit={canManageUsers}
+            onSave={async (roleId) => {
+              try {
+                await updateUser.mutateAsync({ id: userId, role_id: roleId });
+                toast({ type: "success", message: "Role updated." });
+              } catch (err) {
+                toast({ type: "error", message: parseApiError(err, "Failed to change role.") });
+              }
+            }}
+            isSaving={updateUser.isPending}
+          />
+        </div>
+
+        {/* Hourly Rate Card */}
+        <div className="bg-card border border-border rounded-xl p-5">
+          <h3 className="text-sm font-bold text-text mb-3">Hourly Rate</h3>
+          <HourlyRateEditor
+            value={user.hourly_rate}
+            canEdit={canManageUsers}
+            onSave={async (rate) => {
+              try {
+                await updateUser.mutateAsync({ id: userId, hourly_rate: rate });
+                toast({ type: "success", message: "Hourly rate updated." });
+              } catch (err) {
+                toast({ type: "error", message: parseApiError(err, "Failed to update hourly rate.") });
+              }
+            }}
+            isSaving={updateUser.isPending}
+          />
         </div>
       </div>
 
@@ -693,23 +751,6 @@ export default function UserDetailPage(): React.ReactElement {
               }))
             }
           />
-          <Select
-            label="Role (optional - leave empty to keep current)"
-            options={[
-              { value: "", label: "Keep current role" },
-              ...roleList.map((role: Role) => ({
-                value: role.id,
-                label: role.name,
-              })),
-            ]}
-            value={editForm.role_id}
-            onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-              setEditForm((prev: UserEditFormData) => ({
-                ...prev,
-                role_id: e.target.value,
-              }))
-            }
-          />
           <div className="flex justify-end gap-2 pt-2">
             <Button
               variant="secondary"
@@ -800,6 +841,178 @@ export default function UserDetailPage(): React.ReactElement {
           </div>
         </Modal>
       )}
+    </div>
+  );
+}
+
+// ─── Sub-components ─────────────────────────────────────────────────────────
+
+interface HourlyRateEditorProps {
+  value: number | null;
+  canEdit: boolean;
+  onSave: (rate: number | null) => Promise<void>;
+  isSaving: boolean;
+}
+
+// ─── Role Editor ────────────────────────────────────────────────────────────
+
+interface RoleEditorProps {
+  currentRoleName: string;
+  roleList: Role[];
+  myPriority: number;
+  canEdit: boolean;
+  onSave: (roleId: string) => Promise<void>;
+  isSaving: boolean;
+}
+
+function RoleEditor({ currentRoleName, roleList, myPriority, canEdit, onSave, isSaving }: RoleEditorProps): React.ReactElement {
+  const [isEditing, setIsEditing] = useState(false);
+  const [selectedRoleId, setSelectedRoleId] = useState("");
+
+  const availableRoles = roleList
+    .filter((r: Role) => r.priority > myPriority)
+    .sort((a: Role, b: Role) => a.priority - b.priority);
+
+  const currentRole = roleList.find((r: Role) => r.name === currentRoleName);
+
+  if (!canEdit) {
+    return (
+      <>
+        <h3 className="text-sm font-bold text-text mb-3">Role</h3>
+        <Badge variant={getRoleBadgeVariant(currentRoleName)}>{currentRoleName}</Badge>
+      </>
+    );
+  }
+
+  if (!isEditing) {
+    return (
+      <>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-bold text-text">Role</h3>
+          <button
+            type="button"
+            onClick={() => { setSelectedRoleId(currentRole?.id ?? ""); setIsEditing(true); }}
+            className="text-xs text-accent hover:text-accent-light font-medium transition-colors"
+          >
+            Edit
+          </button>
+        </div>
+        <Badge variant={getRoleBadgeVariant(currentRoleName)}>{currentRoleName}</Badge>
+      </>
+    );
+  }
+
+  return (
+    <>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-bold text-text">Role</h3>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            disabled={isSaving || !selectedRoleId || selectedRoleId === currentRole?.id}
+            onClick={async () => {
+              if (!selectedRoleId || selectedRoleId === currentRole?.id) return;
+              await onSave(selectedRoleId);
+              setIsEditing(false);
+            }}
+            className="text-xs text-accent hover:text-accent-light font-semibold transition-colors disabled:opacity-50"
+          >
+            {isSaving ? "Saving..." : "Save"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsEditing(false)}
+            className="text-xs text-text-muted hover:text-text font-medium transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+      <div className="flex gap-1.5 flex-wrap">
+        {availableRoles.map((r: Role) => (
+          <button
+            key={r.id}
+            type="button"
+            onClick={() => setSelectedRoleId(r.id)}
+            disabled={isSaving}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              selectedRoleId === r.id
+                ? "bg-accent text-white"
+                : r.name === currentRoleName
+                ? "bg-accent/30 text-accent border border-accent/50"
+                : "bg-surface text-text-secondary hover:text-text hover:bg-surface-hover"
+            }`}
+          >
+            {r.name}
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
+// ─── Hourly Rate Editor ─────────────────────────────────────────────────────
+
+function HourlyRateEditor({ value, canEdit, onSave, isSaving }: HourlyRateEditorProps): React.ReactElement {
+  const [isEditing, setIsEditing] = useState(false);
+  const [inputVal, setInputVal] = useState("");
+
+  const displayRate = value != null ? `$${value.toFixed(2)}/hr` : "Not set";
+
+  if (!canEdit) {
+    return <span className="text-sm text-text-secondary">{displayRate}</span>;
+  }
+
+  if (!isEditing) {
+    return (
+      <div className="flex items-center gap-3">
+        <span className="text-lg font-bold text-text">{displayRate}</span>
+        <button
+          type="button"
+          onClick={() => { setInputVal(value != null ? String(value) : ""); setIsEditing(true); }}
+          className="text-xs text-accent hover:text-accent-light font-medium transition-colors"
+        >
+          Edit
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-2">
+      <div className="relative">
+        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted text-sm select-none">$</span>
+        <input
+          type="number"
+          min="0"
+          step="0.01"
+          value={inputVal}
+          onChange={(e) => setInputVal(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
+          className="w-28 rounded-lg border border-border bg-surface pl-6 pr-2 py-1.5 text-sm text-text focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-colors duration-150"
+          autoFocus
+        />
+      </div>
+      <button
+        type="button"
+        disabled={isSaving}
+        onClick={async () => {
+          const num = inputVal.trim() === "" ? null : Number(inputVal);
+          if (num !== null && (isNaN(num) || num < 0)) return;
+          await onSave(num);
+          setIsEditing(false);
+        }}
+        className="text-xs text-accent hover:text-accent-light font-semibold transition-colors disabled:opacity-50"
+      >
+        {isSaving ? "Saving..." : "Save"}
+      </button>
+      <button
+        type="button"
+        onClick={() => setIsEditing(false)}
+        className="text-xs text-text-muted hover:text-text font-medium transition-colors"
+      >
+        Cancel
+      </button>
     </div>
   );
 }

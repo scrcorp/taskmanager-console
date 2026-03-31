@@ -24,6 +24,11 @@
   --color-text-muted: #94A3B8;
 
   --font-sans: "DM Sans", "Pretendard", system-ui, sans-serif;
+
+  /* Opaque summary row backgrounds (light) */
+  --color-summary-warning: #FDF8EE;
+  --color-summary-accent: #F3F1FC;
+  --color-summary-success: #EDF9F5;
 }
 
 /* Dark mode overrides */
@@ -45,6 +50,11 @@
   --color-text: #E8E8EF;
   --color-text-secondary: #8B8DA3;
   --color-text-muted: #5A5C6F;
+
+  /* Opaque summary row backgrounds (dark) */
+  --color-summary-warning: #23221D;
+  --color-summary-accent: #201F34;
+  --color-summary-success: #1D2328;
 }
 
 html {
