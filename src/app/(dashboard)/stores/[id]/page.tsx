@@ -1394,7 +1394,7 @@ export default function StoreDetailPage(): React.ReactElement {
                         ? `${wr.default_start_time}–${wr.default_end_time}`
                         : "No default time"
                       }
-                      {" · "}Headcount: {wr.required_headcount}
+                      {" · "}Headcount: {wr.headcount?.all ?? 0}
                     </div>
                   </div>
                 </div>

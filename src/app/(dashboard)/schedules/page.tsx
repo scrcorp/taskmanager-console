@@ -689,7 +689,7 @@ function DayView({
           (s) => s.work_role_id === role.id,
         );
         const filled = roleSchedules.length;
-        const hc = role.required_headcount;
+        const hc = role.headcount?.all ?? 0;
         const hcVariant = filled < hc ? "danger" : filled === hc ? "success" : "warning";
 
         return (
@@ -798,7 +798,7 @@ function WeekView({
                   {role.shift_name} · {role.position_name}
                 </div>
                 <div className="text-[10px] text-text-muted">
-                  {role.default_start_time}–{role.default_end_time} · {role.required_headcount}명
+                  {role.default_start_time}–{role.default_end_time} · {role.headcount?.all ?? 0}명
                 </div>
                 {role.default_checklist_id && (
                   <span className="px-1 py-0.5 bg-accent-muted text-accent text-[9px] rounded font-medium">
@@ -812,9 +812,9 @@ function WeekView({
                 );
                 const filled = cellSchedules.length;
                 const hcCls =
-                  filled < role.required_headcount
+                  filled < (role.headcount?.all ?? 0)
                     ? "text-danger"
-                    : filled === role.required_headcount
+                    : filled === (role.headcount?.all ?? 0)
                       ? "text-success"
                       : "text-warning";
 
@@ -848,9 +848,9 @@ function WeekView({
                           </button>
                         );
                       })}
-                      {role.required_headcount > 0 && (
+                      {(role.headcount?.all ?? 0) > 0 && (
                         <div className={cn("text-[10px] font-medium text-center", hcCls)}>
-                          {filled}/{role.required_headcount}
+                          {filled}/{(role.headcount?.all ?? 0)}
                         </div>
                       )}
                     </div>

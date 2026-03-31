@@ -1080,14 +1080,14 @@ function RoleGrid({ roles, items, weekDays, todayStr, canEdit, onChipClick, onAd
               <td className="px-3 py-2 align-top">
                 <div className="text-xs font-semibold text-text">{role.shift_name} · {role.position_name}</div>
                 <div className="text-[10px] text-text-muted">
-                  {role.default_start_time}–{role.default_end_time} · {role.required_headcount}p
+                  {role.default_start_time}–{role.default_end_time} · {role.headcount?.all ?? 0}p
                 </div>
               </td>
               {weekDays.map((ds) => {
                 const cellItems = sortGridItems(items.filter((e) => e.work_date === ds && e.work_role_id === role.id));
                 const nonCancelled = cellItems.filter((e) => e.status !== "cancelled" && e.status !== "req_rejected");
                 const filled = nonCancelled.length;
-                const hc = role.required_headcount;
+                const hc = (role.headcount?.all ?? 0);
                 const hcCls = filled < hc ? "text-danger" : filled === hc ? "text-success" : "text-warning";
 
                 return (
