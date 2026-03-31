@@ -21,6 +21,7 @@ import {
   Globe,
   Settings,
   Scale,
+  Sunrise,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useStore, useUpdateStore } from "@/hooks/useStores";
@@ -295,6 +296,15 @@ export default function StoreDetailPage(): React.ReactElement {
   const [storeTimezone, setStoreTimezone] = useState<string>("");
   const [storeDefaultHourlyRate, setStoreDefaultHourlyRate] = useState<string>("");
 
+  /* ---- Settings: Day Start Time ----------------------------------------- */
+  const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
+  const WEEKDAY_LABELS: Record<string, string> = { mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun" };
+  const [dayStartMode, setDayStartMode] = useState<"all" | "per_day">("all");
+  const [dayStartAll, setDayStartAll] = useState<string>("06:00");
+  const [dayStartPerDay, setDayStartPerDay] = useState<Record<string, string>>({
+    mon: "06:00", tue: "06:00", wed: "06:00", thu: "06:00", fri: "06:00", sat: "06:00", sun: "06:00",
+  });
+
   /* ---- Settings: Shift Presets ------------------------------------------- */
   const { data: shiftPresets, isLoading: presetsLoading } = useShiftPresets(storeId);
   const createPreset = useCreateShiftPreset();
@@ -312,12 +322,28 @@ export default function StoreDetailPage(): React.ReactElement {
   const upsertLaborLaw = useUpsertLaborLaw();
   const [laborForm, setLaborForm] = useState<LaborLawFormData>(INITIAL_LABOR_FORM);
 
-  /** 매장 데이터가 로드되면 설정 동기화 / Sync settings when store data loads */
+  /** 매장 데이터가 로드되면 settings 동기화 / Sync settings when store loads */
   useEffect(() => {
     if (store) {
       setMaxWorkHoursWeekly(store.max_work_hours_weekly?.toString() ?? "");
       setStoreTimezone(store.timezone ?? "");
       setStoreDefaultHourlyRate(store.default_hourly_rate != null ? String(store.default_hourly_rate) : "");
+      // day_start_time sync
+      const dst = store.day_start_time;
+      if (dst) {
+        if (dst.all && Object.keys(dst).length === 1) {
+          setDayStartMode("all");
+          setDayStartAll(dst.all);
+        } else {
+          setDayStartMode("per_day");
+          const merged: Record<string, string> = { mon: "06:00", tue: "06:00", wed: "06:00", thu: "06:00", fri: "06:00", sat: "06:00", sun: "06:00" };
+          for (const key of Object.keys(merged)) {
+            if (dst[key]) merged[key] = dst[key];
+          }
+          setDayStartPerDay(merged);
+          if (dst.all) setDayStartAll(dst.all);
+        }
+      }
     }
   }, [store]);
 
@@ -890,6 +916,18 @@ export default function StoreDetailPage(): React.ReactElement {
       toast({ type: "error", message: parseApiError(err, "Failed to update hourly rate.") });
     }
   }, [storeDefaultHourlyRate, updateStore, storeId, toast]);
+
+  /** 영업일 경계 시각 저장 / Save day start time */
+  const handleSaveDayStartTime = useCallback(async (): Promise<void> => {
+    const payload: Record<string, string> =
+      dayStartMode === "all" ? { all: dayStartAll } : { ...dayStartPerDay };
+    try {
+      await updateStore.mutateAsync({ id: storeId, day_start_time: payload });
+      toast({ type: "success", message: "Day start time updated!" });
+    } catch (err) {
+      toast({ type: "error", message: parseApiError(err, "Failed to update day start time.") });
+    }
+  }, [dayStartMode, dayStartAll, dayStartPerDay, updateStore, storeId, toast]);
 
   /** 시프트 프리셋 생성 / Create shift preset */
   const handleCreatePreset = useCallback(async (): Promise<void> => {
@@ -1985,7 +2023,90 @@ export default function StoreDetailPage(): React.ReactElement {
             </div>
           </div>
 
-          {/* ---- Section 3: Shift Presets ---- */}
+          {/* ---- Section 4: Day Start Time ---- */}
+          <div className="bg-card border border-border rounded-xl p-6">
+            <div className="flex items-center gap-2 mb-1">
+              <Sunrise className="h-5 w-5 text-accent" />
+              <h2 className="text-lg font-bold text-text">Day Start Time</h2>
+            </div>
+            <p className="text-xs text-text-muted mb-4">
+              This is NOT the store&apos;s operating hours. It defines the boundary time for employee work days.
+              A shift that starts before this time will be counted as the previous work day.
+              Default: 06:00.
+            </p>
+
+            <div className="space-y-4">
+              {/* Mode toggle */}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDayStartMode("all")}
+                  className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
+                    dayStartMode === "all"
+                      ? "bg-accent text-white border-accent"
+                      : "bg-surface border-border text-text-secondary hover:bg-surface-hover"
+                  }`}
+                >
+                  Same for all days
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDayStartMode("per_day")}
+                  className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
+                    dayStartMode === "per_day"
+                      ? "bg-accent text-white border-accent"
+                      : "bg-surface border-border text-text-secondary hover:bg-surface-hover"
+                  }`}
+                >
+                  Per day
+                </button>
+              </div>
+
+              {dayStartMode === "all" ? (
+                <div className="max-w-xs">
+                  <label className="text-xs text-text-muted font-medium">Start Time (All Days)</label>
+                  <input
+                    type="time"
+                    value={dayStartAll}
+                    onChange={(e) => setDayStartAll(e.target.value)}
+                    disabled={!canUpdateSettings}
+                    className="w-full mt-1 bg-surface border border-border rounded-lg px-3 py-1.5 text-sm text-text disabled:opacity-50"
+                  />
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+                  {WEEKDAYS.map((day) => (
+                    <div key={day}>
+                      <label className="text-xs text-text-muted font-medium">{WEEKDAY_LABELS[day]}</label>
+                      <input
+                        type="time"
+                        value={dayStartPerDay[day]}
+                        onChange={(e) =>
+                          setDayStartPerDay((prev) => ({ ...prev, [day]: e.target.value }))
+                        }
+                        disabled={!canUpdateSettings}
+                        className="w-full mt-1 bg-surface border border-border rounded-lg px-3 py-1.5 text-sm text-text disabled:opacity-50"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex justify-end">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleSaveDayStartTime}
+                  isLoading={updateStore.isPending}
+                  disabled={!canUpdateSettings}
+                >
+                  Save
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* ---- Section 5: Shift Presets ---- */}
           <div className="bg-card border border-border rounded-xl p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
