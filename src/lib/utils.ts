@@ -139,6 +139,73 @@ export function todayInTimezone(timezone?: string): string {
   return parts; // en-CA → "YYYY-MM-DD"
 }
 
+// ── Day Boundary: Work Date 판단 ──────────────────────────────────
+// store.day_start_time JSONB 기반으로 현재 "업무일"을 결정
+
+const WEEKDAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+
+/** 매장의 day_start_time 설정에서 해당 요일의 경계 시각(HH:MM)을 반환.
+ *  설정이 없으면 기본값 "06:00" 반환.
+ */
+export function getDayBoundary(
+  dayStartTime: Record<string, string> | null | undefined,
+  weekday: number, // JS getDay(): 0=Sun..6=Sat
+): string {
+  if (!dayStartTime) return "06:00";
+  // JS getDay: 0=Sun → WEEKDAY_KEYS index: 6=Sun
+  const idx = weekday === 0 ? 6 : weekday - 1;
+  const key = WEEKDAY_KEYS[idx];
+  return dayStartTime[key] ?? dayStartTime["all"] ?? "06:00";
+}
+
+/** 매장의 day_start_time + timezone 기준으로 현재 work_date를 YYYY-MM-DD로 반환.
+ *  현재 시각이 경계 시각보다 이르면 전날을 반환.
+ */
+export function getWorkDate(
+  dayStartTime: Record<string, string> | null | undefined,
+  timezone?: string,
+): string {
+  const now = new Date();
+  const tz = timezone || Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+  // Get current local date/time in the store's timezone
+  const localDateStr = new Intl.DateTimeFormat("en-CA", {
+    timeZone: tz, year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(now);
+  const localTimeStr = new Intl.DateTimeFormat("en-GB", {
+    timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false,
+  }).format(now);
+
+  const localDate = new Date(localDateStr + "T00:00:00");
+  const weekday = localDate.getDay();
+  const boundary = getDayBoundary(dayStartTime, weekday);
+
+  if (localTimeStr < boundary) {
+    // Before boundary → previous day
+    localDate.setDate(localDate.getDate() - 1);
+    const y = localDate.getFullYear();
+    const m = String(localDate.getMonth() + 1).padStart(2, "0");
+    const d = String(localDate.getDate()).padStart(2, "0");
+    return `${y}-${m}-${d}`;
+  }
+  return localDateStr;
+}
+
+/** Cross-midnight shift 시간 계산 (분 단위).
+ *  end < start이면 자정 넘김으로 처리.
+ *  예: "22:00" → "02:00" = 240분
+ */
+export function calculateShiftMinutes(startTime: string, endTime: string): number {
+  const [sh, sm] = startTime.split(":").map(Number);
+  const [eh, em] = endTime.split(":").map(Number);
+  const startMin = sh * 60 + sm;
+  const endMin = eh * 60 + em;
+  if (endMin <= startMin) {
+    return (24 * 60 - startMin) + endMin;
+  }
+  return endMin - startMin;
+}
+
 /** 전체 아이템 수와 페이지당 아이템 수로 총 페이지 수 계산 */
 export function getTotalPages(total: number, perPage: number): number {
   return Math.max(1, Math.ceil(total / perPage));

@@ -21,6 +21,7 @@ import {
   Globe,
   Settings,
   Scale,
+  Sunrise,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useStore, useUpdateStore } from "@/hooks/useStores";
@@ -83,7 +84,7 @@ import type {
 /* -------------------------------------------------------------------------- */
 
 /** 탭 이름 타입 / Tab name type */
-type TabName = "shifts-positions" | "checklists" | "settings";
+type TabName = "shifts-positions" | "work-roles" | "checklists" | "settings";
 
 /** 시프트/포지션 폼 데이터 / Shift/Position form data */
 interface ShiftPositionFormData {
@@ -167,7 +168,7 @@ function hasVerificationType(value: string, type: "photo" | "text"): boolean {
 
 const TAB_OPTIONS: { value: TabName; label: string }[] = [
   { value: "shifts-positions", label: "Shifts & Positions" },
-  // Work Roles moved to /schedules/settings
+  { value: "work-roles", label: "Work Roles" },
   { value: "checklists", label: "Checklists" },
   { value: "settings", label: "Settings" },
 ];
@@ -190,7 +191,7 @@ export default function StoreDetailPage(): React.ReactElement {
 
   /** 현재 활성 탭 (URL-persisted) / Currently active tab */
   const [urlParams, setUrlParams] = useUrlParams({ tab: "shifts-positions" });
-  const activeTab: TabName = (["shifts-positions", "checklists", "settings"] as TabName[]).includes(urlParams.tab as TabName)
+  const activeTab: TabName = (["shifts-positions", "work-roles", "checklists", "settings"] as TabName[]).includes(urlParams.tab as TabName)
     ? (urlParams.tab as TabName)
     : "shifts-positions";
   const setActiveTab = useCallback((tab: TabName) => setUrlParams({ tab }), [setUrlParams]);
@@ -293,7 +294,15 @@ export default function StoreDetailPage(): React.ReactElement {
   const updateStore = useUpdateStore();
   const [maxWorkHoursWeekly, setMaxWorkHoursWeekly] = useState<string>("");
   const [storeTimezone, setStoreTimezone] = useState<string>("");
-  const [storeDefaultHourlyRate, setStoreDefaultHourlyRate] = useState<string>("");
+
+  /* ---- Settings: Day Start Time ----------------------------------------- */
+  const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
+  const WEEKDAY_LABELS: Record<string, string> = { mon: "Mon", tue: "Tue", wed: "Wed", thu: "Thu", fri: "Fri", sat: "Sat", sun: "Sun" };
+  const [dayStartMode, setDayStartMode] = useState<"all" | "per_day">("all");
+  const [dayStartAll, setDayStartAll] = useState<string>("06:00");
+  const [dayStartPerDay, setDayStartPerDay] = useState<Record<string, string>>({
+    mon: "06:00", tue: "06:00", wed: "06:00", thu: "06:00", fri: "06:00", sat: "06:00", sun: "06:00",
+  });
 
   /* ---- Settings: Shift Presets ------------------------------------------- */
   const { data: shiftPresets, isLoading: presetsLoading } = useShiftPresets(storeId);
@@ -312,12 +321,27 @@ export default function StoreDetailPage(): React.ReactElement {
   const upsertLaborLaw = useUpsertLaborLaw();
   const [laborForm, setLaborForm] = useState<LaborLawFormData>(INITIAL_LABOR_FORM);
 
-  /** 매장 데이터가 로드되면 설정 동기화 / Sync settings when store data loads */
+  /** 매장 데이터가 로드되면 settings 동기화 / Sync settings when store loads */
   useEffect(() => {
     if (store) {
       setMaxWorkHoursWeekly(store.max_work_hours_weekly?.toString() ?? "");
       setStoreTimezone(store.timezone ?? "");
-      setStoreDefaultHourlyRate(store.default_hourly_rate != null ? String(store.default_hourly_rate) : "");
+      // day_start_time sync
+      const dst = store.day_start_time;
+      if (dst) {
+        if (dst.all && Object.keys(dst).length === 1) {
+          setDayStartMode("all");
+          setDayStartAll(dst.all);
+        } else {
+          setDayStartMode("per_day");
+          const merged: Record<string, string> = { mon: "06:00", tue: "06:00", wed: "06:00", thu: "06:00", fri: "06:00", sat: "06:00", sun: "06:00" };
+          for (const key of Object.keys(merged)) {
+            if (dst[key]) merged[key] = dst[key];
+          }
+          setDayStartPerDay(merged);
+          if (dst.all) setDayStartAll(dst.all);
+        }
+      }
     }
   }, [store]);
 
@@ -875,21 +899,17 @@ export default function StoreDetailPage(): React.ReactElement {
     }
   }, [storeTimezone, updateStore, storeId, toast]);
 
-  /** 매장 기본 시급 저장 / Save store default hourly rate */
-  const handleSaveDefaultHourlyRate = useCallback(async (): Promise<void> => {
-    const rateStr = storeDefaultHourlyRate.trim();
-    const val = rateStr === "" ? null : Number(rateStr);
-    if (val !== null && (isNaN(val) || val < 0)) {
-      toast({ type: "error", message: "Please enter a valid hourly rate." });
-      return;
-    }
+  /** 영업일 경계 시각 저장 / Save day start time */
+  const handleSaveDayStartTime = useCallback(async (): Promise<void> => {
+    const payload: Record<string, string> =
+      dayStartMode === "all" ? { all: dayStartAll } : { ...dayStartPerDay };
     try {
-      await updateStore.mutateAsync({ id: storeId, default_hourly_rate: val });
-      toast({ type: "success", message: "Default hourly rate updated!" });
+      await updateStore.mutateAsync({ id: storeId, day_start_time: payload });
+      toast({ type: "success", message: "Day start time updated!" });
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to update hourly rate.") });
+      toast({ type: "error", message: parseApiError(err, "Failed to update day start time.") });
     }
-  }, [storeDefaultHourlyRate, updateStore, storeId, toast]);
+  }, [dayStartMode, dayStartAll, dayStartPerDay, updateStore, storeId, toast]);
 
   /** 시프트 프리셋 생성 / Create shift preset */
   const handleCreatePreset = useCallback(async (): Promise<void> => {
@@ -1326,7 +1346,63 @@ export default function StoreDetailPage(): React.ReactElement {
         </div>
       )}
 
-      {/* Work Roles tab moved to /schedules/settings */}
+      {/* ================================================================== */}
+      {/*  Work Roles Tab (embedded, links to full page)                     */}
+      {/* ================================================================== */}
+      {activeTab === "work-roles" && (
+        <div>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-bold text-text">
+              Work Roles
+              <span className="text-sm font-normal text-text-muted ml-2">
+                ({(workRoles ?? []).length})
+              </span>
+            </h2>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => router.push(`/stores/${storeId}/work-roles`)}
+            >
+              <Settings size={14} />
+              Manage Work Roles
+            </Button>
+          </div>
+
+          {workRolesLoading ? (
+            <div className="flex justify-center py-12"><LoadingSpinner /></div>
+          ) : (workRoles ?? []).length === 0 ? (
+            <div className="text-center py-12 bg-card border-2 border-dashed border-border rounded-xl">
+              <p className="text-text-muted">No work roles configured yet.</p>
+              <p className="text-xs text-text-muted mt-1">Checklists with shift+position will auto-register as work roles.</p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {(workRoles ?? []).map((wr: WorkRole) => (
+                <div
+                  key={wr.id}
+                  className="bg-card border border-border rounded-xl p-3 flex items-center justify-between"
+                >
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-semibold text-text">
+                        {wr.shift_name} · {wr.position_name}
+                      </span>
+                      {!wr.is_active && <Badge variant="default">Inactive</Badge>}
+                    </div>
+                    <div className="text-xs text-text-muted mt-0.5">
+                      {wr.default_start_time && wr.default_end_time
+                        ? `${wr.default_start_time}–${wr.default_end_time}`
+                        : "No default time"
+                      }
+                      {" · "}Headcount: {wr.required_headcount}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ================================================================== */}
       {/*  Checklists Tab                                                    */}
@@ -1921,40 +1997,7 @@ export default function StoreDetailPage(): React.ReactElement {
             </div>
           </div>
 
-          {/* ---- Section 2: Default Hourly Rate ---- */}
-          <div className="bg-card border border-border rounded-xl p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <Scale className="h-5 w-5 text-accent" />
-              <h2 className="text-lg font-bold text-text">Default Hourly Rate</h2>
-            </div>
-            <div className="max-w-sm space-y-4">
-              <Input
-                label="Default Hourly Rate ($/hr)"
-                type="number"
-                min="0"
-                step="0.01"
-                placeholder="e.g. 15.00 — leave blank to use org default"
-                value={storeDefaultHourlyRate}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  setStoreDefaultHourlyRate(e.target.value)
-                }
-                disabled={!canUpdateSettings}
-              />
-              <div className="flex justify-end">
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={handleSaveDefaultHourlyRate}
-                  isLoading={updateStore.isPending}
-                  disabled={!canUpdateSettings}
-                >
-                  Save
-                </Button>
-              </div>
-            </div>
-          </div>
-
-          {/* ---- Section 3: Timezone ---- */}
+          {/* ---- Section 2: Timezone ---- */}
           <div className="bg-card border border-border rounded-xl p-6">
             <div className="flex items-center gap-2 mb-4">
               <Globe className="h-5 w-5 text-accent" />
@@ -1985,7 +2028,90 @@ export default function StoreDetailPage(): React.ReactElement {
             </div>
           </div>
 
-          {/* ---- Section 3: Shift Presets ---- */}
+          {/* ---- Section 3: Day Start Time ---- */}
+          <div className="bg-card border border-border rounded-xl p-6">
+            <div className="flex items-center gap-2 mb-1">
+              <Sunrise className="h-5 w-5 text-accent" />
+              <h2 className="text-lg font-bold text-text">Day Start Time</h2>
+            </div>
+            <p className="text-xs text-text-muted mb-4">
+              This is NOT the store&apos;s operating hours. It defines the boundary time for employee work days.
+              A shift that starts before this time will be counted as the previous work day.
+              Default: 06:00.
+            </p>
+
+            <div className="space-y-4">
+              {/* Mode toggle */}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDayStartMode("all")}
+                  className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
+                    dayStartMode === "all"
+                      ? "bg-accent text-white border-accent"
+                      : "bg-surface border-border text-text-secondary hover:bg-surface-hover"
+                  }`}
+                >
+                  Same for all days
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setDayStartMode("per_day")}
+                  className={`px-3 py-1.5 text-sm rounded-lg border transition-colors ${
+                    dayStartMode === "per_day"
+                      ? "bg-accent text-white border-accent"
+                      : "bg-surface border-border text-text-secondary hover:bg-surface-hover"
+                  }`}
+                >
+                  Per day
+                </button>
+              </div>
+
+              {dayStartMode === "all" ? (
+                <div className="max-w-xs">
+                  <label className="text-xs text-text-muted font-medium">Start Time (All Days)</label>
+                  <input
+                    type="time"
+                    value={dayStartAll}
+                    onChange={(e) => setDayStartAll(e.target.value)}
+                    disabled={!canUpdateSettings}
+                    className="w-full mt-1 bg-surface border border-border rounded-lg px-3 py-1.5 text-sm text-text disabled:opacity-50"
+                  />
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3">
+                  {WEEKDAYS.map((day) => (
+                    <div key={day}>
+                      <label className="text-xs text-text-muted font-medium">{WEEKDAY_LABELS[day]}</label>
+                      <input
+                        type="time"
+                        value={dayStartPerDay[day]}
+                        onChange={(e) =>
+                          setDayStartPerDay((prev) => ({ ...prev, [day]: e.target.value }))
+                        }
+                        disabled={!canUpdateSettings}
+                        className="w-full mt-1 bg-surface border border-border rounded-lg px-3 py-1.5 text-sm text-text disabled:opacity-50"
+                      />
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="flex justify-end">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleSaveDayStartTime}
+                  isLoading={updateStore.isPending}
+                  disabled={!canUpdateSettings}
+                >
+                  Save
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* ---- Section 4: Shift Presets ---- */}
           <div className="bg-card border border-border rounded-xl p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
