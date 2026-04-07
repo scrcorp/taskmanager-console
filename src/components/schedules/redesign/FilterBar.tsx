@@ -1,82 +1,134 @@
-import { useState, useRef, useEffect } from 'react'
-import { staff, roleColors, roleLabels } from './mockData'
+"use client";
+
+/**
+ * FilterBar — server User/Schedule 직접 사용. positions/shifts는 schedules 데이터에서 동적 추출.
+ */
+
+import { useState, useRef, useEffect, useMemo } from "react";
+import type { User, Schedule } from "@/types";
 
 export interface FilterState {
-  staffIds: string[]
-  roles: string[]
-  statuses: string[]
-  positions: string[]
-  shifts: string[]
+  staffIds: string[];
+  roles: string[];
+  statuses: string[];
+  positions: string[];
+  shifts: string[];
 }
 
 interface Props {
-  filters: FilterState
-  onChange: (filters: FilterState) => void
-  staffWithSchedule: { id: string; hasSchedule: boolean }[]
+  filters: FilterState;
+  onChange: (filters: FilterState) => void;
+  users: User[];
+  schedules: Schedule[];
+  selectedStoreId: string;
 }
 
-const ALL_POSITIONS = ['Manager', 'Server', 'Barista', 'Kitchen', 'Cashier']
-const ALL_SHIFTS = ['Open', 'Morning', 'Day', 'Afternoon', 'Close']
 const ALL_STATUSES = [
-  { id: 'confirmed', label: 'Confirmed', color: 'var(--color-success)' },
-  { id: 'requested', label: 'Requested', color: 'var(--color-warning)' },
-  { id: 'draft', label: 'Draft', color: 'var(--color-text-muted)' },
-  { id: 'rejected', label: 'Rejected', color: 'var(--color-danger)' },
-  { id: 'cancelled', label: 'Cancelled', color: 'var(--color-text-muted)' },
-]
-const ALL_ROLES = [
-  { id: 'gm', label: 'GM' },
-  { id: 'sv', label: 'SV' },
-  { id: 'staff', label: 'Staff' },
-]
+  { id: "confirmed", label: "Confirmed", color: "var(--color-success)" },
+  { id: "requested", label: "Requested", color: "var(--color-warning)" },
+  { id: "draft", label: "Draft", color: "var(--color-text-muted)" },
+  { id: "rejected", label: "Rejected", color: "var(--color-danger)" },
+  { id: "cancelled", label: "Cancelled", color: "var(--color-text-muted)" },
+];
 
-export function FilterBar({ filters, onChange, staffWithSchedule }: Props) {
-  const [openMenu, setOpenMenu] = useState<string | null>(null)
-  const [searchQuery, setSearchQuery] = useState('')
-  const containerRef = useRef<HTMLDivElement>(null)
+const ALL_ROLES = [
+  { id: "owner", label: "Owner" },
+  { id: "gm", label: "GM" },
+  { id: "sv", label: "SV" },
+  { id: "staff", label: "Staff" },
+];
+
+function rolePriorityToBadge(p: number): string {
+  if (p <= 10) return "owner";
+  if (p <= 20) return "gm";
+  if (p <= 30) return "sv";
+  return "staff";
+}
+
+function rolePriorityToColorClass(p: number): string {
+  if (p <= 20) return "bg-[var(--color-accent-muted)] text-[var(--color-accent)]";
+  if (p <= 30) return "bg-[var(--color-warning-muted)] text-[var(--color-warning)]";
+  return "bg-[var(--color-success-muted)] text-[var(--color-success)]";
+}
+
+function getInitials(name: string | null | undefined): string {
+  if (!name) return "??";
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "??";
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
+  return ((parts[0]![0] ?? "") + (parts[parts.length - 1]![0] ?? "")).toUpperCase();
+}
+
+export function FilterBar({ filters, onChange, users, schedules, selectedStoreId }: Props) {
+  const [openMenu, setOpenMenu] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const containerRef = useRef<HTMLDivElement>(null);
 
   // Close on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-        setOpenMenu(null)
+        setOpenMenu(null);
       }
     }
-    document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
-  }, [])
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
-  const totalActive = filters.staffIds.length + filters.roles.length + filters.statuses.length + filters.positions.length + filters.shifts.length
+  // 동적 positions / shifts 추출
+  const dynamicPositions = useMemo(() => {
+    const set = new Set<string>();
+    schedules.forEach((s) => {
+      if (s.position_snapshot) set.add(s.position_snapshot);
+    });
+    return Array.from(set).sort();
+  }, [schedules]);
+
+  const dynamicShifts = useMemo(() => {
+    const set = new Set<string>();
+    schedules.forEach((s) => {
+      const name = s.work_role_name_snapshot || s.work_role_name;
+      if (name) set.add(name);
+    });
+    return Array.from(set).sort();
+  }, [schedules]);
+
+  // 어느 유저가 현재 매장에서 schedule을 가지고 있는지
+  const usersWithSchedule = useMemo(() => {
+    const set = new Set<string>();
+    schedules.forEach((s) => {
+      if (s.store_id === selectedStoreId) set.add(s.user_id);
+    });
+    return set;
+  }, [schedules, selectedStoreId]);
+
+  const totalActive = filters.staffIds.length + filters.roles.length + filters.statuses.length + filters.positions.length + filters.shifts.length;
 
   function toggle<K extends keyof FilterState>(key: K, value: string) {
-    const current = filters[key] as string[]
-    const next = current.includes(value) ? current.filter(v => v !== value) : [...current, value]
-    onChange({ ...filters, [key]: next })
+    const current = filters[key] as string[];
+    const next = current.includes(value) ? current.filter((v) => v !== value) : [...current, value];
+    onChange({ ...filters, [key]: next });
   }
-
-  function removeStaff(id: string) { toggle('staffIds', id) }
 
   function clearAll() {
-    onChange({ staffIds: [], roles: [], statuses: [], positions: [], shifts: [] })
-    setSearchQuery('')
-    setOpenMenu(null)
+    onChange({ staffIds: [], roles: [], statuses: [], positions: [], shifts: [] });
+    setSearchQuery("");
+    setOpenMenu(null);
   }
 
-  const filteredStaffSearch = staff
-    .map(s => ({ ...s, hasSchedule: staffWithSchedule.find(x => x.id === s.id)?.hasSchedule || false }))
-    .filter(s => !searchQuery.trim() || s.name.toLowerCase().includes(searchQuery.toLowerCase()))
+  const filteredUserSearch = users.filter((u) => !searchQuery.trim() || (u.full_name ?? u.username).toLowerCase().includes(searchQuery.toLowerCase()));
 
   function FilterButton({ id, label, count }: { id: string; label: string; count: number }) {
-    const isActive = openMenu === id
+    const isActive = openMenu === id;
     return (
       <button
         type="button"
         onClick={() => setOpenMenu(isActive ? null : id)}
         className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold border flex items-center gap-1.5 transition-colors ${
           count > 0
-            ? 'bg-[var(--color-accent-muted)] text-[var(--color-accent)] border-[var(--color-accent)]/30'
-            : 'bg-white text-[var(--color-text-secondary)] border-[var(--color-border)] hover:border-[var(--color-text-muted)] hover:text-[var(--color-text)]'
-        } ${isActive ? 'ring-2 ring-[var(--color-accent)]/20' : ''}`}
+            ? "bg-[var(--color-accent-muted)] text-[var(--color-accent)] border-[var(--color-accent)]/30"
+            : "bg-white text-[var(--color-text-secondary)] border-[var(--color-border)] hover:border-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+        } ${isActive ? "ring-2 ring-[var(--color-accent)]/20" : ""}`}
       >
         {label}
         {count > 0 && (
@@ -84,24 +136,27 @@ export function FilterBar({ filters, onChange, staffWithSchedule }: Props) {
             {count}
           </span>
         )}
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className={`transition-transform ${isActive ? 'rotate-180' : ''}`}>
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className={`transition-transform ${isActive ? "rotate-180" : ""}`}>
           <polyline points="2.5 4 5 6.5 7.5 4" />
         </svg>
       </button>
-    )
+    );
   }
 
   function CheckboxList({ items, selected, onToggle }: { items: { id: string; label: string; meta?: React.ReactNode }[]; selected: string[]; onToggle: (id: string) => void }) {
     return (
       <div className="py-1 max-h-[280px] overflow-y-auto">
-        {items.map(item => (
+        {items.length === 0 && (
+          <div className="px-3 py-4 text-[12px] text-[var(--color-text-muted)] italic text-center">No options</div>
+        )}
+        {items.map((item) => (
           <button
             key={item.id}
             type="button"
             onClick={() => onToggle(item.id)}
-            className={`w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-left transition-colors ${selected.includes(item.id) ? 'bg-[var(--color-accent-muted)]' : 'hover:bg-[var(--color-surface-hover)]'}`}
+            className={`w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-left transition-colors ${selected.includes(item.id) ? "bg-[var(--color-accent-muted)]" : "hover:bg-[var(--color-surface-hover)]"}`}
           >
-            <span className={`w-4 h-4 rounded border-[1.5px] flex items-center justify-center shrink-0 transition-colors ${selected.includes(item.id) ? 'bg-[var(--color-accent)] border-[var(--color-accent)]' : 'border-[var(--color-border)]'}`}>
+            <span className={`w-4 h-4 rounded border-[1.5px] flex items-center justify-center shrink-0 transition-colors ${selected.includes(item.id) ? "bg-[var(--color-accent)] border-[var(--color-accent)]" : "border-[var(--color-border)]"}`}>
               {selected.includes(item.id) && (
                 <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                   <polyline points="2 5 4.5 7.5 8 3" />
@@ -113,7 +168,7 @@ export function FilterBar({ filters, onChange, staffWithSchedule }: Props) {
           </button>
         ))}
       </div>
-    )
+    );
   }
 
   return (
@@ -123,7 +178,7 @@ export function FilterBar({ filters, onChange, staffWithSchedule }: Props) {
         {/* Staff search */}
         <div className="relative">
           <FilterButton id="staff" label="Staff" count={filters.staffIds.length} />
-          {openMenu === 'staff' && (
+          {openMenu === "staff" && (
             <div className="absolute top-full left-0 mt-1.5 w-[300px] bg-white border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] z-30 overflow-hidden">
               <div className="p-2 border-b border-[var(--color-border)]">
                 <div className="flex items-center gap-1.5 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg px-3 py-1.5">
@@ -133,54 +188,47 @@ export function FilterBar({ filters, onChange, staffWithSchedule }: Props) {
                     autoFocus
                     placeholder="Search by name..."
                     value={searchQuery}
-                    onChange={e => setSearchQuery(e.target.value)}
+                    onChange={(e) => setSearchQuery(e.target.value)}
                     className="bg-transparent outline-none text-[13px] w-full"
                   />
                   {searchQuery && (
-                    <button type="button" onClick={() => setSearchQuery('')} className="text-[var(--color-text-muted)] hover:text-[var(--color-text)]">
+                    <button type="button" onClick={() => setSearchQuery("")} className="text-[var(--color-text-muted)] hover:text-[var(--color-text)]">
                       <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="8" y1="3" x2="3" y2="8" /><line x1="3" y1="3" x2="8" y2="8" /></svg>
                     </button>
                   )}
                 </div>
               </div>
               <div className="max-h-[280px] overflow-y-auto py-1">
-                {filteredStaffSearch.length === 0 ? (
+                {filteredUserSearch.length === 0 ? (
                   <div className="px-4 py-8 text-center">
                     <div className="text-[12px] text-[var(--color-text-muted)] mb-1">No staff found</div>
-                    <div className="text-[11px] text-[var(--color-text-muted)] opacity-70">Try a different search term</div>
                   </div>
                 ) : (
-                  (['gm', 'sv', 'staff'] as const).map(role => {
-                    const matches = filteredStaffSearch.filter(s => s.role === role)
-                    if (matches.length === 0) return null
+                  filteredUserSearch.map((u) => {
+                    const hasSchedule = usersWithSchedule.has(u.id);
+                    const roleId = rolePriorityToBadge(u.role_priority);
                     return (
-                      <div key={role}>
-                        <div className="px-3 py-1.5 text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-muted)] bg-[var(--color-bg)] border-b border-[var(--color-border)]">
-                          {roleLabels[role]}
+                      <button
+                        key={u.id}
+                        type="button"
+                        onClick={() => toggle("staffIds", u.id)}
+                        className={`w-full flex items-center justify-between px-3 py-2 text-[13px] cursor-pointer transition-colors ${filters.staffIds.includes(u.id) ? "bg-[var(--color-accent-muted)]" : "hover:bg-[var(--color-surface-hover)]"}`}
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold ${rolePriorityToColorClass(u.role_priority)}`}>{getInitials(u.full_name)}</div>
+                          <span className="font-medium text-[var(--color-text)]">{u.full_name || u.username}</span>
+                          <span className="text-[10px] text-[var(--color-text-muted)] uppercase">{roleId}</span>
                         </div>
-                        {matches.map(s => (
-                          <button
-                            key={s.id}
-                            type="button"
-                            onClick={() => toggle('staffIds', s.id)}
-                            className={`w-full flex items-center justify-between px-3 py-2 text-[13px] cursor-pointer transition-colors ${filters.staffIds.includes(s.id) ? 'bg-[var(--color-accent-muted)]' : 'hover:bg-[var(--color-surface-hover)]'}`}
-                          >
-                            <div className="flex items-center gap-2.5">
-                              <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold ${roleColors[s.role]}`}>{s.initials}</div>
-                              <span className="font-medium text-[var(--color-text)]">{s.name}</span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                              <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${s.hasSchedule ? 'bg-[var(--color-success-muted)] text-[var(--color-success)]' : 'bg-[var(--color-bg)] text-[var(--color-text-muted)]'}`}>
-                                {s.hasSchedule ? 'Scheduled' : 'No schedule'}
-                              </span>
-                              {filters.staffIds.includes(s.id) && (
-                                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round"><polyline points="2 6 5 9 10 3" /></svg>
-                              )}
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    )
+                        <div className="flex items-center gap-2">
+                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${hasSchedule ? "bg-[var(--color-success-muted)] text-[var(--color-success)]" : "bg-[var(--color-bg)] text-[var(--color-text-muted)]"}`}>
+                            {hasSchedule ? "Scheduled" : "No schedule"}
+                          </span>
+                          {filters.staffIds.includes(u.id) && (
+                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round"><polyline points="2 6 5 9 10 3" /></svg>
+                          )}
+                        </div>
+                      </button>
+                    );
                   })
                 )}
               </div>
@@ -191,12 +239,12 @@ export function FilterBar({ filters, onChange, staffWithSchedule }: Props) {
         {/* Role */}
         <div className="relative">
           <FilterButton id="role" label="Role" count={filters.roles.length} />
-          {openMenu === 'role' && (
+          {openMenu === "role" && (
             <div className="absolute top-full left-0 mt-1.5 w-[200px] bg-white border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] z-30 overflow-hidden">
               <CheckboxList
-                items={ALL_ROLES.map(r => ({ id: r.id, label: r.label }))}
+                items={ALL_ROLES.map((r) => ({ id: r.id, label: r.label }))}
                 selected={filters.roles}
-                onToggle={(id) => toggle('roles', id)}
+                onToggle={(id) => toggle("roles", id)}
               />
             </div>
           )}
@@ -205,44 +253,44 @@ export function FilterBar({ filters, onChange, staffWithSchedule }: Props) {
         {/* Status */}
         <div className="relative">
           <FilterButton id="status" label="Status" count={filters.statuses.length} />
-          {openMenu === 'status' && (
+          {openMenu === "status" && (
             <div className="absolute top-full left-0 mt-1.5 w-[200px] bg-white border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] z-30 overflow-hidden">
               <CheckboxList
-                items={ALL_STATUSES.map(s => ({
+                items={ALL_STATUSES.map((s) => ({
                   id: s.id,
                   label: s.label,
                   meta: <span className="w-2.5 h-2.5 rounded-full" style={{ background: s.color }} />,
                 }))}
                 selected={filters.statuses}
-                onToggle={(id) => toggle('statuses', id)}
+                onToggle={(id) => toggle("statuses", id)}
               />
             </div>
           )}
         </div>
 
-        {/* Position */}
+        {/* Position (dynamic) */}
         <div className="relative">
           <FilterButton id="position" label="Position" count={filters.positions.length} />
-          {openMenu === 'position' && (
+          {openMenu === "position" && (
             <div className="absolute top-full left-0 mt-1.5 w-[200px] bg-white border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] z-30 overflow-hidden">
               <CheckboxList
-                items={ALL_POSITIONS.map(p => ({ id: p, label: p }))}
+                items={dynamicPositions.map((p) => ({ id: p, label: p }))}
                 selected={filters.positions}
-                onToggle={(id) => toggle('positions', id)}
+                onToggle={(id) => toggle("positions", id)}
               />
             </div>
           )}
         </div>
 
-        {/* Shift */}
+        {/* Shift (dynamic — work role names) */}
         <div className="relative">
-          <FilterButton id="shift" label="Shift" count={filters.shifts.length} />
-          {openMenu === 'shift' && (
-            <div className="absolute top-full left-0 mt-1.5 w-[200px] bg-white border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] z-30 overflow-hidden">
+          <FilterButton id="shift" label="Work Role" count={filters.shifts.length} />
+          {openMenu === "shift" && (
+            <div className="absolute top-full left-0 mt-1.5 w-[220px] bg-white border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] z-30 overflow-hidden">
               <CheckboxList
-                items={ALL_SHIFTS.map(s => ({ id: s, label: s }))}
+                items={dynamicShifts.map((s) => ({ id: s, label: s }))}
                 selected={filters.shifts}
-                onToggle={(id) => toggle('shifts', id)}
+                onToggle={(id) => toggle("shifts", id)}
               />
             </div>
           )}
@@ -260,45 +308,45 @@ export function FilterBar({ filters, onChange, staffWithSchedule }: Props) {
       {totalActive > 0 && (
         <div className="flex items-center gap-1.5 mt-2.5 pt-2.5 border-t border-[var(--color-border)] flex-wrap">
           <span className="text-[11px] text-[var(--color-text-muted)] mr-1">Active:</span>
-          {filters.staffIds.map(id => {
-            const s = staff.find(x => x.id === id)
-            if (!s) return null
+          {filters.staffIds.map((id) => {
+            const u = users.find((x) => x.id === id);
+            if (!u) return null;
             return (
               <span key={`s${id}`} className="inline-flex items-center gap-1 px-2.5 py-1 bg-[var(--color-accent-muted)] text-[var(--color-accent)] rounded-full text-[11px] font-semibold">
-                {s.name}
-                <button type="button" onClick={() => removeStaff(id)} className="opacity-60 hover:opacity-100 ml-0.5" aria-label={`Remove ${s.name}`}>×</button>
+                {u.full_name || u.username}
+                <button type="button" onClick={() => toggle("staffIds", id)} className="opacity-60 hover:opacity-100 ml-0.5">×</button>
               </span>
-            )
+            );
           })}
-          {filters.roles.map(r => (
+          {filters.roles.map((r) => (
             <span key={`r${r}`} className="inline-flex items-center gap-1 px-2.5 py-1 bg-[var(--color-accent-muted)] text-[var(--color-accent)] rounded-full text-[11px] font-semibold">
-              {roleLabels[r]}
-              <button type="button" onClick={() => toggle('roles', r)} className="opacity-60 hover:opacity-100 ml-0.5">×</button>
+              {ALL_ROLES.find((x) => x.id === r)?.label ?? r}
+              <button type="button" onClick={() => toggle("roles", r)} className="opacity-60 hover:opacity-100 ml-0.5">×</button>
             </span>
           ))}
-          {filters.statuses.map(st => {
-            const status = ALL_STATUSES.find(s => s.id === st)
+          {filters.statuses.map((st) => {
+            const status = ALL_STATUSES.find((s) => s.id === st);
             return (
               <span key={`st${st}`} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-semibold" style={{ background: `${status?.color}20`, color: status?.color }}>
                 {status?.label}
-                <button type="button" onClick={() => toggle('statuses', st)} className="opacity-60 hover:opacity-100 ml-0.5">×</button>
+                <button type="button" onClick={() => toggle("statuses", st)} className="opacity-60 hover:opacity-100 ml-0.5">×</button>
               </span>
-            )
+            );
           })}
-          {filters.positions.map(p => (
+          {filters.positions.map((p) => (
             <span key={`p${p}`} className="inline-flex items-center gap-1 px-2.5 py-1 bg-[var(--color-info-muted)] text-[var(--color-info)] rounded-full text-[11px] font-semibold">
               {p}
-              <button type="button" onClick={() => toggle('positions', p)} className="opacity-60 hover:opacity-100 ml-0.5">×</button>
+              <button type="button" onClick={() => toggle("positions", p)} className="opacity-60 hover:opacity-100 ml-0.5">×</button>
             </span>
           ))}
-          {filters.shifts.map(sh => (
+          {filters.shifts.map((sh) => (
             <span key={`sh${sh}`} className="inline-flex items-center gap-1 px-2.5 py-1 bg-[var(--color-warning-muted)] text-[var(--color-warning)] rounded-full text-[11px] font-semibold">
               {sh}
-              <button type="button" onClick={() => toggle('shifts', sh)} className="opacity-60 hover:opacity-100 ml-0.5">×</button>
+              <button type="button" onClick={() => toggle("shifts", sh)} className="opacity-60 hover:opacity-100 ml-0.5">×</button>
             </span>
           ))}
         </div>
       )}
     </div>
-  )
+  );
 }

@@ -1,104 +1,110 @@
-import { useState, useEffect } from 'react'
-import { useWorkRoles } from '@/hooks/useWorkRoles'
-import type { WorkRole as ServerWorkRole } from '@/types'
-import type { ScheduleBlock as ScheduleBlockType, Staff } from './types'
-import { roleColors } from './mockData'
+"use client";
+
+/**
+ * ScheduleEditModal — server types 직접 사용. mockup type 의존 없음.
+ */
+
+import { useState, useEffect } from "react";
+import { useWorkRoles } from "@/hooks/useWorkRoles";
+import type { Schedule, User, WorkRole } from "@/types";
 
 export interface ScheduleEditPayload {
-  staffId: string
-  date: string
-  startTime: string  // "HH:MM"
-  endTime: string
-  workRoleId: string | null
-  status: 'draft' | 'requested' | 'confirmed'
-  notes: string
+  userId: string;
+  date: string;
+  startTime: string;  // "HH:MM"
+  endTime: string;
+  workRoleId: string | null;
+  status: "draft" | "requested" | "confirmed";
+  notes: string;
 }
 
 interface Props {
-  open: boolean
-  mode: 'add' | 'edit'
-  block?: ScheduleBlockType | null
-  prefilledStaffId?: string
-  prefilledDate?: string
-  staffList: Staff[]
-  /** 현재 선택된 store id — work role 목록 fetch 용 */
-  storeId: string
-  onClose: () => void
-  onSave: (payload: ScheduleEditPayload) => void
-  onDelete?: () => void
-  isSaving?: boolean
+  open: boolean;
+  mode: "add" | "edit";
+  schedule?: Schedule | null;
+  prefilledUserId?: string;
+  prefilledDate?: string;
+  users: User[];
+  storeId: string;
+  onClose: () => void;
+  onSave: (payload: ScheduleEditPayload) => void;
+  onDelete?: () => void;
+  isSaving?: boolean;
 }
 
-function hourToTime(h: number): string {
-  const hh = Math.floor(h)
-  const mm = Math.round((h - hh) * 60)
-  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`
+function workRoleLabel(wr: WorkRole): string {
+  if (wr.name) return wr.name;
+  return `${wr.shift_name ?? ""} - ${wr.position_name ?? ""}`.trim();
 }
 
-function workRoleLabel(wr: ServerWorkRole): string {
-  if (wr.name) return wr.name
-  return `${wr.shift_name ?? ''} - ${wr.position_name ?? ''}`.trim()
+function getInitials(name: string | null | undefined): string {
+  if (!name) return "??";
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "??";
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
+  return ((parts[0]![0] ?? "") + (parts[parts.length - 1]![0] ?? "")).toUpperCase();
 }
 
-export function ScheduleEditModal({ open, mode, block, prefilledStaffId, prefilledDate, staffList, storeId, onClose, onSave, onDelete, isSaving }: Props) {
-  const [staffId, setStaffId] = useState(prefilledStaffId || staffList[0]?.id || '')
-  const [date, setDate] = useState(prefilledDate || new Date().toISOString().slice(0, 10))
-  const [startTime, setStartTime] = useState('09:00')
-  const [endTime, setEndTime] = useState('17:00')
-  const [workRoleId, setWorkRoleId] = useState<string>('')
-  const [notes, setNotes] = useState('')
-  const [status, setStatus] = useState<'draft' | 'requested' | 'confirmed'>('draft')
+function rolePriorityToColor(p: number): string {
+  if (p <= 20) return "bg-[var(--color-accent-muted)] text-[var(--color-accent)]";
+  if (p <= 30) return "bg-[var(--color-warning-muted)] text-[var(--color-warning)]";
+  return "bg-[var(--color-success-muted)] text-[var(--color-success)]";
+}
 
-  // 현재 store의 work role 목록 (shift × position)
-  const workRolesQ = useWorkRoles(storeId || undefined)
-  const workRoles = workRolesQ.data ?? []
+export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefilledDate, users, storeId, onClose, onSave, onDelete, isSaving }: Props) {
+  const [userId, setUserId] = useState(prefilledUserId || users[0]?.id || "");
+  const [date, setDate] = useState(prefilledDate || new Date().toISOString().slice(0, 10));
+  const [startTime, setStartTime] = useState("09:00");
+  const [endTime, setEndTime] = useState("17:00");
+  const [workRoleId, setWorkRoleId] = useState<string>("");
+  const [notes, setNotes] = useState("");
+  const [status, setStatus] = useState<"draft" | "requested" | "confirmed">("draft");
+
+  const workRolesQ = useWorkRoles(storeId || undefined);
+  const workRoles = workRolesQ.data ?? [];
 
   useEffect(() => {
-    if (!open) return
-    if (mode === 'edit' && block) {
-      setStaffId(block.staffId)
-      setDate(block.date)
-      setStartTime(hourToTime(block.startHour))
-      setEndTime(hourToTime(block.endHour))
-      setWorkRoleId(block.workRoleId ?? '')
+    if (!open) return;
+    if (mode === "edit" && schedule) {
+      setUserId(schedule.user_id);
+      setDate(schedule.work_date);
+      setStartTime(schedule.start_time?.slice(0, 5) ?? "09:00");
+      setEndTime(schedule.end_time?.slice(0, 5) ?? "17:00");
+      setWorkRoleId(schedule.work_role_id ?? "");
       setStatus(
-        block.status === 'confirmed' || block.status === 'requested' || block.status === 'draft'
-          ? block.status
-          : 'draft'
-      )
-      setNotes('')
-    } else if (mode === 'add') {
-      setStaffId(prefilledStaffId || staffList[0]?.id || '')
-      setDate(prefilledDate || new Date().toISOString().slice(0, 10))
-      setStartTime('09:00')
-      setEndTime('17:00')
-      setWorkRoleId('')
-      setNotes('')
-      setStatus('draft')
+        schedule.status === "confirmed" || schedule.status === "requested" || schedule.status === "draft"
+          ? schedule.status
+          : "draft",
+      );
+      setNotes(schedule.note ?? "");
+    } else if (mode === "add") {
+      setUserId(prefilledUserId || users[0]?.id || "");
+      setDate(prefilledDate || new Date().toISOString().slice(0, 10));
+      setStartTime("09:00");
+      setEndTime("17:00");
+      setWorkRoleId("");
+      setNotes("");
+      setStatus("draft");
     }
-  }, [open, mode, block, prefilledStaffId, prefilledDate, staffList])
+  }, [open, mode, schedule, prefilledUserId, prefilledDate, users]);
 
-  // work role 선택 시 default time 자동 채움 (add mode + 빈 시간일 때)
+  // work role 선택 시 default time 자동 채움 (add + edit 모두)
   useEffect(() => {
-    if (!workRoleId) return
-    const wr = workRoles.find(w => w.id === workRoleId)
-    if (!wr) return
-    if (mode === 'add' && wr.default_start_time && wr.default_end_time) {
-      setStartTime(wr.default_start_time.slice(0, 5))
-      setEndTime(wr.default_end_time.slice(0, 5))
+    if (!workRoleId || !open) return;
+    const wr = workRoles.find((w) => w.id === workRoleId);
+    if (!wr) return;
+    if (wr.default_start_time && wr.default_end_time) {
+      setStartTime(wr.default_start_time.slice(0, 5));
+      setEndTime(wr.default_end_time.slice(0, 5));
     }
-  }, [workRoleId, workRoles, mode])
+  }, [workRoleId, workRoles, open]);
 
-  if (!open) return null
+  if (!open) return null;
 
-  const selectedStaff = staffList.find(s => s.id === staffId)
+  const selectedUser = users.find((u) => u.id === userId);
 
   function handleSave() {
-    onSave({
-      staffId, date, startTime, endTime,
-      workRoleId: workRoleId || null,
-      status, notes,
-    })
+    onSave({ userId, date, startTime, endTime, workRoleId: workRoleId || null, status, notes });
   }
 
   return (
@@ -108,7 +114,7 @@ export function ScheduleEditModal({ open, mode, block, prefilledStaffId, prefill
         {/* Header */}
         <div className="px-5 py-4 border-b border-[var(--color-border)] flex items-center justify-between">
           <h2 className="text-[15px] font-bold text-[var(--color-text)]">
-            {mode === 'add' ? 'Add Schedule' : 'Edit Schedule'}
+            {mode === "add" ? "Add Schedule" : "Edit Schedule"}
           </h2>
           <button
             type="button"
@@ -128,18 +134,18 @@ export function ScheduleEditModal({ open, mode, block, prefilledStaffId, prefill
           <div>
             <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">Staff</label>
             <div className="flex items-center gap-2">
-              {selectedStaff && (
-                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 ${roleColors[selectedStaff.role]}`}>
-                  {selectedStaff.initials}
+              {selectedUser && (
+                <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 ${rolePriorityToColor(selectedUser.role_priority)}`}>
+                  {getInitials(selectedUser.full_name)}
                 </div>
               )}
               <select
-                value={staffId}
-                onChange={e => setStaffId(e.target.value)}
+                value={userId}
+                onChange={(e) => setUserId(e.target.value)}
                 className="flex-1 px-3 py-2 border border-[var(--color-border)] rounded-lg text-[13px] bg-white"
               >
-                {staffList.map(s => (
-                  <option key={s.id} value={s.id}>{s.name} — {s.position}</option>
+                {users.map((u) => (
+                  <option key={u.id} value={u.id}>{u.full_name || u.username}</option>
                 ))}
               </select>
             </div>
@@ -151,7 +157,7 @@ export function ScheduleEditModal({ open, mode, block, prefilledStaffId, prefill
             <input
               type="date"
               value={date}
-              onChange={e => setDate(e.target.value)}
+              onChange={(e) => setDate(e.target.value)}
               className="w-full px-3 py-2 border border-[var(--color-border)] rounded-lg text-[13px] bg-white"
             />
           </div>
@@ -163,7 +169,7 @@ export function ScheduleEditModal({ open, mode, block, prefilledStaffId, prefill
               <input
                 type="time"
                 value={startTime}
-                onChange={e => setStartTime(e.target.value)}
+                onChange={(e) => setStartTime(e.target.value)}
                 className="w-full px-3 py-2 border border-[var(--color-border)] rounded-lg text-[13px] bg-white"
               />
             </div>
@@ -172,23 +178,23 @@ export function ScheduleEditModal({ open, mode, block, prefilledStaffId, prefill
               <input
                 type="time"
                 value={endTime}
-                onChange={e => setEndTime(e.target.value)}
+                onChange={(e) => setEndTime(e.target.value)}
                 className="w-full px-3 py-2 border border-[var(--color-border)] rounded-lg text-[13px] bg-white"
               />
             </div>
           </div>
 
-          {/* Work Role (shift × position) */}
+          {/* Work Role */}
           <div>
             <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">Work Role</label>
             <select
               value={workRoleId}
-              onChange={e => setWorkRoleId(e.target.value)}
+              onChange={(e) => setWorkRoleId(e.target.value)}
               className="w-full px-3 py-2 border border-[var(--color-border)] rounded-lg text-[13px] bg-white"
             >
               <option value="">— None (no role) —</option>
               {workRolesQ.isLoading && <option disabled>Loading…</option>}
-              {workRoles.map(wr => (
+              {workRoles.map((wr) => (
                 <option key={wr.id} value={wr.id}>{workRoleLabel(wr)}</option>
               ))}
             </select>
@@ -203,12 +209,12 @@ export function ScheduleEditModal({ open, mode, block, prefilledStaffId, prefill
           <div>
             <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">Status</label>
             <div className="flex bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg p-0.5">
-              {(['draft', 'requested', 'confirmed'] as const).map(s => (
+              {(["draft", "requested", "confirmed"] as const).map((s) => (
                 <button
                   key={s}
                   type="button"
                   onClick={() => setStatus(s)}
-                  className={`flex-1 px-3 py-1.5 rounded-md text-[12px] font-semibold capitalize transition-all ${status === s ? 'bg-white shadow-sm text-[var(--color-text)]' : 'text-[var(--color-text-muted)] hover:text-[var(--color-text)]'}`}
+                  className={`flex-1 px-3 py-1.5 rounded-md text-[12px] font-semibold capitalize transition-all ${status === s ? "bg-white shadow-sm text-[var(--color-text)]" : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"}`}
                 >
                   {s}
                 </button>
@@ -221,7 +227,7 @@ export function ScheduleEditModal({ open, mode, block, prefilledStaffId, prefill
             <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">Notes</label>
             <textarea
               value={notes}
-              onChange={e => setNotes(e.target.value)}
+              onChange={(e) => setNotes(e.target.value)}
               placeholder="Add any notes about this shift..."
               className="w-full min-h-[60px] px-3 py-2 text-[12px] border border-[var(--color-border)] rounded-lg resize-none focus:outline-none focus:border-[var(--color-accent)]"
             />
@@ -230,7 +236,7 @@ export function ScheduleEditModal({ open, mode, block, prefilledStaffId, prefill
 
         {/* Footer */}
         <div className="px-5 py-4 border-t border-[var(--color-border)] flex items-center gap-2">
-          {mode === 'edit' && onDelete && (
+          {mode === "edit" && onDelete && (
             <button
               type="button"
               onClick={onDelete}
@@ -253,11 +259,11 @@ export function ScheduleEditModal({ open, mode, block, prefilledStaffId, prefill
               disabled={isSaving}
               className="px-4 py-2 rounded-lg text-[13px] font-semibold bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              {isSaving ? 'Saving…' : 'Save'}
+              {isSaving ? "Saving…" : "Save"}
             </button>
           </div>
         </div>
       </div>
     </div>
-  )
+  );
 }

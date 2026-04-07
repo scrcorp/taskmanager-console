@@ -1,54 +1,73 @@
-import { useState, useMemo } from 'react'
-import type { Staff, ScheduleBlock } from './types'
+"use client";
+
+/**
+ * SwapModal — server Schedule + User 직접 사용.
+ */
+
+import { useState, useMemo } from "react";
+import type { Schedule, User } from "@/types";
 
 interface Props {
-  open: boolean
-  onClose: () => void
-  /** Source schedule + assigned staff (the one initiating the swap) */
-  fromBlock?: ScheduleBlock | null
-  fromStaff?: Staff | null
-  /** All confirmed schedules in current view that could be swap targets */
-  candidateBlocks?: ScheduleBlock[]
-  /** Staff list for resolving names of candidate blocks */
-  staffList?: Staff[]
-  onSwap?: (otherScheduleId: string, reason?: string) => void
-  isSubmitting?: boolean
+  open: boolean;
+  onClose: () => void;
+  fromSchedule: Schedule | null;
+  fromUser: User | null;
+  candidateSchedules: Schedule[];
+  users: User[];
+  onSwap?: (otherScheduleId: string, reason?: string) => void;
+  isSubmitting?: boolean;
 }
 
-export function SwapModal({ open, onClose, fromBlock, fromStaff, candidateBlocks = [], staffList = [], onSwap, isSubmitting }: Props) {
-  const [otherId, setOtherId] = useState('')
-  const [reason, setReason] = useState('')
+function parseTimeToHours(t: string | null): number {
+  if (!t) return 0;
+  const [hh, mm] = t.split(":");
+  return (Number.parseInt(hh ?? "0", 10) || 0) + (Number.parseInt(mm ?? "0", 10) || 0) / 60;
+}
+
+function formatHour(h: number): string {
+  const hh = Math.floor(h);
+  const mm = Math.round((h - hh) * 60);
+  const suf = hh >= 12 ? "PM" : "AM";
+  const hr = hh === 0 ? 12 : hh > 12 ? hh - 12 : hh;
+  return `${hr}:${String(mm).padStart(2, "0")} ${suf}`;
+}
+
+export function SwapModal({ open, onClose, fromSchedule, fromUser, candidateSchedules, users, onSwap, isSubmitting }: Props) {
+  const [otherId, setOtherId] = useState("");
+  const [reason, setReason] = useState("");
 
   const candidates = useMemo(() => {
-    if (!fromBlock) return candidateBlocks
-    return candidateBlocks.filter((b) =>
-      b.id !== fromBlock.id &&
-      b.status === 'confirmed' &&
-      b.staffId !== fromBlock.staffId  // 같은 staff 제외 (swap 의미 없음)
-    )
-  }, [candidateBlocks, fromBlock])
+    if (!fromSchedule) return [];
+    return candidateSchedules.filter((s) =>
+      s.id !== fromSchedule.id &&
+      s.status === "confirmed" &&
+      s.user_id !== fromSchedule.user_id  // 같은 staff 제외
+    );
+  }, [candidateSchedules, fromSchedule]);
 
-  if (!open) return null
+  if (!open) return null;
 
-  const fromStaffName = fromStaff?.name ?? '—'
-  const fromDate = fromBlock?.date ?? '—'
-  const fromTime = fromBlock ? `${formatHour(fromBlock.startHour)}-${formatHour(fromBlock.endHour)}` : '—'
+  const fromName = fromUser?.full_name || fromUser?.username || "—";
+  const fromDate = fromSchedule?.work_date ?? "—";
+  const fromTime = fromSchedule
+    ? `${formatHour(parseTimeToHours(fromSchedule.start_time))}-${formatHour(parseTimeToHours(fromSchedule.end_time))}`
+    : "—";
 
   const handleConfirm = () => {
-    if (!otherId || !onSwap) return
-    onSwap(otherId, reason.trim() || undefined)
-  }
+    if (!otherId || !onSwap) return;
+    onSwap(otherId, reason.trim() || undefined);
+  };
 
   return (
     <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4" onClick={e => e.stopPropagation()}>
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-[var(--color-border)]">
           <h2 className="text-[16px] font-bold text-[var(--color-text)]">Swap Schedule</h2>
         </div>
         <div className="px-6 py-5 space-y-4">
           <div className="bg-[var(--color-bg)] rounded-lg p-4">
             <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-muted)] mb-1">From</div>
-            <div className="text-[14px] font-semibold text-[var(--color-text)]">{fromStaffName}</div>
+            <div className="text-[14px] font-semibold text-[var(--color-text)]">{fromName}</div>
             <div className="text-[12px] text-[var(--color-text-secondary)] mt-0.5">{fromDate} · {fromTime}</div>
           </div>
           <div>
@@ -59,13 +78,15 @@ export function SwapModal({ open, onClose, fromBlock, fromStaff, candidateBlocks
               className="w-full px-3 py-2.5 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg text-[13px]"
             >
               <option value="">Select schedule...</option>
-              {candidates.map((b) => {
-                const st = staffList.find((s) => s.id === b.staffId)
+              {candidates.length === 0 && <option disabled>No candidates</option>}
+              {candidates.map((s) => {
+                const u = users.find((x) => x.id === s.user_id);
+                const t = `${formatHour(parseTimeToHours(s.start_time))}-${formatHour(parseTimeToHours(s.end_time))}`;
                 return (
-                  <option key={b.id} value={b.id}>
-                    {st?.name ?? b.staffId} — {b.date} {formatHour(b.startHour)}-{formatHour(b.endHour)}
+                  <option key={s.id} value={s.id}>
+                    {(u?.full_name || u?.username) ?? s.user_id} — {s.work_date} {t}
                   </option>
-                )
+                );
               })}
             </select>
           </div>
@@ -92,18 +113,10 @@ export function SwapModal({ open, onClose, fromBlock, fromStaff, candidateBlocks
             onClick={handleConfirm}
             className="px-4 py-2 rounded-lg text-[13px] font-semibold bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {isSubmitting ? 'Swapping…' : 'Confirm Swap'}
+            {isSubmitting ? "Swapping…" : "Confirm Swap"}
           </button>
         </div>
       </div>
     </div>
-  )
-}
-
-function formatHour(h: number): string {
-  const hh = Math.floor(h)
-  const mm = Math.round((h - hh) * 60)
-  const suf = hh >= 12 ? 'PM' : 'AM'
-  const hr = hh === 0 ? 12 : hh > 12 ? hh - 12 : hh
-  return `${hr}:${String(mm).padStart(2, '0')} ${suf}`
+  );
 }
