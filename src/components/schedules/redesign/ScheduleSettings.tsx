@@ -256,7 +256,7 @@ function WorkHourAlertsSection(props: SectionCommonProps) {
 
   const locked = props.isLocked(NORMAL_KEY) || props.isLocked(CAUTION_KEY);
   const normalPct = Math.min(100, (normalMax / 12) * 100);
-  const cautionPct = Math.min(100 - normalPct, ((cautionMax - normalMax) / 12) * 100);
+  const cautionPct = Math.min(100 - normalPct, Math.max(0, (cautionMax - normalMax) / 12) * 100);
 
   function save(key: string, value: number) {
     if (props.scope === "org") {
@@ -264,6 +264,38 @@ function WorkHourAlertsSection(props: SectionCommonProps) {
     } else if (props.storeId) {
       upsertStore.mutate({ key, value });
     }
+  }
+
+  // ─── 유기적 제약 ────────────────────────────────────
+  // Normal <= Caution. Normal을 올리면 Caution도 따라 올라감.
+  // Caution을 Normal보다 낮추면 clamp.
+  function handleNormalChange(value: number) {
+    const v = Math.max(0, Math.min(12, value));
+    setNormalMax(v);
+    if (cautionMax < v) {
+      setCautionMax(v);
+    }
+  }
+
+  function handleCautionChange(value: number) {
+    const v = Math.max(normalMax, Math.min(12, value));
+    setCautionMax(v);
+  }
+
+  function commitNormal() {
+    save(NORMAL_KEY, normalMax);
+    if (cautionMax < normalMax) {
+      // 위 useState 콜백에서 동기화됐을 수 있지만 보장 차원에서 한번 더
+      const adjusted = normalMax;
+      setCautionMax(adjusted);
+      save(CAUTION_KEY, adjusted);
+    }
+  }
+
+  function commitCaution() {
+    const clamped = Math.max(normalMax, cautionMax);
+    if (clamped !== cautionMax) setCautionMax(clamped);
+    save(CAUTION_KEY, clamped);
   }
 
   return (
@@ -281,9 +313,11 @@ function WorkHourAlertsSection(props: SectionCommonProps) {
                 type="number"
                 value={normalMax}
                 step="0.5"
+                min="0"
+                max="12"
                 disabled={locked}
-                onChange={(e) => setNormalMax(Number(e.target.value))}
-                onBlur={() => save(NORMAL_KEY, normalMax)}
+                onChange={(e) => handleNormalChange(Number(e.target.value))}
+                onBlur={commitNormal}
                 className="w-20 px-3 py-1.5 border border-[var(--color-border)] rounded-lg text-[13px] text-center disabled:opacity-50"
               />
               <span className="text-[13px] text-[var(--color-text-secondary)]">hours</span>
@@ -300,9 +334,11 @@ function WorkHourAlertsSection(props: SectionCommonProps) {
                 type="number"
                 value={cautionMax}
                 step="0.5"
+                min={normalMax}
+                max="12"
                 disabled={locked}
-                onChange={(e) => setCautionMax(Number(e.target.value))}
-                onBlur={() => save(CAUTION_KEY, cautionMax)}
+                onChange={(e) => handleCautionChange(Number(e.target.value))}
+                onBlur={commitCaution}
                 className="w-20 px-3 py-1.5 border border-[var(--color-border)] rounded-lg text-[13px] text-center disabled:opacity-50"
               />
               <span className="text-[13px] text-[var(--color-text-secondary)]">hours</span>
@@ -360,6 +396,32 @@ function WeeklyLimitsSection(props: SectionCommonProps) {
     else if (props.storeId) upsertStore.mutate({ key, value });
   }
 
+  // 유기적 제약: warning <= limit (warning은 limit보다 작거나 같아야 함)
+  function handleLimitChange(value: number) {
+    const v = Math.max(1, Math.min(168, value));
+    setLimit(v);
+    if (warn > v) setWarn(v);
+  }
+
+  function handleWarnChange(value: number) {
+    const v = Math.max(0, Math.min(limit, value));
+    setWarn(v);
+  }
+
+  function commitLimit() {
+    save(LIMIT_KEY, limit);
+    if (warn > limit) {
+      setWarn(limit);
+      save(WARN_KEY, limit);
+    }
+  }
+
+  function commitWarn() {
+    const clamped = Math.min(limit, warn);
+    if (clamped !== warn) setWarn(clamped);
+    save(WARN_KEY, clamped);
+  }
+
   return (
     <Card title="Weekly Hour Limits" subtitle="Maximum hours and overtime thresholds" locked={locked}>
       <div className="space-y-4">
@@ -369,9 +431,11 @@ function WeeklyLimitsSection(props: SectionCommonProps) {
             <input
               type="number"
               value={limit}
+              min="1"
+              max="168"
               disabled={locked}
-              onChange={(e) => setLimit(Number(e.target.value))}
-              onBlur={() => save(LIMIT_KEY, limit)}
+              onChange={(e) => handleLimitChange(Number(e.target.value))}
+              onBlur={commitLimit}
               className="w-20 px-3 py-1.5 border border-[var(--color-border)] rounded-lg text-[13px] text-center disabled:opacity-50"
             />
             <span className="text-[13px] text-[var(--color-text-muted)]">hours</span>
@@ -383,9 +447,11 @@ function WeeklyLimitsSection(props: SectionCommonProps) {
             <input
               type="number"
               value={warn}
+              min="0"
+              max={limit}
               disabled={locked}
-              onChange={(e) => setWarn(Number(e.target.value))}
-              onBlur={() => save(WARN_KEY, warn)}
+              onChange={(e) => handleWarnChange(Number(e.target.value))}
+              onBlur={commitWarn}
               className="w-20 px-3 py-1.5 border border-[var(--color-border)] rounded-lg text-[13px] text-center disabled:opacity-50"
             />
             <span className="text-[13px] text-[var(--color-text-muted)]">hours</span>
@@ -485,6 +551,36 @@ function BreakRulesSection(props: SectionCommonProps) {
     else if (props.storeId) upsertStore.mutate({ key, value });
   }
 
+  // 유기적 제약:
+  // - max_continuous <= max_daily (연속 근무가 일일 총 근무보다 클 수 없음)
+  // - duration: 1 이상
+  // - max_daily: max_continuous 이상
+  function handleContinuousChange(value: number) {
+    const v = Math.max(1, Math.min(1440, value));
+    setMaxContinuous(v);
+    if (maxDaily < v) setMaxDaily(v);
+  }
+  function handleDurationChange(value: number) {
+    setDuration(Math.max(1, Math.min(480, value)));
+  }
+  function handleDailyChange(value: number) {
+    const v = Math.max(maxContinuous, Math.min(1440, value));
+    setMaxDaily(v);
+  }
+  function commitContinuous() {
+    save(CONTINUOUS_KEY, maxContinuous);
+    if (maxDaily < maxContinuous) {
+      setMaxDaily(maxContinuous);
+      save(DAILY_KEY, maxContinuous);
+    }
+  }
+  function commitDuration() { save(DURATION_KEY, duration); }
+  function commitDaily() {
+    const clamped = Math.max(maxContinuous, maxDaily);
+    if (clamped !== maxDaily) setMaxDaily(clamped);
+    save(DAILY_KEY, clamped);
+  }
+
   return (
     <Card title="Break Rules" subtitle="Continuous work limits and break duration" locked={locked}>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -494,9 +590,11 @@ function BreakRulesSection(props: SectionCommonProps) {
             <input
               type="number"
               value={maxContinuous}
+              min="1"
+              max="1440"
               disabled={locked}
-              onChange={(e) => setMaxContinuous(Number(e.target.value))}
-              onBlur={() => save(CONTINUOUS_KEY, maxContinuous)}
+              onChange={(e) => handleContinuousChange(Number(e.target.value))}
+              onBlur={commitContinuous}
               className="w-20 px-3 py-1.5 border border-[var(--color-border)] rounded-lg text-[13px] text-center disabled:opacity-50"
             />
             <span className="text-[13px] text-[var(--color-text-muted)]">min</span>
@@ -508,9 +606,11 @@ function BreakRulesSection(props: SectionCommonProps) {
             <input
               type="number"
               value={duration}
+              min="1"
+              max="480"
               disabled={locked}
-              onChange={(e) => setDuration(Number(e.target.value))}
-              onBlur={() => save(DURATION_KEY, duration)}
+              onChange={(e) => handleDurationChange(Number(e.target.value))}
+              onBlur={commitDuration}
               className="w-20 px-3 py-1.5 border border-[var(--color-border)] rounded-lg text-[13px] text-center disabled:opacity-50"
             />
             <span className="text-[13px] text-[var(--color-text-muted)]">min</span>
@@ -522,9 +622,11 @@ function BreakRulesSection(props: SectionCommonProps) {
             <input
               type="number"
               value={maxDaily}
+              min={maxContinuous}
+              max="1440"
               disabled={locked}
-              onChange={(e) => setMaxDaily(Number(e.target.value))}
-              onBlur={() => save(DAILY_KEY, maxDaily)}
+              onChange={(e) => handleDailyChange(Number(e.target.value))}
+              onBlur={commitDaily}
               className="w-20 px-3 py-1.5 border border-[var(--color-border)] rounded-lg text-[13px] text-center disabled:opacity-50"
             />
             <span className="text-[13px] text-[var(--color-text-muted)]">min</span>
