@@ -10,7 +10,7 @@
  * - mockData 그대로 사용 (Task 8d에서 React Query로 교체 예정)
  */
 
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { StatsHeader } from './StatsHeader'
 import { ScheduleBlock } from './ScheduleBlock'
@@ -21,19 +21,24 @@ import { ScheduleEditModal } from './ScheduleEditModal'
 import { ConfirmDialog } from './ConfirmDialog'
 import { FilterBar, type FilterState } from './FilterBar'
 import { LegendModal } from './LegendModal'
-import { stores, staff, schedules, weekDates, roleColors, roleLabels, getAttendance } from './mockData'
+import { weekDates, roleColors, roleLabels, getAttendance } from './mockData'
+import { useCalendarData } from './useCalendarData'
+import {
+  useConfirmSchedule, useRejectSchedule, useDeleteSchedule,
+  useSubmitSchedule, useRevertSchedule, useCancelSchedule,
+} from '@/hooks/useSchedules'
 import type { ViewMode, SortState, ScheduleBlock as ScheduleBlockType } from './types'
 
 export default function SchedulesCalendarView() {
   const router = useRouter()
   const [view, setView] = useState<ViewMode>('weekly')
-  const [selectedDay, setSelectedDay] = useState('2026-04-01')
+  const [selectedDay, setSelectedDay] = useState(weekDates[0]?.date ?? '')
   const [viewAsGM, setViewAsGM] = useState(true)
   const [weeklySortCol, setWeeklySortCol] = useState(-1)
   const [weeklySortState, setWeeklySortState] = useState<SortState>('none')
   const [dailySortCol, setDailySortCol] = useState(-1)
   const [dailySortState, setDailySortState] = useState<SortState>('none')
-  const [selectedStore, setSelectedStore] = useState('main')
+  const [selectedStore, setSelectedStore] = useState('')
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; blockId: string; status: string } | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
   const [historyScheduleId, setHistoryScheduleId] = useState<string | undefined>(undefined)
@@ -43,7 +48,29 @@ export default function SchedulesCalendarView() {
   const [filters, setFilters] = useState<FilterState>({ staffIds: [], roles: [], statuses: [], positions: [], shifts: [] })
   const [legendOpen, setLegendOpen] = useState(false)
 
-  const currentStore = stores.find(s => s.id === selectedStore)!
+  // ─── Server data via React Query (with mockup-shape adapter) ────
+  const dateFrom = weekDates[0]?.date
+  const dateTo = weekDates[weekDates.length - 1]?.date
+  const { staff, stores, schedules, isLoading } = useCalendarData({
+    selectedStoreId: selectedStore,
+    dateFrom,
+    dateTo,
+  })
+
+  // 첫 store 자동 선택
+  if (selectedStore === '' && stores.length > 0) {
+    setSelectedStore(stores[0]!.id)
+  }
+
+  // ─── Mutations ──────────────────────────────────────────────────
+  const submitMutation = useSubmitSchedule()
+  const confirmMutation = useConfirmSchedule()
+  const rejectMutation = useRejectSchedule()
+  const revertMutation = useRevertSchedule()
+  const cancelMutation = useCancelSchedule()
+  const deleteMutation = useDeleteSchedule()
+
+  const currentStore = stores.find(s => s.id === selectedStore) ?? { id: '', name: '...', openHour: 9, closeHour: 22 }
 
   function getBlocks(staffId: string, date: string): ScheduleBlockType[] {
     return schedules.filter(s => s.staffId === staffId && s.date === date && (s.storeId === selectedStore || s.isOtherStore))
@@ -339,6 +366,17 @@ export default function SchedulesCalendarView() {
           confirm: { title: 'Confirm Schedule?', message: 'This will mark the schedule as confirmed and notify the staff member.', label: 'Confirm', variant: 'primary', reason: false },
         }
         const c = cfg[t]
+        const close = () => setConfirmDialog({ open: false, type: 'delete' })
+        const handleConfirmAction = (reason?: string) => {
+          const id = confirmDialog.blockId
+          if (!id) { close(); return }
+          if (t === 'delete') deleteMutation.mutate(id)
+          else if (t === 'revert') revertMutation.mutate(id)
+          else if (t === 'confirm') confirmMutation.mutate(id)
+          else if (t === 'reject') rejectMutation.mutate({ id, rejection_reason: reason })
+          else if (t === 'cancel') cancelMutation.mutate({ id, cancellation_reason: reason })
+          close()
+        }
         return (
           <ConfirmDialog
             open={confirmDialog.open}
@@ -348,8 +386,8 @@ export default function SchedulesCalendarView() {
             confirmVariant={c.variant}
             requiresReason={c.reason}
             reasonLabel={c.reasonLabel}
-            onConfirm={() => setConfirmDialog({ open: false, type: 'delete' })}
-            onCancel={() => setConfirmDialog({ open: false, type: 'delete' })}
+            onConfirm={handleConfirmAction}
+            onCancel={close}
           />
         )
       })()}
