@@ -203,7 +203,21 @@ export function ScheduleSettings({ onBack }: Props) {
 
 // ─── Reusable Card wrapper ───────────────────────────────
 
-function Card({ title, subtitle, locked, children }: { title: string; subtitle?: string; locked?: boolean; children: React.ReactNode }) {
+interface CardProps {
+  title: string;
+  subtitle?: string;
+  locked?: boolean;
+  /** Section의 inherit/custom 상태 (store scope에서만 노출) */
+  inheritState?: {
+    isInherited: boolean;
+    onToggle: () => void;
+    parentLabel?: string;
+  };
+  children: React.ReactNode;
+}
+
+function Card({ title, subtitle, locked, inheritState, children }: CardProps) {
+  const showInheritBar = inheritState !== undefined && !locked;
   return (
     <div className="bg-white border border-[var(--color-border)] rounded-xl overflow-hidden">
       <div className="px-5 py-3 border-b border-[var(--color-border)] bg-[var(--color-bg)]/50">
@@ -214,10 +228,38 @@ function Card({ title, subtitle, locked, children }: { title: string; subtitle?:
               Locked by Org
             </span>
           )}
+          {inheritState && !locked && (
+            <span className={`text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded ${inheritState.isInherited ? "bg-[var(--color-bg)] text-[var(--color-text-muted)]" : "bg-[var(--color-accent-muted)] text-[var(--color-accent)]"}`}>
+              {inheritState.isInherited ? "Inherited" : "Custom"}
+            </span>
+          )}
         </div>
         {subtitle && <p className="text-[11px] text-[var(--color-text-muted)] mt-0.5">{subtitle}</p>}
       </div>
-      <div className="px-5 py-4">{children}</div>
+
+      {/* Inherit toggle bar (store scope, not locked) */}
+      {showInheritBar && (
+        <div className="flex items-center justify-between px-5 py-2.5 border-b border-[var(--color-border)] bg-[var(--color-bg)]/30">
+          <div>
+            <div className="text-[12px] font-semibold text-[var(--color-text)]">
+              Inherit from {inheritState.parentLabel ?? "Organization"}
+            </div>
+            <div className="text-[11px] text-[var(--color-text-muted)]">
+              {inheritState.isInherited ? "Using parent settings. Toggle off to customize." : "Custom override active. Toggle on to use parent."}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={inheritState.onToggle}
+            className={`relative w-10 h-[22px] rounded-full transition-colors duration-150 cursor-pointer ${inheritState.isInherited ? "bg-[var(--color-accent)]" : "bg-[var(--color-border)]"}`}
+            aria-label={inheritState.isInherited ? "Disable inherit (customize)" : "Enable inherit"}
+          >
+            <span className={`absolute top-[3px] w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-150 ${inheritState.isInherited ? "left-[22px]" : "left-[3px]"}`} />
+          </button>
+        </div>
+      )}
+
+      <div className={`px-5 py-4 ${inheritState?.isInherited ? "opacity-50 pointer-events-none" : ""}`}>{children}</div>
     </div>
   );
 }
@@ -231,6 +273,46 @@ interface SectionCommonProps {
   registry: Map<string, SettingsRegistryEntry>;
   scope: "org" | "store";
   storeId?: string;
+}
+
+/**
+ * Section의 inherit state 계산 + bulk inherit/custom 토글 헬퍼.
+ *
+ * - isInherited: 모든 키가 store-level override 없음
+ * - toggleInherit:
+ *   - inherited → custom: 각 키의 effective value를 store_settings에 upsert
+ *   - custom → inherited: 각 키의 store override를 모두 delete
+ */
+function useSectionInherit(props: SectionCommonProps, keys: string[]) {
+  const upsertStore = useUpsertStoreSetting(props.storeId ?? "");
+  const deleteStore = useDeleteStoreSetting(props.storeId ?? "");
+
+  if (props.scope !== "store" || !props.storeId) {
+    return null;
+  }
+
+  const isInherited = !keys.some((k) => props.isOverridden(k));
+
+  const toggleInherit = () => {
+    if (isInherited) {
+      // Custom으로 전환: effective value를 store_settings에 upsert
+      keys.forEach((key) => {
+        const value = props.getEffective(key);
+        if (value !== undefined && value !== null) {
+          upsertStore.mutate({ key, value });
+        }
+      });
+    } else {
+      // Inherit으로 전환: store override 모두 삭제
+      keys.forEach((key) => {
+        if (props.isOverridden(key)) {
+          deleteStore.mutate(key);
+        }
+      });
+    }
+  };
+
+  return { isInherited, onToggle: toggleInherit, parentLabel: "Organization" };
 }
 
 // ─── 1. Work Hour Alerts ─────────────────────────────────
@@ -266,40 +348,50 @@ function WorkHourAlertsSection(props: SectionCommonProps) {
     }
   }
 
-  // ─── 유기적 제약 ────────────────────────────────────
-  // Normal <= Caution. Normal을 올리면 Caution도 따라 올라감.
-  // Caution을 Normal보다 낮추면 clamp.
+  const inheritState = useSectionInherit(props, [NORMAL_KEY, CAUTION_KEY]);
+
+  // ─── 양방향 유기적 제약 (0.5h 단위) ──────────────────
+  // Normal과 Caution은 항상 Normal <= Caution을 만족.
+  // 사용자가 편집 중인 필드는 자유롭게 움직이고, 다른 필드가 따라온다.
+  //
+  // - Normal을 올려서 Caution을 넘기면 → Caution을 같은 값으로 끌어올림
+  // - Caution을 내려서 Normal보다 낮아지면 → Normal을 같은 값으로 끌어내림
   function handleNormalChange(value: number) {
     const v = Math.max(0, Math.min(12, value));
     setNormalMax(v);
-    if (cautionMax < v) {
-      setCautionMax(v);
-    }
+    if (cautionMax < v) setCautionMax(v);
   }
 
   function handleCautionChange(value: number) {
-    const v = Math.max(normalMax, Math.min(12, value));
+    const v = Math.max(0, Math.min(12, value));
     setCautionMax(v);
+    if (normalMax > v) setNormalMax(v);
   }
 
   function commitNormal() {
-    save(NORMAL_KEY, normalMax);
     if (cautionMax < normalMax) {
-      // 위 useState 콜백에서 동기화됐을 수 있지만 보장 차원에서 한번 더
-      const adjusted = normalMax;
-      setCautionMax(adjusted);
-      save(CAUTION_KEY, adjusted);
+      // Normal이 caution을 넘김 → caution을 같은 값으로
+      setCautionMax(normalMax);
+      save(NORMAL_KEY, normalMax);
+      save(CAUTION_KEY, normalMax);
+    } else {
+      save(NORMAL_KEY, normalMax);
     }
   }
 
   function commitCaution() {
-    const clamped = Math.max(normalMax, cautionMax);
-    if (clamped !== cautionMax) setCautionMax(clamped);
-    save(CAUTION_KEY, clamped);
+    if (normalMax > cautionMax) {
+      // Caution이 normal보다 낮음 → normal을 같은 값으로
+      setNormalMax(cautionMax);
+      save(CAUTION_KEY, cautionMax);
+      save(NORMAL_KEY, cautionMax);
+    } else {
+      save(CAUTION_KEY, cautionMax);
+    }
   }
 
   return (
-    <Card title="Work Hour Alerts" subtitle="Color thresholds for daily work hours" locked={locked}>
+    <Card title="Work Hour Alerts" subtitle="Color thresholds for daily work hours" locked={locked} inheritState={inheritState ?? undefined}>
       <div className="space-y-4">
         <div className="grid grid-cols-3 gap-4">
           <div>
@@ -334,7 +426,7 @@ function WorkHourAlertsSection(props: SectionCommonProps) {
                 type="number"
                 value={cautionMax}
                 step="0.5"
-                min={normalMax}
+                min="0"
                 max="12"
                 disabled={locked}
                 onChange={(e) => handleCautionChange(Number(e.target.value))}
@@ -396,7 +488,11 @@ function WeeklyLimitsSection(props: SectionCommonProps) {
     else if (props.storeId) upsertStore.mutate({ key, value });
   }
 
-  // 유기적 제약: warning <= limit (warning은 limit보다 작거나 같아야 함)
+  const inheritState = useSectionInherit(props, [LIMIT_KEY, WARN_KEY]);
+
+  // 양방향: warning <= limit
+  // - Limit을 내려서 Warning보다 낮아지면 → Warning도 같이 내려감
+  // - Warning을 올려서 Limit을 넘기면 → Limit도 같이 올라감
   function handleLimitChange(value: number) {
     const v = Math.max(1, Math.min(168, value));
     setLimit(v);
@@ -404,26 +500,33 @@ function WeeklyLimitsSection(props: SectionCommonProps) {
   }
 
   function handleWarnChange(value: number) {
-    const v = Math.max(0, Math.min(limit, value));
+    const v = Math.max(0, Math.min(168, value));
     setWarn(v);
+    if (limit < v) setLimit(v);
   }
 
   function commitLimit() {
-    save(LIMIT_KEY, limit);
     if (warn > limit) {
       setWarn(limit);
+      save(LIMIT_KEY, limit);
       save(WARN_KEY, limit);
+    } else {
+      save(LIMIT_KEY, limit);
     }
   }
 
   function commitWarn() {
-    const clamped = Math.min(limit, warn);
-    if (clamped !== warn) setWarn(clamped);
-    save(WARN_KEY, clamped);
+    if (limit < warn) {
+      setLimit(warn);
+      save(WARN_KEY, warn);
+      save(LIMIT_KEY, warn);
+    } else {
+      save(WARN_KEY, warn);
+    }
   }
 
   return (
-    <Card title="Weekly Hour Limits" subtitle="Maximum hours and overtime thresholds" locked={locked}>
+    <Card title="Weekly Hour Limits" subtitle="Maximum hours and overtime thresholds" locked={locked} inheritState={inheritState ?? undefined}>
       <div className="space-y-4">
         <div>
           <label className="text-[12px] font-medium text-[var(--color-text-secondary)] mb-1.5 block">Max weekly hours</label>
@@ -448,7 +551,7 @@ function WeeklyLimitsSection(props: SectionCommonProps) {
               type="number"
               value={warn}
               min="0"
-              max={limit}
+              max="168"
               disabled={locked}
               onChange={(e) => handleWarnChange(Number(e.target.value))}
               onBlur={commitWarn}
@@ -476,6 +579,7 @@ function ApprovalSection(props: SectionCommonProps) {
   const autoConfirm = Boolean(props.getEffective(AUTO_KEY));
 
   const locked = props.isLocked(REQ_KEY) || props.isLocked(AUTO_KEY);
+  const inheritState = useSectionInherit(props, [REQ_KEY, AUTO_KEY]);
 
   function toggle(key: string, value: boolean) {
     if (props.scope === "org") upsertOrg.mutate({ key, value });
@@ -483,7 +587,7 @@ function ApprovalSection(props: SectionCommonProps) {
   }
 
   return (
-    <Card title="Approval Workflow" subtitle="Schedule approval requirements" locked={locked}>
+    <Card title="Approval Workflow" subtitle="Schedule approval requirements" locked={locked} inheritState={inheritState ?? undefined}>
       <div className="divide-y divide-[var(--color-border)]">
         <ToggleRow
           label="Require GM approval"
@@ -551,10 +655,11 @@ function BreakRulesSection(props: SectionCommonProps) {
     else if (props.storeId) upsertStore.mutate({ key, value });
   }
 
-  // 유기적 제약:
-  // - max_continuous <= max_daily (연속 근무가 일일 총 근무보다 클 수 없음)
-  // - duration: 1 이상
-  // - max_daily: max_continuous 이상
+  const inheritState = useSectionInherit(props, [CONTINUOUS_KEY, DURATION_KEY, DAILY_KEY]);
+
+  // 양방향: max_continuous <= max_daily
+  // - Continuous를 올려서 Daily를 넘기면 → Daily도 같이 올라감
+  // - Daily를 내려서 Continuous보다 낮아지면 → Continuous도 같이 내려감
   function handleContinuousChange(value: number) {
     const v = Math.max(1, Math.min(1440, value));
     setMaxContinuous(v);
@@ -564,25 +669,32 @@ function BreakRulesSection(props: SectionCommonProps) {
     setDuration(Math.max(1, Math.min(480, value)));
   }
   function handleDailyChange(value: number) {
-    const v = Math.max(maxContinuous, Math.min(1440, value));
+    const v = Math.max(1, Math.min(1440, value));
     setMaxDaily(v);
+    if (maxContinuous > v) setMaxContinuous(v);
   }
   function commitContinuous() {
-    save(CONTINUOUS_KEY, maxContinuous);
     if (maxDaily < maxContinuous) {
       setMaxDaily(maxContinuous);
+      save(CONTINUOUS_KEY, maxContinuous);
       save(DAILY_KEY, maxContinuous);
+    } else {
+      save(CONTINUOUS_KEY, maxContinuous);
     }
   }
   function commitDuration() { save(DURATION_KEY, duration); }
   function commitDaily() {
-    const clamped = Math.max(maxContinuous, maxDaily);
-    if (clamped !== maxDaily) setMaxDaily(clamped);
-    save(DAILY_KEY, clamped);
+    if (maxContinuous > maxDaily) {
+      setMaxContinuous(maxDaily);
+      save(DAILY_KEY, maxDaily);
+      save(CONTINUOUS_KEY, maxDaily);
+    } else {
+      save(DAILY_KEY, maxDaily);
+    }
   }
 
   return (
-    <Card title="Break Rules" subtitle="Continuous work limits and break duration" locked={locked}>
+    <Card title="Break Rules" subtitle="Continuous work limits and break duration" locked={locked} inheritState={inheritState ?? undefined}>
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
           <label className="text-[12px] font-medium text-[var(--color-text-secondary)] mb-1.5 block">Max continuous work</label>
@@ -622,7 +734,7 @@ function BreakRulesSection(props: SectionCommonProps) {
             <input
               type="number"
               value={maxDaily}
-              min={maxContinuous}
+              min="1"
               max="1440"
               disabled={locked}
               onChange={(e) => handleDailyChange(Number(e.target.value))}
@@ -656,6 +768,7 @@ function AttendanceSettingsSection(props: SectionCommonProps) {
   }, [props.scope, props.storeId]);
 
   const locked = props.isLocked(LATE_KEY) || props.isLocked(EARLY_KEY);
+  const inheritState = useSectionInherit(props, [LATE_KEY, EARLY_KEY]);
 
   function save(key: string, value: number) {
     if (props.scope === "org") upsertOrg.mutate({ key, value });
@@ -663,7 +776,7 @@ function AttendanceSettingsSection(props: SectionCommonProps) {
   }
 
   return (
-    <Card title="Attendance" subtitle="Late and early-leave detection thresholds" locked={locked}>
+    <Card title="Attendance" subtitle="Late and early-leave detection thresholds" locked={locked} inheritState={inheritState ?? undefined}>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <label className="text-[12px] font-medium text-[var(--color-text-secondary)] mb-1.5 block">Late buffer</label>
