@@ -1,130 +1,173 @@
-import type { ScheduleBlock as ScheduleBlockType, Staff, AuditEventType, ScheduleAuditEvent, Attendance } from './types'
-import { roleColors, roleLabels, schedules as mockSchedules, weekDates, getAttendance as mockGetAttendance, getAuditEvents as mockGetAuditEvents } from './mockData'
+"use client";
+
+/**
+ * ScheduleDetailPage — server types 직접 사용. mockup 의존 없음.
+ *
+ * 모든 데이터를 props로 받음 (page level에서 fetch 후 전달):
+ * - schedule, user, attendance, auditEvents, relatedSchedules
+ */
+
+import type { Schedule, User, Attendance } from "@/types";
+import type { ScheduleAuditLogEntry } from "@/hooks/useSchedules";
 
 interface Props {
-  block: ScheduleBlockType
-  staff: Staff
-  showCost: boolean
-  /** Optional: when provided, used instead of mock related schedules */
-  relatedSchedules?: ScheduleBlockType[]
-  /** Optional: when provided, used instead of mock attendance lookup */
-  attendance?: Attendance | null
-  /** Optional: when provided, used instead of mock audit events */
-  auditEvents?: ScheduleAuditEvent[]
-  onBack: () => void
-  onEdit: () => void
-  onSwap: () => void
-  onRevert: () => void
-  onDelete: () => void
+  schedule: Schedule;
+  user: User;
+  attendance: Attendance | null;
+  auditEvents: ScheduleAuditLogEntry[];
+  relatedSchedules: Schedule[];
+  showCost: boolean;
+  onBack: () => void;
+  onEdit: () => void;
+  onSwap: () => void;
+  onConfirm?: () => void;
+  onRevert?: () => void;
+  onDelete: () => void;
 }
 
-function formatHour(h: number): string {
-  const suffix = h >= 12 ? 'PM' : 'AM'
-  const hr = h === 0 ? 12 : h > 12 ? h - 12 : h
-  return `${hr}:00 ${suffix}`
+// ─── Helpers ──────────────────────────────────────────
+
+function parseTimeToHours(t: string | null): number {
+  if (!t) return 0;
+  const [hh, mm] = t.split(":");
+  return (Number.parseInt(hh ?? "0", 10) || 0) + (Number.parseInt(mm ?? "0", 10) || 0) / 60;
+}
+
+function formatHourLabel(h: number): string {
+  const hh = Math.floor(h);
+  const mm = Math.round((h - hh) * 60);
+  const suf = hh >= 12 ? "PM" : "AM";
+  const hr = hh === 0 ? 12 : hh > 12 ? hh - 12 : hh;
+  return mm === 0 ? `${hr}:00 ${suf}` : `${hr}:${String(mm).padStart(2, "0")} ${suf}`;
+}
+
+function formatTimeRange(start: string | null, end: string | null): string {
+  return `${formatHourLabel(parseTimeToHours(start))} – ${formatHourLabel(parseTimeToHours(end))}`;
 }
 
 function formatFullDate(dateStr: string): string {
-  const d = new Date(dateStr + 'T00:00:00')
-  return d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+  const d = new Date(dateStr + "T00:00:00");
+  return d.toLocaleDateString("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
 }
 
 function shortDate(dateStr: string): string {
-  const d = new Date(dateStr + 'T00:00:00')
-  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+  const d = new Date(dateStr + "T00:00:00");
+  return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
 }
 
-const statusMeta: Record<string, { label: string; bg: string; text: string; dot: string }> = {
-  confirmed: { label: 'Confirmed', bg: 'bg-[var(--color-success-muted)]', text: 'text-[var(--color-success)]', dot: 'bg-[var(--color-success)]' },
-  requested: { label: 'Requested', bg: 'bg-[var(--color-warning-muted)]', text: 'text-[var(--color-warning)]', dot: 'bg-[var(--color-warning)]' },
-  draft: { label: 'Draft', bg: 'bg-[var(--color-bg)]', text: 'text-[var(--color-text-muted)]', dot: 'bg-[var(--color-text-muted)]' },
-  rejected: { label: 'Rejected', bg: 'bg-[var(--color-danger-muted)]', text: 'text-[var(--color-danger)]', dot: 'bg-[var(--color-danger)]' },
-  cancelled: { label: 'Cancelled', bg: 'bg-[var(--color-bg)]', text: 'text-[var(--color-text-muted)]', dot: 'bg-[var(--color-text-muted)]' },
-  none: { label: 'None', bg: 'bg-[var(--color-bg)]', text: 'text-[var(--color-text-muted)]', dot: 'bg-[var(--color-text-muted)]' },
+function formatClockTime(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
 }
 
-const eventColors: Record<AuditEventType, string> = {
-  created: 'bg-[var(--color-info)]',
-  requested: 'bg-[var(--color-accent)]',
-  modified: 'bg-[var(--color-accent)]',
-  confirmed: 'bg-[var(--color-success)]',
-  rejected: 'bg-[var(--color-danger)]',
-  cancelled: 'bg-[var(--color-text-muted)]',
-  reverted: 'bg-[var(--color-warning)]',
-  swapped: 'bg-[var(--color-info)]',
-}
-
-const eventLabels: Record<AuditEventType, string> = {
-  created: 'Created',
-  requested: 'Submitted',
-  modified: 'Modified',
-  confirmed: 'Confirmed',
-  rejected: 'Rejected',
-  cancelled: 'Cancelled',
-  reverted: 'Reverted',
-  swapped: 'Swapped',
+function formatHoursMin(min: number | null | undefined): string {
+  if (!min) return "—";
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return `${h}h ${String(m).padStart(2, "0")}m`;
 }
 
 function formatEventTime(iso: string): string {
-  const d = new Date(iso)
-  return d.toLocaleString('en-US', { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true })
+  const d = new Date(iso);
+  return d.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", hour12: true });
 }
 
-// Current "live" work role names (would normally come from settings)
-const currentWorkRoles: Record<string, string> = {
-  'wr-day': 'Day',
-  'wr-morning': 'Morning',
-  'wr-afternoon': 'Afternoon',
-  'wr-open': 'Open',
-  'wr-close': 'Close',
+function rolePriorityToBadge(p: number): string {
+  if (p <= 10) return "Owner";
+  if (p <= 20) return "GM";
+  if (p <= 30) return "SV";
+  return "Staff";
 }
 
-export function ScheduleDetailPage({ block, staff, showCost, relatedSchedules: relatedSchedulesProp, attendance: attendanceProp, auditEvents: auditEventsProp, onBack, onEdit, onSwap, onRevert, onDelete }: Props) {
-  const hours = block.endHour - block.startHour
-  const cost = staff.hourlyRate ? hours * staff.hourlyRate : null
-  const status = statusMeta[block.status] ?? statusMeta.none
-  const weekDateSet = new Set(weekDates.map(d => d.date))
-  const relatedSchedules = relatedSchedulesProp ?? mockSchedules.filter(s => s.staffId === staff.id && s.id !== block.id && weekDateSet.has(s.date))
-  const attendance = attendanceProp !== undefined ? attendanceProp : mockGetAttendance(block.id)
-  const events = auditEventsProp ?? mockGetAuditEvents(block.id)
-  const currentRoleName = block.workRoleId ? currentWorkRoles[block.workRoleId] : undefined
-  const roleNameChanged = currentRoleName && currentRoleName !== block.workRoleNameSnapshot
+function rolePriorityToColorClass(p: number): string {
+  if (p <= 20) return "bg-[var(--color-accent-muted)] text-[var(--color-accent)]";
+  if (p <= 30) return "bg-[var(--color-warning-muted)] text-[var(--color-warning)]";
+  return "bg-[var(--color-success-muted)] text-[var(--color-success)]";
+}
 
-  function parseHHmm(t: string): number {
-    const [h, m] = t.split(':').map(Number)
-    return h * 60 + m
+function getInitials(name: string | null | undefined): string {
+  if (!name) return "??";
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "??";
+  if (parts.length === 1) return parts[0]!.slice(0, 2).toUpperCase();
+  return ((parts[0]![0] ?? "") + (parts[parts.length - 1]![0] ?? "")).toUpperCase();
+}
+
+const statusMeta: Record<string, { label: string; bg: string; text: string; dot: string }> = {
+  draft: { label: "Draft", bg: "bg-[var(--color-bg)]", text: "text-[var(--color-text-muted)]", dot: "bg-[var(--color-text-muted)]" },
+  requested: { label: "Requested", bg: "bg-[var(--color-warning-muted)]", text: "text-[var(--color-warning)]", dot: "bg-[var(--color-warning)]" },
+  confirmed: { label: "Confirmed", bg: "bg-[var(--color-success-muted)]", text: "text-[var(--color-success)]", dot: "bg-[var(--color-success)]" },
+  rejected: { label: "Rejected", bg: "bg-[var(--color-danger-muted)]", text: "text-[var(--color-danger)]", dot: "bg-[var(--color-danger)]" },
+  cancelled: { label: "Cancelled", bg: "bg-[var(--color-bg)]", text: "text-[var(--color-text-muted)]", dot: "bg-[var(--color-text-muted)]" },
+};
+
+const eventColors: Record<string, string> = {
+  created: "bg-[var(--color-info)]",
+  requested: "bg-[var(--color-accent)]",
+  modified: "bg-[var(--color-accent)]",
+  confirmed: "bg-[var(--color-success)]",
+  rejected: "bg-[var(--color-danger)]",
+  cancelled: "bg-[var(--color-text-muted)]",
+  reverted: "bg-[var(--color-warning)]",
+  swapped: "bg-[var(--color-info)]",
+  deleted: "bg-[var(--color-danger)]",
+};
+
+const eventLabels: Record<string, string> = {
+  created: "Created",
+  requested: "Submitted",
+  modified: "Modified",
+  confirmed: "Confirmed",
+  rejected: "Rejected",
+  cancelled: "Cancelled",
+  reverted: "Reverted",
+  swapped: "Swapped",
+  deleted: "Deleted",
+};
+
+const attendanceMeta: Record<string, { label: string; bg: string; text: string; dot: string }> = {
+  not_yet: { label: "Scheduled", bg: "bg-[var(--color-bg)]", text: "text-[var(--color-text-muted)]", dot: "bg-[var(--color-text-muted)]" },
+  working: { label: "Working", bg: "bg-[var(--color-success-muted)]", text: "text-[var(--color-success)]", dot: "bg-[var(--color-success)] animate-pulse" },
+  on_break: { label: "On break", bg: "bg-[var(--color-warning-muted)]", text: "text-[var(--color-warning)]", dot: "bg-[var(--color-warning)]" },
+  late: { label: "Late", bg: "bg-[var(--color-danger-muted)]", text: "text-[var(--color-danger)]", dot: "bg-[var(--color-danger)]" },
+  clocked_out: { label: "Done", bg: "bg-[var(--color-info-muted)]", text: "text-[var(--color-info)]", dot: "bg-[var(--color-info)]" },
+  no_show: { label: "No show", bg: "bg-[var(--color-danger-muted)]", text: "text-[var(--color-danger)]", dot: "bg-[var(--color-danger)]" },
+};
+
+// ─── Component ────────────────────────────────────────
+
+export function ScheduleDetailPage({ schedule, user, attendance, auditEvents, relatedSchedules, showCost, onBack, onEdit, onSwap, onConfirm, onRevert, onDelete }: Props) {
+  const startH = parseTimeToHours(schedule.start_time);
+  const endH = parseTimeToHours(schedule.end_time);
+  const hours = Math.max(0, endH - startH);
+  const hourlyRate = schedule.hourly_rate || user.hourly_rate || 0;
+  const cost = hourlyRate ? Math.round(hours * hourlyRate) : null;
+  const status = statusMeta[schedule.status] ?? statusMeta.draft;
+  const roleName = schedule.work_role_name_snapshot || schedule.work_role_name || "—";
+  const positionName = schedule.position_snapshot || "—";
+  const userRoleBadge = rolePriorityToBadge(user.role_priority);
+
+  // Late / early leave 계산 (attendance 있을 때만)
+  let lateMin = 0;
+  let earlyLeaveMin = 0;
+  if (attendance && schedule.start_time && schedule.end_time) {
+    const schedStartMin = parseTimeToHours(schedule.start_time) * 60;
+    const schedEndMin = parseTimeToHours(schedule.end_time) * 60;
+    if (attendance.clock_in) {
+      const ci = new Date(attendance.clock_in);
+      const ciMin = ci.getHours() * 60 + ci.getMinutes();
+      lateMin = Math.max(0, ciMin - schedStartMin);
+    }
+    if (attendance.clock_out) {
+      const co = new Date(attendance.clock_out);
+      const coMin = co.getHours() * 60 + co.getMinutes();
+      earlyLeaveMin = Math.max(0, schedEndMin - coMin);
+    }
   }
 
-  function formatClock(t?: string): string {
-    if (!t) return '—'
-    const [hh, mm] = t.split(':').map(Number)
-    const suf = hh >= 12 ? 'PM' : 'AM'
-    const hr = hh === 0 ? 12 : hh > 12 ? hh - 12 : hh
-    return `${hr}:${String(mm).padStart(2, '0')} ${suf}`
-  }
-
-  function formatHoursMin(min?: number): string {
-    if (!min) return '—'
-    const h = Math.floor(min / 60)
-    const m = min % 60
-    return `${h}h ${String(m).padStart(2, '0')}m`
-  }
-
-  const scheduledStartMin = block.startHour * 60
-  const scheduledEndMin = block.endHour * 60
-  const actualStartMin = attendance?.clockIn ? parseHHmm(attendance.clockIn) : null
-  const actualEndMin = attendance?.clockOut ? parseHHmm(attendance.clockOut) : null
-  const lateMin = actualStartMin !== null ? Math.max(0, actualStartMin - scheduledStartMin) : 0
-  const earlyLeaveMin = actualEndMin !== null ? Math.max(0, scheduledEndMin - actualEndMin) : 0
-
-  const attendanceMeta: Record<string, { label: string; bg: string; text: string; dot: string }> = {
-    not_yet: { label: 'Scheduled', bg: 'bg-[var(--color-bg)]', text: 'text-[var(--color-text-muted)]', dot: 'bg-[var(--color-text-muted)]' },
-    working: { label: 'Working', bg: 'bg-[var(--color-success-muted)]', text: 'text-[var(--color-success)]', dot: 'bg-[var(--color-success)] animate-pulse' },
-    on_break: { label: 'On break', bg: 'bg-[var(--color-warning-muted)]', text: 'text-[var(--color-warning)]', dot: 'bg-[var(--color-warning)]' },
-    late: { label: 'Late', bg: 'bg-[var(--color-danger-muted)]', text: 'text-[var(--color-danger)]', dot: 'bg-[var(--color-danger)]' },
-    clocked_out: { label: 'Done', bg: 'bg-[var(--color-info-muted,#E0F2FE)]', text: 'text-[var(--color-info)]', dot: 'bg-[var(--color-info)]' },
-    no_show: { label: 'No show', bg: 'bg-[var(--color-danger-muted)]', text: 'text-[var(--color-danger)]', dot: 'bg-[var(--color-danger)]' },
-  }
+  const isConfirmed = schedule.status === "confirmed";
+  const isRequested = schedule.status === "requested";
 
   return (
     <div>
@@ -152,21 +195,19 @@ export function ScheduleDetailPage({ block, staff, showCost, relatedSchedules: r
           <div className="bg-white border border-[var(--color-border)] rounded-xl p-5">
             <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-3">Staff</div>
             <div className="flex items-center gap-3">
-              <div className={`w-14 h-14 rounded-full flex items-center justify-center text-[16px] font-bold shrink-0 ${roleColors[staff.role]}`}>
-                {staff.initials}
+              <div className={`w-14 h-14 rounded-full flex items-center justify-center text-[16px] font-bold shrink-0 ${rolePriorityToColorClass(user.role_priority)}`}>
+                {getInitials(user.full_name)}
               </div>
               <div className="min-w-0 flex-1">
-                <div className="text-[16px] font-bold text-[var(--color-text)]">{staff.name}</div>
+                <div className="text-[16px] font-bold text-[var(--color-text)]">{user.full_name || user.username}</div>
                 <div className="flex items-center gap-2 text-[12px] mt-1">
-                  <span className={`font-semibold ${staff.role === 'gm' ? 'text-[var(--color-accent)]' : staff.role === 'sv' ? 'text-[var(--color-warning)]' : 'text-[var(--color-text-muted)]'}`}>
-                    {roleLabels[staff.role]}
+                  <span className={`font-semibold ${user.role_priority <= 20 ? "text-[var(--color-accent)]" : user.role_priority <= 30 ? "text-[var(--color-warning)]" : "text-[var(--color-text-muted)]"}`}>
+                    {userRoleBadge}
                   </span>
-                  <span className="text-[var(--color-text-muted)]">·</span>
-                  <span className="text-[var(--color-text-secondary)]">{staff.position}</span>
-                  {showCost && staff.hourlyRate && (
+                  {showCost && user.hourly_rate && (
                     <>
                       <span className="text-[var(--color-text-muted)]">·</span>
-                      <span className="text-[var(--color-text-secondary)]">${staff.hourlyRate}/hr</span>
+                      <span className="text-[var(--color-text-secondary)]">${user.hourly_rate}/hr</span>
                     </>
                   )}
                 </div>
@@ -186,43 +227,42 @@ export function ScheduleDetailPage({ block, staff, showCost, relatedSchedules: r
             <div className="space-y-3">
               <div>
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1">Date</div>
-                <div className="text-[14px] font-semibold text-[var(--color-text)]">{formatFullDate(block.date)}</div>
+                <div className="text-[14px] font-semibold text-[var(--color-text)]">{formatFullDate(schedule.work_date)}</div>
               </div>
-              {(block.status === 'rejected' || block.status === 'cancelled') && (
-                <div className={`px-3 py-2 rounded-lg border-l-2 ${block.status === 'rejected' ? 'bg-[var(--color-danger-muted)] border-[var(--color-danger)]' : 'bg-[var(--color-bg)] border-[var(--color-text-muted)]'}`}>
-                  <div className={`text-[10px] font-bold uppercase tracking-wider mb-0.5 ${block.status === 'rejected' ? 'text-[var(--color-danger)]' : 'text-[var(--color-text-muted)]'}`}>
-                    {block.status === 'rejected' ? 'Rejection Reason' : 'Cancellation Reason'}
+              {(schedule.status === "rejected" || schedule.status === "cancelled") && (
+                <div className={`px-3 py-2 rounded-lg border-l-2 ${schedule.status === "rejected" ? "bg-[var(--color-danger-muted)] border-[var(--color-danger)]" : "bg-[var(--color-bg)] border-[var(--color-text-muted)]"}`}>
+                  <div className={`text-[10px] font-bold uppercase tracking-wider mb-0.5 ${schedule.status === "rejected" ? "text-[var(--color-danger)]" : "text-[var(--color-text-muted)]"}`}>
+                    {schedule.status === "rejected" ? "Rejection Reason" : "Cancellation Reason"}
                   </div>
                   <div className="text-[12px] text-[var(--color-text)]">
-                    {block.status === 'rejected' ? block.rejectionReason : block.cancellationReason}
+                    {schedule.status === "rejected" ? (schedule.rejection_reason ?? "—") : (schedule.cancellation_reason ?? "—")}
                   </div>
                 </div>
               )}
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1">Work Role</div>
-                  <div className="text-[13px] font-medium text-[var(--color-text)]">
-                    {block.workRoleNameSnapshot}
-                    {roleNameChanged && (
-                      <span className="block text-[10px] font-normal text-[var(--color-text-muted)] italic mt-0.5">
-                        (now: {currentRoleName})
-                      </span>
-                    )}
-                  </div>
+                  <div className="text-[13px] font-medium text-[var(--color-text)]">{roleName}</div>
                 </div>
                 <div>
-                  <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1">Time</div>
-                  <div className="text-[13px] font-medium text-[var(--color-text)]">{formatHour(block.startHour)} – {formatHour(block.endHour)}</div>
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1">Position</div>
+                  <div className="text-[13px] font-medium text-[var(--color-text)]">{positionName}</div>
                 </div>
                 <div>
                   <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1">Total</div>
                   <div className="text-[13px] font-medium text-[var(--color-text)]">{hours} hours</div>
                 </div>
               </div>
-              <div className="pt-3 border-t border-[var(--color-border)]">
-                <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1">Break Time</div>
-                <div className="text-[12px] text-[var(--color-text-secondary)]">30 min meal break + 10 min paid break</div>
+              <div>
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1">Time</div>
+                <div className="text-[13px] font-medium text-[var(--color-text)]">{formatTimeRange(schedule.start_time, schedule.end_time)}</div>
               </div>
+              {(schedule.break_start_time || schedule.break_end_time) && (
+                <div className="pt-3 border-t border-[var(--color-border)]">
+                  <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1">Break</div>
+                  <div className="text-[12px] text-[var(--color-text-secondary)]">{formatTimeRange(schedule.break_start_time, schedule.break_end_time)}</div>
+                </div>
+              )}
             </div>
           </div>
 
@@ -234,10 +274,10 @@ export function ScheduleDetailPage({ block, staff, showCost, relatedSchedules: r
                 <div>
                   <div className="flex items-center justify-between text-[13px] py-1.5">
                     <span className="text-[var(--color-text-secondary)]">Hourly rate</span>
-                    <span className="font-medium text-[var(--color-text)]">${staff.hourlyRate}</span>
+                    <span className="font-medium text-[var(--color-text)]">${hourlyRate}</span>
                   </div>
                   <div className="flex items-center justify-between text-[13px] py-1.5">
-                    <span className="text-[var(--color-text-secondary)]">Hours worked</span>
+                    <span className="text-[var(--color-text-secondary)]">Hours scheduled</span>
                     <span className="font-medium text-[var(--color-text)]">{hours}h</span>
                   </div>
                   <div className="flex items-center justify-between pt-2 mt-2 border-t border-[var(--color-border)]">
@@ -246,7 +286,7 @@ export function ScheduleDetailPage({ block, staff, showCost, relatedSchedules: r
                   </div>
                 </div>
               ) : (
-                <div className="text-[13px] font-medium text-[var(--color-danger)]">No hourly rate set for this staff member</div>
+                <div className="text-[13px] font-medium text-[var(--color-danger)]">No hourly rate set for this user</div>
               )}
             </div>
           )}
@@ -256,9 +296,9 @@ export function ScheduleDetailPage({ block, staff, showCost, relatedSchedules: r
             <div className="bg-white border border-[var(--color-border)] rounded-xl p-5">
               <div className="flex items-center justify-between mb-3">
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">Attendance</div>
-                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold ${attendanceMeta[attendance.state].bg} ${attendanceMeta[attendance.state].text}`}>
-                  <span className={`w-1.5 h-1.5 rounded-full ${attendanceMeta[attendance.state].dot}`} />
-                  {attendanceMeta[attendance.state].label}
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold ${attendanceMeta[attendance.status]?.bg ?? ""} ${attendanceMeta[attendance.status]?.text ?? ""}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${attendanceMeta[attendance.status]?.dot ?? ""}`} />
+                  {attendanceMeta[attendance.status]?.label ?? attendance.status}
                 </span>
               </div>
 
@@ -268,22 +308,16 @@ export function ScheduleDetailPage({ block, staff, showCost, relatedSchedules: r
                   <div className="space-y-1.5">
                     <div className="flex justify-between text-[13px]">
                       <span className="text-[var(--color-text-secondary)]">Clock in</span>
-                      <span className="font-semibold text-[var(--color-text)] tabular-nums">{formatHour(block.startHour)}</span>
+                      <span className="font-semibold text-[var(--color-text)] tabular-nums">{formatHourLabel(parseTimeToHours(schedule.start_time))}</span>
                     </div>
                     <div className="flex justify-between text-[13px]">
                       <span className="text-[var(--color-text-secondary)]">Clock out</span>
-                      <span className="font-semibold text-[var(--color-text)] tabular-nums">{formatHour(block.endHour)}</span>
+                      <span className="font-semibold text-[var(--color-text)] tabular-nums">{formatHourLabel(parseTimeToHours(schedule.end_time))}</span>
                     </div>
                     <div className="flex justify-between text-[13px] pt-1.5 border-t border-[var(--color-border)]">
                       <span className="text-[var(--color-text-secondary)]">Total</span>
                       <span className="font-bold text-[var(--color-text)]">{hours}h</span>
                     </div>
-                    {showCost && cost !== null && (
-                      <div className="flex justify-between text-[13px]">
-                        <span className="text-[var(--color-text-secondary)]">Cost</span>
-                        <span className="font-semibold text-[var(--color-text)]">${cost}</span>
-                      </div>
-                    )}
                   </div>
                 </div>
 
@@ -293,39 +327,32 @@ export function ScheduleDetailPage({ block, staff, showCost, relatedSchedules: r
                     <div className="flex justify-between items-baseline text-[13px]">
                       <span className="text-[var(--color-text-secondary)]">Clock in</span>
                       <span className="text-right">
-                        <span className="font-semibold text-[var(--color-text)] tabular-nums">{formatClock(attendance.clockIn)}</span>
+                        <span className="font-semibold text-[var(--color-text)] tabular-nums">{formatClockTime(attendance.clock_in)}</span>
                         {lateMin > 0 && <span className="block text-[10px] font-medium text-[var(--color-danger)]">{lateMin} min late</span>}
                       </span>
                     </div>
                     <div className="flex justify-between items-baseline text-[13px]">
                       <span className="text-[var(--color-text-secondary)]">Clock out</span>
                       <span className="text-right">
-                        <span className="font-semibold text-[var(--color-text)] tabular-nums">{formatClock(attendance.clockOut)}</span>
+                        <span className="font-semibold text-[var(--color-text)] tabular-nums">{formatClockTime(attendance.clock_out)}</span>
                         {earlyLeaveMin > 0 && <span className="block text-[10px] font-medium text-[var(--color-warning)]">{earlyLeaveMin} min early</span>}
                       </span>
                     </div>
                     <div className="flex justify-between text-[13px] pt-1.5 border-t border-[var(--color-border)]">
                       <span className="text-[var(--color-text-secondary)]">Total</span>
-                      <span className="font-bold text-[var(--color-success)]">{formatHoursMin(attendance.actualMinutes)}</span>
+                      <span className="font-bold text-[var(--color-success)]">{formatHoursMin(attendance.net_work_minutes ?? attendance.total_work_minutes)}</span>
                     </div>
-                    {showCost && attendance.actualCost !== undefined && (
-                      <div className="flex justify-between text-[13px]">
-                        <span className="text-[var(--color-text-secondary)]">Cost</span>
-                        <span className="font-semibold text-[var(--color-success)]">${attendance.actualCost}</span>
-                      </div>
-                    )}
                   </div>
                 </div>
               </div>
 
-              {attendance.anomalies.length > 0 && (
+              {attendance.anomalies && attendance.anomalies.length > 0 && (
                 <div className="mt-4 pt-3 border-t border-[var(--color-border)]">
                   <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-2">Anomalies</div>
                   <div className="flex flex-wrap gap-1.5">
-                    {attendance.anomalies.map(a => (
+                    {attendance.anomalies.map((a) => (
                       <span key={a} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[var(--color-danger-muted)] text-[var(--color-danger)]">
-                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round"><circle cx="5" cy="5" r="4"/><path d="M5 3v2.5"/><circle cx="5" cy="7" r="0.3" fill="currentColor"/></svg>
-                        {a.replace('_', ' ')}
+                        {a.replace("_", " ")}
                       </span>
                     ))}
                   </div>
@@ -334,31 +361,30 @@ export function ScheduleDetailPage({ block, staff, showCost, relatedSchedules: r
             </div>
           )}
 
-          {/* Notes */}
-          <div className="bg-white border border-[var(--color-border)] rounded-xl p-5">
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-2">Notes</div>
-            <textarea
-              placeholder="Add notes about this shift..."
-              className="w-full min-h-[80px] px-3 py-2 text-[12px] border border-[var(--color-border)] rounded-lg resize-none focus:outline-none focus:border-[var(--color-accent)]"
-            />
-          </div>
+          {/* Notes (read-only — schedule.note) */}
+          {schedule.note && (
+            <div className="bg-white border border-[var(--color-border)] rounded-xl p-5">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-2">Notes</div>
+              <p className="text-[13px] text-[var(--color-text-secondary)] whitespace-pre-wrap">{schedule.note}</p>
+            </div>
+          )}
 
           {/* Audit log */}
           <div className="bg-white border border-[var(--color-border)] rounded-xl p-5">
             <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-3">Audit Log</div>
-            {events.length === 0 ? (
+            {auditEvents.length === 0 ? (
               <div className="text-[12px] text-[var(--color-text-muted)] italic">No audit events recorded</div>
             ) : (
               <div className="space-y-3">
-                {events.map((e, i) => (
-                  <div key={e.id} className={`relative pl-5 pb-3 ${i < events.length - 1 ? 'border-l-2 border-[var(--color-border)] ml-1' : 'ml-1'}`}>
-                    <div className={`absolute left-[-5px] top-1 w-[10px] h-[10px] rounded-full ${eventColors[e.eventType]} border-2 border-white`} />
+                {auditEvents.map((e, i) => (
+                  <div key={e.id} className={`relative pl-5 pb-3 ${i < auditEvents.length - 1 ? "border-l-2 border-[var(--color-border)] ml-1" : "ml-1"}`}>
+                    <div className={`absolute left-[-5px] top-1 w-[10px] h-[10px] rounded-full ${eventColors[e.event_type] ?? "bg-[var(--color-text-muted)]"} border-2 border-white`} />
                     <div className="text-[11px] font-semibold text-[var(--color-text-muted)]">{formatEventTime(e.timestamp)}</div>
                     <div className="text-[13px] text-[var(--color-text)] mt-0.5">
-                      <span className="font-semibold">{eventLabels[e.eventType]}</span>
-                      <span className="font-normal text-[var(--color-text-muted)]"> by {e.actorName} · {roleLabels[e.actorRole]}</span>
+                      <span className="font-semibold">{eventLabels[e.event_type] ?? e.event_type}</span>
+                      <span className="font-normal text-[var(--color-text-muted)]"> by {e.actor_name ?? "Unknown"}{e.actor_role ? ` · ${e.actor_role}` : ""}</span>
                     </div>
-                    <div className="text-[12px] text-[var(--color-text-secondary)] mt-0.5">{e.description}</div>
+                    {e.description && <div className="text-[12px] text-[var(--color-text-secondary)] mt-0.5">{e.description}</div>}
                     {e.reason && (
                       <div className="mt-1.5 px-2.5 py-1.5 bg-[var(--color-bg)] border-l-2 border-[var(--color-danger)] rounded-r text-[11px] text-[var(--color-text-secondary)]">
                         <span className="font-semibold text-[var(--color-text)]">Reason:</span> {e.reason}
@@ -384,14 +410,25 @@ export function ScheduleDetailPage({ block, staff, showCost, relatedSchedules: r
               >
                 Edit Schedule
               </button>
-              <button
-                type="button"
-                onClick={onSwap}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-[13px] font-semibold border border-[var(--color-border)] text-[var(--color-text)] hover:bg-[var(--color-surface-hover)]"
-              >
-                Swap with...
-              </button>
-              {block.status === 'confirmed' && (
+              {isRequested && onConfirm && (
+                <button
+                  type="button"
+                  onClick={onConfirm}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-[13px] font-semibold bg-[var(--color-success)] text-white hover:opacity-90"
+                >
+                  Confirm
+                </button>
+              )}
+              {isConfirmed && (
+                <button
+                  type="button"
+                  onClick={onSwap}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-[13px] font-semibold border border-[var(--color-border)] text-[var(--color-text)] hover:bg-[var(--color-surface-hover)]"
+                >
+                  Swap with...
+                </button>
+              )}
+              {isConfirmed && onRevert && (
                 <button
                   type="button"
                   onClick={onRevert}
@@ -405,7 +442,7 @@ export function ScheduleDetailPage({ block, staff, showCost, relatedSchedules: r
                 onClick={onDelete}
                 className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-[13px] font-semibold text-[var(--color-danger)] hover:bg-[var(--color-danger-muted)]"
               >
-                Delete Schedule
+                {isConfirmed ? "Cancel Schedule" : "Delete Schedule"}
               </button>
             </div>
           </div>
@@ -419,15 +456,16 @@ export function ScheduleDetailPage({ block, staff, showCost, relatedSchedules: r
               <div className="text-[12px] text-[var(--color-text-muted)] italic">No other schedules this week</div>
             ) : (
               <div className="space-y-2">
-                {relatedSchedules.map(rs => {
-                  const rsHours = rs.endHour - rs.startHour
-                  const rsStatus = statusMeta[rs.status] ?? statusMeta.none
+                {relatedSchedules.map((rs) => {
+                  const rsHours = Math.max(0, parseTimeToHours(rs.end_time) - parseTimeToHours(rs.start_time));
+                  const rsStatus = statusMeta[rs.status] ?? statusMeta.draft;
+                  const rsRole = rs.work_role_name_snapshot || rs.work_role_name || "—";
                   return (
                     <div key={rs.id} className="flex items-center justify-between gap-2 px-3 py-2 bg-[var(--color-bg)] rounded-lg">
                       <div className="min-w-0 flex-1">
-                        <div className="text-[12px] font-semibold text-[var(--color-text)]">{shortDate(rs.date)}</div>
+                        <div className="text-[12px] font-semibold text-[var(--color-text)]">{shortDate(rs.work_date)}</div>
                         <div className="text-[11px] text-[var(--color-text-muted)]">
-                          {rs.shift} · {formatHour(rs.startHour)}–{formatHour(rs.endHour)} · {rsHours}h
+                          {rsRole} · {formatTimeRange(rs.start_time, rs.end_time)} · {rsHours}h
                         </div>
                       </div>
                       <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full text-[10px] font-semibold ${rsStatus.bg} ${rsStatus.text}`}>
@@ -435,7 +473,7 @@ export function ScheduleDetailPage({ block, staff, showCost, relatedSchedules: r
                         {rsStatus.label}
                       </span>
                     </div>
-                  )
+                  );
                 })}
               </div>
             )}
@@ -443,5 +481,5 @@ export function ScheduleDetailPage({ block, staff, showCost, relatedSchedules: r
         </div>
       </div>
     </div>
-  )
+  );
 }

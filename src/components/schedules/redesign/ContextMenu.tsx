@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react'
-import type { Role } from './types'
+
+type Role = 'owner' | 'gm' | 'sv' | 'staff'
 
 interface Props {
   x: number

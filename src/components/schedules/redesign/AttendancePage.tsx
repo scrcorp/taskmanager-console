@@ -3,8 +3,10 @@
 import { useState, useMemo } from 'react'
 import { useAttendances } from '@/hooks/useAttendances'
 import { useStores } from '@/hooks/useStores'
-import { roleColors } from './mockData'
-import type { AttendanceState } from './types'
+
+type AttendanceState = "not_yet" | "working" | "on_break" | "late" | "clocked_out" | "no_show"
+
+const ROLE_DEFAULT_COLOR = "bg-[var(--color-success-muted)] text-[var(--color-success)]"
 
 const stateMeta: Record<string, { label: string; bg: string; text: string; dot: string }> = {
   not_yet: { label: 'Scheduled', bg: 'bg-[var(--color-bg)]', text: 'text-[var(--color-text-muted)]', dot: 'bg-[var(--color-text-muted)]' },
@@ -166,7 +168,7 @@ export function AttendancePage() {
                 <tr key={att.id} className="border-b border-[var(--color-border)] last:border-b-0 hover:bg-[var(--color-surface-hover)] transition-colors">
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
-                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 ${roleColors.staff}`}>{initials}</div>
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 ${ROLE_DEFAULT_COLOR}`}>{initials}</div>
                       <div className="min-w-0">
                         <div className="text-[13px] font-semibold text-[var(--color-text)] truncate">{att.user_name ?? '—'}</div>
                       </div>

@@ -1,5 +1,6 @@
 import { useState } from 'react'
-import type { SortState } from './types'
+
+type SortState = 'none' | 'confirmed' | 'requested'
 
 export interface StatsColumn {
   key: string

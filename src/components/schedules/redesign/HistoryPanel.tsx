@@ -1,5 +1,6 @@
 import { useScheduleAuditLog } from '@/hooks/useSchedules'
-import type { AuditEventType } from './types'
+
+type AuditEventType = 'created' | 'requested' | 'modified' | 'confirmed' | 'rejected' | 'cancelled' | 'reverted' | 'swapped' | 'deleted'
 
 interface Props {
   open: boolean
@@ -18,6 +19,7 @@ const typeColors: Record<AuditEventType, string> = {
   cancelled: 'bg-[var(--color-text-muted)]',
   reverted: 'bg-[var(--color-warning)]',
   swapped: 'bg-[var(--color-info)]',
+  deleted: 'bg-[var(--color-danger)]',
 }
 
 const typeLabels: Record<AuditEventType, string> = {
@@ -29,6 +31,7 @@ const typeLabels: Record<AuditEventType, string> = {
   cancelled: 'Cancelled',
   reverted: 'Reverted',
   swapped: 'Swapped',
+  deleted: 'Deleted',
 }
 
 const roleLabels: Record<string, string> = {
