@@ -21,7 +21,11 @@ export function SwapModal({ open, onClose, fromBlock, fromStaff, candidateBlocks
 
   const candidates = useMemo(() => {
     if (!fromBlock) return candidateBlocks
-    return candidateBlocks.filter((b) => b.id !== fromBlock.id && b.status === 'confirmed')
+    return candidateBlocks.filter((b) =>
+      b.id !== fromBlock.id &&
+      b.status === 'confirmed' &&
+      b.staffId !== fromBlock.staffId  // 같은 staff 제외 (swap 의미 없음)
+    )
   }, [candidateBlocks, fromBlock])
 
   if (!open) return null

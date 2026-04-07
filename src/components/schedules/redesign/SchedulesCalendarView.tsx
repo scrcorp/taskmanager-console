@@ -21,7 +21,7 @@ import { ScheduleEditModal } from './ScheduleEditModal'
 import { ConfirmDialog } from './ConfirmDialog'
 import { FilterBar, type FilterState } from './FilterBar'
 import { LegendModal } from './LegendModal'
-import { weekDates, roleColors, roleLabels, getAttendance } from './mockData'
+import { roleColors, roleLabels, getAttendance } from './mockData'
 import { useCalendarData } from './useCalendarData'
 import {
   useConfirmSchedule, useRejectSchedule, useDeleteSchedule,
@@ -31,10 +31,40 @@ import {
 import type { ScheduleEditPayload } from './ScheduleEditModal'
 import type { ViewMode, SortState, ScheduleBlock as ScheduleBlockType } from './types'
 
+// 주 시작일(일요일) 계산
+function getWeekStart(d: Date): Date {
+  const r = new Date(d)
+  r.setHours(0, 0, 0, 0)
+  r.setDate(r.getDate() - r.getDay())
+  return r
+}
+
+function buildWeekDates(weekStart: Date): Array<{ date: string; dayName: string; dayNum: string; isWeekend: boolean; isSunday: boolean }> {
+  const out: Array<{ date: string; dayName: string; dayNum: string; isWeekend: boolean; isSunday: boolean }> = []
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(weekStart)
+    d.setDate(d.getDate() + i)
+    const yyyy = d.getFullYear()
+    const mm = String(d.getMonth() + 1).padStart(2, '0')
+    const dd = String(d.getDate()).padStart(2, '0')
+    out.push({
+      date: `${yyyy}-${mm}-${dd}`,
+      dayName: dayNames[i]!,
+      dayNum: String(d.getDate()),
+      isWeekend: i === 0 || i === 6,
+      isSunday: i === 0,
+    })
+  }
+  return out
+}
+
 export default function SchedulesCalendarView() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const [view, setView] = useState<ViewMode>('weekly')
+  const [weekStart, setWeekStart] = useState<Date>(() => getWeekStart(new Date()))
+  const weekDates = useMemo(() => buildWeekDates(weekStart), [weekStart])
   const [selectedDay, setSelectedDay] = useState(weekDates[0]?.date ?? '')
   const [viewAsGM, setViewAsGM] = useState(true)
   const [weeklySortCol, setWeeklySortCol] = useState(-1)
@@ -514,13 +544,39 @@ export default function SchedulesCalendarView() {
               ))}
             </div>
             <div className="flex items-center gap-2">
-              <button type="button" className="w-8 h-8 rounded-lg border border-[var(--color-border)] bg-white flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]" aria-label="Previous period">
+              <button
+                type="button"
+                onClick={() => {
+                  if (view === 'weekly') {
+                    const next = new Date(weekStart); next.setDate(next.getDate() - 7); setWeekStart(next)
+                  } else {
+                    const d = new Date(selectedDay + 'T00:00:00'); d.setDate(d.getDate() - 1)
+                    setSelectedDay(d.toISOString().slice(0, 10))
+                  }
+                }}
+                className="w-8 h-8 rounded-lg border border-[var(--color-border)] bg-white flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]"
+                aria-label="Previous period"
+              >
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="9 11 5 7 9 3"/></svg>
               </button>
-              <span className="text-[13px] font-semibold text-[var(--color-text)] min-w-[110px] text-center">
-                {view === 'weekly' ? 'Mar 29 – Apr 4' : `${selectedDayInfo?.dayName} ${selectedDayInfo?.dayNum}`}
+              <span className="text-[13px] font-semibold text-[var(--color-text)] min-w-[140px] text-center">
+                {view === 'weekly'
+                  ? `${weekDates[0]?.dayName} ${weekDates[0]?.dayNum} – ${weekDates[6]?.dayName} ${weekDates[6]?.dayNum}`
+                  : `${selectedDayInfo?.dayName} ${selectedDayInfo?.dayNum}`}
               </span>
-              <button type="button" className="w-8 h-8 rounded-lg border border-[var(--color-border)] bg-white flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]" aria-label="Next period">
+              <button
+                type="button"
+                onClick={() => {
+                  if (view === 'weekly') {
+                    const next = new Date(weekStart); next.setDate(next.getDate() + 7); setWeekStart(next)
+                  } else {
+                    const d = new Date(selectedDay + 'T00:00:00'); d.setDate(d.getDate() + 1)
+                    setSelectedDay(d.toISOString().slice(0, 10))
+                  }
+                }}
+                className="w-8 h-8 rounded-lg border border-[var(--color-border)] bg-white flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]"
+                aria-label="Next period"
+              >
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="5 3 9 7 5 11"/></svg>
               </button>
             </div>
