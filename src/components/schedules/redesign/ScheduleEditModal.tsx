@@ -14,9 +14,11 @@ export interface ScheduleEditPayload {
   startTime: string;  // "HH:MM"
   endTime: string;
   workRoleId: string | null;
-  status: "draft" | "requested" | "confirmed";
   notes: string;
 }
+
+// Status 전환은 dedicated actions (submit / confirm / reject / revert / cancel)로만.
+// 여기선 편집 불가 — 현재 status는 header에 배지로 read-only 표시.
 
 interface Props {
   open: boolean;
@@ -58,7 +60,6 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
   const [endTime, setEndTime] = useState("17:00");
   const [workRoleId, setWorkRoleId] = useState<string>("");
   const [notes, setNotes] = useState("");
-  const [status, setStatus] = useState<"draft" | "requested" | "confirmed">("draft");
 
   const workRolesQ = useWorkRoles(storeId || undefined);
   const workRoles = workRolesQ.data ?? [];
@@ -71,11 +72,6 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
       setStartTime(schedule.start_time?.slice(0, 5) ?? "09:00");
       setEndTime(schedule.end_time?.slice(0, 5) ?? "17:00");
       setWorkRoleId(schedule.work_role_id ?? "");
-      setStatus(
-        schedule.status === "confirmed" || schedule.status === "requested" || schedule.status === "draft"
-          ? schedule.status
-          : "draft",
-      );
       setNotes(schedule.note ?? "");
     } else if (mode === "add") {
       setUserId(prefilledUserId || users[0]?.id || "");
@@ -84,7 +80,6 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
       setEndTime("17:00");
       setWorkRoleId("");
       setNotes("");
-      setStatus("draft");
     }
   }, [open, mode, schedule, prefilledUserId, prefilledDate, users]);
 
@@ -104,7 +99,7 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
   const selectedUser = users.find((u) => u.id === userId);
 
   function handleSave() {
-    onSave({ userId, date, startTime, endTime, workRoleId: workRoleId || null, status, notes });
+    onSave({ userId, date, startTime, endTime, workRoleId: workRoleId || null, notes });
   }
 
   return (
@@ -205,22 +200,32 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
             )}
           </div>
 
-          {/* Status */}
-          <div>
-            <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">Status</label>
-            <div className="flex bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg p-0.5">
-              {(["draft", "requested", "confirmed"] as const).map((s) => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setStatus(s)}
-                  className={`flex-1 px-3 py-1.5 rounded-md text-[12px] font-semibold capitalize transition-all ${status === s ? "bg-white shadow-sm text-[var(--color-text)]" : "text-[var(--color-text-muted)] hover:text-[var(--color-text)]"}`}
-                >
-                  {s}
-                </button>
-              ))}
+          {/* Status (read-only display) — 전환은 detail의 action 버튼으로 */}
+          {mode === "edit" && schedule && (
+            <div>
+              <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">Status</label>
+              <div className="flex items-center gap-2">
+                <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold ${
+                  schedule.status === "confirmed" ? "bg-[var(--color-success-muted)] text-[var(--color-success)]" :
+                  schedule.status === "requested" ? "bg-[var(--color-warning-muted)] text-[var(--color-warning)]" :
+                  schedule.status === "rejected"  ? "bg-[var(--color-danger-muted)] text-[var(--color-danger)]" :
+                  schedule.status === "cancelled" ? "bg-[var(--color-bg)] text-[var(--color-text-muted)]" :
+                                                    "bg-[var(--color-bg)] text-[var(--color-text-muted)]"
+                }`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${
+                    schedule.status === "confirmed" ? "bg-[var(--color-success)]" :
+                    schedule.status === "requested" ? "bg-[var(--color-warning)]" :
+                    schedule.status === "rejected"  ? "bg-[var(--color-danger)]" :
+                                                      "bg-[var(--color-text-muted)]"
+                  }`} />
+                  {schedule.status}
+                </span>
+                <span className="text-[10px] text-[var(--color-text-muted)]">
+                  Use action buttons to change status
+                </span>
+              </div>
             </div>
-          </div>
+          )}
 
           {/* Notes */}
           <div>

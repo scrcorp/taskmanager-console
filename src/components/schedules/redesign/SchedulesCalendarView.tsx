@@ -473,7 +473,8 @@ export default function SchedulesCalendarView() {
         work_date: payload.date,
         start_time: payload.startTime,
         end_time: payload.endTime,
-        status: payload.status,
+        // 새로 만드는 schedule은 항상 draft로 시작 (status 전환은 submit/confirm action으로)
+        status: "draft",
         note: payload.notes || null,
       }, {
         onSuccess: closeEditModal,
