@@ -14,6 +14,8 @@ import {
   useScheduleAuditLog, useSchedules, useUpdateSchedule,
 } from "@/hooks/useSchedules";
 import { useUser, useUsers } from "@/hooks/useUsers";
+import { useStore } from "@/hooks/useStores";
+import { useOrganization } from "@/hooks/useOrganization";
 import { useAttendances } from "@/hooks/useAttendances";
 import { useAuthStore } from "@/stores/authStore";
 
@@ -28,6 +30,8 @@ export default function SchedulesDetailPage() {
 
   const scheduleQ = useSchedule(id);
   const userQ = useUser(scheduleQ.data?.user_id);
+  const storeQ = useStore(scheduleQ.data?.store_id);
+  const orgQ = useOrganization();
   const auditLogQ = useScheduleAuditLog(id);
   const usersQ = useUsers();
   const attendancesQ = useAttendances({
@@ -98,6 +102,27 @@ export default function SchedulesDetailPage() {
     confirmMutation.mutate(id, { onSuccess: () => scheduleQ.refetch() });
   };
 
+  // Effective rate cascade: user → store → org
+  const orgDefaultRate = orgQ.data?.default_hourly_rate ?? null;
+  const currentEffectiveRate: number | null = (() => {
+    if (user.hourly_rate != null) return user.hourly_rate;
+    if (storeQ.data?.default_hourly_rate != null) return storeQ.data.default_hourly_rate;
+    if (orgDefaultRate != null) return orgDefaultRate;
+    return null;
+  })();
+
+  // Sync stored rate → current effective (GM+ only)
+  const canSyncRate = showCost && currentEffectiveRate != null && (currentUser?.role_priority ?? 99) <= 20;
+  const handleSyncRate = canSyncRate
+    ? () => {
+        if (currentEffectiveRate == null) return;
+        updateMutation.mutate(
+          { id, data: { hourly_rate: currentEffectiveRate } },
+          { onSuccess: () => scheduleQ.refetch() },
+        );
+      }
+    : undefined;
+
   const handleEditSave = (payload: ScheduleEditPayload) => {
     updateMutation.mutate(
       {
@@ -129,6 +154,9 @@ export default function SchedulesDetailPage() {
         auditEvents={auditEvents}
         relatedSchedules={relatedSchedules}
         showCost={showCost}
+        currentEffectiveRate={currentEffectiveRate}
+        onSyncRate={handleSyncRate}
+        isSyncingRate={updateMutation.isPending}
         onBack={() => router.back()}
         onEdit={() => setEditOpen(true)}
         onSwap={() => {

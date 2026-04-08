@@ -17,6 +17,11 @@ interface Props {
   auditEvents: ScheduleAuditLogEntry[];
   relatedSchedules: Schedule[];
   showCost: boolean;
+  /** 현재 effective rate (cascade: user → store → org). 없으면 null. */
+  currentEffectiveRate: number | null;
+  /** Stored rate가 stale일 때 sync 콜백 (GM+ 가능 시). undefined면 버튼 안 보임. */
+  onSyncRate?: () => void;
+  isSyncingRate?: boolean;
   onBack: () => void;
   onEdit: () => void;
   onSwap: () => void;
@@ -137,12 +142,15 @@ const attendanceMeta: Record<string, { label: string; bg: string; text: string; 
 
 // ─── Component ────────────────────────────────────────
 
-export function ScheduleDetailPage({ schedule, user, attendance, auditEvents, relatedSchedules, showCost, onBack, onEdit, onSwap, onConfirm, onRevert, onDelete }: Props) {
+export function ScheduleDetailPage({ schedule, user, attendance, auditEvents, relatedSchedules, showCost, currentEffectiveRate, onSyncRate, isSyncingRate, onBack, onEdit, onSwap, onConfirm, onRevert, onDelete }: Props) {
   const startH = parseTimeToHours(schedule.start_time);
   const endH = parseTimeToHours(schedule.end_time);
   const hours = Math.max(0, endH - startH);
-  const hourlyRate = schedule.hourly_rate || user.hourly_rate || 0;
-  const cost = hourlyRate ? Math.round(hours * hourlyRate) : null;
+  // Stored rate가 0/null이면 cascade로 fallback (display only)
+  const storedRate = schedule.hourly_rate || 0;
+  const displayRate = storedRate > 0 ? storedRate : (currentEffectiveRate ?? 0);
+  const cost = displayRate ? Math.round(hours * displayRate) : null;
+  const isStoredStale = currentEffectiveRate != null && storedRate !== currentEffectiveRate;
   const status = statusMeta[schedule.status] ?? statusMeta.draft;
   const roleName = schedule.work_role_name_snapshot || schedule.work_role_name || "—";
   const positionName = schedule.position_snapshot || "—";
@@ -269,24 +277,56 @@ export function ScheduleDetailPage({ schedule, user, attendance, auditEvents, re
           {/* Cost breakdown (GM only) */}
           {showCost && (
             <div className="bg-white border border-[var(--color-border)] rounded-xl p-5">
-              <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-3">Cost Breakdown</div>
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">Cost Breakdown</div>
+                {storedRate > 0 && (
+                  <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[var(--color-bg)] text-[var(--color-text-muted)]">
+                    Stored
+                  </span>
+                )}
+                {storedRate === 0 && currentEffectiveRate != null && (
+                  <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[var(--color-warning-muted)] text-[var(--color-warning)]">
+                    Inherited (preview)
+                  </span>
+                )}
+              </div>
               {cost !== null ? (
-                <div>
-                  <div className="flex items-center justify-between text-[13px] py-1.5">
-                    <span className="text-[var(--color-text-secondary)]">Hourly rate</span>
-                    <span className="font-medium text-[var(--color-text)]">${hourlyRate}</span>
+                <>
+                  <div>
+                    <div className="flex items-center justify-between text-[13px] py-1.5">
+                      <span className="text-[var(--color-text-secondary)]">Hourly rate</span>
+                      <span className="font-medium text-[var(--color-text)]">${displayRate}</span>
+                    </div>
+                    <div className="flex items-center justify-between text-[13px] py-1.5">
+                      <span className="text-[var(--color-text-secondary)]">Hours scheduled</span>
+                      <span className="font-medium text-[var(--color-text)]">{hours}h</span>
+                    </div>
+                    <div className="flex items-center justify-between pt-2 mt-2 border-t border-[var(--color-border)]">
+                      <span className="text-[13px] font-semibold text-[var(--color-text)]">Total</span>
+                      <span className="text-[18px] font-bold text-[var(--color-success)]">${cost}</span>
+                    </div>
                   </div>
-                  <div className="flex items-center justify-between text-[13px] py-1.5">
-                    <span className="text-[var(--color-text-secondary)]">Hours scheduled</span>
-                    <span className="font-medium text-[var(--color-text)]">{hours}h</span>
-                  </div>
-                  <div className="flex items-center justify-between pt-2 mt-2 border-t border-[var(--color-border)]">
-                    <span className="text-[13px] font-semibold text-[var(--color-text)]">Total</span>
-                    <span className="text-[18px] font-bold text-[var(--color-success)]">${cost}</span>
-                  </div>
-                </div>
+                  {/* Sync rate 버튼 — stored가 effective와 다르고 onSyncRate prop이 있으면 노출 */}
+                  {isStoredStale && onSyncRate && (
+                    <div className="mt-3 pt-3 border-t border-[var(--color-border)]">
+                      <div className="text-[11px] text-[var(--color-text-muted)] mb-2">
+                        {storedRate === 0
+                          ? `Stored rate is empty. Current effective rate is $${currentEffectiveRate}.`
+                          : `Stored rate ($${storedRate}) differs from current effective ($${currentEffectiveRate}).`}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={onSyncRate}
+                        disabled={isSyncingRate}
+                        className="w-full px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-[var(--color-accent-muted)] text-[var(--color-accent)] hover:bg-[var(--color-accent)] hover:text-white transition-colors disabled:opacity-50"
+                      >
+                        {isSyncingRate ? "Syncing…" : `Sync rate to $${currentEffectiveRate}`}
+                      </button>
+                    </div>
+                  )}
+                </>
               ) : (
-                <div className="text-[13px] font-medium text-[var(--color-danger)]">No hourly rate set for this user</div>
+                <div className="text-[13px] font-medium text-[var(--color-danger)]">No hourly rate (no user, store, or org default)</div>
               )}
             </div>
           )}
