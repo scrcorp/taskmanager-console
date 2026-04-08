@@ -31,50 +31,50 @@ export function ContextMenu({ x, y, status, userRole = 'gm', onClose, onAction }
   }, [onClose])
 
   const isGmPlus = userRole === 'gm' || userRole === 'owner'
-  type Item = { id: string; label: string; icon: string; danger?: boolean }
+  type Item = { id: string; label: string; danger?: boolean }
 
   let items: Item[] = []
   if (status === 'draft') {
     items = [
-      { id: 'details', label: 'View Details', icon: 'i' },
-      { id: 'edit', label: 'Edit Schedule', icon: 'e' },
-      { id: 'divider', label: '', icon: '' },
-      { id: 'delete', label: 'Delete', icon: 'x', danger: true },
+      { id: 'details', label: 'View Details' },
+      { id: 'edit', label: 'Edit Schedule' },
+      { id: 'divider', label: '' },
+      { id: 'delete', label: 'Delete', danger: true },
     ]
   } else if (status === 'requested') {
     items = [
-      { id: 'details', label: 'View Details', icon: 'i' },
-      { id: 'edit', label: 'Edit Schedule', icon: 'e' },
-      { id: 'confirm', label: 'Confirm', icon: 'c' },
-      { id: 'reject', label: 'Reject...', icon: 'r', danger: true },
-      { id: 'history', label: 'View History', icon: 'h' },
-      { id: 'divider', label: '', icon: '' },
-      { id: 'delete', label: 'Delete', icon: 'x', danger: true },
+      { id: 'details', label: 'View Details' },
+      { id: 'edit', label: 'Edit Schedule' },
+      { id: 'confirm', label: 'Confirm' },
+      { id: 'reject', label: 'Reject...', danger: true },
+      { id: 'history', label: 'View History' },
+      { id: 'divider', label: '' },
+      { id: 'delete', label: 'Delete', danger: true },
     ]
   } else if (status === 'confirmed') {
     items = [
-      { id: 'details', label: 'View Details', icon: 'i' },
-      { id: 'edit', label: 'Edit Schedule', icon: 'e' },
-      { id: 'revert', label: 'Revert to Requested', icon: 'r' },
-      { id: 'swap', label: 'Swap with...', icon: 's' },
-      ...(isGmPlus ? [{ id: 'cancel', label: 'Cancel...', icon: 'c', danger: true } as Item] : []),
-      { id: 'history', label: 'View History', icon: 'h' },
+      { id: 'details', label: 'View Details' },
+      { id: 'edit', label: 'Edit Schedule' },
+      { id: 'revert', label: 'Revert to Requested' },
+      { id: 'swap', label: 'Swap with...' },
+      ...(isGmPlus ? [{ id: 'cancel', label: 'Cancel...', danger: true } as Item] : []),
+      { id: 'history', label: 'View History' },
       ...(isGmPlus ? [
-        { id: 'divider', label: '', icon: '' } as Item,
-        { id: 'delete', label: 'Delete', icon: 'x', danger: true } as Item,
+        { id: 'divider', label: '' } as Item,
+        { id: 'delete', label: 'Delete', danger: true } as Item,
       ] : []),
     ]
   } else if (status === 'rejected' || status === 'cancelled') {
     items = [
-      { id: 'details', label: 'View Details', icon: 'i' },
-      { id: 'history', label: 'View History', icon: 'h' },
+      { id: 'details', label: 'View Details' },
+      { id: 'history', label: 'View History' },
     ]
   } else {
     items = [
-      { id: 'details', label: 'View Details', icon: 'i' },
-      { id: 'edit', label: 'Edit Schedule', icon: 'e' },
-      { id: 'divider', label: '', icon: '' },
-      { id: 'delete', label: 'Delete', icon: 'x', danger: true },
+      { id: 'details', label: 'View Details' },
+      { id: 'edit', label: 'Edit Schedule' },
+      { id: 'divider', label: '' },
+      { id: 'delete', label: 'Delete', danger: true },
     ]
   }
 
@@ -97,7 +97,6 @@ export function ContextMenu({ x, y, status, userRole = 'gm', onClose, onAction }
                 : 'text-[var(--color-text)] hover:bg-[var(--color-surface-hover)]'
             }`}
           >
-            <span className="w-5 text-center text-[11px] uppercase font-bold text-[var(--color-text-muted)]">{item.icon}</span>
             {item.label}
           </button>
         )

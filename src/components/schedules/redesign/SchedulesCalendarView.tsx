@@ -14,6 +14,7 @@ import { useUsers } from "@/hooks/useUsers";
 import { useStores } from "@/hooks/useStores";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useAttendances } from "@/hooks/useAttendances";
+import { useAuthStore } from "@/stores/authStore";
 import type { Schedule, Store, User } from "@/types";
 import { ScheduleBlock } from "./ScheduleBlock";
 import { StatsHeader } from "./StatsHeader";
@@ -121,12 +122,27 @@ export default function SchedulesCalendarView() {
   const router = useRouter();
   const searchParams = useSearchParams();
 
-  const [view, setView] = useState<ViewMode>("weekly");
-  const [weekStart, setWeekStart] = useState<Date>(() => getWeekStart(new Date()));
+  // URL 기반 state 초기화 — back nav 시 자동 복원
+  // ?view=weekly|daily&week=YYYY-MM-DD&day=YYYY-MM-DD&store=<id>
+  const initView: ViewMode = searchParams.get("view") === "daily" ? "daily" : "weekly";
+  const initWeekStart: Date = (() => {
+    const w = searchParams.get("week");
+    if (w) {
+      const d = new Date(w + "T00:00:00");
+      if (!Number.isNaN(d.getTime())) return getWeekStart(d);
+    }
+    return getWeekStart(new Date());
+  })();
+  const initSelectedDay: string = searchParams.get("day") ?? buildWeekDates(initWeekStart)[0]?.date ?? "";
+
+  const [view, setView] = useState<ViewMode>(initView);
+  const [weekStart, setWeekStart] = useState<Date>(initWeekStart);
   const weekDates = useMemo(() => buildWeekDates(weekStart), [weekStart]);
-  const [selectedDay, setSelectedDay] = useState(weekDates[0]?.date ?? "");
-  // Viewing-as 토글 제거됨 — 항상 GM 뷰 (cost/actions 표시)
-  const isGMView = true;
+  const [selectedDay, setSelectedDay] = useState(initSelectedDay);
+  // 현재 로그인 사용자의 role 기반으로 cost/actions 표시 여부 결정
+  // Owner(10) / GM(20) 만 cost 정보 표시, SV(30) / Staff(40) 는 숨김
+  const currentUser = useAuthStore((s) => s.user);
+  const isGMView = (currentUser?.role_priority ?? 99) <= 20;
   const [weeklySortCol, setWeeklySortCol] = useState(-1);
   const [weeklySortState, setWeeklySortState] = useState<SortState>("none");
   const [dailySortCol, setDailySortCol] = useState(-1);
@@ -167,12 +183,33 @@ export default function SchedulesCalendarView() {
   const schedules: Schedule[] = schedulesQ.data?.items ?? [];
   const attendances = attendancesQ.data?.items ?? [];
 
-  // 첫 store 자동 선택
+  // 첫 store 자동 선택 (URL store 파라미터가 있으면 우선)
   useEffect(() => {
     if (selectedStore === "" && stores.length > 0) {
-      setSelectedStore(stores[0]!.id);
+      const urlStore = searchParams.get("store");
+      const found = urlStore && stores.find((s) => s.id === urlStore);
+      setSelectedStore(found ? urlStore! : stores[0]!.id);
     }
-  }, [stores, selectedStore]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stores]);
+
+  // view / weekStart / selectedDay / selectedStore 변경 시 URL sync (history replace)
+  useEffect(() => {
+    if (selectedStore === "") return; // 아직 초기화 안 됨
+    const params = new URLSearchParams();
+    params.set("view", view);
+    params.set("week", weekDates[0]?.date ?? "");
+    if (view === "daily") params.set("day", selectedDay);
+    params.set("store", selectedStore);
+    // edit/swap 쿼리는 보존
+    const edit = searchParams.get("edit");
+    const swap = searchParams.get("swap");
+    if (edit) params.set("edit", edit);
+    if (swap) params.set("swap", swap);
+    const query = params.toString();
+    router.replace(`/schedules?${query}`, { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [view, weekStart, selectedDay, selectedStore]);
 
   // ?edit=<id> 쿼리 → edit modal 열기 (detail page에서 진입 시)
   useEffect(() => {
