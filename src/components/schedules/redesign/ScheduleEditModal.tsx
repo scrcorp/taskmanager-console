@@ -15,6 +15,8 @@ export interface ScheduleEditPayload {
   endTime: string;
   workRoleId: string | null;
   notes: string;
+  /** stored hourly rate. null = clear (자동 cascade로 표시되지 않음 → No cost). */
+  hourlyRate: number | null;
 }
 
 // Status 전환은 dedicated actions (submit / confirm / reject / revert / cancel)로만.
@@ -28,6 +30,10 @@ interface Props {
   prefilledDate?: string;
   users: User[];
   storeId: string;
+  /** 선택된 user의 cascade rate (user → store → org) — placeholder/Apply 버튼용 */
+  inheritedRate?: number | null;
+  /** Cost 정보 표시/편집 가능 여부. false면 hourly_rate input 자체 숨김 (SV/Staff). */
+  showCost?: boolean;
   onClose: () => void;
   onSave: (payload: ScheduleEditPayload) => void;
   onDelete?: () => void;
@@ -53,13 +59,15 @@ function rolePriorityToColor(p: number): string {
   return "bg-[var(--color-success-muted)] text-[var(--color-success)]";
 }
 
-export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefilledDate, users, storeId, onClose, onSave, onDelete, isSaving }: Props) {
+export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefilledDate, users, storeId, inheritedRate, showCost = true, onClose, onSave, onDelete, isSaving }: Props) {
   const [userId, setUserId] = useState(prefilledUserId || users[0]?.id || "");
   const [date, setDate] = useState(prefilledDate || new Date().toISOString().slice(0, 10));
   const [startTime, setStartTime] = useState("09:00");
   const [endTime, setEndTime] = useState("17:00");
   const [workRoleId, setWorkRoleId] = useState<string>("");
   const [notes, setNotes] = useState("");
+  // hourly rate input as string ("" = clear/null)
+  const [hourlyRateInput, setHourlyRateInput] = useState<string>("");
 
   const workRolesQ = useWorkRoles(storeId || undefined);
   const workRoles = workRolesQ.data ?? [];
@@ -73,6 +81,7 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
       setEndTime(schedule.end_time?.slice(0, 5) ?? "17:00");
       setWorkRoleId(schedule.work_role_id ?? "");
       setNotes(schedule.note ?? "");
+      setHourlyRateInput(schedule.hourly_rate != null && schedule.hourly_rate > 0 ? String(schedule.hourly_rate) : "");
     } else if (mode === "add") {
       setUserId(prefilledUserId || users[0]?.id || "");
       setDate(prefilledDate || new Date().toISOString().slice(0, 10));
@@ -80,6 +89,7 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
       setEndTime("17:00");
       setWorkRoleId("");
       setNotes("");
+      setHourlyRateInput("");
     }
   }, [open, mode, schedule, prefilledUserId, prefilledDate, users]);
 
@@ -99,7 +109,16 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
   const selectedUser = users.find((u) => u.id === userId);
 
   function handleSave() {
-    onSave({ userId, date, startTime, endTime, workRoleId: workRoleId || null, notes });
+    let hourlyRate: number | null;
+    if (!showCost) {
+      // SV/Staff: hourly_rate 편집 권한 없음 → 기존 값 유지 (schedule의 stored 그대로)
+      hourlyRate = schedule?.hourly_rate ?? null;
+    } else {
+      const trimmed = hourlyRateInput.trim();
+      const parsedRate = trimmed === "" ? null : Number(trimmed);
+      hourlyRate = parsedRate != null && Number.isFinite(parsedRate) && parsedRate > 0 ? parsedRate : null;
+    }
+    onSave({ userId, date, startTime, endTime, workRoleId: workRoleId || null, notes, hourlyRate });
   }
 
   return (
@@ -199,6 +218,43 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
               </p>
             )}
           </div>
+
+          {/* Hourly Rate (override) — GM/Owner only */}
+          {showCost && (
+          <div>
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">
+              Hourly Rate <span className="text-[var(--color-text-muted)] normal-case font-normal">(stored on this schedule)</span>
+            </label>
+            <div className="flex items-center gap-2">
+              <div className="flex items-center flex-1 px-3 py-2 border border-[var(--color-border)] rounded-lg bg-white focus-within:border-[var(--color-accent)]">
+                <span className="text-[13px] text-[var(--color-text-muted)] mr-1">$</span>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={hourlyRateInput}
+                  onChange={(e) => setHourlyRateInput(e.target.value)}
+                  placeholder={inheritedRate != null ? `${inheritedRate} (current default)` : "No rate"}
+                  className="flex-1 text-[13px] outline-none bg-transparent tabular-nums"
+                />
+                <span className="text-[11px] text-[var(--color-text-muted)] ml-1">/hr</span>
+              </div>
+              {inheritedRate != null && (
+                <button
+                  type="button"
+                  onClick={() => setHourlyRateInput(String(inheritedRate))}
+                  className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-[var(--color-accent-muted)] text-[var(--color-accent)] hover:bg-[var(--color-accent)] hover:text-white transition-colors whitespace-nowrap"
+                  title="Fill with current cascade rate"
+                >
+                  Use ${inheritedRate}
+                </button>
+              )}
+            </div>
+            <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
+              Empty = no cost (must apply rate later via context menu or detail page).
+            </p>
+          </div>
+          )}
 
           {/* Status (read-only display) — 전환은 detail의 action 버튼으로 */}
           {mode === "edit" && schedule && (

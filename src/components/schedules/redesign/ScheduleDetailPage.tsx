@@ -23,11 +23,14 @@ interface Props {
   onSyncRate?: () => void;
   isSyncingRate?: boolean;
   onBack: () => void;
-  onEdit: () => void;
-  onSwap: () => void;
+  /** undefined면 해당 action 버튼 숨김 (권한 없음) */
+  onEdit?: () => void;
+  onSwap?: () => void;
   onConfirm?: () => void;
   onRevert?: () => void;
-  onDelete: () => void;
+  onDelete?: () => void;
+  /** Owner-only history entry 삭제. undefined면 버튼 안 보임. */
+  onDeleteHistoryEntry?: (logId: string) => void;
 }
 
 // ─── Helpers ──────────────────────────────────────────
@@ -142,14 +145,15 @@ const attendanceMeta: Record<string, { label: string; bg: string; text: string; 
 
 // ─── Component ────────────────────────────────────────
 
-export function ScheduleDetailPage({ schedule, user, attendance, auditEvents, relatedSchedules, showCost, currentEffectiveRate, onSyncRate, isSyncingRate, onBack, onEdit, onSwap, onConfirm, onRevert, onDelete }: Props) {
+export function ScheduleDetailPage({ schedule, user, attendance, auditEvents, relatedSchedules, showCost, currentEffectiveRate, onSyncRate, isSyncingRate, onBack, onEdit, onSwap, onConfirm, onRevert, onDelete, onDeleteHistoryEntry }: Props) {
   const startH = parseTimeToHours(schedule.start_time);
   const endH = parseTimeToHours(schedule.end_time);
   const hours = Math.max(0, endH - startH);
-  // Stored rate가 0/null이면 cascade로 fallback (display only)
+  // stored rate만 사용 — NULL이면 No cost (preview/fallback 안 함).
+  // 사용자가 명시적으로 sync 버튼 눌러서 cascade rate를 박아넣어야 함.
   const storedRate = schedule.hourly_rate || 0;
-  const displayRate = storedRate > 0 ? storedRate : (currentEffectiveRate ?? 0);
-  const cost = displayRate ? Math.round(hours * displayRate) : null;
+  const cost = storedRate > 0 ? Math.round(hours * storedRate) : null;
+  // sync 버튼 노출 조건: stored가 비어있거나 현재 cascade와 다를 때
   const isStoredStale = currentEffectiveRate != null && storedRate !== currentEffectiveRate;
   const status = statusMeta[schedule.status] ?? statusMeta.draft;
   const roleName = schedule.work_role_name_snapshot || schedule.work_role_name || "—";
@@ -279,54 +283,45 @@ export function ScheduleDetailPage({ schedule, user, attendance, auditEvents, re
             <div className="bg-white border border-[var(--color-border)] rounded-xl p-5">
               <div className="flex items-center justify-between mb-3">
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">Cost Breakdown</div>
-                {storedRate > 0 && (
-                  <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[var(--color-bg)] text-[var(--color-text-muted)]">
-                    Stored
-                  </span>
-                )}
-                {storedRate === 0 && currentEffectiveRate != null && (
-                  <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-[var(--color-warning-muted)] text-[var(--color-warning)]">
-                    Inherited (preview)
-                  </span>
-                )}
               </div>
               {cost !== null ? (
-                <>
-                  <div>
-                    <div className="flex items-center justify-between text-[13px] py-1.5">
-                      <span className="text-[var(--color-text-secondary)]">Hourly rate</span>
-                      <span className="font-medium text-[var(--color-text)]">${displayRate}</span>
-                    </div>
-                    <div className="flex items-center justify-between text-[13px] py-1.5">
-                      <span className="text-[var(--color-text-secondary)]">Hours scheduled</span>
-                      <span className="font-medium text-[var(--color-text)]">{hours}h</span>
-                    </div>
-                    <div className="flex items-center justify-between pt-2 mt-2 border-t border-[var(--color-border)]">
-                      <span className="text-[13px] font-semibold text-[var(--color-text)]">Total</span>
-                      <span className="text-[18px] font-bold text-[var(--color-success)]">${cost}</span>
-                    </div>
+                <div>
+                  <div className="flex items-center justify-between text-[13px] py-1.5">
+                    <span className="text-[var(--color-text-secondary)]">Hourly rate</span>
+                    <span className="font-medium text-[var(--color-text)]">${storedRate}</span>
                   </div>
-                  {/* Sync rate 버튼 — stored가 effective와 다르고 onSyncRate prop이 있으면 노출 */}
-                  {isStoredStale && onSyncRate && (
-                    <div className="mt-3 pt-3 border-t border-[var(--color-border)]">
-                      <div className="text-[11px] text-[var(--color-text-muted)] mb-2">
-                        {storedRate === 0
-                          ? `Stored rate is empty. Current effective rate is $${currentEffectiveRate}.`
-                          : `Stored rate ($${storedRate}) differs from current effective ($${currentEffectiveRate}).`}
-                      </div>
-                      <button
-                        type="button"
-                        onClick={onSyncRate}
-                        disabled={isSyncingRate}
-                        className="w-full px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-[var(--color-accent-muted)] text-[var(--color-accent)] hover:bg-[var(--color-accent)] hover:text-white transition-colors disabled:opacity-50"
-                      >
-                        {isSyncingRate ? "Syncing…" : `Sync rate to $${currentEffectiveRate}`}
-                      </button>
-                    </div>
-                  )}
-                </>
+                  <div className="flex items-center justify-between text-[13px] py-1.5">
+                    <span className="text-[var(--color-text-secondary)]">Hours scheduled</span>
+                    <span className="font-medium text-[var(--color-text)]">{hours}h</span>
+                  </div>
+                  <div className="flex items-center justify-between pt-2 mt-2 border-t border-[var(--color-border)]">
+                    <span className="text-[13px] font-semibold text-[var(--color-text)]">Total</span>
+                    <span className="text-[18px] font-bold text-[var(--color-success)]">${cost}</span>
+                  </div>
+                </div>
               ) : (
-                <div className="text-[13px] font-medium text-[var(--color-danger)]">No hourly rate (no user, store, or org default)</div>
+                <div className="flex items-center justify-between py-1">
+                  <span className="text-[13px] font-semibold text-[var(--color-danger)]">No cost</span>
+                  <span className="text-[11px] text-[var(--color-text-muted)]">No rate stored on this schedule</span>
+                </div>
+              )}
+              {/* Sync rate 버튼 — cascade rate가 있으면 명시적으로 박아넣을 수 있게 */}
+              {isStoredStale && onSyncRate && (
+                <div className="mt-3 pt-3 border-t border-[var(--color-border)]">
+                  <div className="text-[11px] text-[var(--color-text-muted)] mb-2">
+                    {storedRate === 0
+                      ? `No rate stored. ${user.full_name ?? "User"}'s current rate is $${currentEffectiveRate}/hr.`
+                      : `Stored rate ($${storedRate}/hr) differs from ${user.full_name ?? "user"}'s current rate ($${currentEffectiveRate}/hr).`}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={onSyncRate}
+                    disabled={isSyncingRate}
+                    className="w-full px-3 py-1.5 rounded-lg text-[12px] font-semibold bg-[var(--color-accent-muted)] text-[var(--color-accent)] hover:bg-[var(--color-accent)] hover:text-white transition-colors disabled:opacity-50"
+                  >
+                    {isSyncingRate ? "Syncing…" : `Apply $${currentEffectiveRate}/hr to this schedule`}
+                  </button>
+                </div>
               )}
             </div>
           )}
@@ -409,20 +404,46 @@ export function ScheduleDetailPage({ schedule, user, attendance, auditEvents, re
             </div>
           )}
 
-          {/* Audit log */}
+          {/* History */}
           <div className="bg-white border border-[var(--color-border)] rounded-xl p-5">
-            <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-3">Audit Log</div>
+            <div className="flex items-center justify-between mb-3">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">History</div>
+              <a
+                href="/schedules/history"
+                className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-accent)] hover:underline"
+              >
+                View all →
+              </a>
+            </div>
             {auditEvents.length === 0 ? (
-              <div className="text-[12px] text-[var(--color-text-muted)] italic">No audit events recorded</div>
+              <div className="text-[12px] text-[var(--color-text-muted)] italic">No history events for this schedule yet. Edits, status changes, and rate syncs will appear here.</div>
             ) : (
               <div className="space-y-3">
                 {auditEvents.map((e, i) => (
-                  <div key={e.id} className={`relative pl-5 pb-3 ${i < auditEvents.length - 1 ? "border-l-2 border-[var(--color-border)] ml-1" : "ml-1"}`}>
+                  <div key={e.id} className={`relative pl-5 pb-3 group ${i < auditEvents.length - 1 ? "border-l-2 border-[var(--color-border)] ml-1" : "ml-1"}`}>
                     <div className={`absolute left-[-5px] top-1 w-[10px] h-[10px] rounded-full ${eventColors[e.event_type] ?? "bg-[var(--color-text-muted)]"} border-2 border-white`} />
-                    <div className="text-[11px] font-semibold text-[var(--color-text-muted)]">{formatEventTime(e.timestamp)}</div>
-                    <div className="text-[13px] text-[var(--color-text)] mt-0.5">
-                      <span className="font-semibold">{eventLabels[e.event_type] ?? e.event_type}</span>
-                      <span className="font-normal text-[var(--color-text-muted)]"> by {e.actor_name ?? "Unknown"}{e.actor_role ? ` · ${e.actor_role}` : ""}</span>
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="text-[11px] font-semibold text-[var(--color-text-muted)]">{formatEventTime(e.timestamp)}</div>
+                        <div className="text-[13px] text-[var(--color-text)] mt-0.5">
+                          <span className="font-semibold">{eventLabels[e.event_type] ?? e.event_type}</span>
+                          <span className="font-normal text-[var(--color-text-muted)]"> by {e.actor_name ?? "Unknown"}{e.actor_role ? ` · ${e.actor_role}` : ""}</span>
+                        </div>
+                      </div>
+                      {onDeleteHistoryEntry && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (window.confirm("Delete this history entry permanently?")) {
+                              onDeleteHistoryEntry(e.id);
+                            }
+                          }}
+                          className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-semibold uppercase tracking-wider text-[var(--color-danger)] hover:bg-[var(--color-danger-muted)] px-1.5 py-0.5 rounded shrink-0"
+                          title="Delete history entry (Owner only)"
+                        >
+                          Delete
+                        </button>
+                      )}
                     </div>
                     {e.description && <div className="text-[12px] text-[var(--color-text-secondary)] mt-0.5">{e.description}</div>}
                     {e.diff && Object.keys(e.diff).length > 0 && (
@@ -458,16 +479,19 @@ export function ScheduleDetailPage({ schedule, user, attendance, auditEvents, re
         {/* Right column (1/3) */}
         <div className="space-y-4">
           {/* Quick actions */}
+          {(onEdit || onConfirm || onSwap || onRevert || onDelete) && (
           <div className="bg-white border border-[var(--color-border)] rounded-xl p-5">
             <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-3">Quick Actions</div>
             <div className="space-y-2">
-              <button
-                type="button"
-                onClick={onEdit}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-[13px] font-semibold bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] transition-colors"
-              >
-                Edit Schedule
-              </button>
+              {onEdit && (
+                <button
+                  type="button"
+                  onClick={onEdit}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-[13px] font-semibold bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] transition-colors"
+                >
+                  Edit Schedule
+                </button>
+              )}
               {isRequested && onConfirm && (
                 <button
                   type="button"
@@ -477,7 +501,7 @@ export function ScheduleDetailPage({ schedule, user, attendance, auditEvents, re
                   Confirm
                 </button>
               )}
-              {isConfirmed && (
+              {isConfirmed && onSwap && (
                 <button
                   type="button"
                   onClick={onSwap}
@@ -495,15 +519,18 @@ export function ScheduleDetailPage({ schedule, user, attendance, auditEvents, re
                   Revert to Pending
                 </button>
               )}
-              <button
-                type="button"
-                onClick={onDelete}
-                className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-[13px] font-semibold text-[var(--color-danger)] hover:bg-[var(--color-danger-muted)]"
-              >
-                {isConfirmed ? "Cancel Schedule" : "Delete Schedule"}
-              </button>
+              {onDelete && (
+                <button
+                  type="button"
+                  onClick={onDelete}
+                  className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-[13px] font-semibold text-[var(--color-danger)] hover:bg-[var(--color-danger-muted)]"
+                >
+                  {isConfirmed ? "Cancel Schedule" : "Delete Schedule"}
+                </button>
+              )}
             </div>
           </div>
+          )}
 
           {/* Related schedules */}
           <div className="bg-white border border-[var(--color-border)] rounded-xl p-5">

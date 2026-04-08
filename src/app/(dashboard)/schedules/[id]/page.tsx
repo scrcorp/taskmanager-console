@@ -11,7 +11,7 @@ import { ScheduleDetailPage } from "@/components/schedules/redesign/ScheduleDeta
 import { ScheduleEditModal, type ScheduleEditPayload } from "@/components/schedules/redesign/ScheduleEditModal";
 import {
   useSchedule, useDeleteSchedule, useRevertSchedule, useCancelSchedule, useConfirmSchedule,
-  useScheduleAuditLog, useSchedules, useUpdateSchedule,
+  useScheduleAuditLog, useSchedules, useUpdateSchedule, useDeleteScheduleHistoryEntry,
 } from "@/hooks/useSchedules";
 import { useUser, useUsers } from "@/hooks/useUsers";
 import { useStore } from "@/hooks/useStores";
@@ -24,9 +24,12 @@ export default function SchedulesDetailPage() {
   const router = useRouter();
   const id = params.id;
 
-  // 로그인 사용자 role 기반 cost 표시
+  // 로그인 사용자 role 기반 cost / action 권한
   const currentUser = useAuthStore((s) => s.user);
-  const showCost = (currentUser?.role_priority ?? 99) <= 20;
+  const userPriority = currentUser?.role_priority ?? 99;
+  const showCost = userPriority <= 20;       // Owner/GM
+  const isGMPlus = userPriority <= 20;       // confirmed schedule modify/delete/revert/cancel/swap
+  const isOwner = userPriority <= 10;        // history entry 삭제
 
   const scheduleQ = useSchedule(id);
   const userQ = useUser(scheduleQ.data?.user_id);
@@ -65,6 +68,7 @@ export default function SchedulesDetailPage() {
   const cancelMutation = useCancelSchedule();
   const confirmMutation = useConfirmSchedule();
   const updateMutation = useUpdateSchedule();
+  const deleteHistoryMutation = useDeleteScheduleHistoryEntry();
 
   const [editOpen, setEditOpen] = useState(false);
 
@@ -134,6 +138,7 @@ export default function SchedulesDetailPage() {
           start_time: payload.startTime,
           end_time: payload.endTime,
           note: payload.notes || null,
+          hourly_rate: payload.hourlyRate,
         },
       },
       {
@@ -158,14 +163,21 @@ export default function SchedulesDetailPage() {
         onSyncRate={handleSyncRate}
         isSyncingRate={updateMutation.isPending}
         onBack={() => router.back()}
-        onEdit={() => setEditOpen(true)}
-        onSwap={() => {
-          // Swap은 calendar view에서만 (candidate list 필요)
-          router.push(`/schedules?swap=${id}`);
-        }}
+        // Edit: confirmed면 GM+ only (서버 정책), draft/requested는 SV 이상 모두 가능
+        onEdit={schedule.status === "confirmed" ? (isGMPlus ? () => setEditOpen(true) : undefined) : () => setEditOpen(true)}
+        // Swap: GM+ only
+        onSwap={isGMPlus && schedule.status === "confirmed" ? () => router.push(`/schedules?swap=${id}`) : undefined}
+        // Confirm: requested 상태에서만 (SV 가능)
         onConfirm={schedule.status === "requested" ? handleConfirmAction : undefined}
-        onRevert={schedule.status === "confirmed" ? handleRevert : undefined}
-        onDelete={schedule.status === "confirmed" ? handleCancelConfirmed : handleDelete}
+        // Revert: GM+ only, confirmed → requested
+        onRevert={isGMPlus && schedule.status === "confirmed" ? handleRevert : undefined}
+        // Delete: confirmed cancel은 GM+, draft/requested delete는 SV 이상
+        onDelete={
+          schedule.status === "confirmed"
+            ? (isGMPlus ? handleCancelConfirmed : undefined)
+            : handleDelete
+        }
+        onDeleteHistoryEntry={isOwner ? (logId) => deleteHistoryMutation.mutate(logId, { onSuccess: () => auditLogQ.refetch() }) : undefined}
       />
 
       <ScheduleEditModal
@@ -174,6 +186,8 @@ export default function SchedulesDetailPage() {
         schedule={schedule}
         users={usersQ.data ?? []}
         storeId={schedule.store_id}
+        inheritedRate={currentEffectiveRate}
+        showCost={showCost}
         onClose={() => setEditOpen(false)}
         onSave={handleEditSave}
         isSaving={updateMutation.isPending}
