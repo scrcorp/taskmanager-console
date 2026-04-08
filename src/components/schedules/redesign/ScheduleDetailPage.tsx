@@ -385,6 +385,24 @@ export function ScheduleDetailPage({ schedule, user, attendance, auditEvents, re
                       <span className="font-normal text-[var(--color-text-muted)]"> by {e.actor_name ?? "Unknown"}{e.actor_role ? ` · ${e.actor_role}` : ""}</span>
                     </div>
                     {e.description && <div className="text-[12px] text-[var(--color-text-secondary)] mt-0.5">{e.description}</div>}
+                    {e.diff && Object.keys(e.diff).length > 0 && (
+                      <div className="mt-1.5 px-2.5 py-1.5 bg-[var(--color-bg)] border-l-2 border-[var(--color-accent)] rounded-r text-[11px]">
+                        <div className="font-semibold text-[var(--color-text-muted)] uppercase tracking-wider text-[10px] mb-1">Changes</div>
+                        <div className="space-y-0.5">
+                          {Object.entries(e.diff).map(([field, change]) => {
+                            const d = change as { old?: unknown; new?: unknown };
+                            return (
+                              <div key={field} className="flex items-baseline gap-2">
+                                <span className="font-semibold text-[var(--color-text)] min-w-[90px]">{field}</span>
+                                <span className="text-[var(--color-text-muted)] line-through">{String(d.old ?? "—")}</span>
+                                <span className="text-[var(--color-text-muted)]">→</span>
+                                <span className="text-[var(--color-text)] font-medium">{String(d.new ?? "—")}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    )}
                     {e.reason && (
                       <div className="mt-1.5 px-2.5 py-1.5 bg-[var(--color-bg)] border-l-2 border-[var(--color-danger)] rounded-r text-[11px] text-[var(--color-text-secondary)]">
                         <span className="font-semibold text-[var(--color-text)]">Reason:</span> {e.reason}

@@ -65,7 +65,12 @@ export const useUpdateSchedule = (): UseMutationResult<Schedule, Error, { id: st
       const res: AxiosResponse<Schedule> = await api.patch(`/admin/schedules/${id}`, data);
       return res.data;
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["schedules"] }); },
+    onSuccess: (updated, variables) => {
+      // 개별 schedule cache 즉시 갱신 (낙관적 반영)
+      qc.setQueryData(["schedules", variables.id], updated);
+      // 목록 및 audit log 무효화
+      qc.invalidateQueries({ queryKey: ["schedules"] });
+    },
   });
 };
 
