@@ -46,6 +46,9 @@ export const useUpdateOrganization = (): UseMutationResult<
     },
     onSuccess: (updated: Organization): void => {
       queryClient.setQueryData<Organization>(["organization"], updated);
+      // default_hourly_rate 변경 시 server가 stores/users에 cascade하므로 캐시 무효화
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      queryClient.invalidateQueries({ queryKey: ["stores"] });
     },
   });
 };

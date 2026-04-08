@@ -126,6 +126,8 @@ export const useUpdateStore = (): UseMutationResult<
       queryClient.setQueryData<StoreDetail>(["stores", variables.id], (old) =>
         old ? { ...old, ...updated } : undefined,
       );
+      // default_hourly_rate 변경 시 server가 users에 cascade하므로 캐시 무효화
+      queryClient.invalidateQueries({ queryKey: ["users"] });
     },
   });
 };
