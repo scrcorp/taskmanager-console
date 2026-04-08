@@ -12,8 +12,8 @@ export interface StatsColumn {
   teamPending: number
   hoursConfirmed: number
   hoursPending: number
-  laborConfirmed: number
-  laborPending: number
+  costConfirmed: number
+  costPending: number
 }
 
 interface Props {
@@ -21,11 +21,11 @@ interface Props {
   totalLabel?: string
   totalHoursConfirmed?: number
   totalHoursPending?: number
-  totalLaborConfirmed?: number
-  totalLaborPending?: number
+  totalCostConfirmed?: number
+  totalCostPending?: number
   totalTeamConfirmed?: number
   totalTeamPending?: number
-  showLabor: boolean
+  showCost: boolean
   sortCol: number
   sortState: SortState
   onSort: (colIndex: number, state: SortState) => void
@@ -38,11 +38,11 @@ export function StatsHeader({
   totalLabel = 'TOTAL',
   totalHoursConfirmed = 0,
   totalHoursPending = 0,
-  totalLaborConfirmed = 0,
-  totalLaborPending = 0,
+  totalCostConfirmed = 0,
+  totalCostPending = 0,
   totalTeamConfirmed = 0,
   totalTeamPending = 0,
-  showLabor,
+  showCost,
   sortCol,
   sortState,
   onSort,
@@ -103,7 +103,7 @@ export function StatsHeader({
           <button
             onClick={() => setExpanded(!expanded)}
             className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-colors flex items-center gap-1 mx-auto"
-            title={expanded ? 'Collapse details' : 'Expand Hours & Labor'}
+            title={expanded ? 'Collapse details' : 'Expand Hours & Cost'}
           >
             <svg
               width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"
@@ -200,27 +200,27 @@ export function StatsHeader({
             <td className={`text-center py-1 text-[10px] font-bold border-l border-[var(--color-border)] ${totalHoursPending > 0 ? 'text-[var(--color-warning)]' : 'text-[var(--color-text-muted)] opacity-25'}`}>{totalHoursPending}h</td>
           </tr>
 
-          {/* Labor (GM only) */}
-          {showLabor && (
+          {/* Cost (GM only) */}
+          {showCost && (
             <>
               <tr className="border-b border-[var(--color-border)]/30">
                 <td className="border-r-2 border-[var(--color-border)] text-center" rowSpan={2}>
-                  <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]">Labor</span>
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]">Cost</span>
                 </td>
                 {columns.map((col, i) => (
                   <td key={`lc${col.key}`} className={`text-center py-1 border-r border-[var(--color-border)] border-b border-[var(--color-border)]/30 text-[10px] font-semibold text-[var(--color-success)] ${colBg(i)}`}>
-                    ${col.laborConfirmed}
+                    ${col.costConfirmed}
                   </td>
                 ))}
-                <td className="text-center py-1 text-[10px] font-bold text-[var(--color-success)] border-b border-[var(--color-border)]/30 border-l border-[var(--color-border)]">${totalLaborConfirmed}</td>
+                <td className="text-center py-1 text-[10px] font-bold text-[var(--color-success)] border-b border-[var(--color-border)]/30 border-l border-[var(--color-border)]">${totalCostConfirmed}</td>
               </tr>
               <tr className="border-b border-[var(--color-border)]">
                 {columns.map((col, i) => (
-                  <td key={`lp${col.key}`} className={`text-center py-1 border-r border-[var(--color-border)] text-[10px] font-semibold ${col.laborPending > 0 ? 'text-[var(--color-warning)]' : 'text-[var(--color-text-muted)] opacity-25'} ${colBg(i)}`}>
-                    ${col.laborPending}
+                  <td key={`lp${col.key}`} className={`text-center py-1 border-r border-[var(--color-border)] text-[10px] font-semibold ${col.costPending > 0 ? 'text-[var(--color-warning)]' : 'text-[var(--color-text-muted)] opacity-25'} ${colBg(i)}`}>
+                    ${col.costPending}
                   </td>
                 ))}
-                <td className={`text-center py-1 text-[10px] font-bold border-l border-[var(--color-border)] ${totalLaborPending > 0 ? 'text-[var(--color-warning)]' : 'text-[var(--color-text-muted)] opacity-25'}`}>${totalLaborPending}</td>
+                <td className={`text-center py-1 text-[10px] font-bold border-l border-[var(--color-border)] ${totalCostPending > 0 ? 'text-[var(--color-warning)]' : 'text-[var(--color-text-muted)] opacity-25'}`}>${totalCostPending}</td>
               </tr>
             </>
           )}

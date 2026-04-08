@@ -37,7 +37,7 @@ import { WorkRolesPanel } from "@/components/schedules/WorkRolesPanel";
 import type { Store } from "@/types";
 
 interface Props {
-  showLabor?: boolean;
+  showCost?: boolean;
   onBack: () => void;
 }
 

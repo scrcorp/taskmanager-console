@@ -4,11 +4,10 @@
  * Props는 모두 server type 직접 사용. mockup adapter 없음.
  */
 
-import type { Schedule, User, Attendance } from "@/types";
+import type { Schedule, Attendance } from "@/types";
 
 interface Props {
   schedule: Schedule;
-  user: User | undefined;
   showCost: boolean;
   attendance?: Attendance | null;
   /** 현재 보고 있는 매장 ID — 다른 매장 스케줄(isOtherStore) 표시용 */
@@ -104,12 +103,13 @@ function elapsedSince(iso: string): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-export function ScheduleBlock({ schedule, user, showCost, attendance, currentStoreId, onClick }: Props) {
+export function ScheduleBlock({ schedule, showCost, attendance, currentStoreId, onClick }: Props) {
   const startH = parseTimeToHours(schedule.start_time);
   const endH = parseTimeToHours(schedule.end_time);
   const hours = Math.max(0, endH - startH);
-  const hourlyRate = schedule.hourly_rate || user?.hourly_rate || 0;
-  const cost = hourlyRate ? Math.round(hours * hourlyRate) : null;
+  // stored rate만 사용. NULL이면 "No cost" 표시 (preview/cascade 안 함 — 사용자가 명시적으로 sync해야 함).
+  const storedRate = schedule.hourly_rate;
+  const cost = storedRate && storedRate > 0 ? Math.round(hours * storedRate) : null;
   const timeRange = `${formatTime(schedule.start_time)}–${formatTime(schedule.end_time)}`;
 
   const isOtherStore = schedule.store_id !== currentStoreId;
@@ -190,7 +190,7 @@ export function ScheduleBlock({ schedule, user, showCost, attendance, currentSto
         </div>
       )}
       {showCost && cost === null && (
-        <div className="text-[10px] font-medium mt-0.5 text-[var(--color-danger)]">No rate</div>
+        <div className="text-[10px] font-medium mt-0.5 text-[var(--color-danger)]" title="No rate stored on this schedule. Open detail and sync to apply current rate.">No cost</div>
       )}
 
       {/* Row 4: Status / Attendance */}

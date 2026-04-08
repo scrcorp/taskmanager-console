@@ -38,6 +38,14 @@ function getWeekStart(d: Date): Date {
   return r;
 }
 
+/** Date → "YYYY-MM-DD" using LOCAL timezone (toISOString은 UTC라 KST에서 하루 어긋남) */
+function fmtLocalDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
 interface WeekDay {
   date: string;       // YYYY-MM-DD
   dayName: string;    // "Sun"
@@ -165,8 +173,11 @@ export default function SchedulesCalendarView() {
   const storesQ = useStores();
   const orgQ = useOrganization();
   const orgDefaultRate = orgQ.data?.default_hourly_rate ?? null;
+  // 다른 매장 스케줄도 보이기 위해 store_id 필터 대신 user_ids로 fetch.
+  // 현재 보이는 user들의 모든 매장 스케줄을 가져온 뒤, ScheduleBlock의 isOtherStore 분기로 dimmed 표시.
+  const allUserIds = useMemo(() => (usersQ.data ?? []).map((u) => u.id), [usersQ.data]);
   const schedulesQ = useSchedules({
-    store_id: selectedStore || undefined,
+    user_ids: allUserIds,
     date_from: dateFrom,
     date_to: dateTo,
     per_page: 500,
@@ -193,23 +204,41 @@ export default function SchedulesCalendarView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stores]);
 
-  // view / weekStart / selectedDay / selectedStore 변경 시 URL sync (history replace)
+  // view / weekStart / selectedDay / selectedStore 변경 시 URL sync.
+  // window.history.replaceState 직접 사용 — router.replace는 Next.js navigation을
+  // 트리거하면서 페이지 state를 흔들 수 있음 (특히 우리 effect가 URL을 다시 읽지 않더라도
+  // searchParams의 새 reference로 다른 effect들이 재실행되면서 race가 생길 수 있음).
   useEffect(() => {
     if (selectedStore === "") return; // 아직 초기화 안 됨
-    const params = new URLSearchParams();
+    if (typeof window === "undefined") return;
+    const params = new URLSearchParams(window.location.search);
     params.set("view", view);
-    params.set("week", weekDates[0]?.date ?? "");
-    if (view === "daily") params.set("day", selectedDay);
+    // weekly는 week만, daily는 day만 (서로 다른 의미라 동시에 두면 헷갈림)
+    if (view === "weekly") {
+      params.set("week", weekDates[0]?.date ?? "");
+      params.delete("day");
+    } else {
+      params.set("day", selectedDay);
+      params.delete("week");
+    }
     params.set("store", selectedStore);
-    // edit/swap 쿼리는 보존
-    const edit = searchParams.get("edit");
-    const swap = searchParams.get("swap");
-    if (edit) params.set("edit", edit);
-    if (swap) params.set("swap", swap);
-    const query = params.toString();
-    router.replace(`/schedules?${query}`, { scroll: false });
+    const next = `${window.location.pathname}?${params.toString()}`;
+    if (next !== window.location.pathname + window.location.search) {
+      window.history.replaceState(null, "", next);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [view, weekStart, selectedDay, selectedStore]);
+
+  // selectedDay가 현재 weekDates 밖으로 나가면 weekStart 자동 동기화
+  useEffect(() => {
+    if (!selectedDay) return;
+    const inWeek = weekDates.some((d) => d.date === selectedDay);
+    if (!inWeek) {
+      const d = new Date(selectedDay + "T00:00:00");
+      setWeekStart(getWeekStart(d));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedDay]);
 
   // ?edit=<id> 쿼리 → edit modal 열기 (detail page에서 진입 시)
   useEffect(() => {
@@ -251,9 +280,8 @@ export default function SchedulesCalendarView() {
   }, [currentStore]);
 
   function getSchedulesForCell(userId: string, date: string): Schedule[] {
-    return schedules.filter(
-      (s) => s.user_id === userId && s.work_date === date && (s.store_id === selectedStore),
-    );
+    // store 필터 제거 — 다른 매장 schedule도 같은 셀에 표시 (ScheduleBlock의 isOtherStore 분기로 dimmed).
+    return schedules.filter((s) => s.user_id === userId && s.work_date === date);
   }
 
   function getAttendanceFor(scheduleId: string) {
@@ -324,11 +352,10 @@ export default function SchedulesCalendarView() {
     const confirmed = daySchedules.filter((s) => s.status === "confirmed");
     const pending = daySchedules.filter((s) => s.status === "requested");
     const sumHours = (arr: Schedule[]) => arr.reduce((sum, s) => sum + Math.max(0, parseTimeToHours(s.end_time) - parseTimeToHours(s.start_time)), 0);
-    const sumLabor = (arr: Schedule[]) => arr.reduce((sum, s) => {
+    // stored rate만 합산. NULL은 0으로 (No cost로 표시되는 schedule들은 합계에서 빠짐).
+    const sumCost = (arr: Schedule[]) => arr.reduce((sum, s) => {
       const hrs = Math.max(0, parseTimeToHours(s.end_time) - parseTimeToHours(s.start_time));
-      const u = users.find((x) => x.id === s.user_id);
-      const rate = s.hourly_rate || effectiveRate(u, currentStore, orgDefaultRate) || 0;
-      return sum + hrs * rate;
+      return sum + hrs * (s.hourly_rate ?? 0);
     }, 0);
     return {
       key: day.date,
@@ -340,8 +367,8 @@ export default function SchedulesCalendarView() {
       teamPending: new Set(pending.map((s) => s.user_id)).size,
       hoursConfirmed: sumHours(confirmed),
       hoursPending: sumHours(pending),
-      laborConfirmed: sumLabor(confirmed),
-      laborPending: sumLabor(pending),
+      costConfirmed: sumCost(confirmed),
+      costPending: sumCost(pending),
     };
   }), [weekDates, schedules, selectedStore, users]);
 
@@ -355,10 +382,8 @@ export default function SchedulesCalendarView() {
     const daySchedules = schedules.filter((s) => s.work_date === selectedDay && s.store_id === selectedStore && parseTimeToHours(s.start_time) <= h && parseTimeToHours(s.end_time) > h);
     const confirmed = daySchedules.filter((s) => s.status === "confirmed");
     const pending = daySchedules.filter((s) => s.status === "requested");
-    const sumLabor = (arr: Schedule[]) => arr.reduce((sum, s) => {
-      const u = users.find((x) => x.id === s.user_id);
-      return sum + (s.hourly_rate || effectiveRate(u, currentStore, orgDefaultRate) || 0);
-    }, 0);
+    // 시간당 1시간 컬럼 — stored only
+    const sumCost = (arr: Schedule[]) => arr.reduce((sum, s) => sum + (s.hourly_rate ?? 0), 0);
     return {
       key: `h${h}`,
       hour: h,
@@ -367,8 +392,8 @@ export default function SchedulesCalendarView() {
       teamPending: pending.length,
       hoursConfirmed: confirmed.length,
       hoursPending: pending.length,
-      laborConfirmed: sumLabor(confirmed),
-      laborPending: sumLabor(pending),
+      costConfirmed: sumCost(confirmed),
+      costPending: sumCost(pending),
     };
   }), [dailyHourRange, schedules, selectedStore, selectedDay, users]);
 
@@ -378,8 +403,8 @@ export default function SchedulesCalendarView() {
     return {
       hc: weeklyColumns.reduce((a, c) => a + c.hoursConfirmed, 0),
       hp: weeklyColumns.reduce((a, c) => a + c.hoursPending, 0),
-      lc: weeklyColumns.reduce((a, c) => a + c.laborConfirmed, 0),
-      lp: weeklyColumns.reduce((a, c) => a + c.laborPending, 0),
+      lc: weeklyColumns.reduce((a, c) => a + c.costConfirmed, 0),
+      lp: weeklyColumns.reduce((a, c) => a + c.costPending, 0),
       tc: new Set(conf.map((s) => s.user_id)).size,
       tp: new Set(pend.map((s) => s.user_id)).size,
     };
@@ -390,16 +415,15 @@ export default function SchedulesCalendarView() {
     const conf = dayBlocks.filter((s) => s.status === "confirmed");
     const pend = dayBlocks.filter((s) => s.status === "requested");
     const sumHours = (arr: Schedule[]) => arr.reduce((s, b) => s + Math.max(0, parseTimeToHours(b.end_time) - parseTimeToHours(b.start_time)), 0);
-    const sumLabor = (arr: Schedule[]) => arr.reduce((s, b) => {
-      const u = users.find((x) => x.id === b.user_id);
+    const sumCost = (arr: Schedule[]) => arr.reduce((s, b) => {
       const hrs = Math.max(0, parseTimeToHours(b.end_time) - parseTimeToHours(b.start_time));
-      return s + hrs * (b.hourly_rate || effectiveRate(u, currentStore, orgDefaultRate) || 0);
+      return s + hrs * (b.hourly_rate ?? 0);
     }, 0);
     return {
       hc: sumHours(conf),
       hp: sumHours(pend),
-      lc: sumLabor(conf),
-      lp: sumLabor(pend),
+      lc: sumCost(conf),
+      lp: sumCost(pend),
       tc: new Set(conf.map((s) => s.user_id)).size,
       tp: new Set(pend.map((s) => s.user_id)).size,
     };
@@ -407,7 +431,12 @@ export default function SchedulesCalendarView() {
 
   const totals = view === "weekly" ? weeklyTotals : dailyTotals;
   const columns = view === "weekly" ? weeklyColumns : dailyColumns;
-  const selectedDayInfo = weekDates.find((d) => d.date === selectedDay);
+  // selectedDay 직접 파싱 — weekDates lookup은 selectedDay가 weekDates 밖이면 undefined가 됨
+  const selectedDayLabel = (() => {
+    if (!selectedDay) return "";
+    const d = new Date(selectedDay + "T00:00:00");
+    return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+  })();
 
   // ─── Handlers ─────────────────────────────────────────
 
@@ -450,6 +479,14 @@ export default function SchedulesCalendarView() {
     if (action === "reject") setConfirmDialog({ open: true, type: "reject", blockId });
     if (action === "cancel") setConfirmDialog({ open: true, type: "cancel", blockId });
     if (action === "confirm") setConfirmDialog({ open: true, type: "confirm", blockId });
+    if (action === "sync-rate") {
+      const block = schedules.find((s) => s.id === blockId);
+      if (!block) return;
+      const blockUser = users.find((u) => u.id === block.user_id);
+      const target = effectiveRate(blockUser, currentStore, orgDefaultRate);
+      if (target == null) return;
+      updateMutation.mutate({ id: blockId, data: { hourly_rate: target } });
+    }
   }
 
   function openAddModal(staffId?: string, date?: string) {
@@ -476,6 +513,7 @@ export default function SchedulesCalendarView() {
         // 새로 만드는 schedule은 항상 draft로 시작 (status 전환은 submit/confirm action으로)
         status: "draft",
         note: payload.notes || null,
+        hourly_rate: payload.hourlyRate,
       }, {
         onSuccess: closeEditModal,
       });
@@ -489,6 +527,7 @@ export default function SchedulesCalendarView() {
           start_time: payload.startTime,
           end_time: payload.endTime,
           note: payload.notes || null,
+          hourly_rate: payload.hourlyRate,
         },
       }, {
         onSuccess: closeEditModal,
@@ -499,13 +538,14 @@ export default function SchedulesCalendarView() {
   // ─── Daily view helper ────────────────────────────────
 
   function getDailyScheduleAtHour(userId: string, hour: number): Schedule | undefined {
-    return schedules.find((s) =>
+    // 같은 시간대 겹치면 현재 매장 우선, 그 다음 다른 매장 (dimmed로 표시).
+    const matches = schedules.filter((s) =>
       s.user_id === userId &&
       s.work_date === selectedDay &&
-      s.store_id === selectedStore &&
       parseTimeToHours(s.start_time) <= hour &&
       parseTimeToHours(s.end_time) > hour,
     );
+    return matches.find((s) => s.store_id === selectedStore) ?? matches[0];
   }
 
   // ─── Stats helpers per user ───────────────────────────
@@ -522,6 +562,35 @@ export default function SchedulesCalendarView() {
       .reduce((sum, s) => sum + Math.max(0, parseTimeToHours(s.end_time) - parseTimeToHours(s.start_time)), 0);
   }
 
+  // stored rate만 사용 — NULL은 No cost로 계산에서 빠짐
+  function getUserConfirmedCost(userId: string, date: string): number {
+    return schedules
+      .filter((s) => s.user_id === userId && s.work_date === date && s.store_id === selectedStore && s.status === "confirmed")
+      .reduce((sum, s) => {
+        const hrs = Math.max(0, parseTimeToHours(s.end_time) - parseTimeToHours(s.start_time));
+        return sum + hrs * (s.hourly_rate ?? 0);
+      }, 0);
+  }
+  function getUserPendingCost(userId: string, date: string): number {
+    return schedules
+      .filter((s) => s.user_id === userId && s.work_date === date && s.store_id === selectedStore && s.status === "requested")
+      .reduce((sum, s) => {
+        const hrs = Math.max(0, parseTimeToHours(s.end_time) - parseTimeToHours(s.start_time));
+        return sum + hrs * (s.hourly_rate ?? 0);
+      }, 0);
+  }
+  // user의 해당 주/일 스케줄 중 stored rate가 NULL인 게 있는지 — sync 필요 표시용
+  function userHasNoCost(userId: string, dates: string[]): boolean {
+    return schedules.some(
+      (s) =>
+        s.user_id === userId &&
+        s.store_id === selectedStore &&
+        dates.includes(s.work_date) &&
+        (s.status === "confirmed" || s.status === "requested") &&
+        (s.hourly_rate == null || s.hourly_rate === 0),
+    );
+  }
+
   // ─── Store hours label ────────────────────────────────
   const storeHoursLabel = `${openHour > 12 ? `${openHour - 12}PM` : `${openHour}AM`} - ${closeHour > 12 ? `${closeHour - 12}PM` : `${closeHour}AM`}`;
 
@@ -530,15 +599,25 @@ export default function SchedulesCalendarView() {
   return (
     <div className="min-h-screen bg-[var(--color-bg)]">
       {/* Context Menu */}
-      {contextMenu && (
-        <ContextMenu
-          x={contextMenu.x} y={contextMenu.y}
-          status={contextMenu.status}
-          userRole={isGMView ? "gm" : "sv"}
-          onClose={() => setContextMenu(null)}
-          onAction={handleContextAction}
-        />
-      )}
+      {contextMenu && (() => {
+        const block = schedules.find((s) => s.id === contextMenu.blockId);
+        const blockUser = block ? users.find((u) => u.id === block.user_id) : undefined;
+        const blockEffective = effectiveRate(blockUser, currentStore, orgDefaultRate);
+        const stored = block?.hourly_rate ?? 0;
+        // Sync 메뉴 노출 조건: GM 권한 + cascade rate 존재 + stored와 다름
+        const canSync = isGMView && blockEffective != null && stored !== blockEffective;
+        return (
+          <ContextMenu
+            x={contextMenu.x} y={contextMenu.y}
+            status={contextMenu.status}
+            userRole={isGMView ? "gm" : "sv"}
+            canSyncRate={canSync}
+            syncRateLabel={canSync ? `$${blockEffective}/hr` : undefined}
+            onClose={() => setContextMenu(null)}
+            onAction={handleContextAction}
+          />
+        );
+      })()}
 
       {/* History Panel */}
       <HistoryPanel
@@ -584,6 +663,9 @@ export default function SchedulesCalendarView() {
       {/* Schedule Edit Modal */}
       {(() => {
         const editSchedule = editModal.blockId ? schedules.find((s) => s.id === editModal.blockId) : null;
+        const targetUserId = editSchedule?.user_id ?? editModal.staffId;
+        const targetUser = targetUserId ? users.find((u) => u.id === targetUserId) : undefined;
+        const editInheritedRate = effectiveRate(targetUser, currentStore, orgDefaultRate);
         return (
           <ScheduleEditModal
             open={editModal.open}
@@ -593,6 +675,8 @@ export default function SchedulesCalendarView() {
             prefilledDate={editModal.date}
             users={users}
             storeId={selectedStore}
+            inheritedRate={editInheritedRate}
+            showCost={isGMView}
             onClose={closeEditModal}
             onSave={handleScheduleEditSave}
             isSaving={createMutation.isPending || updateMutation.isPending}
@@ -674,7 +758,7 @@ export default function SchedulesCalendarView() {
               <span>Pending: <strong className="text-[14px] text-[var(--color-warning)]">{totals.tp}</strong></span>
               {isGMView && <>
                 <span className="w-px h-4 bg-[var(--color-border)]" />
-                <span>Labor: <strong className="text-[14px] text-[var(--color-success)]">${Math.round(totals.lc)}</strong>{totals.lp > 0 && <strong className="text-[14px] text-[var(--color-warning)]"> +${Math.round(totals.lp)}</strong>}</span>
+                <span>Cost: <strong className="text-[14px] text-[var(--color-success)]">${Math.round(totals.lc)}</strong>{totals.lp > 0 && <strong className="text-[14px] text-[var(--color-warning)]"> +${Math.round(totals.lp)}</strong>}</span>
               </>}
             </div>
           </div>
@@ -695,7 +779,7 @@ export default function SchedulesCalendarView() {
                     const next = new Date(weekStart); next.setDate(next.getDate() - 7); setWeekStart(next);
                   } else {
                     const d = new Date(selectedDay + "T00:00:00"); d.setDate(d.getDate() - 1);
-                    setSelectedDay(d.toISOString().slice(0, 10));
+                    setSelectedDay(fmtLocalDate(d));
                   }
                 }}
                 className="w-8 h-8 rounded-lg border border-[var(--color-border)] bg-white flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]"
@@ -706,7 +790,7 @@ export default function SchedulesCalendarView() {
               <span className="text-[13px] font-semibold text-[var(--color-text)] min-w-[140px] text-center">
                 {view === "weekly"
                   ? `${weekDates[0]?.dayName} ${weekDates[0]?.dayNum} – ${weekDates[6]?.dayName} ${weekDates[6]?.dayNum}`
-                  : `${selectedDayInfo?.dayName} ${selectedDayInfo?.dayNum}`}
+                  : selectedDayLabel}
               </span>
               <button
                 type="button"
@@ -715,7 +799,7 @@ export default function SchedulesCalendarView() {
                     const next = new Date(weekStart); next.setDate(next.getDate() + 7); setWeekStart(next);
                   } else {
                     const d = new Date(selectedDay + "T00:00:00"); d.setDate(d.getDate() + 1);
-                    setSelectedDay(d.toISOString().slice(0, 10));
+                    setSelectedDay(fmtLocalDate(d));
                   }
                 }}
                 className="w-8 h-8 rounded-lg border border-[var(--color-border)] bg-white flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]"
@@ -763,7 +847,7 @@ export default function SchedulesCalendarView() {
 
               <StatsHeader
                 columns={columns}
-                showLabor={isGMView}
+                showCost={isGMView}
                 sortCol={sortCol}
                 sortState={sortState}
                 onSort={handleSort}
@@ -771,15 +855,16 @@ export default function SchedulesCalendarView() {
                 firstColLabel={view === "weekly" ? "Day" : "Time"}
                 totalHoursConfirmed={totals.hc}
                 totalHoursPending={totals.hp}
-                totalLaborConfirmed={totals.lc}
-                totalLaborPending={totals.lp}
+                totalCostConfirmed={totals.lc}
+                totalCostPending={totals.lp}
                 totalTeamConfirmed={totals.tc}
                 totalTeamPending={totals.tp}
               />
 
               <tbody>
                 {sortedUsers.map((u: User) => {
-                  // Effective rate cascade: user → current store → org
+                  // 신규 스케줄 생성 시 default로 박힐 rate (user → store → org cascade).
+                  // 기존 스케줄의 stored rate와는 무관 — 표시 라벨에만 사용.
                   const userEffective = effectiveRate(u, currentStore, orgDefaultRate);
                   const isUserCustom = u.hourly_rate != null;
                 return (
@@ -791,8 +876,8 @@ export default function SchedulesCalendarView() {
                           <div className="text-[13px] font-semibold text-[var(--color-text)] truncate">{u.full_name || u.username}</div>
                           <div className="text-[10px] text-[var(--color-text-muted)]">
                             <span className={u.role_priority <= 20 ? "text-[var(--color-accent)] font-semibold" : u.role_priority <= 30 ? "text-[var(--color-warning)] font-semibold" : "font-semibold"}>{rolePriorityToBadge(u.role_priority)}</span>
-                            {isGMView && userEffective != null ? ` · $${userEffective}/hr${isUserCustom ? "" : " (inherited)"}` : null}
-                            {isGMView && userEffective == null && <span className="text-[var(--color-danger)]"> · No rate</span>}
+                            {isGMView && userEffective != null ? <span title="Default rate for new schedules"> · ${userEffective}/hr{isUserCustom ? "" : " (inherited)"}</span> : null}
+                            {isGMView && userEffective == null && <span className="text-[var(--color-danger)]"> · No default rate</span>}
                           </div>
                         </div>
                       </div>
@@ -810,7 +895,6 @@ export default function SchedulesCalendarView() {
                                     <ScheduleBlock
                                       key={s.id}
                                       schedule={s}
-                                      user={u}
                                       showCost={isGMView}
                                       attendance={getAttendanceFor(s.id)}
                                       currentStoreId={selectedStore}
@@ -852,7 +936,6 @@ export default function SchedulesCalendarView() {
                                 <td key={`h${h}`} colSpan={span} className={`p-1 border-r border-[var(--color-border)]/20 align-middle ${sortCol === colIndex ? "bg-[var(--color-accent)]/[0.04]" : ""}`}>
                                   <ScheduleBlock
                                     schedule={sched}
-                                    user={u}
                                     showCost={isGMView}
                                     attendance={getAttendanceFor(sched.id)}
                                     currentStoreId={selectedStore}
@@ -885,12 +968,15 @@ export default function SchedulesCalendarView() {
                         (() => {
                           const ch = weekDates.reduce((sum, d) => sum + getUserConfirmedHours(u.id, d.date), 0);
                           const ph = weekDates.reduce((sum, d) => sum + getUserPendingHours(u.id, d.date), 0);
+                          const lc = weekDates.reduce((sum, d) => sum + getUserConfirmedCost(u.id, d.date), 0);
+                          const lp = weekDates.reduce((sum, d) => sum + getUserPendingCost(u.id, d.date), 0);
+                          const hasMissing = isGMView && userHasNoCost(u.id, weekDates.map((d) => d.date));
                           return <div className="flex flex-col items-center">
                             <span className="text-[13px] font-bold text-[var(--color-success)]">{ch}h</span>
                             {ph > 0 && <span className="text-[10px] font-semibold text-[var(--color-warning)]">+{ph}h</span>}
-                            {isGMView && userEffective != null ? <span className="text-[10px] text-[var(--color-success)]">${ch * userEffective}</span> : null}
-                            {isGMView && userEffective != null && ph > 0 && <span className="text-[10px] text-[var(--color-warning)]">+${ph * userEffective}</span>}
-                            {isGMView && userEffective == null && <span className="text-[10px] text-[var(--color-danger)]">N/A</span>}
+                            {isGMView && lc > 0 && <span className="text-[10px] text-[var(--color-success)]">${Math.round(lc)}</span>}
+                            {isGMView && lp > 0 && <span className="text-[10px] text-[var(--color-warning)]">+${Math.round(lp)}</span>}
+                            {hasMissing && <span className="text-[10px] text-[var(--color-danger)]" title="Some schedules have no stored rate and no inherited rate available">No cost</span>}
                           </div>;
                         })()
                       ) : (
