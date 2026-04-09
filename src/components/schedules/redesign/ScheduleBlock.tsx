@@ -88,6 +88,12 @@ function formatTime(t: string | null): string {
   return mm === 0 ? `${hr}${suf}` : `${hr}:${String(mm).padStart(2, "0")}${suf}`;
 }
 
+/** hours 소수점 최대 2자리 반올림. 정수면 정수 표시. */
+function fmtH(h: number): string {
+  const r = Math.round(h * 100) / 100;
+  return r % 1 === 0 ? String(r) : r.toFixed(r * 10 % 1 === 0 ? 1 : 2);
+}
+
 function formatClockTime(iso: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);
@@ -106,11 +112,18 @@ function elapsedSince(iso: string): string {
 export function ScheduleBlock({ schedule, showCost, attendance, currentStoreId, onClick }: Props) {
   const startH = parseTimeToHours(schedule.start_time);
   const endH = parseTimeToHours(schedule.end_time);
-  const hours = Math.max(0, endH - startH);
+  const grossHours = Math.max(0, endH - startH);
+  const hasBreak = !!(schedule.break_start_time && schedule.break_end_time);
+  const breakHours = hasBreak
+    ? Math.max(0, parseTimeToHours(schedule.break_end_time) - parseTimeToHours(schedule.break_start_time))
+    : 0;
+  const hours = Math.max(0, grossHours - breakHours);
   // stored rate만 사용. NULL이면 "No cost" 표시 (preview/cascade 안 함 — 사용자가 명시적으로 sync해야 함).
   const storedRate = schedule.hourly_rate;
-  const cost = storedRate && storedRate > 0 ? Math.round(hours * storedRate) : null;
-  const timeRange = `${formatTime(schedule.start_time)}–${formatTime(schedule.end_time)}`;
+  const cost = storedRate && storedRate > 0 ? (hours * storedRate).toFixed(2) : null;
+  const timeRange = hasBreak
+    ? `${formatTime(schedule.start_time)}–${formatTime(schedule.break_start_time)} · ${formatTime(schedule.break_end_time)}–${formatTime(schedule.end_time)}`
+    : `${formatTime(schedule.start_time)}–${formatTime(schedule.end_time)}`;
 
   const isOtherStore = schedule.store_id !== currentStoreId;
   const roleName = schedule.work_role_name_snapshot || schedule.work_role_name || "Shift";
@@ -123,7 +136,7 @@ export function ScheduleBlock({ schedule, showCost, attendance, currentStoreId, 
         title={`Scheduled at ${schedule.store_name ?? "another store"}`}
       >
         <div className="text-[11px] font-semibold leading-tight truncate">{roleName} · {positionName}</div>
-        <div className="text-[10px] mt-0.5">{timeRange} ({hours}h)</div>
+        <div className="text-[10px] mt-0.5">{timeRange} ({fmtH(hours)}h)</div>
         <div className="text-[10px] mt-0.5 truncate">@ {schedule.store_name ?? "—"}</div>
       </div>
     );
@@ -177,11 +190,38 @@ export function ScheduleBlock({ schedule, showCost, attendance, currentStoreId, 
         <span className="text-[11px] font-semibold text-[var(--color-text)] truncate flex-1 min-w-0">
           {roleName}{positionName !== "—" ? ` · ${positionName}` : ""}
         </span>
-        <span className={`text-[11px] font-bold tabular-nums shrink-0 ${styles.text}`}>{hours}h</span>
+        <span className={`text-[11px] font-bold tabular-nums shrink-0 ${styles.text}`}>{fmtH(hours)}h</span>
       </div>
 
       {/* Row 2: Time range */}
       <div className="text-[10px] text-[var(--color-text-secondary)] tabular-nums mt-0.5">{timeRange}</div>
+
+      {/* Row 2.5: Timeline bar — status색 바. break 있으면 중간에 회색 gap. */}
+      {grossHours > 0 && !isRejected && !isCancelled && (
+        <div className="mt-1 h-[5px] rounded-full bg-[var(--color-border)]/30 relative overflow-hidden" title={hasBreak ? `Break ${fmtH(breakHours)}h` : `${fmtH(hours)}h`}>
+          {hasBreak ? (() => {
+            const bStart = parseTimeToHours(schedule.break_start_time);
+            const seg1Pct = Math.max(0, Math.min(100, ((bStart - startH) / grossHours) * 100));
+            const breakPct = Math.max(0, Math.min(100, (breakHours / grossHours) * 100));
+            const barColor = isConfirmed ? "var(--color-success)" : isDraft ? "var(--color-text-muted)" : "var(--color-warning)";
+            return (
+              <>
+                <div className="absolute inset-y-0 left-0 rounded-l-full" style={{ width: `${seg1Pct}%`, background: barColor, opacity: 0.7 }} />
+                <div className="absolute inset-y-0 rounded-sm" style={{ left: `${seg1Pct}%`, width: `${breakPct}%`, background: "var(--color-border)", opacity: 0.6 }} />
+                <div className="absolute inset-y-0 right-0 rounded-r-full" style={{ width: `${Math.max(0, 100 - seg1Pct - breakPct)}%`, background: barColor, opacity: 0.7 }} />
+              </>
+            );
+          })() : (
+            <div
+              className="absolute inset-0 rounded-full"
+              style={{
+                background: isConfirmed ? "var(--color-success)" : isDraft ? "var(--color-text-muted)" : "var(--color-warning)",
+                opacity: 0.5,
+              }}
+            />
+          )}
+        </div>
+      )}
 
       {/* Row 3: Cost (GM only) */}
       {showCost && cost !== null && (

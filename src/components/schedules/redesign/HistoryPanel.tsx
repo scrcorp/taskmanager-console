@@ -64,7 +64,7 @@ export function HistoryPanel({ open, onClose, scheduleId, staffName = 'Schedule'
       {open && (
         <div className="fixed inset-0 bg-black/30 z-[75] transition-opacity" onClick={onClose} />
       )}
-      <div className={`fixed top-11 right-0 bottom-0 w-[380px] bg-white border-l border-[var(--color-border)] shadow-[-4px_0_24px_rgba(0,0,0,0.12)] z-[80] flex flex-col transition-transform duration-200 ${open ? 'translate-x-0' : 'translate-x-full'}`}>
+      <div className={`fixed top-11 right-0 bottom-0 w-[380px] bg-[var(--color-surface)] border-l border-[var(--color-border)] shadow-[-4px_0_24px_rgba(0,0,0,0.12)] z-[80] flex flex-col transition-transform duration-200 ${open ? 'translate-x-0' : 'translate-x-full'}`}>
       <div className="px-5 py-4 border-b border-[var(--color-border)] flex items-center justify-between shrink-0">
         <div>
           <h3 className="text-[14px] font-bold text-[var(--color-text)]">Schedule History</h3>
@@ -82,7 +82,7 @@ export function HistoryPanel({ open, onClose, scheduleId, staffName = 'Schedule'
         ) : (
           events.map((entry, i) => (
             <div key={entry.id} className={`relative pl-5 pb-5 ${i < events.length - 1 ? 'border-l-2 border-[var(--color-border)] ml-1' : 'ml-1'}`}>
-              <div className={`absolute left-[-5px] top-1 w-[10px] h-[10px] rounded-full ${typeColors[entry.eventType]} border-2 border-white`} />
+              <div className={`absolute left-[-5px] top-1 w-[10px] h-[10px] rounded-full ${typeColors[entry.eventType]} border-2 border-[var(--color-surface)]`} />
               <div className="text-[11px] font-semibold text-[var(--color-text-muted)] mb-1">{formatTimestamp(entry.timestamp)}</div>
               <div className="text-[12px] font-semibold text-[var(--color-text)]">
                 {typeLabels[entry.eventType]}

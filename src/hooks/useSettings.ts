@@ -171,5 +171,7 @@ export const useResolveSetting = (
       return res.data;
     },
     enabled: !!key,
+    retry: false,
+    staleTime: 5 * 60 * 1000, // 5분 캐시 — 설정은 자주 안 바뀜
   });
 };

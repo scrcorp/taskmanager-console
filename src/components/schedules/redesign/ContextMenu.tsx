@@ -96,7 +96,7 @@ export function ContextMenu({ x, y, status, userRole = 'gm', canSyncRate = false
   return (
     <div
       ref={menuRef}
-      className="fixed z-[210] bg-white border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] py-1.5 min-w-[200px] animate-[fadeIn_100ms_ease-out]"
+      className="fixed z-[210] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] py-1.5 min-w-[200px] animate-[fadeIn_100ms_ease-out]"
       style={{ left: Math.min(x, window.innerWidth - 220), top: Math.min(y, window.innerHeight - 280) }}
     >
       {items.map((item, i) =>

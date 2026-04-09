@@ -127,7 +127,7 @@ export function FilterBar({ filters, onChange, users, schedules, selectedStoreId
         className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold border flex items-center gap-1.5 transition-colors ${
           count > 0
             ? "bg-[var(--color-accent-muted)] text-[var(--color-accent)] border-[var(--color-accent)]/30"
-            : "bg-white text-[var(--color-text-secondary)] border-[var(--color-border)] hover:border-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+            : "bg-[var(--color-surface)] text-[var(--color-text-secondary)] border-[var(--color-border)] hover:border-[var(--color-text-muted)] hover:text-[var(--color-text)]"
         } ${isActive ? "ring-2 ring-[var(--color-accent)]/20" : ""}`}
       >
         {label}
@@ -172,14 +172,14 @@ export function FilterBar({ filters, onChange, users, schedules, selectedStoreId
   }
 
   return (
-    <div ref={containerRef} className="bg-white border border-[var(--color-border)] rounded-xl px-4 py-3 mb-4">
+    <div ref={containerRef} className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-4 py-3 mb-4">
       {/* Filter buttons row */}
       <div className="flex items-center gap-2 flex-wrap">
         {/* Staff search */}
         <div className="relative">
           <FilterButton id="staff" label="Staff" count={filters.staffIds.length} />
           {openMenu === "staff" && (
-            <div className="absolute top-full left-0 mt-1.5 w-[300px] bg-white border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] z-30 overflow-hidden">
+            <div className="absolute top-full left-0 mt-1.5 w-[300px] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] z-30 overflow-hidden">
               <div className="p-2 border-b border-[var(--color-border)]">
                 <div className="flex items-center gap-1.5 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg px-3 py-1.5">
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="var(--color-text-muted)" strokeWidth="1.5" strokeLinecap="round"><circle cx="6" cy="6" r="4" /><line x1="9" y1="9" x2="12" y2="12" /></svg>
@@ -240,7 +240,7 @@ export function FilterBar({ filters, onChange, users, schedules, selectedStoreId
         <div className="relative">
           <FilterButton id="role" label="Role" count={filters.roles.length} />
           {openMenu === "role" && (
-            <div className="absolute top-full left-0 mt-1.5 w-[200px] bg-white border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] z-30 overflow-hidden">
+            <div className="absolute top-full left-0 mt-1.5 w-[200px] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] z-30 overflow-hidden">
               <CheckboxList
                 items={ALL_ROLES.map((r) => ({ id: r.id, label: r.label }))}
                 selected={filters.roles}
@@ -254,7 +254,7 @@ export function FilterBar({ filters, onChange, users, schedules, selectedStoreId
         <div className="relative">
           <FilterButton id="status" label="Status" count={filters.statuses.length} />
           {openMenu === "status" && (
-            <div className="absolute top-full left-0 mt-1.5 w-[200px] bg-white border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] z-30 overflow-hidden">
+            <div className="absolute top-full left-0 mt-1.5 w-[200px] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] z-30 overflow-hidden">
               <CheckboxList
                 items={ALL_STATUSES.map((s) => ({
                   id: s.id,
@@ -272,7 +272,7 @@ export function FilterBar({ filters, onChange, users, schedules, selectedStoreId
         <div className="relative">
           <FilterButton id="position" label="Position" count={filters.positions.length} />
           {openMenu === "position" && (
-            <div className="absolute top-full left-0 mt-1.5 w-[200px] bg-white border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] z-30 overflow-hidden">
+            <div className="absolute top-full left-0 mt-1.5 w-[200px] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] z-30 overflow-hidden">
               <CheckboxList
                 items={dynamicPositions.map((p) => ({ id: p, label: p }))}
                 selected={filters.positions}
@@ -286,7 +286,7 @@ export function FilterBar({ filters, onChange, users, schedules, selectedStoreId
         <div className="relative">
           <FilterButton id="shift" label="Work Role" count={filters.shifts.length} />
           {openMenu === "shift" && (
-            <div className="absolute top-full left-0 mt-1.5 w-[220px] bg-white border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] z-30 overflow-hidden">
+            <div className="absolute top-full left-0 mt-1.5 w-[220px] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] z-30 overflow-hidden">
               <CheckboxList
                 items={dynamicShifts.map((s) => ({ id: s, label: s }))}
                 selected={filters.shifts}

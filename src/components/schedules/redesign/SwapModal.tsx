@@ -60,7 +60,7 @@ export function SwapModal({ open, onClose, fromSchedule, fromUser, candidateSche
 
   return (
     <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/40" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-[var(--color-surface)] rounded-2xl shadow-2xl w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-[var(--color-border)]">
           <h2 className="text-[16px] font-bold text-[var(--color-text)]">Swap Schedule</h2>
         </div>

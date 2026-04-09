@@ -155,7 +155,7 @@ export function AttendanceSummaryPage() {
         <select
           value={selectedStore}
           onChange={(e) => setSelectedStore(e.target.value)}
-          className="px-3 py-1.5 bg-white border-2 border-[var(--color-accent)] rounded-lg text-[13px] font-semibold text-[var(--color-accent)] cursor-pointer"
+          className="px-3 py-1.5 bg-[var(--color-surface)] border-2 border-[var(--color-accent)] rounded-lg text-[13px] font-semibold text-[var(--color-accent)] cursor-pointer"
         >
           {stores.length === 0 && <option value="">Loading…</option>}
           {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
@@ -169,19 +169,19 @@ export function AttendanceSummaryPage() {
           {attendancesQ.isLoading && <span className="text-[11px] text-[var(--color-text-muted)]">Loading…</span>}
         </div>
         <div className="flex items-center gap-2">
-          <button type="button" onClick={() => shiftWeek(-1)} className="w-8 h-8 rounded-lg border border-[var(--color-border)] bg-white flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]" aria-label="Previous week">
+          <button type="button" onClick={() => shiftWeek(-1)} className="w-8 h-8 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]" aria-label="Previous week">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="9 11 5 7 9 3" /></svg>
           </button>
           <span className="text-[13px] font-semibold text-[var(--color-text)] min-w-[160px] text-center">
             {weekDates[0]?.dayName} {weekDates[0]?.dayNum} – {weekDates[6]?.dayName} {weekDates[6]?.dayNum}
           </span>
-          <button type="button" onClick={() => shiftWeek(1)} className="w-8 h-8 rounded-lg border border-[var(--color-border)] bg-white flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]" aria-label="Next week">
+          <button type="button" onClick={() => shiftWeek(1)} className="w-8 h-8 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]" aria-label="Next week">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="5 3 9 7 5 11" /></svg>
           </button>
           <button
             type="button"
             onClick={exportCSV}
-            className="ml-2 px-3 py-1.5 rounded-lg text-[13px] font-semibold border border-[var(--color-border)] bg-white text-[var(--color-text)] hover:bg-[var(--color-surface-hover)]"
+            className="ml-2 px-3 py-1.5 rounded-lg text-[13px] font-semibold border border-[var(--color-border)] bg-[var(--color-surface)] text-[var(--color-text)] hover:bg-[var(--color-surface-hover)]"
           >
             Export CSV
           </button>
@@ -197,7 +197,7 @@ export function AttendanceSummaryPage() {
       </div>
 
       {/* Matrix table */}
-      <div className="bg-white border border-[var(--color-border)] rounded-xl overflow-x-auto">
+      <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl overflow-x-auto">
         <table className="w-full border-collapse">
           <thead>
             <tr className="border-b border-[var(--color-border)] bg-[var(--color-bg)]">
@@ -223,7 +223,7 @@ export function AttendanceSummaryPage() {
               let totalMin = 0;
               return (
                 <tr key={u.id} className="border-b border-[var(--color-border)] last:border-b-0 hover:bg-[var(--color-surface-hover)]">
-                  <td className="px-4 py-3 sticky left-0 bg-white">
+                  <td className="px-4 py-3 sticky left-0 bg-[var(--color-surface)]">
                     <div className="flex items-center gap-2.5">
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 ${rolePriorityToColorClass(u.role_priority)}`}>{getInitials(u.full_name)}</div>
                       <div className="min-w-0">
@@ -263,7 +263,7 @@ export function AttendanceSummaryPage() {
 
 function StatCard({ label, value, color }: { label: string; value: string; color: string }) {
   return (
-    <div className="bg-white border border-[var(--color-border)] rounded-xl px-4 py-3">
+    <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-4 py-3">
       <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]">{label}</div>
       <div className={`text-[24px] font-bold mt-1 tabular-nums ${color}`}>{value}</div>
     </div>

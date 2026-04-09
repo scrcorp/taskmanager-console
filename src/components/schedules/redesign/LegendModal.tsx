@@ -10,11 +10,11 @@ export function LegendModal({ open, onClose }: Props) {
     <div className="fixed inset-0 z-[60] flex items-center justify-center p-4" onClick={onClose}>
       <div className="absolute inset-0 bg-black/40" />
       <div
-        className="relative bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto"
+        className="relative bg-[var(--color-surface)] rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] overflow-y-auto"
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="sticky top-0 bg-white border-b border-[var(--color-border)] px-6 py-4 flex items-center justify-between">
+        <div className="sticky top-0 bg-[var(--color-surface)] border-b border-[var(--color-border)] px-6 py-4 flex items-center justify-between">
           <div>
             <h2 className="text-[18px] font-semibold text-[var(--color-text)]">Schedule Legend</h2>
             <p className="text-[12px] text-[var(--color-text-muted)]">Visual reference for colors, status, and indicators</p>

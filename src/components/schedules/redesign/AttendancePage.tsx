@@ -86,7 +86,7 @@ export function AttendancePage() {
         <select
           value={selectedStore}
           onChange={e => setSelectedStore(e.target.value)}
-          className="px-3 py-1.5 bg-white border-2 border-[var(--color-accent)] rounded-lg text-[13px] font-semibold text-[var(--color-accent)] cursor-pointer"
+          className="px-3 py-1.5 bg-[var(--color-surface)] border-2 border-[var(--color-accent)] rounded-lg text-[13px] font-semibold text-[var(--color-accent)] cursor-pointer"
         >
           {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
@@ -99,7 +99,7 @@ export function AttendancePage() {
           {attendancesQ.isLoading && <span className="text-[11px] text-[var(--color-text-muted)]">Loading…</span>}
         </div>
         <div className="flex items-center gap-2">
-          <button type="button" onClick={() => shiftDate(-1)} className="w-8 h-8 rounded-lg border border-[var(--color-border)] bg-white flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]" aria-label="Previous day">
+          <button type="button" onClick={() => shiftDate(-1)} className="w-8 h-8 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]" aria-label="Previous day">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="9 11 5 7 9 3"/></svg>
           </button>
           <input
@@ -108,7 +108,7 @@ export function AttendancePage() {
             onChange={e => setDate(e.target.value)}
             className="px-2 py-1 border border-[var(--color-border)] rounded-lg text-[13px] font-semibold text-[var(--color-text)] min-w-[140px] text-center"
           />
-          <button type="button" onClick={() => shiftDate(1)} className="w-8 h-8 rounded-lg border border-[var(--color-border)] bg-white flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]" aria-label="Next day">
+          <button type="button" onClick={() => shiftDate(1)} className="w-8 h-8 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]" aria-label="Next day">
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="5 3 9 7 5 11"/></svg>
           </button>
         </div>
@@ -133,7 +133,7 @@ export function AttendancePage() {
             className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold whitespace-nowrap transition-colors ${
               tab === t.key
                 ? 'bg-[var(--color-accent)] text-white'
-                : 'bg-white border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]'
+                : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]'
             }`}
           >
             {t.label}
@@ -142,7 +142,7 @@ export function AttendancePage() {
       </div>
 
       {/* Table */}
-      <div className="bg-white border border-[var(--color-border)] rounded-xl overflow-x-auto">
+      <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl overflow-x-auto">
         <table className="w-full border-collapse">
           <thead>
             <tr className="border-b border-[var(--color-border)] bg-[var(--color-bg)]">
@@ -205,7 +205,7 @@ export function AttendancePage() {
 
 function StatCard({ label, value, color }: { label: string; value: number; color: string }) {
   return (
-    <div className="bg-white border border-[var(--color-border)] rounded-xl px-4 py-3">
+    <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-4 py-3">
       <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]">{label}</div>
       <div className={`text-[24px] font-bold mt-1 tabular-nums ${color}`}>{value}</div>
     </div>

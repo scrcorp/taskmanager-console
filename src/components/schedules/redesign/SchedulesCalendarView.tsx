@@ -80,6 +80,22 @@ function parseTimeToHours(t: string | null): number {
   return (Number.parseInt(hh ?? "0", 10) || 0) + (Number.parseInt(mm ?? "0", 10) || 0) / 60;
 }
 
+/** 실제 근무시간 (break 제외). cost 계산에 사용. */
+function getNetWorkHours(s: Schedule): number {
+  const gross = Math.max(0, parseTimeToHours(s.end_time) - parseTimeToHours(s.start_time));
+  if (s.break_start_time && s.break_end_time) {
+    const breakHrs = Math.max(0, parseTimeToHours(s.break_end_time) - parseTimeToHours(s.break_start_time));
+    return Math.max(0, gross - breakHrs);
+  }
+  return gross;
+}
+
+/** hours 소수점 최대 2자리 반올림. 정수면 정수 표시. */
+function fmtH(h: number): string {
+  const r = Math.round(h * 100) / 100;
+  return r % 1 === 0 ? String(r) : r.toFixed(r * 10 % 1 === 0 ? 1 : 2);
+}
+
 function formatHourLabel(h: number): string {
   if (h === 0) return "12A";
   if (h < 12) return `${h}A`;
@@ -161,7 +177,7 @@ export default function SchedulesCalendarView() {
   const [historyScheduleId, setHistoryScheduleId] = useState<string | undefined>(undefined);
   const [swapOpen, setSwapOpen] = useState(false);
   const [swapSourceId, setSwapSourceId] = useState<string | null>(null);
-  const [editModal, setEditModal] = useState<{ open: boolean; mode: "add" | "edit"; blockId?: string; staffId?: string; date?: string }>({ open: false, mode: "add" });
+  const [editModal, setEditModal] = useState<{ open: boolean; mode: "add" | "edit"; blockId?: string; staffId?: string; date?: string; startTime?: string }>({ open: false, mode: "add" });
   const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; type: "delete" | "revert" | "reject" | "cancel" | "confirm"; blockId?: string }>({ open: false, type: "delete" });
   const [filters, setFilters] = useState<FilterState>({ staffIds: [], roles: [], statuses: [], positions: [], shifts: [] });
   const [legendOpen, setLegendOpen] = useState(false);
@@ -328,8 +344,8 @@ export default function SchedulesCalendarView() {
         }
       } else {
         const hour = openHour + sortCol;
-        const aBlocks = schedules.filter((s) => s.user_id === a.id && s.work_date === selectedDay && s.store_id === selectedStore && parseTimeToHours(s.start_time) <= hour && parseTimeToHours(s.end_time) > hour);
-        const bBlocks = schedules.filter((s) => s.user_id === b.id && s.work_date === selectedDay && s.store_id === selectedStore && parseTimeToHours(s.start_time) <= hour && parseTimeToHours(s.end_time) > hour);
+        const aBlocks = schedules.filter((s) => s.user_id === a.id && s.work_date === selectedDay && s.store_id === selectedStore && Math.floor(parseTimeToHours(s.start_time)) <= hour && Math.ceil(parseTimeToHours(s.end_time)) > hour);
+        const bBlocks = schedules.filter((s) => s.user_id === b.id && s.work_date === selectedDay && s.store_id === selectedStore && Math.floor(parseTimeToHours(s.start_time)) <= hour && Math.ceil(parseTimeToHours(s.end_time)) > hour);
         aStatus = aBlocks.find((s) => s.status === "confirmed") ? "confirmed" : aBlocks.find((s) => s.status === "requested") ? "requested" : aBlocks.length > 0 ? "draft" : "none";
         bStatus = bBlocks.find((s) => s.status === "confirmed") ? "confirmed" : bBlocks.find((s) => s.status === "requested") ? "requested" : bBlocks.length > 0 ? "draft" : "none";
       }
@@ -351,12 +367,9 @@ export default function SchedulesCalendarView() {
     const daySchedules = schedules.filter((s) => s.work_date === day.date && s.store_id === selectedStore);
     const confirmed = daySchedules.filter((s) => s.status === "confirmed");
     const pending = daySchedules.filter((s) => s.status === "requested");
-    const sumHours = (arr: Schedule[]) => arr.reduce((sum, s) => sum + Math.max(0, parseTimeToHours(s.end_time) - parseTimeToHours(s.start_time)), 0);
+    const sumHours = (arr: Schedule[]) => arr.reduce((sum, s) => sum + getNetWorkHours(s), 0);
     // stored rate만 합산. NULL은 0으로 (No cost로 표시되는 schedule들은 합계에서 빠짐).
-    const sumCost = (arr: Schedule[]) => arr.reduce((sum, s) => {
-      const hrs = Math.max(0, parseTimeToHours(s.end_time) - parseTimeToHours(s.start_time));
-      return sum + hrs * (s.hourly_rate ?? 0);
-    }, 0);
+    const sumCost = (arr: Schedule[]) => arr.reduce((sum, s) => sum + getNetWorkHours(s) * (s.hourly_rate ?? 0), 0);
     return {
       key: day.date,
       label: day.dayName,
@@ -379,7 +392,7 @@ export default function SchedulesCalendarView() {
   }, [openHour, closeHour]);
 
   const dailyColumns = useMemo(() => dailyHourRange.map((h) => {
-    const daySchedules = schedules.filter((s) => s.work_date === selectedDay && s.store_id === selectedStore && parseTimeToHours(s.start_time) <= h && parseTimeToHours(s.end_time) > h);
+    const daySchedules = schedules.filter((s) => s.work_date === selectedDay && s.store_id === selectedStore && Math.floor(parseTimeToHours(s.start_time)) <= h && Math.ceil(parseTimeToHours(s.end_time)) > h);
     const confirmed = daySchedules.filter((s) => s.status === "confirmed");
     const pending = daySchedules.filter((s) => s.status === "requested");
     // 시간당 1시간 컬럼 — stored only
@@ -414,11 +427,8 @@ export default function SchedulesCalendarView() {
     const dayBlocks = schedules.filter((s) => s.work_date === selectedDay && s.store_id === selectedStore);
     const conf = dayBlocks.filter((s) => s.status === "confirmed");
     const pend = dayBlocks.filter((s) => s.status === "requested");
-    const sumHours = (arr: Schedule[]) => arr.reduce((s, b) => s + Math.max(0, parseTimeToHours(b.end_time) - parseTimeToHours(b.start_time)), 0);
-    const sumCost = (arr: Schedule[]) => arr.reduce((s, b) => {
-      const hrs = Math.max(0, parseTimeToHours(b.end_time) - parseTimeToHours(b.start_time));
-      return s + hrs * (b.hourly_rate ?? 0);
-    }, 0);
+    const sumHours = (arr: Schedule[]) => arr.reduce((s, b) => s + getNetWorkHours(b), 0);
+    const sumCost = (arr: Schedule[]) => arr.reduce((s, b) => s + getNetWorkHours(b) * (b.hourly_rate ?? 0), 0);
     return {
       hc: sumHours(conf),
       hp: sumHours(pend),
@@ -489,8 +499,8 @@ export default function SchedulesCalendarView() {
     }
   }
 
-  function openAddModal(staffId?: string, date?: string) {
-    setEditModal({ open: true, mode: "add", staffId, date });
+  function openAddModal(staffId?: string, date?: string, startTime?: string) {
+    setEditModal({ open: true, mode: "add", staffId, date, startTime });
   }
 
   function closeEditModal() {
@@ -510,6 +520,8 @@ export default function SchedulesCalendarView() {
         work_date: payload.date,
         start_time: payload.startTime,
         end_time: payload.endTime,
+        break_start_time: payload.breakStartTime,
+        break_end_time: payload.breakEndTime,
         // 새로 만드는 schedule은 항상 draft로 시작 (status 전환은 submit/confirm action으로)
         status: "draft",
         note: payload.notes || null,
@@ -526,6 +538,8 @@ export default function SchedulesCalendarView() {
           work_date: payload.date,
           start_time: payload.startTime,
           end_time: payload.endTime,
+          break_start_time: payload.breakStartTime,
+          break_end_time: payload.breakEndTime,
           note: payload.notes || null,
           hourly_rate: payload.hourlyRate,
         },
@@ -539,11 +553,12 @@ export default function SchedulesCalendarView() {
 
   function getDailyScheduleAtHour(userId: string, hour: number): Schedule | undefined {
     // 같은 시간대 겹치면 현재 매장 우선, 그 다음 다른 매장 (dimmed로 표시).
+    // floor(start) <= hour: 12:30 시작도 12시 칸에서 매칭
     const matches = schedules.filter((s) =>
       s.user_id === userId &&
       s.work_date === selectedDay &&
-      parseTimeToHours(s.start_time) <= hour &&
-      parseTimeToHours(s.end_time) > hour,
+      Math.floor(parseTimeToHours(s.start_time)) <= hour &&
+      Math.ceil(parseTimeToHours(s.end_time)) > hour,
     );
     return matches.find((s) => s.store_id === selectedStore) ?? matches[0];
   }
@@ -553,31 +568,25 @@ export default function SchedulesCalendarView() {
   function getUserConfirmedHours(userId: string, date: string): number {
     return schedules
       .filter((s) => s.user_id === userId && s.work_date === date && s.store_id === selectedStore && s.status === "confirmed")
-      .reduce((sum, s) => sum + Math.max(0, parseTimeToHours(s.end_time) - parseTimeToHours(s.start_time)), 0);
+      .reduce((sum, s) => sum + getNetWorkHours(s), 0);
   }
 
   function getUserPendingHours(userId: string, date: string): number {
     return schedules
       .filter((s) => s.user_id === userId && s.work_date === date && s.store_id === selectedStore && s.status === "requested")
-      .reduce((sum, s) => sum + Math.max(0, parseTimeToHours(s.end_time) - parseTimeToHours(s.start_time)), 0);
+      .reduce((sum, s) => sum + getNetWorkHours(s), 0);
   }
 
   // stored rate만 사용 — NULL은 No cost로 계산에서 빠짐
   function getUserConfirmedCost(userId: string, date: string): number {
     return schedules
       .filter((s) => s.user_id === userId && s.work_date === date && s.store_id === selectedStore && s.status === "confirmed")
-      .reduce((sum, s) => {
-        const hrs = Math.max(0, parseTimeToHours(s.end_time) - parseTimeToHours(s.start_time));
-        return sum + hrs * (s.hourly_rate ?? 0);
-      }, 0);
+      .reduce((sum, s) => sum + getNetWorkHours(s) * (s.hourly_rate ?? 0), 0);
   }
   function getUserPendingCost(userId: string, date: string): number {
     return schedules
       .filter((s) => s.user_id === userId && s.work_date === date && s.store_id === selectedStore && s.status === "requested")
-      .reduce((sum, s) => {
-        const hrs = Math.max(0, parseTimeToHours(s.end_time) - parseTimeToHours(s.start_time));
-        return sum + hrs * (s.hourly_rate ?? 0);
-      }, 0);
+      .reduce((sum, s) => sum + getNetWorkHours(s) * (s.hourly_rate ?? 0), 0);
   }
   // user의 해당 주/일 스케줄 중 stored rate가 NULL인 게 있는지 — sync 필요 표시용
   function userHasNoCost(userId: string, dates: string[]): boolean {
@@ -673,6 +682,7 @@ export default function SchedulesCalendarView() {
             schedule={editSchedule}
             prefilledUserId={editModal.staffId}
             prefilledDate={editModal.date}
+            prefilledStartTime={editModal.startTime}
             users={users}
             storeId={selectedStore}
             inheritedRate={editInheritedRate}
@@ -732,46 +742,50 @@ export default function SchedulesCalendarView() {
       <LegendModal open={legendOpen} onClose={() => setLegendOpen(false)} />
 
       <div className="px-4 sm:px-6 xl:px-8 pb-8">
-        {/* Row 1: Store selector */}
-        <div className="flex items-center gap-3 pt-4 pb-1">
-          <select
-            value={selectedStore}
-            onChange={(e) => setSelectedStore(e.target.value)}
-            className="px-3 py-1.5 bg-white border-2 border-[var(--color-accent)] rounded-lg text-[13px] font-semibold text-[var(--color-accent)] cursor-pointer"
-          >
-            {stores.length === 0 && <option value="">Loading…</option>}
-            {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-          <span className="text-[12px] text-[var(--color-text-muted)]">{storeHoursLabel}</span>
+        {/* Row 1: Title + Stats */}
+        <div className="flex items-center gap-3 md:gap-5 pt-4 pb-1 min-h-[40px]">
+          <h1 className="text-[22px] font-semibold text-[var(--color-text)] shrink-0">Schedules</h1>
+          {schedulesQ.isLoading && <span className="text-[11px] text-[var(--color-text-muted)]">Loading…</span>}
+          <div className="hidden md:flex items-center gap-3 text-[13px] text-[var(--color-text-secondary)]">
+            <span>Staff: <strong className="text-[14px] text-[var(--color-text)]">{filteredUsers.length}</strong></span>
+            <span className="w-px h-4 bg-[var(--color-border)]" />
+            <span>Scheduled: <strong className="text-[14px] text-[var(--color-text)]">{totals.tc}</strong></span>
+            <span className="w-px h-4 bg-[var(--color-border)]" />
+            <span>Pending: <strong className="text-[14px] text-[var(--color-warning)]">{totals.tp}</strong></span>
+            {isGMView && <>
+              <span className="w-px h-4 bg-[var(--color-border)]" />
+              <span>Cost: <strong className="text-[14px] text-[var(--color-success)]">${totals.lc.toFixed(2)}</strong>{totals.lp > 0 && <strong className="text-[14px] text-[var(--color-warning)]"> +${totals.lp.toFixed(2)}</strong>}</span>
+            </>}
+          </div>
         </div>
 
-        {/* Row 2: Title + summary numbers + controls */}
-        <div className="flex items-center justify-between py-2 gap-3 flex-wrap">
-          <div className="flex items-center gap-3 md:gap-5 flex-wrap">
-            <h1 className="text-[22px] font-semibold text-[var(--color-text)]">Schedules</h1>
-            {schedulesQ.isLoading && <span className="text-[11px] text-[var(--color-text-muted)]">Loading…</span>}
-            <div className="hidden md:flex items-center gap-3 text-[13px] text-[var(--color-text-secondary)]">
-              <span>Staff: <strong className="text-[14px] text-[var(--color-text)]">{filteredUsers.length}</strong></span>
-              <span className="w-px h-4 bg-[var(--color-border)]" />
-              <span>Scheduled: <strong className="text-[14px] text-[var(--color-text)]">{totals.tc}</strong></span>
-              <span className="w-px h-4 bg-[var(--color-border)]" />
-              <span>Pending: <strong className="text-[14px] text-[var(--color-warning)]">{totals.tp}</strong></span>
-              {isGMView && <>
-                <span className="w-px h-4 bg-[var(--color-border)]" />
-                <span>Cost: <strong className="text-[14px] text-[var(--color-success)]">${Math.round(totals.lc)}</strong>{totals.lp > 0 && <strong className="text-[14px] text-[var(--color-warning)]"> +${Math.round(totals.lp)}</strong>}</span>
-              </>}
-            </div>
+        {/* Row 2: Store(left) | View+Nav+Buttons(right) */}
+        <div className="flex items-center justify-between py-2 gap-2 flex-wrap min-h-[48px]">
+          {/* Left: Store */}
+          <div className="flex items-center gap-2 shrink-0">
+            <select
+              value={selectedStore}
+              onChange={(e) => setSelectedStore(e.target.value)}
+              className="px-3 py-1.5 bg-[var(--color-surface)] border-2 border-[var(--color-accent)] rounded-lg text-[13px] font-semibold text-[var(--color-accent)] cursor-pointer max-w-[180px] truncate"
+            >
+              {stores.length === 0 && <option value="">Loading…</option>}
+              {stores.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            <span className="text-[12px] text-[var(--color-text-muted)] hidden sm:inline">{storeHoursLabel}</span>
           </div>
-          <div className="flex items-center gap-3">
-            <div className="flex bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg p-0.5">
+          {/* Right: View toggle + Nav + Buttons */}
+          <div className="flex items-center gap-2 sm:gap-3">
+            {/* View toggle */}
+            <div className="flex bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg p-0.5 shrink-0">
               {(["weekly", "daily"] as const).map((v) => (
                 <button key={v} type="button" onClick={() => setView(v)}
-                  className={`px-3.5 py-1.5 rounded-md text-[13px] font-semibold transition-all ${view === v ? "bg-[var(--color-accent)] text-white" : "text-[var(--color-text-secondary)] hover:text-[var(--color-text)]"}`}>
+                  className={`px-2.5 sm:px-3.5 py-1.5 rounded-md text-[12px] sm:text-[13px] font-semibold transition-all ${view === v ? "bg-[var(--color-accent)] text-white" : "text-[var(--color-text-secondary)] hover:text-[var(--color-text)]"}`}>
                   {v === "weekly" ? "Weekly" : "Daily"}
                 </button>
               ))}
             </div>
-            <div className="flex items-center gap-2">
+            {/* Nav */}
+            <div className="flex items-center gap-1 sm:gap-2 shrink-0">
               <button
                 type="button"
                 onClick={() => {
@@ -782,12 +796,12 @@ export default function SchedulesCalendarView() {
                     setSelectedDay(fmtLocalDate(d));
                   }
                 }}
-                className="w-8 h-8 rounded-lg border border-[var(--color-border)] bg-white flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]"
+                className="w-8 h-8 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]"
                 aria-label="Previous period"
               >
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="9 11 5 7 9 3" /></svg>
               </button>
-              <span className="text-[13px] font-semibold text-[var(--color-text)] min-w-[140px] text-center">
+              <span className="text-[12px] sm:text-[13px] font-semibold text-[var(--color-text)] min-w-[100px] sm:min-w-[140px] text-center">
                 {view === "weekly"
                   ? `${weekDates[0]?.dayName} ${weekDates[0]?.dayNum} – ${weekDates[6]?.dayName} ${weekDates[6]?.dayNum}`
                   : selectedDayLabel}
@@ -802,19 +816,21 @@ export default function SchedulesCalendarView() {
                     setSelectedDay(fmtLocalDate(d));
                   }
                 }}
-                className="w-8 h-8 rounded-lg border border-[var(--color-border)] bg-white flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]"
+                className="w-8 h-8 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]"
                 aria-label="Next period"
               >
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="5 3 9 7 5 11" /></svg>
               </button>
             </div>
-            <button type="button" onClick={() => openAddModal()} className="bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white px-4 py-2 rounded-lg text-[13px] font-semibold flex items-center gap-1.5 transition-colors">
-              + Add Schedule
+            {/* Actions */}
+            <button type="button" onClick={() => openAddModal()} className="bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white px-3 sm:px-4 py-2 rounded-lg text-[12px] sm:text-[13px] font-semibold flex items-center gap-1.5 transition-colors shrink-0 whitespace-nowrap">
+              <span className="hidden sm:inline">+</span> Add
+              <span className="hidden md:inline"> Schedule</span>
             </button>
             <button
               type="button"
               onClick={() => setLegendOpen(true)}
-              className="w-8 h-8 rounded-lg border border-[var(--color-border)] bg-white flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]"
+              className="w-8 h-8 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] shrink-0"
               title="View legend"
             >
               <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
@@ -836,7 +852,7 @@ export default function SchedulesCalendarView() {
         />
 
         {/* Table Grid */}
-        <div className="bg-white border border-[var(--color-border)] rounded-xl overflow-x-auto">
+        <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl overflow-x-auto">
           <div style={{ minWidth: view === "weekly" ? 900 : 1100 }}>
             <table className="w-full border-collapse" style={{ tableLayout: "fixed" }}>
               <colgroup>
@@ -923,44 +939,80 @@ export default function SchedulesCalendarView() {
                         })}
                       </>
                     ) : (
-                      <>
+                      <td colSpan={closeHour - openHour} className="p-0 relative">
+                        {/* Border grid overlay (시간 구분선) */}
+                        <div className="absolute inset-0 grid pointer-events-none" style={{ gridTemplateColumns: `repeat(${closeHour - openHour}, 1fr)` }}>
+                          {dailyHourRange.map((hr) => (
+                            <div key={hr} className="border-r border-[var(--color-border)]" />
+                          ))}
+                        </div>
+                        {/* Content: flex segments (normal flow → 높이 자동 확장) */}
                         {(() => {
-                          const cells: React.ReactNode[] = [];
-                          let h = openHour;
-                          while (h < closeHour) {
-                            const sched = getDailyScheduleAtHour(u.id, h);
-                            const colIndex = h - openHour;
-                            if (sched && Math.floor(parseTimeToHours(sched.start_time)) === h) {
-                              const span = Math.min(Math.ceil(parseTimeToHours(sched.end_time)), closeHour) - h;
-                              cells.push(
-                                <td key={`h${h}`} colSpan={span} className={`p-1 border-r border-[var(--color-border)]/20 align-middle ${sortCol === colIndex ? "bg-[var(--color-accent)]/[0.04]" : ""}`}>
-                                  <ScheduleBlock
-                                    schedule={sched}
-                                    showCost={isGMView}
-                                    attendance={getAttendanceFor(sched.id)}
-                                    currentStoreId={selectedStore}
-                                    onClick={(e) => handleBlockClick(e, sched)}
-                                  />
-                                </td>,
-                              );
-                              h = Math.ceil(parseTimeToHours(sched.end_time));
-                            } else if (sched) {
-                              h++;
-                            } else {
-                              cells.push(
-                                <td
-                                  key={`h${h}`}
-                                  className={`h-[56px] border-r border-[var(--color-border)]/20 cursor-pointer hover:bg-[var(--color-surface-hover)] ${sortCol === colIndex ? "bg-[var(--color-accent)]/[0.04]" : ""}`}
-                                  onClick={() => openAddModal(u.id, selectedDay)}
-                                  role="button"
-                                />,
-                              );
-                              h++;
-                            }
+                          const totalMin = (closeHour - openHour) * 60;
+                          const userScheds = schedules
+                            .filter((s) => s.user_id === u.id && s.work_date === selectedDay)
+                            .sort((a, b) => parseTimeToHours(a.start_time) - parseTimeToHours(b.start_time));
+                          // 구간 분할: gap → sched → gap → sched → gap
+                          type Seg = { type: "gap"; startMin: number; endMin: number } | { type: "sched"; sched: Schedule; startMin: number; endMin: number };
+                          const segments: Seg[] = [];
+                          let cursor = 0;
+                          const seen = new Set<string>();
+                          for (const s of userScheds) {
+                            if (seen.has(s.id)) continue;
+                            seen.add(s.id);
+                            const sStart = Math.max(0, parseTimeToHours(s.start_time) * 60 - openHour * 60);
+                            const sEnd = Math.min(totalMin, parseTimeToHours(s.end_time) * 60 - openHour * 60);
+                            if (sEnd <= sStart) continue;
+                            if (sStart > cursor) segments.push({ type: "gap", startMin: cursor, endMin: sStart });
+                            segments.push({ type: "sched", sched: s, startMin: sStart, endMin: sEnd });
+                            cursor = sEnd;
                           }
-                          return cells;
+                          if (cursor < totalMin) segments.push({ type: "gap", startMin: cursor, endMin: totalMin });
+
+                          return (
+                            <div className="relative flex items-stretch min-h-[56px]">
+                              {segments.map((seg, i) => {
+                                const pct = ((seg.endMin - seg.startMin) / totalMin) * 100;
+                                if (seg.type === "gap") {
+                                  // gap 영역 내 시간별 click targets
+                                  const gapStartHr = Math.floor(seg.startMin / 60) + openHour;
+                                  const gapEndHr = Math.ceil(seg.endMin / 60) + openHour;
+                                  return (
+                                    <div key={`g${i}`} className="flex" style={{ width: `${pct}%` }}>
+                                      {Array.from({ length: Math.max(1, gapEndHr - gapStartHr) }, (_, gi) => {
+                                        const clickH = gapStartHr + gi;
+                                        return (
+                                          <div
+                                            key={clickH}
+                                            className="group/cell flex-1 cursor-pointer hover:bg-[var(--color-surface-hover)] relative"
+                                            onClick={() => openAddModal(u.id, selectedDay, `${String(clickH).padStart(2, "0")}:00`)}
+                                            role="button"
+                                          >
+                                            <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/cell:opacity-100 transition-opacity text-[var(--color-accent)]">
+                                              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="8" y1="3" x2="8" y2="13" /><line x1="3" y1="8" x2="13" y2="8" /></svg>
+                                            </span>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  );
+                                }
+                                return (
+                                  <div key={seg.sched.id} className="bg-[var(--color-bg)] z-10" style={{ width: `${pct}%` }}>
+                                    <ScheduleBlock
+                                      schedule={seg.sched}
+                                      showCost={isGMView}
+                                      attendance={getAttendanceFor(seg.sched.id)}
+                                      currentStoreId={selectedStore}
+                                      onClick={(e) => handleBlockClick(e, seg.sched)}
+                                    />
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          );
                         })()}
-                      </>
+                      </td>
                     )}
 
                     <td className="px-2 py-3 text-center border-l border-[var(--color-border)]">
@@ -972,21 +1024,21 @@ export default function SchedulesCalendarView() {
                           const lp = weekDates.reduce((sum, d) => sum + getUserPendingCost(u.id, d.date), 0);
                           const hasMissing = isGMView && userHasNoCost(u.id, weekDates.map((d) => d.date));
                           return <div className="flex flex-col items-center">
-                            <span className="text-[13px] font-bold text-[var(--color-success)]">{ch}h</span>
-                            {ph > 0 && <span className="text-[10px] font-semibold text-[var(--color-warning)]">+{ph}h</span>}
-                            {isGMView && lc > 0 && <span className="text-[10px] text-[var(--color-success)]">${Math.round(lc)}</span>}
-                            {isGMView && lp > 0 && <span className="text-[10px] text-[var(--color-warning)]">+${Math.round(lp)}</span>}
+                            <span className="text-[13px] font-bold text-[var(--color-success)]">{fmtH(ch)}h</span>
+                            {ph > 0 && <span className="text-[10px] font-semibold text-[var(--color-warning)]">+{fmtH(ph)}h</span>}
+                            {isGMView && lc > 0 && <span className="text-[10px] text-[var(--color-success)]">${lc.toFixed(2)}</span>}
+                            {isGMView && lp > 0 && <span className="text-[10px] text-[var(--color-warning)]">+${lp.toFixed(2)}</span>}
                             {hasMissing && <span className="text-[10px] text-[var(--color-danger)]" title="Some schedules have no stored rate and no inherited rate available">No cost</span>}
                           </div>;
                         })()
                       ) : (
                         (() => {
                           const blocks = schedules.filter((b) => b.work_date === selectedDay && b.user_id === u.id && b.store_id === selectedStore);
-                          const h = blocks.filter((b) => b.status === "confirmed").reduce((sum, b) => sum + Math.max(0, parseTimeToHours(b.end_time) - parseTimeToHours(b.start_time)), 0);
-                          const ph = blocks.filter((b) => b.status === "requested").reduce((sum, b) => sum + Math.max(0, parseTimeToHours(b.end_time) - parseTimeToHours(b.start_time)), 0);
+                          const h = blocks.filter((b) => b.status === "confirmed").reduce((sum, b) => sum + getNetWorkHours(b), 0);
+                          const ph = blocks.filter((b) => b.status === "requested").reduce((sum, b) => sum + getNetWorkHours(b), 0);
                           return <div className="flex flex-col items-center">
-                            {h > 0 && <span className="text-[13px] font-bold text-[var(--color-success)]">{h}h</span>}
-                            {ph > 0 && <span className="text-[10px] font-semibold text-[var(--color-warning)]">+{ph}h</span>}
+                            {h > 0 && <span className="text-[13px] font-bold text-[var(--color-success)]">{fmtH(h)}h</span>}
+                            {ph > 0 && <span className="text-[10px] font-semibold text-[var(--color-warning)]">+{fmtH(ph)}h</span>}
                             {h === 0 && ph === 0 && <span className="text-[11px] text-[var(--color-text-muted)]">--</span>}
                           </div>;
                         })()

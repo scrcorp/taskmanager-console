@@ -37,7 +37,7 @@ export function ConfirmDialog({
   return (
     <div className="fixed inset-0 z-[400] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/40" onClick={onCancel} />
-      <div className="relative bg-white rounded-2xl shadow-[0_16px_48px_rgba(0,0,0,0.2)] w-full max-w-sm">
+      <div className="relative bg-[var(--color-surface)] rounded-2xl shadow-[0_16px_48px_rgba(0,0,0,0.2)] w-full max-w-sm">
         <div className="px-5 pt-5 pb-3 flex items-start gap-3">
           <div className={`w-10 h-10 rounded-full flex items-center justify-center shrink-0 ${isDanger ? 'bg-[var(--color-danger-muted)]' : 'bg-[var(--color-info-muted)]'}`}>
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke={isDanger ? 'var(--color-danger)' : 'var(--color-info)'} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">

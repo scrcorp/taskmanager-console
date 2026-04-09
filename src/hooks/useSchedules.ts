@@ -306,6 +306,8 @@ export const useScheduleHistory = (
         await api.get("/admin/schedules/history", { params });
       return res.data;
     },
+    // 페이지 재진입 시 항상 최신 history 가져오기 (변경이 자주 일어나는 데이터)
+    refetchOnMount: "always",
   });
 };
 

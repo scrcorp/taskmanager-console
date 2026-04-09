@@ -11,6 +11,7 @@
 import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { RefreshCw } from "lucide-react";
 import { useScheduleHistory, useDeleteScheduleHistoryEntry, type ScheduleHistoryItem } from "@/hooks/useSchedules";
 import { useStores } from "@/hooks/useStores";
 import { useUsers } from "@/hooks/useUsers";
@@ -183,7 +184,7 @@ export default function ScheduleHistoryPage() {
     <div className="min-h-screen bg-[var(--color-bg)] p-6">
       <div className="max-w-[1400px] mx-auto">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-start justify-between mb-6 gap-3">
           <div>
             <button
               type="button"
@@ -195,10 +196,20 @@ export default function ScheduleHistoryPage() {
             <h1 className="text-[22px] font-bold text-[var(--color-text)]">Schedule History</h1>
             <p className="text-[12px] text-[var(--color-text-muted)] mt-0.5">All schedule events across the organization</p>
           </div>
+          <button
+            type="button"
+            onClick={() => historyQ.refetch()}
+            disabled={historyQ.isFetching}
+            className="mt-6 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] text-[12px] font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-text)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            title="Refresh history"
+          >
+            <RefreshCw size={13} className={historyQ.isFetching ? "animate-spin" : ""} />
+            Refresh
+          </button>
         </div>
 
         {/* Filters */}
-        <div className="bg-white border border-[var(--color-border)] rounded-xl p-4 mb-4">
+        <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl p-4 mb-4">
           <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
             <div>
               <label className="block text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1">From</label>
@@ -206,7 +217,7 @@ export default function ScheduleHistoryPage() {
                 type="date"
                 value={dateFrom}
                 onChange={(e) => { setDateFrom(e.target.value); setPage(1); }}
-                className="w-full px-2 py-1.5 border border-[var(--color-border)] rounded text-[12px] bg-white"
+                className="w-full px-2 py-1.5 border border-[var(--color-border)] rounded text-[12px] bg-[var(--color-surface)]"
               />
             </div>
             <div>
@@ -215,7 +226,7 @@ export default function ScheduleHistoryPage() {
                 type="date"
                 value={dateTo}
                 onChange={(e) => { setDateTo(e.target.value); setPage(1); }}
-                className="w-full px-2 py-1.5 border border-[var(--color-border)] rounded text-[12px] bg-white"
+                className="w-full px-2 py-1.5 border border-[var(--color-border)] rounded text-[12px] bg-[var(--color-surface)]"
               />
             </div>
             <div>
@@ -223,7 +234,7 @@ export default function ScheduleHistoryPage() {
               <select
                 value={storeId}
                 onChange={(e) => { setStoreId(e.target.value); setPage(1); }}
-                className="w-full px-2 py-1.5 border border-[var(--color-border)] rounded text-[12px] bg-white"
+                className="w-full px-2 py-1.5 border border-[var(--color-border)] rounded text-[12px] bg-[var(--color-surface)]"
               >
                 <option value="">All stores</option>
                 {(storesQ.data ?? []).map((s) => (
@@ -236,7 +247,7 @@ export default function ScheduleHistoryPage() {
               <select
                 value={userId}
                 onChange={(e) => { setUserId(e.target.value); setPage(1); }}
-                className="w-full px-2 py-1.5 border border-[var(--color-border)] rounded text-[12px] bg-white"
+                className="w-full px-2 py-1.5 border border-[var(--color-border)] rounded text-[12px] bg-[var(--color-surface)]"
               >
                 <option value="">Anyone</option>
                 {(usersQ.data ?? []).map((u) => (
@@ -249,7 +260,7 @@ export default function ScheduleHistoryPage() {
               <select
                 value={actorId}
                 onChange={(e) => { setActorId(e.target.value); setPage(1); }}
-                className="w-full px-2 py-1.5 border border-[var(--color-border)] rounded text-[12px] bg-white"
+                className="w-full px-2 py-1.5 border border-[var(--color-border)] rounded text-[12px] bg-[var(--color-surface)]"
               >
                 <option value="">Anyone</option>
                 {(usersQ.data ?? []).map((u) => (
@@ -262,7 +273,7 @@ export default function ScheduleHistoryPage() {
               <select
                 value={eventType}
                 onChange={(e) => { setEventType(e.target.value); setPage(1); }}
-                className="w-full px-2 py-1.5 border border-[var(--color-border)] rounded text-[12px] bg-white"
+                className="w-full px-2 py-1.5 border border-[var(--color-border)] rounded text-[12px] bg-[var(--color-surface)]"
               >
                 {EVENT_TYPES.map((e) => (
                   <option key={e.value} value={e.value}>{e.label}</option>
@@ -282,7 +293,7 @@ export default function ScheduleHistoryPage() {
         </div>
 
         {/* Results */}
-        <div className="bg-white border border-[var(--color-border)] rounded-xl overflow-hidden">
+        <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl overflow-hidden">
           <div className="px-4 py-3 border-b border-[var(--color-border)] flex items-center justify-between">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
               {historyQ.isLoading ? "Loading…" : `${total} event${total === 1 ? "" : "s"}`}

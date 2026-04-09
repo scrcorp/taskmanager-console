@@ -137,6 +137,8 @@ export default function SchedulesDetailPage() {
           work_date: payload.date,
           start_time: payload.startTime,
           end_time: payload.endTime,
+          break_start_time: payload.breakStartTime,
+          break_end_time: payload.breakEndTime,
           note: payload.notes || null,
           hourly_rate: payload.hourlyRate,
         },
