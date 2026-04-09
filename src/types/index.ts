@@ -952,7 +952,7 @@ export interface Schedule {
   net_work_minutes: number;
   /** Effective hourly rate for labor cost calculation (org → store → user → schedule override cascade) */
   hourly_rate: number;
-  status: "draft" | "requested" | "confirmed" | "rejected" | "cancelled";
+  status: "draft" | "requested" | "confirmed" | "rejected" | "cancelled" | "deleted";
   submitted_at: string | null;
   is_modified: boolean;
   rejected_by: string | null;
