@@ -522,8 +522,8 @@ export default function SchedulesCalendarView() {
         end_time: payload.endTime,
         break_start_time: payload.breakStartTime,
         break_end_time: payload.breakEndTime,
-        // 새로 만드는 schedule은 항상 draft로 시작 (status 전환은 submit/confirm action으로)
-        status: "draft",
+        // GM+: 바로 confirmed, SV: requested
+        status: isGMView ? "confirmed" : "requested",
         note: payload.notes || null,
         hourly_rate: payload.hourlyRate,
       }, {
