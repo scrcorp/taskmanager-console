@@ -34,7 +34,7 @@ import { useToast } from "@/components/ui/Toast";
 import { formatDate, parseApiError } from "@/lib/utils";
 import { useTimezone } from "@/hooks/useTimezone";
 import { usePermissions } from "@/hooks/usePermissions";
-import { PERMISSIONS } from "@/lib/permissions";
+import { PERMISSIONS, ROLE_PRIORITY } from "@/lib/permissions";
 import { useAdminResetPassword } from "@/hooks/usePassword";
 import { ResetPasswordResultModal } from "@/components/auth/ResetPasswordResultModal";
 import type { User, Store, Role, UserStoreAssignment } from "@/types";
@@ -142,8 +142,8 @@ export default function UserDetailPage(): React.ReactElement {
     return role?.priority ?? 999;
   }, [user, roleList]);
 
-  const isStaff = userRolePriority >= 40;
-  const isSV = userRolePriority === 30;
+  const isStaff = userRolePriority >= ROLE_PRIORITY.STAFF;
+  const isSV = userRolePriority === ROLE_PRIORITY.SV;
 
   /** 서버 상태 기반 초기 체크 상태 생성 */
   const serverCheckState: Record<string, StoreCheckState> = useMemo(() => {
@@ -668,13 +668,13 @@ export default function UserDetailPage(): React.ReactElement {
           <div className="mt-3 text-xs text-text-muted">
             {isStaff && "Staff can only be assigned to work stores."}
             {isSV && "Supervisor can manage only one store."}
-            {!isStaff && !isSV && userRolePriority <= 20 && "GM can manage multiple stores."}
+            {!isStaff && !isSV && userRolePriority <= ROLE_PRIORITY.GM && "GM can manage multiple stores."}
           </div>
         )}
       </div>
 
       {/* Account Security Section — Owner는 전체, GM(20)은 하위 직원(SV/Staff)에만 표시 */}
-      {canManageUsers && myPriority <= 20 && userRolePriority > myPriority && (
+      {canManageUsers && myPriority <= ROLE_PRIORITY.GM && userRolePriority > myPriority && (
         <div className="bg-card border border-border rounded-xl p-6 mb-6">
           <div className="flex items-center gap-2 mb-4">
             <ShieldAlert className="h-5 w-5 text-danger" />

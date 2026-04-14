@@ -12,6 +12,7 @@ import { useAttendances } from "@/hooks/useAttendances";
 import { useStores } from "@/hooks/useStores";
 import { useUsers } from "@/hooks/useUsers";
 import type { Attendance, User } from "@/types";
+import { ROLE_PRIORITY } from "@/lib/permissions";
 
 function getWeekStart(d: Date): Date {
   const r = new Date(d);
@@ -54,8 +55,8 @@ function getInitials(name: string | null | undefined): string {
 }
 
 function rolePriorityToColorClass(p: number): string {
-  if (p <= 20) return "bg-[var(--color-accent-muted)] text-[var(--color-accent)]";
-  if (p <= 30) return "bg-[var(--color-warning-muted)] text-[var(--color-warning)]";
+  if (p <= ROLE_PRIORITY.GM) return "bg-[var(--color-accent-muted)] text-[var(--color-accent)]";
+  if (p <= ROLE_PRIORITY.SV) return "bg-[var(--color-warning-muted)] text-[var(--color-warning)]";
   return "bg-[var(--color-success-muted)] text-[var(--color-success)]";
 }
 

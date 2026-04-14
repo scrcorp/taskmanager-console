@@ -8,6 +8,7 @@
  */
 
 import type { Schedule, User, Attendance } from "@/types";
+import { ROLE_PRIORITY } from "@/lib/permissions";
 import type { ScheduleAuditLogEntry } from "@/hooks/useSchedules";
 
 interface Props {
@@ -82,15 +83,15 @@ function formatEventTime(iso: string): string {
 }
 
 function rolePriorityToBadge(p: number): string {
-  if (p <= 10) return "Owner";
-  if (p <= 20) return "GM";
-  if (p <= 30) return "SV";
+  if (p <= ROLE_PRIORITY.OWNER) return "Owner";
+  if (p <= ROLE_PRIORITY.GM) return "GM";
+  if (p <= ROLE_PRIORITY.SV) return "SV";
   return "Staff";
 }
 
 function rolePriorityToColorClass(p: number): string {
-  if (p <= 20) return "bg-[var(--color-accent-muted)] text-[var(--color-accent)]";
-  if (p <= 30) return "bg-[var(--color-warning-muted)] text-[var(--color-warning)]";
+  if (p <= ROLE_PRIORITY.GM) return "bg-[var(--color-accent-muted)] text-[var(--color-accent)]";
+  if (p <= ROLE_PRIORITY.SV) return "bg-[var(--color-warning-muted)] text-[var(--color-warning)]";
   return "bg-[var(--color-success-muted)] text-[var(--color-success)]";
 }
 
@@ -219,7 +220,7 @@ export function ScheduleDetailPage({ schedule, user, attendance, auditEvents, re
               <div className="min-w-0 flex-1">
                 <div className="text-[16px] font-bold text-[var(--color-text)]">{user.full_name || user.username}</div>
                 <div className="flex items-center gap-2 text-[12px] mt-1">
-                  <span className={`font-semibold ${user.role_priority <= 20 ? "text-[var(--color-accent)]" : user.role_priority <= 30 ? "text-[var(--color-warning)]" : "text-[var(--color-text-muted)]"}`}>
+                  <span className={`font-semibold ${user.role_priority <= ROLE_PRIORITY.GM ? "text-[var(--color-accent)]" : user.role_priority <= ROLE_PRIORITY.SV ? "text-[var(--color-warning)]" : "text-[var(--color-text-muted)]"}`}>
                     {userRoleBadge}
                   </span>
                   {showCost && user.hourly_rate && (

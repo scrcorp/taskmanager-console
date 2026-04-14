@@ -280,6 +280,47 @@ npm run lint
 - docs 같은 경량 작업은 main에서 직접 분기 허용
 - **AI Agent는 작업 시 무조건 worktree 사용**
 
+## Permission System (MUST FOLLOW)
+
+이 프로젝트는 Permission-Based RBAC를 사용한다. **매직넘버(10, 20, 30, 40) 직접 비교 절대 금지.**
+
+### 접근 제어 — `hasPermission()` 우선 사용
+
+```typescript
+import { usePermissions } from "@/hooks/usePermissions";
+import { PERMISSIONS } from "@/lib/permissions";
+
+const { hasPermission, isOwner, isGMPlus } = usePermissions();
+
+// ✅ 올바른 패턴
+if (hasPermission(PERMISSIONS.SCHEDULES_CREATE)) { ... }  // 접근 제어
+if (isOwner) { ... }                                       // UI 표시용
+if (isGMPlus) { ... }                                      // UI 표시용
+```
+
+### 새 페이지 추가 시
+
+1. `src/lib/permissions.ts`의 `PAGE_PERMISSIONS`에 경로 → permission 코드 매핑 추가
+2. 서버 `PERMISSION_REGISTRY`에 해당 코드가 있는지 확인 (없으면 서버에 먼저 추가)
+3. 페이지 내 버튼/액션은 `hasPermission(PERMISSIONS.XXX)`으로 조건부 렌더링
+4. **PERMISSIONS 상수 밖에서 permission 코드 문자열을 임의 사용 금지**
+
+### 금지 패턴
+
+```typescript
+// ❌ 절대 하지 말 것
+if (role_priority <= 10)                    // → isOwner
+if (role_priority <= 20)                    // → isGMPlus
+if (priority <= 30)                         // → isSVPlus
+const isGM = user?.role_priority <= 20;     // → usePermissions().isGMPlus
+if (name.includes("owner"))                 // → isOwner (문자열 비교 금지)
+```
+
+### 상수 위치
+
+- `src/lib/permissions.ts` — `PERMISSIONS` (코드), `ROLE_PRIORITY` (상수)
+- `src/hooks/usePermissions.ts` — `hasPermission()`, `isOwner`, `isGMPlus`, `isSVPlus`
+
 ## Coding Conventions
 
 - Use Server Components by default, `"use client"` only when needed
