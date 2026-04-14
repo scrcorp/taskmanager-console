@@ -13,6 +13,7 @@ import api from "@/lib/api";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSchedules, useConfirmSchedule, useRejectSchedule, useDeleteSchedule, useSubmitSchedule, useRevertSchedule, useCancelSchedule, useCreateSchedule, useUpdateSchedule, useSwapSchedule } from "@/hooks/useSchedules";
 import { useUsers } from "@/hooks/useUsers";
+import { ROLE_PRIORITY } from "@/lib/permissions";
 import { useStores } from "@/hooks/useStores";
 import { useOrganization } from "@/hooks/useOrganization";
 import { useAttendances } from "@/hooks/useAttendances";
@@ -107,16 +108,16 @@ function formatHourLabel(h: number): string {
 }
 
 function rolePriorityToBadge(p: number): string {
-  if (p <= 10) return "Owner";
-  if (p <= 20) return "GM";
-  if (p <= 30) return "SV";
+  if (p <= ROLE_PRIORITY.OWNER) return "Owner";
+  if (p <= ROLE_PRIORITY.GM) return "GM";
+  if (p <= ROLE_PRIORITY.SV) return "SV";
   return "Staff";
 }
 
 function rolePriorityToColor(p: number): string {
-  if (p <= 10) return "bg-[var(--color-accent-muted)] text-[var(--color-accent)]";
-  if (p <= 20) return "bg-[var(--color-accent-muted)] text-[var(--color-accent)]";
-  if (p <= 30) return "bg-[var(--color-warning-muted)] text-[var(--color-warning)]";
+  if (p <= ROLE_PRIORITY.OWNER) return "bg-[var(--color-accent-muted)] text-[var(--color-accent)]";
+  if (p <= ROLE_PRIORITY.GM) return "bg-[var(--color-accent-muted)] text-[var(--color-accent)]";
+  if (p <= ROLE_PRIORITY.SV) return "bg-[var(--color-warning-muted)] text-[var(--color-warning)]";
   return "bg-[var(--color-success-muted)] text-[var(--color-success)]";
 }
 
@@ -261,7 +262,7 @@ export default function SchedulesCalendarView() {
   // 현재 로그인 사용자의 role 기반으로 cost/actions 표시 여부 결정
   // Owner(10) / GM(20) 만 cost 정보 표시, SV(30) / Staff(40) 는 숨김
   const currentUser = useAuthStore((s) => s.user);
-  const isGMView = (currentUser?.role_priority ?? 99) <= 20;
+  const isGMView = (currentUser?.role_priority ?? 99) <= ROLE_PRIORITY.GM;
   const [weeklySortCol, setWeeklySortCol] = useState(-1);
   const [weeklySortState, setWeeklySortState] = useState<SortState>("none");
   const [dailySortCol, setDailySortCol] = useState(-1);
@@ -1083,7 +1084,7 @@ export default function SchedulesCalendarView() {
                         <div className="min-w-0">
                           <div className="text-[13px] font-semibold text-[var(--color-text)] truncate">{u.full_name || u.username}</div>
                           <div className="text-[10px] text-[var(--color-text-muted)]">
-                            <span className={u.role_priority <= 20 ? "text-[var(--color-accent)] font-semibold" : u.role_priority <= 30 ? "text-[var(--color-warning)] font-semibold" : "font-semibold"}>{rolePriorityToBadge(u.role_priority)}</span>
+                            <span className={u.role_priority <= ROLE_PRIORITY.GM ? "text-[var(--color-accent)] font-semibold" : u.role_priority <= ROLE_PRIORITY.SV ? "text-[var(--color-warning)] font-semibold" : "font-semibold"}>{rolePriorityToBadge(u.role_priority)}</span>
                             {isGMView && userEffective != null ? <span title="Default rate for new schedules"> · ${userEffective}/hr{isUserCustom ? "" : " (inherited)"}</span> : null}
                             {isGMView && userEffective == null && <span className="text-[var(--color-danger)]"> · No default rate</span>}
                           </div>

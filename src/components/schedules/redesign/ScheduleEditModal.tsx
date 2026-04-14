@@ -9,6 +9,7 @@ import { useWorkRoles } from "@/hooks/useWorkRoles";
 import { useUserStores } from "@/hooks/useUsers";
 import { useResolveSetting } from "@/hooks/useSettings";
 import type { Schedule, User, WorkRole, Store } from "@/types";
+import { ROLE_PRIORITY } from "@/lib/permissions";
 
 export interface ScheduleEditPayload {
   userId: string;
@@ -66,8 +67,8 @@ function getInitials(name: string | null | undefined): string {
 }
 
 function rolePriorityToColor(p: number): string {
-  if (p <= 20) return "bg-[var(--color-accent-muted)] text-[var(--color-accent)]";
-  if (p <= 30) return "bg-[var(--color-warning-muted)] text-[var(--color-warning)]";
+  if (p <= ROLE_PRIORITY.GM) return "bg-[var(--color-accent-muted)] text-[var(--color-accent)]";
+  if (p <= ROLE_PRIORITY.SV) return "bg-[var(--color-warning-muted)] text-[var(--color-warning)]";
   return "bg-[var(--color-success-muted)] text-[var(--color-success)]";
 }
 

@@ -9,11 +9,12 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { ScheduleSettings } from "@/components/schedules/redesign/ScheduleSettings";
 import { useAuthStore } from "@/stores/authStore";
+import { ROLE_PRIORITY } from "@/lib/permissions";
 
 export default function ScheduleSettingsPage() {
   const router = useRouter();
   const currentUser = useAuthStore((s) => s.user);
-  const isGMPlus = (currentUser?.role_priority ?? 99) <= 20;
+  const isGMPlus = (currentUser?.role_priority ?? 99) <= ROLE_PRIORITY.GM;
 
   useEffect(() => {
     if (currentUser && !isGMPlus) {

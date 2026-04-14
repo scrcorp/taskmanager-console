@@ -1,29 +1,29 @@
 /**
- * 권한 기반 RBAC 훅.
+ * Permission-based RBAC hook.
  *
- * /auth/me 응답의 permissions[] 배열을 기반으로
- * 권한 확인 유틸리티를 제공합니다.
- *
- * - hasPermission(code): 특정 권한 보유 여부 확인
- * - hasAnyPermission(...codes): 하나라도 보유 시 true
- * - hasAllPermissions(...codes): 모두 보유 시 true
- * - priority: 역할 우선순위 (Owner=10, GM=20, SV=30, Staff=40)
+ * Owner bypasses all permission checks (always true).
+ * Other roles check against /auth/me permissions[] array.
  */
 
 import { useAuthStore } from "@/stores/authStore";
+import { ROLE_PRIORITY } from "@/lib/permissions";
 
-/** 현재 사용자의 권한 정보를 제공하는 훅 */
 export function usePermissions() {
   const user = useAuthStore((s) => s.user);
-  // Set으로 변환하여 O(1) 조회 성능 보장
   const permissions = new Set(user?.permissions ?? []);
-  const priority = user?.role_priority ?? 999; // 999 = 권한 없음(미인증)
+  const priority = user?.role_priority ?? 999;
+  const isOwner = priority <= ROLE_PRIORITY.OWNER;
 
   return {
     permissions,
     priority,
-    hasPermission: (code: string) => permissions.has(code),
-    hasAnyPermission: (...codes: string[]) => codes.some((c) => permissions.has(c)),
-    hasAllPermissions: (...codes: string[]) => codes.every((c) => permissions.has(c)),
+    isOwner,
+    isGMPlus: priority <= ROLE_PRIORITY.GM,
+    isSVPlus: priority <= ROLE_PRIORITY.SV,
+
+    // Owner bypasses all permission checks
+    hasPermission: (code: string) => isOwner || permissions.has(code),
+    hasAnyPermission: (...codes: string[]) => isOwner || codes.some((c) => permissions.has(c)),
+    hasAllPermissions: (...codes: string[]) => isOwner || codes.every((c) => permissions.has(c)),
   };
 }

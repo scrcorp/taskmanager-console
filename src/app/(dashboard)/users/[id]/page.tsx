@@ -34,7 +34,7 @@ import { useToast } from "@/components/ui/Toast";
 import { formatDate, parseApiError } from "@/lib/utils";
 import { useTimezone } from "@/hooks/useTimezone";
 import { usePermissions } from "@/hooks/usePermissions";
-import { PERMISSIONS } from "@/lib/permissions";
+import { PERMISSIONS, ROLE_PRIORITY } from "@/lib/permissions";
 import { useAdminResetPassword } from "@/hooks/usePassword";
 import { ResetPasswordResultModal } from "@/components/auth/ResetPasswordResultModal";
 import type { User, Store, Role, UserStoreAssignment } from "@/types";
@@ -45,6 +45,7 @@ import type { User, Store, Role, UserStoreAssignment } from "@/types";
 
 /** 사용자 수정 폼 데이터 / User edit form data */
 interface UserEditFormData {
+  username: string;
   full_name: string;
   email: string;
   phone: string;
@@ -71,6 +72,7 @@ function getRoleBadgeVariant(roleName: string): "accent" | "warning" | "default"
 }
 
 const INITIAL_EDIT_FORM: UserEditFormData = {
+  username: "",
   full_name: "",
   email: "",
   phone: "",
@@ -140,8 +142,8 @@ export default function UserDetailPage(): React.ReactElement {
     return role?.priority ?? 999;
   }, [user, roleList]);
 
-  const isStaff = userRolePriority >= 40;
-  const isSV = userRolePriority === 30;
+  const isStaff = userRolePriority >= ROLE_PRIORITY.STAFF;
+  const isSV = userRolePriority === ROLE_PRIORITY.SV;
 
   /** 서버 상태 기반 초기 체크 상태 생성 */
   const serverCheckState: Record<string, StoreCheckState> = useMemo(() => {
@@ -189,6 +191,7 @@ export default function UserDetailPage(): React.ReactElement {
   const handleOpenEdit = useCallback((): void => {
     if (!user) return;
     setEditForm({
+      username: user.username,
       full_name: user.full_name,
       email: user.email || "",
       phone: user.phone || "",
@@ -200,7 +203,7 @@ export default function UserDetailPage(): React.ReactElement {
 
   /** 사용자 수정 저장 (역할 변경 확인 포함) / Save user edits (with role change check) */
   const handleSaveClick = useCallback((): void => {
-    if (!editForm.full_name.trim()) return;
+    if (!editForm.username.trim() || !editForm.full_name.trim()) return;
     if (editForm.role_id && user) {
       const currentRole = roleList.find((r: Role) => r.name === user.role_name);
       if (currentRole && editForm.role_id !== currentRole.id) {
@@ -213,7 +216,7 @@ export default function UserDetailPage(): React.ReactElement {
 
   /** 사용자 수정 저장 / Save user edits */
   const handleUpdate = useCallback(async (): Promise<void> => {
-    if (!editForm.full_name.trim()) return;
+    if (!editForm.username.trim() || !editForm.full_name.trim()) return;
 
     // Parse hourly_rate — empty string = no change (keep existing), explicit value = override
     const hourlyRateStr = editForm.hourly_rate.trim();
@@ -228,6 +231,7 @@ export default function UserDetailPage(): React.ReactElement {
     try {
       const payload: {
         id: string;
+        username?: string;
         full_name: string;
         email?: string;
         phone?: string;
@@ -239,6 +243,10 @@ export default function UserDetailPage(): React.ReactElement {
         email: editForm.email.trim() || undefined,
         phone: editForm.phone.trim() || undefined,
       };
+      // username이 변경된 경우에만 전송
+      if (user && editForm.username.trim() !== user.username) {
+        payload.username = editForm.username.trim();
+      }
       if (editForm.role_id) {
         payload.role_id = editForm.role_id;
       }
@@ -660,13 +668,13 @@ export default function UserDetailPage(): React.ReactElement {
           <div className="mt-3 text-xs text-text-muted">
             {isStaff && "Staff can only be assigned to work stores."}
             {isSV && "Supervisor can manage only one store."}
-            {!isStaff && !isSV && userRolePriority <= 20 && "GM can manage multiple stores."}
+            {!isStaff && !isSV && userRolePriority <= ROLE_PRIORITY.GM && "GM can manage multiple stores."}
           </div>
         )}
       </div>
 
       {/* Account Security Section — Owner는 전체, GM(20)은 하위 직원(SV/Staff)에만 표시 */}
-      {canManageUsers && myPriority <= 20 && userRolePriority > myPriority && (
+      {canManageUsers && myPriority <= ROLE_PRIORITY.GM && userRolePriority > myPriority && (
         <div className="bg-card border border-border rounded-xl p-6 mb-6">
           <div className="flex items-center gap-2 mb-4">
             <ShieldAlert className="h-5 w-5 text-danger" />
@@ -717,6 +725,17 @@ export default function UserDetailPage(): React.ReactElement {
       >
         <div className="space-y-4">
           <Input
+            label="Username"
+            placeholder="Enter username"
+            value={editForm.username}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setEditForm((prev: UserEditFormData) => ({
+                ...prev,
+                username: e.target.value,
+              }))
+            }
+          />
+          <Input
             label="Full Name"
             placeholder="Enter full name"
             value={editForm.full_name}
@@ -765,7 +784,7 @@ export default function UserDetailPage(): React.ReactElement {
               variant="primary"
               onClick={handleSaveClick}
               isLoading={updateUser.isPending}
-              disabled={!editForm.full_name.trim()}
+              disabled={!editForm.username.trim() || !editForm.full_name.trim()}
             >
               Save Changes
             </Button>

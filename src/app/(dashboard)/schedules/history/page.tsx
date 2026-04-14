@@ -16,6 +16,7 @@ import { useScheduleHistory, useDeleteScheduleHistoryEntry, type ScheduleHistory
 import { useStores } from "@/hooks/useStores";
 import { useUsers } from "@/hooks/useUsers";
 import { useAuthStore } from "@/stores/authStore";
+import { ROLE_PRIORITY } from "@/lib/permissions";
 
 const EVENT_TYPES = [
   { value: "", label: "All events" },
@@ -136,7 +137,7 @@ function HistoryRow({ item, onDelete }: { item: ScheduleHistoryItem; onDelete?: 
 export default function ScheduleHistoryPage() {
   const router = useRouter();
   const currentUser = useAuthStore((s) => s.user);
-  const isOwner = (currentUser?.role_priority ?? 99) <= 10;
+  const isOwner = (currentUser?.role_priority ?? 99) <= ROLE_PRIORITY.OWNER;
   const deleteHistoryMutation = useDeleteScheduleHistoryEntry();
 
   const today = new Date().toISOString().slice(0, 10);

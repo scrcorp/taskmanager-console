@@ -203,7 +203,7 @@ function ScheduleLogsContent(): React.ReactElement {
     });
   };
 
-  if (!hasPermission(PERMISSIONS.AUDIT_LOG_READ)) {
+  if (!hasPermission(PERMISSIONS.CHECKLIST_LOG_READ)) {
     return (
       <div className="text-center py-12">
         <p className="text-text-secondary">You do not have permission to view this page.</p>

@@ -12,12 +12,13 @@
  */
 
 import { Suspense, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { Menu } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
 import { useSidebarStore } from "@/stores/sidebarStore";
 import { isAuthenticated } from "@/lib/auth";
 import { Sidebar, MobileSidebar } from "@/components/layout/Sidebar";
+import { PAGE_PERMISSIONS } from "@/lib/permissions";
 
 /** 대시보드 레이아웃 — 사이드바 + 메인 콘텐츠 영역 */
 export default function DashboardLayout({
@@ -26,6 +27,7 @@ export default function DashboardLayout({
   children: React.ReactNode;
 }) {
   const router = useRouter();
+  const pathname = usePathname();
   const { user, fetchMe } = useAuthStore();
   const toggle = useSidebarStore((s) => s.toggle);
 
@@ -46,6 +48,20 @@ export default function DashboardLayout({
       router.push("/verify-email");
     }
   }, [user]);
+
+  // Permission 기반 페이지 접근 제어
+  useEffect(() => {
+    if (!user) return;
+    const userPerms = new Set(user.permissions ?? []);
+    // pathname과 매칭되는 가장 긴 경로 찾기 (e.g. /schedules/settings > /schedules)
+    const matchedPaths = Object.keys(PAGE_PERMISSIONS)
+      .filter((p) => pathname === p || pathname.startsWith(p + "/"))
+      .sort((a, b) => b.length - a.length);
+    const requiredPerm = matchedPaths.length > 0 ? PAGE_PERMISSIONS[matchedPaths[0]] : undefined;
+    if (requiredPerm && !userPerms.has(requiredPerm)) {
+      router.replace("/");
+    }
+  }, [user, pathname]);
 
   // user 로드 전 또는 이메일 미인증 → 로딩 화면 (대시보드 깜빡임 방지)
   if (!user || !user.email_verified) {

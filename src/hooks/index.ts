@@ -74,6 +74,7 @@ export {
 } from "./useNotifications";
 
 export { usePermissions } from "./usePermissions";
+export { useAllPermissions, useRolePermissions, useUpdateRolePermissions } from "./usePermissionAdmin";
 
 export {
   useChecklistInstances,

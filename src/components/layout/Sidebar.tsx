@@ -28,12 +28,14 @@ import {
   Warehouse,
   History,
   ClipboardCheck,
+  ShieldCheck,
 } from "lucide-react";
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useAuthStore } from "@/stores/authStore";
 import { useSidebarStore } from "@/stores/sidebarStore";
 import { useUnreadCount } from "@/hooks";
 import { cn } from "@/lib/utils";
+import { ROLE_PRIORITY, MENU_PERMISSIONS } from "@/lib/permissions";
 import { ThemeToggle } from "./ThemeToggle";
 
 interface NavChild {
@@ -99,7 +101,15 @@ const navItems: NavItem[] = [
     ],
   },
   { href: "/notifications", label: "Alerts", icon: Bell },
-  { href: "/settings", label: "Settings", icon: Settings },
+  {
+    href: "/settings",
+    label: "Settings",
+    icon: Settings,
+    children: [
+      { href: "/settings", label: "General", icon: Building2 },
+      { href: "/settings/roles", label: "Roles & Permissions", icon: ShieldCheck },
+    ],
+  },
 ];
 
 /** 사이드바 레이아웃 컴포넌트 — 내비게이션 + 사용자 프로필 + 로그아웃.
@@ -199,14 +209,24 @@ export function Sidebar({ onNavClick }: { onNavClick?: () => void }) {
     return pathname.startsWith(child.href);
   };
 
-  const isGMPlus = (user?.role_priority ?? 99) <= 20;
+  const userPermissions = new Set(user?.permissions ?? []);
+  const hasMenuPermission = (href: string): boolean => {
+    const required = MENU_PERMISSIONS[href];
+    return !required || userPermissions.has(required);
+  };
+
+  const shouldShowItem = (item: NavItem): boolean => {
+    // children이 있으면, 보이는 child가 하나라도 있어야 부모도 보임
+    if (item.children) {
+      return item.children.some(shouldShowChild);
+    }
+    return hasMenuPermission(item.href);
+  };
 
   const shouldShowChild = (child: NavChild): boolean => {
     // Only show Transactions/Audits when on a store inventory page
     if (child.href.includes("__storeId__")) return !!currentStoreId;
-    // Schedule Settings는 GM+ 전용
-    if (child.href === "/schedules/settings" && !isGMPlus) return false;
-    return true;
+    return hasMenuPermission(child.href);
   };
 
   const toggleExpand = (href: string) => {
@@ -237,7 +257,7 @@ export function Sidebar({ onNavClick }: { onNavClick?: () => void }) {
 
       {/* 내비게이션 (Navigation) */}
       <nav className="flex-1 px-3 space-y-1 overflow-auto">
-        {navItems.map((item: NavItem) => {
+        {navItems.filter(shouldShowItem).map((item: NavItem) => {
           const active: boolean = isActive(item.href);
           const Icon = item.icon;
           const hasChildren = !!item.children?.length;

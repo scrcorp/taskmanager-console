@@ -120,6 +120,7 @@ export const useCreateUser = (): UseMutationResult<
 /** 사용자 수정 요청 데이터 타입 (User update request data type) */
 interface UpdateUserData {
   id: string;
+  username?: string;
   full_name?: string;
   email?: string;
   phone?: string;
