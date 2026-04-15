@@ -161,6 +161,7 @@ export default function SchedulesDetailPage() {
         attendance={attendance}
         auditEvents={auditEvents}
         relatedSchedules={relatedSchedules}
+        users={usersQ.data ?? []}
         showCost={showCost}
         currentEffectiveRate={currentEffectiveRate}
         onSyncRate={handleSyncRate}

@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react'
 import { useScheduleAuditLog } from '@/hooks/useSchedules'
 
 type AuditEventType = 'created' | 'requested' | 'modified' | 'confirmed' | 'rejected' | 'cancelled' | 'reverted' | 'swapped' | 'deleted'
@@ -47,6 +48,17 @@ function formatTimestamp(iso: string): string {
 }
 
 export function HistoryPanel({ open, onClose, scheduleId, staffName = 'Schedule', date = '' }: Props) {
+  // 열릴 때 첫 클릭이 backdrop에 도달하는 레이스 방지
+  const readyRef = useRef(false)
+  useEffect(() => {
+    if (open) {
+      readyRef.current = false
+      const id = window.setTimeout(() => { readyRef.current = true }, 100)
+      return () => window.clearTimeout(id)
+    }
+    readyRef.current = false
+  }, [open])
+
   const auditQ = useScheduleAuditLog(open ? scheduleId : undefined)
   const events = (auditQ.data ?? []).map((l) => ({
     id: l.id,
@@ -62,7 +74,7 @@ export function HistoryPanel({ open, onClose, scheduleId, staffName = 'Schedule'
     <>
       {/* Backdrop overlay */}
       {open && (
-        <div className="fixed inset-0 bg-black/30 z-[75] transition-opacity" onClick={onClose} />
+        <div className="fixed inset-0 bg-black/30 z-[75] transition-opacity" onClick={() => { if (readyRef.current) onClose() }} />
       )}
       <div className={`fixed top-11 right-0 bottom-0 w-[380px] bg-[var(--color-surface)] border-l border-[var(--color-border)] shadow-[-4px_0_24px_rgba(0,0,0,0.12)] z-[80] flex flex-col transition-transform duration-200 ${open ? 'translate-x-0' : 'translate-x-full'}`}>
       <div className="px-5 py-4 border-b border-[var(--color-border)] flex items-center justify-between shrink-0">

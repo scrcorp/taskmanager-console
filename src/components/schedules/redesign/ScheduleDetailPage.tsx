@@ -10,6 +10,7 @@
 import type { Schedule, User, Attendance } from "@/types";
 import { ROLE_PRIORITY } from "@/lib/permissions";
 import type { ScheduleAuditLogEntry } from "@/hooks/useSchedules";
+import { DiffDisplay } from "./DiffDisplay";
 
 interface Props {
   schedule: Schedule;
@@ -17,6 +18,8 @@ interface Props {
   attendance: Attendance | null;
   auditEvents: ScheduleAuditLogEntry[];
   relatedSchedules: Schedule[];
+  /** 유저 목록 (audit diff에서 UUID→이름 변환용) */
+  users?: User[];
   showCost: boolean;
   /** 현재 effective rate (cascade: user → store → org). 없으면 null. */
   currentEffectiveRate: number | null;
@@ -147,7 +150,7 @@ const attendanceMeta: Record<string, { label: string; bg: string; text: string; 
 
 // ─── Component ────────────────────────────────────────
 
-export function ScheduleDetailPage({ schedule, user, attendance, auditEvents, relatedSchedules, showCost, currentEffectiveRate, onSyncRate, isSyncingRate, onBack, onEdit, onSwap, onConfirm, onRevert, onDelete, onDeleteHistoryEntry }: Props) {
+export function ScheduleDetailPage({ schedule, user, attendance, auditEvents, relatedSchedules, users, showCost, currentEffectiveRate, onSyncRate, isSyncingRate, onBack, onEdit, onSwap, onConfirm, onRevert, onDelete, onDeleteHistoryEntry }: Props) {
   const startH = parseTimeToHours(schedule.start_time);
   const endH = parseTimeToHours(schedule.end_time);
   const grossHours = Math.max(0, endH - startH);
@@ -453,27 +456,16 @@ export function ScheduleDetailPage({ schedule, user, attendance, auditEvents, re
                       )}
                     </div>
                     {e.description && <div className="text-[12px] text-[var(--color-text-secondary)] mt-0.5">{e.description}</div>}
-                    {e.diff && Object.keys(e.diff).length > 0 && (
+                    {((e.diff && Object.keys(e.diff).length > 0) || e.reason) && (
                       <div className="mt-1.5 px-2.5 py-1.5 bg-[var(--color-bg)] border-l-2 border-[var(--color-accent)] rounded-r text-[11px]">
-                        <div className="font-semibold text-[var(--color-text-muted)] uppercase tracking-wider text-[10px] mb-1">Changes</div>
-                        <div className="space-y-0.5">
-                          {Object.entries(e.diff).map(([field, change]) => {
-                            const d = change as { old?: unknown; new?: unknown };
-                            return (
-                              <div key={field} className="flex items-baseline gap-2">
-                                <span className="font-semibold text-[var(--color-text)] min-w-[90px]">{field}</span>
-                                <span className="text-[var(--color-text-muted)] line-through">{String(d.old ?? "—")}</span>
-                                <span className="text-[var(--color-text-muted)]">→</span>
-                                <span className="text-[var(--color-text)] font-medium">{String(d.new ?? "—")}</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    )}
-                    {e.reason && (
-                      <div className="mt-1.5 px-2.5 py-1.5 bg-[var(--color-bg)] border-l-2 border-[var(--color-danger)] rounded-r text-[11px] text-[var(--color-text-secondary)]">
-                        <span className="font-semibold text-[var(--color-text)]">Reason:</span> {e.reason}
+                        {e.diff && Object.keys(e.diff).length > 0 && (
+                          <div className="font-semibold text-[var(--color-text-muted)] uppercase tracking-wider text-[10px] mb-1">Changes</div>
+                        )}
+                        <DiffDisplay
+                          diff={(e.diff ?? {}) as Record<string, { old?: unknown; new?: unknown; old_name?: string; new_name?: string }>}
+                          users={users}
+                          reason={e.reason ?? undefined}
+                        />
                       </div>
                     )}
                   </div>

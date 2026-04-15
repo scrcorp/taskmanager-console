@@ -25,6 +25,7 @@ import { StatsHeader } from "./StatsHeader";
 import { ContextMenu } from "./ContextMenu";
 import { HistoryPanel } from "./HistoryPanel";
 import { SwapModal } from "./SwapModal";
+import { SwitchStaffModal } from "./SwitchStaffModal";
 import { ScheduleEditModal, type ScheduleEditPayload } from "./ScheduleEditModal";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { FilterBar, type FilterState } from "./FilterBar";
@@ -276,11 +277,13 @@ export default function SchedulesCalendarView() {
   const matchesStoreFilter = (storeId: string) => isAllStores || selectedStoreSet.has(storeId);
   // backward compat alias
   const selectedStore = primaryStoreId;
-  const [contextMenu, setContextMenu] = useState<{ x: number; y: number; blockId: string; status: string } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ anchorEl: HTMLElement; blockId: string; status: string } | null>(null);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [historyScheduleId, setHistoryScheduleId] = useState<string | undefined>(undefined);
   const [swapOpen, setSwapOpen] = useState(false);
   const [swapSourceId, setSwapSourceId] = useState<string | null>(null);
+  const [switchStaffOpen, setSwitchStaffOpen] = useState(false);
+  const [switchStaffSourceId, setSwitchStaffSourceId] = useState<string | null>(null);
   const [editModal, setEditModal] = useState<{ open: boolean; mode: "add" | "edit"; blockId?: string; staffId?: string; date?: string; startTime?: string }>({ open: false, mode: "add" });
   const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; type: "delete" | "revert" | "reject" | "cancel" | "confirm"; blockId?: string }>({ open: false, type: "delete" });
   const [filters, setFilters] = useState<FilterState>({ staffIds: [], roles: [], statuses: [], positions: [], shifts: [] });
@@ -653,7 +656,7 @@ export default function SchedulesCalendarView() {
   function handleBlockClick(e: React.MouseEvent, sched: Schedule) {
     e.preventDefault();
     e.stopPropagation();
-    setContextMenu({ x: e.clientX, y: e.clientY, blockId: sched.id, status: sched.status });
+    setContextMenu({ anchorEl: e.currentTarget as HTMLElement, blockId: sched.id, status: sched.status });
   }
 
   function handleContextAction(action: string) {
@@ -666,6 +669,10 @@ export default function SchedulesCalendarView() {
     if (action === "swap") {
       setSwapSourceId(blockId);
       setSwapOpen(true);
+    }
+    if (action === "switch-staff") {
+      setSwitchStaffSourceId(blockId);
+      setSwitchStaffOpen(true);
     }
     if (action === "details") router.push(`/schedules/${blockId}`);
     if (action === "edit") setEditModal({ open: true, mode: "edit", blockId });
@@ -720,6 +727,9 @@ export default function SchedulesCalendarView() {
         onSuccess: closeEditModal,
       });
     } else if (editModal.mode === "edit" && editModal.blockId) {
+      const orig = schedules.find((s) => s.id === editModal.blockId);
+      const userChanged = orig && payload.userId !== orig.user_id;
+      const rateUntouched = orig && payload.hourlyRate === orig.hourly_rate;
       updateMutation.mutate({
         id: editModal.blockId,
         data: {
@@ -731,7 +741,8 @@ export default function SchedulesCalendarView() {
           break_start_time: payload.breakStartTime,
           break_end_time: payload.breakEndTime,
           note: payload.notes || null,
-          hourly_rate: payload.hourlyRate,
+          // user 변경 + rate 미수정 → null로 보내서 백엔드가 새 user 기준 재계산
+          hourly_rate: (userChanged && rateUntouched) ? null : payload.hourlyRate,
         },
       }, {
         onSuccess: closeEditModal,
@@ -807,7 +818,7 @@ export default function SchedulesCalendarView() {
         const canSync = isGMView && blockEffective != null && stored !== blockEffective;
         return (
           <ContextMenu
-            x={contextMenu.x} y={contextMenu.y}
+            anchorEl={contextMenu.anchorEl}
             status={contextMenu.status}
             userRole={isGMView ? "gm" : "sv"}
             canSyncRate={canSync}
@@ -853,6 +864,28 @@ export default function SchedulesCalendarView() {
               if (!swapSourceId) return;
               swapMutation.mutate({ id: swapSourceId, other_schedule_id: otherId, reason }, {
                 onSuccess: () => { setSwapOpen(false); setSwapSourceId(null); },
+              });
+            }}
+          />
+        );
+      })()}
+
+      {/* Switch Staff Modal */}
+      {(() => {
+        const srcSchedule = switchStaffSourceId ? schedules.find((s) => s.id === switchStaffSourceId) : null;
+        const srcUser = srcSchedule ? users.find((u) => u.id === srcSchedule.user_id) ?? null : null;
+        return (
+          <SwitchStaffModal
+            open={switchStaffOpen}
+            onClose={() => { setSwitchStaffOpen(false); setSwitchStaffSourceId(null); }}
+            schedule={srcSchedule ?? null}
+            currentUser={srcUser}
+            users={users}
+            isSubmitting={updateMutation.isPending}
+            onSwitch={(newUserId) => {
+              if (!switchStaffSourceId) return;
+              updateMutation.mutate({ id: switchStaffSourceId, data: { user_id: newUserId } }, {
+                onSuccess: () => { setSwitchStaffOpen(false); setSwitchStaffSourceId(null); },
               });
             }}
           />

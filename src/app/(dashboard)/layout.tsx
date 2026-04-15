@@ -18,7 +18,7 @@ import { useAuthStore } from "@/stores/authStore";
 import { useSidebarStore } from "@/stores/sidebarStore";
 import { isAuthenticated } from "@/lib/auth";
 import { Sidebar, MobileSidebar } from "@/components/layout/Sidebar";
-import { PAGE_PERMISSIONS } from "@/lib/permissions";
+import { PAGE_PERMISSIONS, ROLE_PRIORITY } from "@/lib/permissions";
 
 /** 대시보드 레이아웃 — 사이드바 + 메인 콘텐츠 영역 */
 export default function DashboardLayout({
@@ -49,9 +49,10 @@ export default function DashboardLayout({
     }
   }, [user]);
 
-  // Permission 기반 페이지 접근 제어
+  // Permission 기반 페이지 접근 제어 (Owner는 전체 bypass)
   useEffect(() => {
     if (!user) return;
+    if ((user.role_priority ?? 99) <= ROLE_PRIORITY.OWNER) return;
     const userPerms = new Set(user.permissions ?? []);
     // pathname과 매칭되는 가장 긴 경로 찾기 (e.g. /schedules/settings > /schedules)
     const matchedPaths = Object.keys(PAGE_PERMISSIONS)
