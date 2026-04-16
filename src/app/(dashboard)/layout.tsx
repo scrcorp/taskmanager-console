@@ -101,9 +101,7 @@ export default function DashboardLayout({
         </div>
 
         <main className="flex-1 overflow-auto p-4 md:p-8">
-          <div className="max-w-[1100px]">
-            <Suspense>{children}</Suspense>
-          </div>
+          <Suspense>{children}</Suspense>
         </main>
       </div>
     </div>

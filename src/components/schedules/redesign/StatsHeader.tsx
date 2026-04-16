@@ -8,6 +8,7 @@ export interface StatsColumn {
   sublabel?: string
   isSunday?: boolean
   isSaturday?: boolean
+  isNow?: boolean
   teamConfirmed: number
   teamPending: number
   hoursConfirmed: number
@@ -86,10 +87,10 @@ export function StatsHeader({
           <th
             key={col.key}
             onClick={() => onColumnClick?.(col.key)}
-            className={`px-1 py-2 text-center border-r border-[var(--color-border)] font-normal ${onColumnClick ? 'cursor-pointer hover:bg-[var(--color-surface-hover)]' : ''} ${colBg(i)} ${col.isSunday ? 'text-[var(--color-danger)]' : col.isSaturday ? 'text-[var(--color-accent)]' : ''}`}
+            className={`px-1 py-2 text-center border-r border-[var(--color-border)] font-normal ${onColumnClick ? 'cursor-pointer hover:bg-[var(--color-surface-hover)]' : ''} ${colBg(i)} ${col.isSunday ? 'text-[var(--color-danger)]' : col.isSaturday ? 'text-[var(--color-accent)]' : ''} ${col.isNow ? 'bg-[var(--color-accent-muted)]' : ''}`}
           >
-            <div className="text-[13px] font-bold leading-tight">{col.label}</div>
-            {col.sublabel && <div className="text-[11px] text-[var(--color-text-secondary)] mt-0.5 font-normal">{col.sublabel}</div>}
+            <div className={`text-[13px] font-bold leading-tight ${col.isNow ? 'text-[var(--color-accent)]' : ''}`}>{col.label}</div>
+            {col.sublabel && <div className={`text-[11px] mt-0.5 font-normal ${col.isNow ? 'text-[var(--color-accent)]' : 'text-[var(--color-text-secondary)]'}`}>{col.sublabel}</div>}
           </th>
         ))}
         <th className="px-2 py-2.5 text-center border-l border-[var(--color-border)]">
