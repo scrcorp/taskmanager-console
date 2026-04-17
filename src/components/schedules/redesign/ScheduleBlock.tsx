@@ -182,7 +182,7 @@ export function ScheduleBlock({ schedule, showCost, attendance, currentStoreId, 
         ${isRejected || isCancelled ? "" : styles.border}
         ${isConfirmed ? styles.bg : ""}
         ${isRequested ? "border-dashed" : ""}
-        ${isDraft ? "border-dashed border-[var(--color-border)] bg-[var(--color-bg)] opacity-50" : ""}
+        ${isDraft ? "border-dashed border-[var(--color-accent)] bg-[var(--color-accent-muted)] opacity-75" : ""}
         ${rejectedClasses}
         ${cancelledClasses}
       `}

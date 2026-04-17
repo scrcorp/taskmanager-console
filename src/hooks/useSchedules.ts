@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient, type UseQueryResult, type UseMut
 import type { AxiosError, AxiosResponse } from "axios";
 import api from "@/lib/api";
 import { useToast } from "@/components/ui/Toast";
-import type { Schedule, ScheduleBulkCreate, ScheduleBulkResult, ScheduleCreate, ScheduleUpdate, PaginatedResponse } from "@/types";
+import type { Schedule, ScheduleBulkCreate, ScheduleBulkResult, ScheduleCreate, ScheduleUpdate, PaginatedResponse, BulkPreviewEntry, BulkPreviewResponse, BulkUpdateRequest, BulkUpdateResult, BulkDeleteRequest, BulkDeleteResult } from "@/types";
 
 /** FastAPI/Axios error → 사람이 읽을 수 있는 메시지 */
 function extractErrorMessage(err: unknown): string {
@@ -308,6 +308,43 @@ export const useScheduleHistory = (
     },
     // 페이지 재진입 시 항상 최신 history 가져오기 (변경이 자주 일어나는 데이터)
     refetchOnMount: "always",
+  });
+};
+
+export const useBulkPreviewSchedules = (): UseMutationResult<BulkPreviewResponse, Error, { entries: BulkPreviewEntry[] }> => {
+  const onErr = useErrorToast();
+  return useMutation<BulkPreviewResponse, Error, { entries: BulkPreviewEntry[] }>({
+    mutationFn: async (data) => {
+      const res: AxiosResponse<BulkPreviewResponse> = await api.post("/admin/schedules/bulk/preview", data);
+      return res.data;
+    },
+    onError: onErr("Preview failed"),
+  });
+};
+
+export const useBulkUpdateSchedules = (): UseMutationResult<BulkUpdateResult, Error, BulkUpdateRequest> => {
+  const qc = useQueryClient();
+  const onErr = useErrorToast();
+  return useMutation<BulkUpdateResult, Error, BulkUpdateRequest>({
+    mutationFn: async (data) => {
+      const res: AxiosResponse<BulkUpdateResult> = await api.patch("/admin/schedules/bulk", data);
+      return res.data;
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["schedules"] }); },
+    onError: onErr("Bulk update failed"),
+  });
+};
+
+export const useBulkDeleteSchedules = (): UseMutationResult<BulkDeleteResult, Error, BulkDeleteRequest> => {
+  const qc = useQueryClient();
+  const onErr = useErrorToast();
+  return useMutation<BulkDeleteResult, Error, BulkDeleteRequest>({
+    mutationFn: async (data) => {
+      const res: AxiosResponse<BulkDeleteResult> = await api.delete("/admin/schedules/bulk", { data });
+      return res.data;
+    },
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ["schedules"] }); },
+    onError: onErr("Bulk delete failed"),
   });
 };
 

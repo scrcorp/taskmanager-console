@@ -1014,6 +1014,74 @@ export interface ScheduleUpdate {
   force?: boolean;
 }
 
+// ─── Bulk Schedule ────────────────────────────────────────────────────────────
+
+export interface BulkPreviewEntry {
+  user_id: string;
+  store_id: string;
+  work_role_id?: string | null;
+  work_date: string;
+  start_time: string;
+  end_time: string;
+  break_start_time?: string | null;
+  break_end_time?: string | null;
+}
+
+export interface BulkPreviewItem {
+  index: number;
+  estimated_cost: number | null;
+  net_work_minutes: number;
+}
+
+export interface BulkPreviewConflict {
+  index: number;
+  message: string;
+}
+
+export interface BulkPreviewWarning {
+  user_id: string;
+  type: string;
+  total_minutes: number;
+  limit_minutes: number;
+}
+
+export interface BulkPreviewResponse {
+  valid: BulkPreviewItem[];
+  conflicts: BulkPreviewConflict[];
+  warnings: BulkPreviewWarning[];
+}
+
+export interface BulkUpdateItem {
+  id: string;
+  work_role_id?: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
+  break_start_time?: string | null;
+  break_end_time?: string | null;
+  note?: string | null;
+  hourly_rate?: number | null;
+}
+
+export interface BulkUpdateRequest {
+  updates: BulkUpdateItem[];
+}
+
+export interface BulkUpdateResult {
+  updated: number;
+  failed: number;
+  errors: string[];
+}
+
+export interface BulkDeleteRequest {
+  ids: string[];
+}
+
+export interface BulkDeleteResult {
+  deleted: number;
+  failed: number;
+  errors: string[];
+}
+
 // ─── Inventory ────────────────────────────────────────────────────────────────
 
 /** 재고 카테고리 (2단계 셀프참조).

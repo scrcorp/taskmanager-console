@@ -33,6 +33,9 @@ import { LegendModal } from "./LegendModal";
 import { MonthlyGrid } from "./MonthlyGrid";
 import { useShifts } from "@/hooks/useShifts";
 import { useWorkRoles } from "@/hooks/useWorkRoles";
+import { useBulkCreateSchedules, useBulkUpdateSchedules, useBulkDeleteSchedules } from "@/hooks/useSchedules";
+import BulkScheduleView, { type SavePayload } from "./BulkScheduleView";
+import { useToast } from "@/components/ui/Toast";
 
 type ViewMode = "weekly" | "daily" | "monthly";
 type SortState = "none" | "confirmed" | "requested";
@@ -298,6 +301,54 @@ export default function SchedulesCalendarView() {
   const [filters, setFilters] = useState<FilterState>({ staffIds: [], roles: [], statuses: [], positions: [], shifts: [] });
   const [legendOpen, setLegendOpen] = useState(false);
 
+  // ─── Bulk mode ─────────────────────────────────────
+  const [bulkMode, setBulkMode] = useState(false);
+  const { toast } = useToast();
+  const bulkCreateMutation = useBulkCreateSchedules();
+  const bulkUpdateMutation = useBulkUpdateSchedules();
+  const bulkDeleteMutation = useBulkDeleteSchedules();
+  const bulkSaving = bulkCreateMutation.isPending || bulkUpdateMutation.isPending || bulkDeleteMutation.isPending;
+
+  async function handleBulkSave(payload: SavePayload) {
+    try {
+      // 1. Creates
+      if (payload.creates.length > 0) {
+        const creates = payload.creates.map((e) => ({
+          user_id: e.userId,
+          store_id: e.storeId,
+          work_role_id: e.workRoleId,
+          work_date: e.workDate,
+          start_time: e.startTime,
+          end_time: e.endTime,
+          break_start_time: e.breakStartTime,
+          break_end_time: e.breakEndTime,
+          status: (isGMView ? "confirmed" : "requested") as "confirmed" | "requested",
+        }));
+        await bulkCreateMutation.mutateAsync({ entries: creates, skip_on_conflict: true });
+      }
+      // 2. Updates
+      if (payload.updates.length > 0) {
+        const updates = payload.updates.map((u) => ({
+          id: u.id,
+          work_role_id: u.data.workRoleId,
+          start_time: u.data.startTime,
+          end_time: u.data.endTime,
+          break_start_time: u.data.breakStartTime,
+          break_end_time: u.data.breakEndTime,
+        }));
+        await bulkUpdateMutation.mutateAsync({ updates });
+      }
+      // 3. Deletes
+      if (payload.deletes.length > 0) {
+        await bulkDeleteMutation.mutateAsync({ ids: payload.deletes });
+      }
+      toast({ type: "success", message: `Saved: ${payload.creates.length} created, ${payload.updates.length} updated, ${payload.deletes.length} deleted` });
+      setBulkMode(false);
+    } catch {
+      toast({ type: "error", message: "Save failed — some operations may not have completed" });
+    }
+  }
+
   // ─── Data fetching ────────────────────────────────────
   const monthDateFrom = useMemo(() => fmtLocalDate(new Date(monthYear.year, monthYear.month, 1)), [monthYear]);
   const monthDateTo = useMemo(() => fmtLocalDate(new Date(monthYear.year, monthYear.month + 1, 0)), [monthYear]);
@@ -404,6 +455,7 @@ export default function SchedulesCalendarView() {
   }, [searchParams]);
 
   // ─── Mutations ────────────────────────────────────────
+
   const submitMutation = useSubmitSchedule();
   const confirmMutation = useConfirmSchedule();
   const rejectMutation = useRejectSchedule();
@@ -844,6 +896,20 @@ export default function SchedulesCalendarView() {
 
   // ─── Render ───────────────────────────────────────────
 
+  // Bulk mode → 전용 컴포넌트로 전체 교체
+  if (bulkMode) {
+    return (
+      <BulkScheduleView
+        initialStoreId={primaryStoreId || stores[0]?.id || ""}
+        initialWeekStart={weekStart}
+        isGMView={isGMView}
+        isSaving={bulkSaving}
+        onSave={handleBulkSave}
+        onExit={() => setBulkMode(false)}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[var(--color-bg)] -m-4 md:-m-8">
       {/* Context Menu */}
@@ -1004,6 +1070,7 @@ export default function SchedulesCalendarView() {
       {/* Legend Modal */}
       <LegendModal open={legendOpen} onClose={() => setLegendOpen(false)} />
 
+
       <div className="px-3 sm:px-4 lg:px-6 pb-4">
         {/* Row 1: Title + Stats */}
         <div className="flex items-center gap-3 md:gap-5 pt-4 pb-1 min-h-[40px]">
@@ -1112,9 +1179,19 @@ export default function SchedulesCalendarView() {
               </button>
             </div>
             {/* Actions */}
-            <button type="button" onClick={() => openAddModal()} className="bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white px-3 sm:px-4 py-2 rounded-lg text-[12px] sm:text-[13px] font-semibold flex items-center gap-1.5 transition-colors shrink-0 whitespace-nowrap">
-              <span className="hidden sm:inline">+</span> Add
-              <span className="hidden md:inline"> Schedule</span>
+            {!bulkMode && (
+              <button type="button" onClick={() => openAddModal()} className="bg-[var(--color-accent)] hover:bg-[var(--color-accent-hover)] text-white px-3 sm:px-4 py-2 rounded-lg text-[12px] sm:text-[13px] font-semibold flex items-center gap-1.5 transition-colors shrink-0 whitespace-nowrap">
+                <span className="hidden sm:inline">+</span> Add
+                <span className="hidden md:inline"> Schedule</span>
+              </button>
+            )}
+            {/* Bulk mode — available from any view, auto-switches to weekly */}
+            <button
+              type="button"
+              onClick={() => { setView("weekly"); setBulkMode(true); }}
+              className="px-3 sm:px-4 py-2 rounded-lg text-[12px] sm:text-[13px] font-semibold transition-colors shrink-0 whitespace-nowrap border bg-[var(--color-surface)] border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)]"
+            >
+              Bulk
             </button>
             <button
               type="button"
@@ -1221,7 +1298,6 @@ export default function SchedulesCalendarView() {
                                       onClick={(e) => handleBlockClick(e, s)}
                                     />
                                   ))}
-                                  {/* 같은 날 추가 버튼 */}
                                   <button
                                     type="button"
                                     onClick={() => openAddModal(u.id, day.date)}
@@ -1232,20 +1308,20 @@ export default function SchedulesCalendarView() {
                                   </button>
                                 </div>
                               ) : (
-                                <div
-                                  className="h-full min-h-[44px] flex items-center justify-center opacity-0 hover:opacity-40 transition-opacity cursor-pointer"
-                                  role="button"
-                                  onClick={() => openAddModal(u.id, day.date)}
-                                  title={userEffective == null ? "Warning: this user has no hourly rate" : undefined}
-                                >
-                                  {userEffective == null ? (
-                                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-                                      <path d="M7 4v3m0 2.5h.01M2.5 11.5h9a1 1 0 00.87-1.5L8.37 3a1 1 0 00-1.74 0L2.63 10a1 1 0 00.87 1.5z" stroke="var(--color-warning)" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-                                    </svg>
-                                  ) : (
-                                    <span className="text-[var(--color-text-muted)] text-[16px]">+</span>
-                                  )}
-                                </div>
+                                  <div
+                                    className="h-full min-h-[44px] flex items-center justify-center opacity-0 hover:opacity-40 transition-opacity cursor-pointer"
+                                    role="button"
+                                    onClick={() => openAddModal(u.id, day.date)}
+                                    title={userEffective == null ? "Warning: this user has no hourly rate" : undefined}
+                                  >
+                                    {userEffective == null ? (
+                                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+                                        <path d="M7 4v3m0 2.5h.01M2.5 11.5h9a1 1 0 00.87-1.5L8.37 3a1 1 0 00-1.74 0L2.63 10a1 1 0 00.87 1.5z" stroke="var(--color-warning)" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+                                      </svg>
+                                    ) : (
+                                      <span className="text-[var(--color-text-muted)] text-[16px]">+</span>
+                                    )}
+                                  </div>
                               )}
                             </td>
                           );
