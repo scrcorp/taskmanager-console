@@ -96,6 +96,14 @@ export const PERMISSIONS = {
   // ── Organization ──
   ORG_READ: "org:read",
   ORG_UPDATE: "org:update",
+
+  // ── Attendance Devices ──
+  ATTENDANCE_DEVICES_READ: "attendance_devices:read",
+  ATTENDANCE_DEVICES_UPDATE: "attendance_devices:update",
+
+  // ── Clockin PIN ──
+  CLOCKIN_PIN_READ: "clockin_pin:read",
+  CLOCKIN_PIN_UPDATE: "clockin_pin:update",
 } as const;
 
 /**
@@ -120,6 +128,7 @@ export const PAGE_PERMISSIONS: Record<string, string> = {
   "/daily-reports": PERMISSIONS.DAILY_REPORTS_READ,
   "/inventory": PERMISSIONS.INVENTORY_READ,
   "/settings/roles": PERMISSIONS.ROLES_READ,
+  "/settings/attendance-devices": PERMISSIONS.ATTENDANCE_DEVICES_READ,
 };
 // Note: /settings (General) has no permission gate — password change must remain accessible.
 // SV/Staff are hidden from the Settings menu via MENU_PERMISSIONS instead.
@@ -142,6 +151,7 @@ export const MENU_PERMISSIONS: Record<string, string> = {
   "/inventory": PERMISSIONS.INVENTORY_READ,
   "/settings": PERMISSIONS.ORG_UPDATE,
   "/settings/roles": PERMISSIONS.ROLES_READ,
+  "/settings/attendance-devices": PERMISSIONS.ATTENDANCE_DEVICES_READ,
 };
 
 /**
