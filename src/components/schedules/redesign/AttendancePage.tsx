@@ -1,10 +1,44 @@
 "use client";
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useAttendances } from '@/hooks/useAttendances'
 import { useStores } from '@/hooks/useStores'
+import type { AttendanceBreakItem } from '@/types'
 
 type AttendanceState = "not_yet" | "working" | "on_break" | "late" | "clocked_out" | "no_show"
+type FilterKey = AttendanceState | 'all'
+
+// "all" 은 집합에서 "0개 선택" 을 의미 (= 모두 표시). 체크 가능한 필터 키만 여기에.
+type CheckableFilterKey = Exclude<FilterKey, 'all'>
+
+const VALID_FILTER_KEYS: FilterKey[] = ['all', 'working', 'on_break', 'late', 'no_show', 'clocked_out']
+
+/** YYYY-MM-DD 형식인지 간이 검증. 잘못된 값이면 null 반환. */
+function sanitizeDateParam(raw: string | null): string | null {
+  if (!raw) return null
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(raw)) return null
+  const d = new Date(raw + 'T00:00:00')
+  if (Number.isNaN(d.getTime())) return null
+  return raw
+}
+
+function sanitizeFilterParam(raw: string | null): FilterKey | null {
+  if (!raw) return null
+  return (VALID_FILTER_KEYS as string[]).includes(raw) ? (raw as FilterKey) : null
+}
+
+// URL 의 comma-separated filter 값을 파싱해 유효한 키 집합 반환.
+// 비어있거나 'all' 포함 시 빈 Set (= 모두 표시).
+function parseFilterSet(raw: string | null): Set<CheckableFilterKey> {
+  if (!raw) return new Set()
+  const parts = raw.split(',').map((s) => s.trim()).filter(Boolean)
+  const valid = parts.filter(
+    (p): p is CheckableFilterKey =>
+      p !== 'all' && (VALID_FILTER_KEYS as string[]).includes(p),
+  )
+  return new Set(valid)
+}
 
 const ROLE_DEFAULT_COLOR = "bg-[var(--color-success-muted)] text-[var(--color-success)]"
 
@@ -17,7 +51,7 @@ const stateMeta: Record<string, { label: string; bg: string; text: string; dot: 
   no_show: { label: 'No show', bg: 'bg-[var(--color-danger-muted)]', text: 'text-[var(--color-danger)]', dot: 'bg-[var(--color-danger)]' },
 }
 
-const tabs: { key: AttendanceState | 'all'; label: string }[] = [
+const tabs: { key: FilterKey; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'working', label: 'Clocked In' },
   { key: 'on_break', label: 'On Break' },
@@ -26,10 +60,14 @@ const tabs: { key: AttendanceState | 'all'; label: string }[] = [
   { key: 'clocked_out', label: 'Done' },
 ]
 
-function formatHHmm(iso?: string | null): string {
-  if (!iso) return '—'
+/** 24h HH:MM formatter (null → null). */
+function formatHHmm24(iso?: string | null): string | null {
+  if (!iso) return null
   const d = new Date(iso)
-  return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+  if (Number.isNaN(d.getTime())) return null
+  const hh = String(d.getHours()).padStart(2, '0')
+  const mm = String(d.getMinutes()).padStart(2, '0')
+  return `${hh}:${mm}`
 }
 
 function formatHours(min?: number | null): string {
@@ -39,19 +77,220 @@ function formatHours(min?: number | null): string {
   return `${h}h ${String(m).padStart(2, '0')}m`
 }
 
+/** Work 컬럼용 2-line 포맷 — net (total). 값 없으면 '—'. */
+function WorkCell({ netMin, totalMin }: { netMin: number | null; totalMin: number | null }) {
+  if (netMin === null && totalMin === null) return <span>—</span>
+  if (netMin === null) {
+    // net 없음 — total 만 있으면 total 한 줄로
+    if (totalMin === null || totalMin === 0) return <span>—</span>
+    return <span className="font-semibold text-[var(--color-text)]">{formatHours(totalMin)}</span>
+  }
+  const netStr = formatHours(netMin)
+  const showTotal = totalMin !== null && totalMin !== netMin
+  return (
+    <div className="flex flex-col leading-tight">
+      <span className="font-semibold text-[var(--color-text)]">{netStr}</span>
+      {showTotal && (
+        <span className="text-[11px] text-[var(--color-text-muted)]">({formatHours(totalMin)})</span>
+      )}
+    </div>
+  )
+}
+
+/** 진행 중 attendance 의 실시간 work minutes 계산.
+ *  반환: { netMin, totalMin } — 둘 다 null 이면 표시 대상 아님 (아직 clock in 전).
+ *  로직:
+ *    elapsed_total = now - clock_in
+ *    completed_unpaid = Σ (type=unpaid_long AND ended_at) duration
+ *    completed_paid   = Σ (type=paid_short AND ended_at) duration
+ *    completed_paid_overage = max(0, completed_paid - 10 * paid_sessions)
+ *    open break 추가 차감:
+ *      - unpaid_long: 전체 elapsed 차감
+ *      - paid_short : max(0, elapsed - 10) 차감
+ *    total = elapsed_total
+ *    net   = max(0, total - completed_unpaid - completed_paid_overage - open_deduct)
+ */
+function computeLiveWorkMinutes(
+  clockInIso: string | null,
+  breaks: AttendanceBreakItem[],
+  nowMs: number,
+): { netMin: number; totalMin: number } | null {
+  if (!clockInIso) return null
+  const clockInMs = new Date(clockInIso).getTime()
+  if (!Number.isFinite(clockInMs)) return null
+  const elapsedTotal = Math.max(0, Math.round((nowMs - clockInMs) / 60000))
+
+  let completedUnpaid = 0
+  let completedPaid = 0
+  let paidSessions = 0
+  let openBreak: AttendanceBreakItem | null = null
+  for (const b of breaks) {
+    if (b.ended_at === null) {
+      // 첫 open break 만 사용 — 동시 진행 가정 없음
+      if (!openBreak) openBreak = b
+      continue
+    }
+    const dur = b.duration_minutes ?? 0
+    if (b.break_type === 'unpaid_long') {
+      completedUnpaid += dur
+    } else if (b.break_type === 'paid_short') {
+      completedPaid += dur
+      paidSessions += 1
+    }
+  }
+  const completedPaidOverage = Math.max(0, completedPaid - 10 * paidSessions)
+
+  let openDeduct = 0
+  if (openBreak) {
+    const startMs = new Date(openBreak.started_at).getTime()
+    if (Number.isFinite(startMs)) {
+      const openElapsed = Math.max(0, Math.round((nowMs - startMs) / 60000))
+      if (openBreak.break_type === 'unpaid_long') {
+        openDeduct = openElapsed
+      } else if (openBreak.break_type === 'paid_short') {
+        openDeduct = Math.max(0, openElapsed - 10)
+      }
+    }
+  }
+
+  const totalMin = elapsedTotal
+  const netMin = Math.max(0, totalMin - completedUnpaid - completedPaidOverage - openDeduct)
+  return { netMin, totalMin }
+}
+
+/** 실제시각(스케줄시각) 형식 렌더링.
+ *  - actual 있고 sched 있으면: "HH:MM (HH:MM)"
+ *  - actual 있고 sched 없으면: "HH:MM"
+ *  - actual 없고 sched 있으면: "— (HH:MM)" — 스케줄만 muted 색으로
+ *  - 둘 다 없으면: "—"
+ *
+ *  Display 우선순위: 서버 pre-format (*_display, store tz 기준) → fallback 로 ISO 파싱.
+ *  서버 값은 KST/PDT 등 매장 tz 에 맞게 포매팅되어 있음.
+ */
+function ClockCell({
+  actualIso,
+  scheduledIso,
+  actualDisplay,
+  scheduledDisplay,
+}: {
+  actualIso?: string | null
+  scheduledIso?: string | null
+  actualDisplay?: string | null
+  scheduledDisplay?: string | null
+}) {
+  const actual = actualDisplay ?? formatHHmm24(actualIso)
+  const sched = scheduledDisplay ?? formatHHmm24(scheduledIso)
+  if (!actual && !sched) return <span>—</span>
+  if (actual && sched) {
+    return (
+      <span className="text-[var(--color-text)]">
+        {actual}{' '}
+        <span className="text-[var(--color-text-muted)]">({sched})</span>
+      </span>
+    )
+  }
+  if (actual) return <span className="text-[var(--color-text)]">{actual}</span>
+  // actual 없음 + sched 있음
+  return (
+    <span className="text-[var(--color-text-muted)]">
+      — <span>({sched})</span>
+    </span>
+  )
+}
+
+/** break 세션 리스트를 한 컬럼에 세로로 나열.
+ *  - 종료된 break: "HH:MM – HH:MM (Nm)"
+ *  - 진행 중 break (ended_at null): "HH:MM – --:-- (Nm)" where N = now - started_at
+ */
+function BreakCell({ items, tone, nowMs }: { items: AttendanceBreakItem[]; tone: 'paid' | 'unpaid'; nowMs: number }) {
+  if (!items.length) return <span className="text-[var(--color-text-muted)]">—</span>
+  const color = tone === 'paid' ? 'text-[var(--color-success)]' : 'text-[var(--color-warning)]'
+  return (
+    <div className={`flex flex-col gap-0.5 ${color}`}>
+      {items.map((b) => {
+        // 서버 pre-format (store tz 기준) 우선, 없으면 ISO 파싱 (브라우저 로컬 tz) fallback.
+        const start = b.started_at_display ?? formatHHmm24(b.started_at) ?? '--:--'
+        const endIso = b.ended_at
+        if (endIso) {
+          const end = b.ended_at_display ?? formatHHmm24(endIso) ?? '--:--'
+          const mins = b.duration_minutes ?? 0
+          return (
+            <span key={b.id} className="tabular-nums text-[12px]">
+              {start} – {end} <span className="text-[var(--color-text-muted)]">({mins}m)</span>
+            </span>
+          )
+        }
+        // 진행 중 — started_at 부터 now 까지 분 (경과 분 계산은 UTC ISO 로만 가능)
+        const startMs = new Date(b.started_at).getTime()
+        const elapsed = Number.isFinite(startMs) ? Math.max(0, Math.round((nowMs - startMs) / 60000)) : 0
+        return (
+          <span key={b.id} className="tabular-nums text-[12px]">
+            {start} – --:-- <span className="text-[var(--color-text-muted)]">({elapsed}m)</span>
+          </span>
+        )
+      })}
+    </div>
+  )
+}
+
+/** late anomaly 분 계산 — clock_in - scheduled_start (반올림, 최소 1분). */
+function computeLateMinutes(clockInIso?: string | null, scheduledIso?: string | null): number | null {
+  if (!clockInIso || !scheduledIso) return null
+  const a = new Date(clockInIso).getTime()
+  const s = new Date(scheduledIso).getTime()
+  if (!Number.isFinite(a) || !Number.isFinite(s)) return null
+  const diff = Math.round((a - s) / 60000)
+  return diff > 0 ? diff : null
+}
+
 export function AttendancePage() {
+  const router = useRouter()
+  const searchParams = useSearchParams()
   const today = new Date().toISOString().slice(0, 10)
-  const [selectedStore, setSelectedStore] = useState<string>('')
-  const [tab, setTab] = useState<AttendanceState | 'all'>('all')
-  const [date, setDate] = useState(today)
+
+  // URL 초기값 ?date=YYYY-MM-DD&store=<id>&filter=<key>
+  // 잘못된 값은 무시하고 기본값 사용.
+  const initDate = sanitizeDateParam(searchParams.get('date')) ?? today
+  const initFilter = parseFilterSet(searchParams.get('filter'))
+  const initStore = searchParams.get('store') ?? ''
+
+  const [selectedStore, setSelectedStore] = useState<string>(initStore)
+  // 필터 다중 선택 — 비어있으면 All (모두 표시).
+  const [filters, setFilters] = useState<Set<CheckableFilterKey>>(initFilter)
+  const [date, setDate] = useState(initDate)
 
   const storesQ = useStores()
   const stores = storesQ.data ?? []
 
-  // 첫 store 자동 선택
-  if (selectedStore === '' && stores.length > 0) {
-    setSelectedStore(stores[0]!.id)
-  }
+  // 첫 store 자동 선택 — URL에 값이 있고 유효하면 유지, 아니면 첫 store
+  useEffect(() => {
+    if (selectedStore) {
+      // URL에서 받은 id가 실제 존재하지 않으면 fallback
+      if (stores.length > 0 && !stores.some((s) => s.id === selectedStore)) {
+        setSelectedStore(stores[0]!.id)
+      }
+      return
+    }
+    if (stores.length > 0) {
+      setSelectedStore(stores[0]!.id)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stores])
+
+  // state 변경 시 URL sync — history.replaceState 직접 사용 (nav race 방지)
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const params = new URLSearchParams(window.location.search)
+    params.set('date', date)
+    if (selectedStore) params.set('store', selectedStore)
+    else params.delete('store')
+    if (filters.size === 0) params.delete('filter')
+    else params.set('filter', Array.from(filters).join(','))
+    const next = `${window.location.pathname}?${params.toString()}`
+    if (next !== window.location.pathname + window.location.search) {
+      window.history.replaceState(null, '', next)
+    }
+  }, [date, selectedStore, filters])
 
   const attendancesQ = useAttendances({
     store_id: selectedStore || undefined,
@@ -60,16 +299,45 @@ export function AttendancePage() {
   })
   const records = attendancesQ.data?.items ?? []
 
+  // 진행 중 break 경과시간 및 live work 계산용 — 30s 간격 tick
+  const [nowMs, setNowMs] = useState<number>(() => Date.now())
+  useEffect(() => {
+    const id = setInterval(() => setNowMs(Date.now()), 30_000)
+    return () => clearInterval(id)
+  }, [])
+
+  // late 판정: status === 'late' OR anomalies 에 'late' 포함
+  const isLateRow = (r: typeof records[number]): boolean =>
+    r.status === 'late' || (r.anomalies?.includes('late') ?? false)
+
   const filtered = useMemo(() => {
-    if (tab === 'all') return records
-    return records.filter((r) => r.status === tab)
-  }, [records, tab])
+    if (filters.size === 0) return records
+    return records.filter((r) => {
+      // 'late' 는 anomaly 기반, 나머지는 status 기반
+      if (filters.has('late') && isLateRow(r)) return true
+      if (filters.has(r.status as CheckableFilterKey)) return true
+      return false
+    })
+  }, [records, filters])
+
+  function toggleFilter(key: CheckableFilterKey) {
+    setFilters((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
+  }
+
+  function clearFilters() {
+    setFilters(new Set())
+  }
 
   const stats = useMemo(() => ({
     scheduled: records.length,
     working: records.filter((r) => r.status === 'working').length,
     onBreak: records.filter((r) => r.status === 'on_break').length,
-    late: records.filter((r) => r.status === 'late').length,
+    late: records.filter(isLateRow).length,
     noShow: records.filter((r) => r.status === 'no_show').length,
   }), [records])
 
@@ -123,22 +391,45 @@ export function AttendancePage() {
         <StatCard label="No Show" value={stats.noShow} color="text-[var(--color-danger)]" />
       </div>
 
-      {/* Tabs */}
+      {/* Filter chips — 다중 선택 */}
       <div className="flex items-center gap-1 mb-3 overflow-x-auto">
-        {tabs.map(t => (
-          <button
-            key={t.key}
-            type="button"
-            onClick={() => setTab(t.key)}
-            className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold whitespace-nowrap transition-colors ${
-              tab === t.key
-                ? 'bg-[var(--color-accent)] text-white'
-                : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]'
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
+        {tabs.map((t) => {
+          // "All" 칩은 아무것도 선택 안 된 상태를 표시. 클릭 시 전체 선택 해제.
+          if (t.key === 'all') {
+            const active = filters.size === 0
+            return (
+              <button
+                key={t.key}
+                type="button"
+                onClick={clearFilters}
+                className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold whitespace-nowrap transition-colors ${
+                  active
+                    ? 'bg-[var(--color-accent)] text-white'
+                    : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]'
+                }`}
+              >
+                {t.label}
+              </button>
+            )
+          }
+          const key = t.key as CheckableFilterKey
+          const active = filters.has(key)
+          return (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => toggleFilter(key)}
+              aria-pressed={active}
+              className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold whitespace-nowrap transition-colors ${
+                active
+                  ? 'bg-[var(--color-accent)] text-white'
+                  : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]'
+              }`}
+            >
+              {t.label}
+            </button>
+          )
+        })}
       </div>
 
       {/* Table */}
@@ -149,7 +440,9 @@ export function AttendancePage() {
               <th className="text-left px-4 py-2.5 text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]">Employee</th>
               <th className="text-left px-3 py-2.5 text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]">Clock In</th>
               <th className="text-left px-3 py-2.5 text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]">Clock Out</th>
-              <th className="text-left px-3 py-2.5 text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]">Hours</th>
+              <th className="text-left px-3 py-2.5 text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]">Break Paid</th>
+              <th className="text-left px-3 py-2.5 text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]">Break Unpaid</th>
+              <th className="text-left px-3 py-2.5 text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]">Work</th>
               <th className="text-left px-3 py-2.5 text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]">Status</th>
               <th className="text-left px-3 py-2.5 text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]">Anomalies</th>
             </tr>
@@ -157,15 +450,40 @@ export function AttendancePage() {
           <tbody>
             {filtered.length === 0 && !attendancesQ.isLoading && (
               <tr>
-                <td colSpan={6} className="text-center py-12 text-[12px] text-[var(--color-text-muted)] italic">No records match this filter</td>
+                <td colSpan={8} className="text-center py-12 text-[12px] text-[var(--color-text-muted)] italic">No records match this filter</td>
               </tr>
             )}
             {filtered.map((att) => {
               const meta = stateMeta[att.status] ?? stateMeta.not_yet
               const anomalies = att.anomalies ?? []
               const initials = (att.user_name || '??').split(/\s+/).slice(0, 2).map((s: string) => s[0] ?? '').join('').toUpperCase() || '??'
+              const breaks = att.breaks ?? []
+              const paidBreaks = breaks.filter((b) => b.break_type === 'paid_short')
+              const unpaidBreaks = breaks.filter((b) => b.break_type === 'unpaid_long')
+              const lateMin = computeLateMinutes(att.clock_in, att.scheduled_start)
+
+              // Work 컬럼 — clocked_out 이면 서버 값 사용, 진행 중이면 live 계산.
+              const isInProgress =
+                !!att.clock_in &&
+                (!att.clock_out || att.status === 'working' || att.status === 'late' || att.status === 'on_break')
+              let workNet: number | null = null
+              let workTotal: number | null = null
+              if (att.status === 'clocked_out' || att.clock_out) {
+                workNet = att.net_work_minutes
+                workTotal = att.total_work_minutes
+              } else if (isInProgress) {
+                const live = computeLiveWorkMinutes(att.clock_in, breaks, nowMs)
+                if (live) {
+                  workNet = live.netMin
+                  workTotal = live.totalMin
+                }
+              }
               return (
-                <tr key={att.id} className="border-b border-[var(--color-border)] last:border-b-0 hover:bg-[var(--color-surface-hover)] transition-colors">
+                <tr
+                  key={att.id}
+                  onClick={() => router.push(`/attendances/${att.id}`)}
+                  className="border-b border-[var(--color-border)] last:border-b-0 hover:bg-[var(--color-surface-hover)] transition-colors cursor-pointer"
+                >
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 ${ROLE_DEFAULT_COLOR}`}>{initials}</div>
@@ -174,9 +492,31 @@ export function AttendancePage() {
                       </div>
                     </div>
                   </td>
-                  <td className="px-3 py-3 text-[12px] tabular-nums text-[var(--color-text)]">{formatHHmm(att.clock_in)}</td>
-                  <td className="px-3 py-3 text-[12px] tabular-nums text-[var(--color-text)]">{formatHHmm(att.clock_out)}</td>
-                  <td className="px-3 py-3 text-[12px] tabular-nums font-semibold text-[var(--color-text)]">{formatHours(att.net_work_minutes ?? att.total_work_minutes)}</td>
+                  <td className="px-3 py-3 text-[12px] tabular-nums">
+                    <ClockCell
+                      actualIso={att.clock_in}
+                      scheduledIso={att.scheduled_start}
+                      actualDisplay={att.clock_in_display}
+                      scheduledDisplay={att.scheduled_start_display}
+                    />
+                  </td>
+                  <td className="px-3 py-3 text-[12px] tabular-nums">
+                    <ClockCell
+                      actualIso={att.clock_out}
+                      scheduledIso={att.scheduled_end}
+                      actualDisplay={att.clock_out_display}
+                      scheduledDisplay={att.scheduled_end_display}
+                    />
+                  </td>
+                  <td className="px-3 py-3">
+                    <BreakCell items={paidBreaks} tone="paid" nowMs={nowMs} />
+                  </td>
+                  <td className="px-3 py-3">
+                    <BreakCell items={unpaidBreaks} tone="unpaid" nowMs={nowMs} />
+                  </td>
+                  <td className="px-3 py-3 text-[12px] tabular-nums">
+                    <WorkCell netMin={workNet} totalMin={workTotal} />
+                  </td>
                   <td className="px-3 py-3">
                     <span className={`inline-flex items-center gap-1.5 px-2 py-1 rounded-full text-[11px] font-semibold ${meta.bg} ${meta.text}`}>
                       <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
@@ -186,11 +526,16 @@ export function AttendancePage() {
                   <td className="px-3 py-3">
                     <div className="flex flex-wrap gap-1">
                       {anomalies.length === 0 && <span className="text-[11px] text-[var(--color-text-muted)]">—</span>}
-                      {anomalies.map((a: string) => (
-                        <span key={a} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[var(--color-danger-muted)] text-[var(--color-danger)]">
-                          {a.replace('_', ' ')}
-                        </span>
-                      ))}
+                      {anomalies.map((a: string) => {
+                        const label = a === 'late' && lateMin !== null
+                          ? `late (${lateMin}m)`
+                          : a.replace('_', ' ')
+                        return (
+                          <span key={a} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[var(--color-danger-muted)] text-[var(--color-danger)]">
+                            {label}
+                          </span>
+                        )
+                      })}
                     </div>
                   </td>
                 </tr>

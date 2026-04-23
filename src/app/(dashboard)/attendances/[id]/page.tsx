@@ -240,8 +240,8 @@ export default function AttendanceDetailPage(): React.ReactElement {
           </div>
         </div>
 
-        {/* 합계 (Totals) */}
-        <div className="grid grid-cols-2 gap-4 text-sm pt-3 border-t border-border">
+        {/* 합계 (Totals) — work + break breakdown */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm pt-3 border-t border-border">
           <div>
             <div className="text-xs text-text-muted mb-0.5">
               <Clock size={12} className="inline mr-1" />
@@ -253,14 +253,66 @@ export default function AttendanceDetailPage(): React.ReactElement {
           </div>
           <div>
             <div className="text-xs text-text-muted mb-0.5">
-              <Coffee size={12} className="inline mr-1" />
-              Total Break Time
+              <Clock size={12} className="inline mr-1" />
+              Net Work (paid)
             </div>
             <div className="text-text font-semibold text-lg">
-              {formatMinutes(attendance.total_break_minutes)}
+              {formatMinutes(attendance.net_work_minutes)}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-text-muted mb-0.5">
+              <Coffee size={12} className="inline mr-1" />
+              Break (Paid)
+            </div>
+            <div className="text-[var(--color-success)] font-semibold text-lg">
+              {formatMinutes(attendance.paid_break_minutes ?? 0)}
+            </div>
+          </div>
+          <div>
+            <div className="text-xs text-text-muted mb-0.5">
+              <Coffee size={12} className="inline mr-1" />
+              Break (Unpaid)
+            </div>
+            <div className="text-[var(--color-warning)] font-semibold text-lg">
+              {formatMinutes(attendance.unpaid_break_minutes ?? 0)}
             </div>
           </div>
         </div>
+
+        {/* 휴식 타임라인 (Break timeline) */}
+        {attendance.breaks && attendance.breaks.length > 0 && (
+          <div className="pt-3 border-t border-border">
+            <div className="text-xs text-text-muted mb-2 flex items-center gap-1">
+              <Coffee size={12} className="inline" />
+              Break Sessions
+            </div>
+            <ul className="space-y-1.5">
+              {attendance.breaks.map((br) => {
+                const paid = br.break_type === "paid_short";
+                const typeLabel = paid ? "Short Break (Paid)" : br.break_type === "unpaid_long" ? "Long Break (Unpaid)" : br.break_type;
+                const accent = paid ? "text-[var(--color-success)]" : "text-[var(--color-warning)]";
+                const dot = paid ? "bg-[var(--color-success)]" : "bg-[var(--color-warning)]";
+                const started = formatDateTime(br.started_at, tz);
+                const ended = br.ended_at ? formatDateTime(br.ended_at, tz) : "in progress";
+                const dur = br.duration_minutes != null ? `${br.duration_minutes} min` : "—";
+                return (
+                  <li
+                    key={br.id}
+                    className="flex items-center gap-2 text-sm tabular-nums"
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
+                    <span className="text-text">{started} – {ended}</span>
+                    <span className="text-text-muted">·</span>
+                    <span className={accent}>{typeLabel}</span>
+                    <span className="text-text-muted">·</span>
+                    <span className="text-text-secondary">{dur}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          </div>
+        )}
 
         {/* 메모 (Note) */}
         {attendance.note && (

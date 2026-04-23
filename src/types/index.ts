@@ -522,6 +522,20 @@ export interface ChecklistInstanceFilters {
 // Schedule (legacy types removed — ScheduleEntry renamed to Schedule)
 
 // Attendance
+/** 개별 break 세션 타입.
+ *  Per-break session row from attendance_breaks table. */
+export interface AttendanceBreakItem {
+  id: string;
+  started_at: string;
+  ended_at: string | null;
+  break_type: "paid_short" | "unpaid_long" | string;
+  duration_minutes: number | null;
+  /** store tz 기준 "HH:MM" 포매팅 (서버 pre-format). */
+  started_at_display?: string | null;
+  /** store tz 기준 "HH:MM" 포매팅 — 진행 중이면 null. */
+  ended_at_display?: string | null;
+}
+
 /** 근태 기록 응답 타입.
  *  Attendance record response type — daily clock-in/out tracking. */
 export interface Attendance {
@@ -533,16 +547,36 @@ export interface Attendance {
   schedule_id: string | null;
   work_date: string;
   clock_in: string | null;
+  /** store tz 기준 "HH:MM" (서버 pre-format). 브라우저 로컬 tz 변환 없이 그대로 렌더. */
+  clock_in_display?: string | null;
   clock_in_timezone: string | null;
   break_start: string | null;
   break_end: string | null;
   clock_out: string | null;
+  /** store tz 기준 "HH:MM" (서버 pre-format). */
+  clock_out_display?: string | null;
   clock_out_timezone: string | null;
+  /** 연결된 스케줄 시작/종료 시각 — store tz 기준 ISO 문자열 (null if no linked schedule). */
+  scheduled_start: string | null;
+  /** store tz 기준 "HH:MM" (서버 pre-format). */
+  scheduled_start_display?: string | null;
+  scheduled_end: string | null;
+  /** store tz 기준 "HH:MM" (서버 pre-format). */
+  scheduled_end_display?: string | null;
   status: "not_yet" | "working" | "on_break" | "late" | "clocked_out" | "no_show";
   anomalies: string[] | null;
   total_work_minutes: number | null;
   total_break_minutes: number | null;
+  /** attendance_breaks 기준 유급 휴식 합계 (분). */
+  paid_break_minutes: number;
+  /** attendance_breaks 기준 무급 휴식 합계 (분). */
+  unpaid_break_minutes: number;
+  /** 유급 휴식 중 10분 초과 차감분 합계 (분). 서버가 계산. */
+  paid_break_overage_minutes?: number;
+  /** 순 근무 시간(분) = total_work - unpaid_break - paid_break_overage. */
   net_work_minutes: number | null;
+  /** break 세션 타임라인 (세부 보기용). */
+  breaks: AttendanceBreakItem[];
   note: string | null;
   created_at: string;
   corrections?: AttendanceCorrection[];
@@ -1407,5 +1441,38 @@ export interface InventorySubUnitCreate {
  * Sub unit update request payload. */
 export interface InventorySubUnitUpdate {
   name: string;
+}
+
+// ─── Attendance Device Types ─────────────────────────────────────────────────
+
+/** 출퇴근용 매장 공용 태블릿 디바이스.
+ * Attendance device (shared store tablet) metadata. */
+export interface AttendanceDevice {
+  id: string;
+  organization_id: string;
+  store_id: string;
+  store_name: string;
+  device_name: string | null;
+  fingerprint: string;
+  registered_at: string;
+  last_seen_at: string | null;
+  revoked_at: string | null;
+}
+
+/** Access code 응답 — 서비스 키별 6자리 코드.
+ * Access code response per service key (masked until revealed). */
+export interface AccessCode {
+  service_key: string;
+  code: string;
+  source: "env" | "auto";
+  rotated_at: string | null;
+  created_at: string;
+}
+
+/** 직원 개인 6자리 PIN 응답.
+ * Per-staff 6-digit clock-in PIN. */
+export interface ClockinPin {
+  user_id: string;
+  clockin_pin: string;
 }
 
