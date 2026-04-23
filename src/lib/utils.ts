@@ -89,6 +89,31 @@ export function formatDateTime(dateStr: string | null | undefined, timezone?: st
   return d.toLocaleString("en-US", options);
 }
 
+/** 초 단위까지 표시하는 타임스탬프 포맷 — 디바이스 등록/활동 로그 등 정확한 시각 필요한 곳.
+ *
+ *  예: "Apr 22, 2026, 06:45:12 PM"
+ */
+export function formatDateTimeSeconds(
+  dateStr: string | null | undefined,
+  timezone?: string,
+): string {
+  if (!dateStr) return "—";
+  const normalized = dateStr.replace(/(\.\d{3})\d+/, "$1");
+  const d = new Date(normalized);
+  if (isNaN(d.getTime())) return "—";
+  const options: Intl.DateTimeFormatOptions = {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  };
+  if (timezone) options.timeZone = timezone;
+  return d.toLocaleString("en-US", options);
+}
+
 // ── 카테고리 C: 행위 타임스탬프 (Action Timestamp) ──────────────────
 // UTC → 로컬 타임존, 시간 강조 표시 (completed_at 등)
 

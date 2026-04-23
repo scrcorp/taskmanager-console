@@ -16,6 +16,8 @@ import {
   ToggleRight,
   Store as StoreIcon,
   ShieldAlert,
+  Eye,
+  EyeOff,
 } from "lucide-react";
 import {
   useUser,
@@ -36,6 +38,7 @@ import { useTimezone } from "@/hooks/useTimezone";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS, ROLE_PRIORITY } from "@/lib/permissions";
 import { useAdminResetPassword } from "@/hooks/usePassword";
+import { useClockinPin } from "@/hooks/useClockinPin";
 import { ResetPasswordResultModal } from "@/components/auth/ResetPasswordResultModal";
 import type { User, Store, Role, UserStoreAssignment } from "@/types";
 
@@ -471,6 +474,9 @@ export default function UserDetailPage(): React.ReactElement {
                     {formatDate(user.created_at, tz)}
                   </span>
                 </div>
+                {hasPermission(PERMISSIONS.CLOCKIN_PIN_READ) && (
+                  <ProfilePinRow userId={userId} />
+                )}
               </div>
             </div>
           </div>
@@ -1032,6 +1038,51 @@ function HourlyRateEditor({ value, canEdit, onSave, isSaving }: HourlyRateEditor
       >
         Cancel
       </button>
+    </div>
+  );
+}
+
+// ─── Profile PIN Row ────────────────────────────────────────────────────────
+
+interface ProfilePinRowProps {
+  userId: string;
+}
+
+/**
+ * 프로필 카드 내부의 6자리 PIN 조회 행 (read-only).
+ *
+ * 권한: `clockin_pin:read` — 기본 masked, 눈 아이콘 클릭 시 reveal/hide 토글.
+ * 이 화면에서는 regenerate 불가 (별도 관리 화면에서만).
+ */
+function ProfilePinRow({ userId }: ProfilePinRowProps): React.ReactElement {
+  const { data: pinData } = useClockinPin(userId);
+  const [revealed, setRevealed] = useState<boolean>(false);
+
+  const maskedPin = "••••••";
+  const pinValue = pinData?.clockin_pin ?? "";
+  const displayPin = pinData ? (revealed ? pinValue : maskedPin) : "—";
+
+  return (
+    <div>
+      <span className="text-xs text-text-muted block">PIN</span>
+      <span className="text-sm text-text-secondary flex items-center gap-2">
+        <span className="tabular-nums tracking-[0.2em]">{displayPin}</span>
+        {pinData && (
+          <button
+            type="button"
+            onClick={() => setRevealed((v) => !v)}
+            className="text-text-muted hover:text-accent transition-colors"
+            title={revealed ? "Hide PIN" : "Reveal PIN"}
+            aria-label={revealed ? "Hide PIN" : "Reveal PIN"}
+          >
+            {revealed ? (
+              <EyeOff className="h-4 w-4" />
+            ) : (
+              <Eye className="h-4 w-4" />
+            )}
+          </button>
+        )}
+      </span>
     </div>
   );
 }

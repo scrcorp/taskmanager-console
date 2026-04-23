@@ -29,6 +29,7 @@ import {
   History,
   ClipboardCheck,
   ShieldCheck,
+  Tablet,
 } from "lucide-react";
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useAuthStore } from "@/stores/authStore";
@@ -108,6 +109,7 @@ const navItems: NavItem[] = [
     children: [
       { href: "/settings", label: "General", icon: Building2 },
       { href: "/settings/roles", label: "Roles & Permissions", icon: ShieldCheck },
+      { href: "/settings/attendance-devices", label: "Attendance Devices", icon: Tablet },
     ],
   },
 ];

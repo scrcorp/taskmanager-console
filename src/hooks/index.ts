@@ -97,6 +97,16 @@ export {
 } from "./useAttendances";
 
 export {
+  useAttendanceDevices,
+  useUpdateAttendanceDevice,
+  useRevokeAttendanceDevice,
+  useAccessCode,
+  useRotateAccessCode,
+} from "./useAttendanceDevices";
+
+export { useClockinPin, useRegenerateClockinPin } from "./useClockinPin";
+
+export {
   useShiftPresets,
   useCreateShiftPreset,
   useUpdateShiftPreset,
