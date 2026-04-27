@@ -53,6 +53,11 @@ export function StatsHeader({
   const [hoverCol, setHoverCol] = useState(-1)
   const [expanded, setExpanded] = useState(false)
 
+  // Pending row 숨김: 어느 컬럼에도 pending이 없고 total pending도 0이면 표시하지 않음.
+  const hasAnyTeamPending = totalTeamPending > 0 || columns.some((c) => c.teamPending > 0)
+  const hasAnyHoursPending = totalHoursPending > 0 || columns.some((c) => c.hoursPending > 0)
+  const hasAnyCostPending = totalCostPending > 0 || columns.some((c) => c.costPending > 0)
+
   function handleSort(colIndex: number) {
     let nextState: SortState
     if (sortCol === colIndex) {
@@ -100,7 +105,7 @@ export function StatsHeader({
 
       {/* Row 2: Confirmed counts with sort */}
       <tr className="border-b border-[var(--color-border)]/30 bg-[var(--color-surface)]">
-        <td className="border-r-2 border-[var(--color-border)] text-center sticky left-0 z-[22] bg-[var(--color-surface)]" rowSpan={2}>
+        <td className="border-r-2 border-[var(--color-border)] text-center sticky left-0 z-[22] bg-[var(--color-surface)]" rowSpan={hasAnyTeamPending ? 2 : 1}>
           <button
             onClick={() => setExpanded(!expanded)}
             className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-colors flex items-center gap-1 mx-auto"
@@ -145,7 +150,8 @@ export function StatsHeader({
         </td>
       </tr>
 
-      {/* Row 3: Pending counts with sort */}
+      {/* Row 3: Pending counts with sort — hidden when no pending anywhere */}
+      {hasAnyTeamPending && (
       <tr className="border-b border-[var(--color-border)] bg-[var(--color-surface)]">
         {/* rowSpan cell from above covers this row's first column */}
         {columns.map((col, i) => (
@@ -177,12 +183,13 @@ export function StatsHeader({
           </span>
         </td>
       </tr>
+      )}
 
       {/* Expandable: Hours */}
       {expanded && (
         <>
           <tr className="border-b border-[var(--color-border)]/30 bg-[var(--color-surface)]">
-            <td className="border-r-2 border-[var(--color-border)] text-center sticky left-0 z-[22] bg-[var(--color-surface)]" rowSpan={2}>
+            <td className="border-r-2 border-[var(--color-border)] text-center sticky left-0 z-[22] bg-[var(--color-surface)]" rowSpan={hasAnyHoursPending ? 2 : 1}>
               <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]">Hours</span>
             </td>
             {columns.map((col, i) => (
@@ -192,6 +199,7 @@ export function StatsHeader({
             ))}
             <td className="text-center py-1 text-[10px] font-bold text-[var(--color-success)] border-b border-[var(--color-border)]/30 border-l border-[var(--color-border)]">{Math.round(totalHoursConfirmed * 100) / 100}h</td>
           </tr>
+          {hasAnyHoursPending && (
           <tr className="border-b border-[var(--color-border)] bg-[var(--color-surface)]">
             {columns.map((col, i) => (
               <td key={`hp${col.key}`} className={`text-center py-1 border-r border-[var(--color-border)] text-[10px] font-semibold ${col.hoursPending > 0 ? 'text-[var(--color-warning)]' : 'text-[var(--color-text-muted)] opacity-25'} ${colBg(i)}`}>
@@ -200,12 +208,13 @@ export function StatsHeader({
             ))}
             <td className={`text-center py-1 text-[10px] font-bold border-l border-[var(--color-border)] ${totalHoursPending > 0 ? 'text-[var(--color-warning)]' : 'text-[var(--color-text-muted)] opacity-25'}`}>{Math.round(totalHoursPending * 100) / 100}h</td>
           </tr>
+          )}
 
           {/* Cost (GM only) */}
           {showCost && (
             <>
               <tr className="border-b border-[var(--color-border)]/30 bg-[var(--color-surface)]">
-                <td className="border-r-2 border-[var(--color-border)] text-center sticky left-0 z-[22] bg-[var(--color-surface)]" rowSpan={2}>
+                <td className="border-r-2 border-[var(--color-border)] text-center sticky left-0 z-[22] bg-[var(--color-surface)]" rowSpan={hasAnyCostPending ? 2 : 1}>
                   <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-text-muted)]">Cost</span>
                 </td>
                 {columns.map((col, i) => (
@@ -215,6 +224,7 @@ export function StatsHeader({
                 ))}
                 <td className="text-center py-1 text-[10px] font-bold text-[var(--color-success)] border-b border-[var(--color-border)]/30 border-l border-[var(--color-border)]">${totalCostConfirmed.toFixed(2)}</td>
               </tr>
+              {hasAnyCostPending && (
               <tr className="border-b border-[var(--color-border)] bg-[var(--color-surface)]">
                 {columns.map((col, i) => (
                   <td key={`lp${col.key}`} className={`text-center py-1 border-r border-[var(--color-border)] text-[10px] font-semibold ${col.costPending > 0 ? 'text-[var(--color-warning)]' : 'text-[var(--color-text-muted)] opacity-25'} ${colBg(i)}`}>
@@ -223,6 +233,7 @@ export function StatsHeader({
                 ))}
                 <td className={`text-center py-1 text-[10px] font-bold border-l border-[var(--color-border)] ${totalCostPending > 0 ? 'text-[var(--color-warning)]' : 'text-[var(--color-text-muted)] opacity-25'}`}>${totalCostPending.toFixed(2)}</td>
               </tr>
+              )}
             </>
           )}
         </>

@@ -257,6 +257,7 @@ export default function AnnouncementsPage(): React.ReactElement {
         onClose={() => setIsFormOpen(false)}
         title={editingId ? "Edit Notice" : "New Notice"}
         size="md"
+        closeOnBackdrop={false}
       >
         <div className="flex flex-col gap-4">
           <Input

@@ -20,6 +20,8 @@ import { parseApiError, formatDate } from "@/lib/utils";
 import { TIMEZONE_OPTIONS } from "@/lib/timezones";
 import { ChangePasswordModal } from "@/components/auth/ChangePasswordModal";
 import { useTimezone } from "@/hooks";
+import { usePermissions } from "@/hooks/usePermissions";
+import { PERMISSIONS } from "@/lib/permissions";
 
 export default function SettingsPage(): React.ReactElement {
   const { toast } = useToast();
@@ -27,6 +29,8 @@ export default function SettingsPage(): React.ReactElement {
   const updateOrg = useUpdateOrganization();
   const user = useAuthStore((s) => s.user);
   const tz = useTimezone();
+  const { hasPermission } = usePermissions();
+  const canEdit = hasPermission(PERMISSIONS.ORG_UPDATE);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
 
   const [timezone, setTimezone] = useState<string>("");
@@ -87,39 +91,59 @@ export default function SettingsPage(): React.ReactElement {
             <p className="text-text font-medium">{org?.name || "—"}</p>
           </div>
 
-          <Select
-            label="Timezone"
-            value={timezone}
-            onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
-              setTimezone(e.target.value)
-            }
-            options={TIMEZONE_OPTIONS}
-            placeholder="Select timezone"
-          />
+          {canEdit ? (
+            <>
+              <Select
+                label="Timezone"
+                value={timezone}
+                onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                  setTimezone(e.target.value)
+                }
+                options={TIMEZONE_OPTIONS}
+                placeholder="Select timezone"
+              />
 
-          <Input
-            label="Default Hourly Rate (optional)"
-            type="number"
-            min="0"
-            step="0.01"
-            placeholder="e.g. 15.00"
-            value={defaultHourlyRate}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-              setDefaultHourlyRate(e.target.value)
-            }
-          />
+              <Input
+                label="Default Hourly Rate (optional)"
+                type="number"
+                min="0"
+                step="0.01"
+                placeholder="e.g. 15.00"
+                value={defaultHourlyRate}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setDefaultHourlyRate(e.target.value)
+                }
+              />
 
-          <div className="flex justify-end pt-2">
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={handleSave}
-              isLoading={updateOrg.isPending}
-              disabled={!timezone}
-            >
-              Save
-            </Button>
-          </div>
+              <div className="flex justify-end pt-2">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleSave}
+                  isLoading={updateOrg.isPending}
+                  disabled={!timezone}
+                >
+                  Save
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div>
+                <p className="text-sm text-text-secondary mb-1">Timezone</p>
+                <p className="text-text font-medium">
+                  {TIMEZONE_OPTIONS.find((t) => t.value === timezone)?.label || timezone || "—"}
+                </p>
+              </div>
+
+              <div>
+                <p className="text-sm text-text-secondary mb-1">Default Hourly Rate</p>
+                <p className="text-text font-medium">
+                  {defaultHourlyRate ? `$${defaultHourlyRate}/hr` : "—"}
+                </p>
+              </div>
+            </>
+          )}
         </div>
       </div>
 

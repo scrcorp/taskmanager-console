@@ -7,7 +7,7 @@
  * deletion, and store memberships.
  */
 
-import React, { useState, useMemo, useCallback, useEffect } from "react";
+import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
 import {
   ChevronLeft,
@@ -113,6 +113,9 @@ export default function UserDetailPage(): React.ReactElement {
   const [isEditOpen, setIsEditOpen] = useState<boolean>(false);
   const [editForm, setEditForm] =
     useState<UserEditFormData>(INITIAL_EDIT_FORM);
+  /** 모달 오픈 시점의 원본 스냅샷 — dirty 체크용 */
+  const editOriginalRef = useRef<UserEditFormData>(INITIAL_EDIT_FORM);
+  const [confirmDiscardOpen, setConfirmDiscardOpen] = useState<boolean>(false);
 
   /* ---- Reset password state ---------------------------------------------- */
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState<boolean>(false);
@@ -120,6 +123,8 @@ export default function UserDetailPage(): React.ReactElement {
 
   /* ---- Role change confirmation state ----------------------------------- */
   const [isRoleChangeOpen, setIsRoleChangeOpen] = useState<boolean>(false);
+  /** 인라인 RoleEditor에서 Save 눌렀을 때 확인 대기 중인 새 role id */
+  const [pendingRoleId, setPendingRoleId] = useState<string | null>(null);
 
   /* ---- Store membership state -------------------------------------------- */
   const [storeChecks, setStoreChecks] = useState<Record<string, StoreCheckState>>({});
@@ -145,6 +150,69 @@ export default function UserDetailPage(): React.ReactElement {
     return role?.priority ?? 999;
   }, [user, roleList]);
 
+  /** 역할 변경 경고 메시지 — 전환 방향에 따라 맞춤 메시지 생성
+   *  인라인 RoleEditor(pendingRoleId) / Edit Profile 모달(editForm.role_id) 둘 다 커버 */
+  const roleChangeAlert = useMemo((): { title: string; message: string; isDangerous: boolean } => {
+    const targetRoleId = pendingRoleId ?? editForm.role_id;
+    const currentRole = roleList.find((r: Role) => r.name === user?.role_name);
+    const nextRole = roleList.find((r: Role) => r.id === targetRoleId);
+    if (!currentRole || !nextRole) {
+      return {
+        title: "Change Role",
+        message: "Changing the role will affect this user's permissions and store access. Are you sure?",
+        isDangerous: false,
+      };
+    }
+    const curP = currentRole.priority;
+    const nextP = nextRole.priority;
+    const goingToStaff = nextP >= ROLE_PRIORITY.STAFF && curP < ROLE_PRIORITY.STAFF;
+    const gainingAdminAccess = curP >= ROLE_PRIORITY.STAFF && nextP < ROLE_PRIORITY.STAFF;
+    const losingOwner = curP === ROLE_PRIORITY.OWNER && nextP > ROLE_PRIORITY.OWNER;
+    const becomingOwner = nextP === ROLE_PRIORITY.OWNER && curP > ROLE_PRIORITY.OWNER;
+
+    if (goingToStaff) {
+      return {
+        title: "Revoke Admin Access?",
+        message:
+          `This user will lose admin console access immediately. ` +
+          `All manager assignments on stores will be cleared, and active sessions will be revoked. ` +
+          `They will only be able to sign in to the staff app.`,
+        isDangerous: true,
+      };
+    }
+    if (losingOwner) {
+      return {
+        title: "Remove Owner Role?",
+        message:
+          `This user will no longer be an Owner. Make sure at least one other Owner still exists, ` +
+          `otherwise nobody will be able to manage organization-level settings.`,
+        isDangerous: true,
+      };
+    }
+    if (becomingOwner) {
+      return {
+        title: "Grant Owner Role",
+        message:
+          `This user will gain full control over the organization, including all stores, users, and settings.`,
+        isDangerous: false,
+      };
+    }
+    if (gainingAdminAccess) {
+      return {
+        title: "Grant Admin Access",
+        message:
+          `This user will gain access to the admin console (${nextRole.name}). ` +
+          `Store and action permissions will follow the new role.`,
+        isDangerous: false,
+      };
+    }
+    return {
+      title: "Change Role",
+      message: `Change role from ${currentRole.name} to ${nextRole.name}? Store permissions will follow the new role.`,
+      isDangerous: false,
+    };
+  }, [roleList, user, editForm.role_id, pendingRoleId]);
+
   const isStaff = userRolePriority >= ROLE_PRIORITY.STAFF;
   const isSV = userRolePriority === ROLE_PRIORITY.SV;
 
@@ -153,7 +221,7 @@ export default function UserDetailPage(): React.ReactElement {
     const state: Record<string, StoreCheckState> = {};
     if (!Array.isArray(userStores)) return state;
     for (const us of userStores) {
-      state[us.id] = { is_manager: us.is_manager, is_work: true };
+      state[us.id] = { is_manager: us.is_manager, is_work: us.is_work_assignment };
     }
     return state;
   }, [userStores]);
@@ -173,12 +241,15 @@ export default function UserDetailPage(): React.ReactElement {
 
   /** 변경사항 있는지 */
   const hasChanges: boolean = useMemo(() => {
-    const currentIds = new Set(Object.keys(storeChecks).filter((id) => storeChecks[id].is_work));
+    const currentIds = new Set(
+      Object.keys(storeChecks).filter((id) => storeChecks[id].is_work || storeChecks[id].is_manager),
+    );
     const serverIds = new Set(Object.keys(serverCheckState));
     if (currentIds.size !== serverIds.size) return true;
     for (const id of currentIds) {
       if (!serverIds.has(id)) return true;
       if (storeChecks[id].is_manager !== (serverCheckState[id]?.is_manager ?? false)) return true;
+      if (storeChecks[id].is_work !== (serverCheckState[id]?.is_work ?? true)) return true;
     }
     for (const id of serverIds) {
       if (!currentIds.has(id)) return true;
@@ -193,16 +264,42 @@ export default function UserDetailPage(): React.ReactElement {
   /** 수정 모달 열기 / Open edit modal */
   const handleOpenEdit = useCallback((): void => {
     if (!user) return;
-    setEditForm({
+    const snap: UserEditFormData = {
       username: user.username,
       full_name: user.full_name,
       email: user.email || "",
       phone: user.phone || "",
       role_id: "",
       hourly_rate: user.hourly_rate != null ? String(user.hourly_rate) : "",
-    });
+    };
+    editOriginalRef.current = snap;
+    setEditForm(snap);
     setIsEditOpen(true);
   }, [user]);
+
+  /** Edit 모달이 수정되었는지 / Is the edit form dirty */
+  const isEditDirty = useCallback((): boolean => {
+    const orig = editOriginalRef.current;
+    const f = editForm;
+    return (
+      f.username !== orig.username ||
+      f.full_name !== orig.full_name ||
+      f.email !== orig.email ||
+      f.phone !== orig.phone ||
+      f.role_id !== orig.role_id ||
+      f.hourly_rate !== orig.hourly_rate
+    );
+  }, [editForm]);
+
+  /** Edit 모달 닫기 시도 — dirty면 확인 다이얼로그 띄우기 */
+  const tryCloseEdit = useCallback((): void => {
+    if (isEditDirty()) {
+      setConfirmDiscardOpen(true);
+      return;
+    }
+    setIsEditOpen(false);
+    setEditForm(INITIAL_EDIT_FORM);
+  }, [isEditDirty]);
 
   /** 사용자 수정 저장 (역할 변경 확인 포함) / Save user edits (with role change check) */
   const handleSaveClick = useCallback((): void => {
@@ -350,10 +447,11 @@ export default function UserDetailPage(): React.ReactElement {
   /** 매장 배정 저장 */
   const handleSaveStores = useCallback(async (): Promise<void> => {
     const assignments = Object.entries(storeChecks)
-      .filter(([, v]) => v.is_work)
+      .filter(([, v]) => v.is_work || v.is_manager)
       .map(([storeId, v]) => ({
         store_id: storeId,
         is_manager: v.is_manager,
+        is_work_assignment: v.is_work,
       }));
     try {
       await syncUserStores.mutateAsync({ userId, assignments });
@@ -521,12 +619,9 @@ export default function UserDetailPage(): React.ReactElement {
             myPriority={myPriority}
             canEdit={canManageUsers}
             onSave={async (roleId) => {
-              try {
-                await updateUser.mutateAsync({ id: userId, role_id: roleId });
-                toast({ type: "success", message: "Role updated." });
-              } catch (err) {
-                toast({ type: "error", message: parseApiError(err, "Failed to change role.") });
-              }
+              // 바로 실행하지 않고 확인 다이얼로그로 전달 (전환 방향에 따른 맞춤 경고)
+              setPendingRoleId(roleId);
+              setIsRoleChangeOpen(true);
             }}
             isSaving={updateUser.isPending}
           />
@@ -723,11 +818,9 @@ export default function UserDetailPage(): React.ReactElement {
       {/* Edit User Modal */}
       <Modal
         isOpen={isEditOpen}
-        onClose={() => {
-          setIsEditOpen(false);
-          setEditForm(INITIAL_EDIT_FORM);
-        }}
+        onClose={tryCloseEdit}
         title="Edit Staff Member"
+        closeOnBackdrop={false}
       >
         <div className="space-y-4">
           <Input
@@ -779,10 +872,7 @@ export default function UserDetailPage(): React.ReactElement {
           <div className="flex justify-end gap-2 pt-2">
             <Button
               variant="secondary"
-              onClick={() => {
-                setIsEditOpen(false);
-                setEditForm(INITIAL_EDIT_FORM);
-              }}
+              onClick={tryCloseEdit}
             >
               Cancel
             </Button>
@@ -798,14 +888,46 @@ export default function UserDetailPage(): React.ReactElement {
         </div>
       </Modal>
 
-      {/* Role Change Confirmation */}
+      {/* Discard Edits Confirmation — 수정사항이 있을 때 닫기 확인 */}
+      <ConfirmDialog
+        isOpen={confirmDiscardOpen}
+        onClose={() => setConfirmDiscardOpen(false)}
+        onConfirm={() => {
+          setConfirmDiscardOpen(false);
+          setIsEditOpen(false);
+          setEditForm(INITIAL_EDIT_FORM);
+        }}
+        title="Discard Changes?"
+        message="You have unsaved changes. Are you sure you want to close without saving?"
+        confirmLabel="Discard"
+      />
+
+      {/* Role Change Confirmation — 전환 방향에 따라 맞춤 메시지 */}
       <ConfirmDialog
         isOpen={isRoleChangeOpen}
-        onClose={() => setIsRoleChangeOpen(false)}
-        onConfirm={handleUpdate}
-        title="Change Role"
-        message="Changing the role will affect this user's permissions and store access. Are you sure?"
-        confirmLabel="Change Role"
+        onClose={() => {
+          setIsRoleChangeOpen(false);
+          setPendingRoleId(null);
+        }}
+        onConfirm={async () => {
+          if (pendingRoleId) {
+            // 인라인 RoleEditor 경로 — 직접 mutate
+            try {
+              await updateUser.mutateAsync({ id: userId, role_id: pendingRoleId });
+              toast({ type: "success", message: "Role updated." });
+            } catch (err) {
+              toast({ type: "error", message: parseApiError(err, "Failed to change role.") });
+            }
+            setPendingRoleId(null);
+            setIsRoleChangeOpen(false);
+          } else {
+            // Edit Profile 모달 경로 — 기존 handleUpdate 재사용
+            await handleUpdate();
+          }
+        }}
+        title={roleChangeAlert.title}
+        message={roleChangeAlert.message}
+        confirmLabel={roleChangeAlert.isDangerous ? "Proceed" : "Change Role"}
         isLoading={updateUser.isPending}
       />
 

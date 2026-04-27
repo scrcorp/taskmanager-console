@@ -525,6 +525,7 @@ export function WorkRolesPanel({ storeId }: WorkRolesPanelProps): React.ReactEle
         onClose={() => setModalOpen(false)}
         title="Edit Work Role"
         size="sm"
+        closeOnBackdrop={false}
       >
         {editingRole && (
           <div className="space-y-4">

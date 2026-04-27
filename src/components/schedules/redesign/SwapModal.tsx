@@ -83,7 +83,7 @@ export function SwapModal({ open, onClose, fromSchedule, fromUser, candidateSche
   function handleClose() { reset(); onClose(); }
 
   return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/40" onClick={handleClose}>
+    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/40">
       <div className="bg-[var(--color-surface)] rounded-2xl shadow-2xl w-full max-w-md mx-4" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="px-6 py-4 border-b border-[var(--color-border)]">

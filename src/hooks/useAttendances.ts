@@ -10,9 +10,12 @@ import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
 import type {
   Attendance,
+  AttendanceBreakItem,
   AttendanceCorrection,
   AttendanceCorrectionRequest,
   AttendanceFilters,
+  BreakSessionCreateRequest,
+  BreakSessionUpdateRequest,
   QRCode,
   PaginatedResponse,
 } from "@/types";
@@ -106,6 +109,91 @@ export const useCorrectAttendance = (): UseMutationResult<
       queryClient.invalidateQueries({ queryKey: ["attendances"] });
       queryClient.invalidateQueries({
         queryKey: ["attendances", variables.id],
+      });
+    },
+  });
+};
+
+/**
+ * Break 세션 추가 훅. 성공 시 attendance 쿼리 invalidate.
+ * Add a new break session via admin correction. Invalidates attendance queries on success.
+ */
+export const useAddBreakSession = (): UseMutationResult<
+  AttendanceBreakItem,
+  Error,
+  { attendanceId: string; data: BreakSessionCreateRequest }
+> => {
+  const queryClient: QueryClient = useQueryClient();
+  return useMutation<
+    AttendanceBreakItem,
+    Error,
+    { attendanceId: string; data: BreakSessionCreateRequest }
+  >({
+    mutationFn: async ({ attendanceId, data }) => {
+      const res: AxiosResponse<AttendanceBreakItem> = await api.post(
+        `/admin/attendances/${attendanceId}/breaks`,
+        data,
+      );
+      return res.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["attendances"] });
+      queryClient.invalidateQueries({
+        queryKey: ["attendances", variables.attendanceId],
+      });
+    },
+  });
+};
+
+/**
+ * Break 세션 수정 훅.
+ * Update a break session via admin correction.
+ */
+export const useUpdateBreakSession = (): UseMutationResult<
+  AttendanceBreakItem,
+  Error,
+  { attendanceId: string; breakId: string; data: BreakSessionUpdateRequest }
+> => {
+  const queryClient: QueryClient = useQueryClient();
+  return useMutation<
+    AttendanceBreakItem,
+    Error,
+    { attendanceId: string; breakId: string; data: BreakSessionUpdateRequest }
+  >({
+    mutationFn: async ({ attendanceId, breakId, data }) => {
+      const res: AxiosResponse<AttendanceBreakItem> = await api.patch(
+        `/admin/attendances/${attendanceId}/breaks/${breakId}`,
+        data,
+      );
+      return res.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["attendances"] });
+      queryClient.invalidateQueries({
+        queryKey: ["attendances", variables.attendanceId],
+      });
+    },
+  });
+};
+
+/**
+ * Break 세션 삭제 훅.
+ * Delete a break session via admin correction.
+ */
+export const useDeleteBreakSession = (): UseMutationResult<
+  void,
+  Error,
+  { attendanceId: string; breakId: string }
+> => {
+  const queryClient: QueryClient = useQueryClient();
+  return useMutation<void, Error, { attendanceId: string; breakId: string }>({
+    mutationFn: async ({ attendanceId, breakId }) => {
+      await api.delete(`/admin/attendances/${attendanceId}/breaks/${breakId}`);
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["attendances"] });
+      queryClient.invalidateQueries({
+        queryKey: ["attendances", variables.attendanceId],
       });
     },
   });

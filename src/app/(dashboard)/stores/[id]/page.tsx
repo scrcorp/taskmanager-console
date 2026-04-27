@@ -1164,6 +1164,7 @@ export default function StoreDetailPage(): React.ReactElement {
               setShiftCreateForm(INITIAL_SHIFT_FORM);
             }}
             title="Create Shift"
+            closeOnBackdrop={false}
           >
             <div className="space-y-4">
               <Input
@@ -1208,6 +1209,7 @@ export default function StoreDetailPage(): React.ReactElement {
               setShiftEditForm(INITIAL_SHIFT_FORM);
             }}
             title="Edit Shift"
+            closeOnBackdrop={false}
           >
             <div className="space-y-4">
               <Input
@@ -1267,6 +1269,7 @@ export default function StoreDetailPage(): React.ReactElement {
               setPosCreateForm(INITIAL_SHIFT_FORM);
             }}
             title="Create Position"
+            closeOnBackdrop={false}
           >
             <div className="space-y-4">
               <Input
@@ -1311,6 +1314,7 @@ export default function StoreDetailPage(): React.ReactElement {
               setPosEditForm(INITIAL_SHIFT_FORM);
             }}
             title="Edit Position"
+            closeOnBackdrop={false}
           >
             <div className="space-y-4">
               <Input
@@ -1550,6 +1554,7 @@ export default function StoreDetailPage(): React.ReactElement {
               setTemplateCreateForm(INITIAL_TEMPLATE_FORM);
             }}
             title="Create Checklist Template"
+            closeOnBackdrop={false}
           >
             <div className="space-y-4">
               <Input
@@ -1632,6 +1637,7 @@ export default function StoreDetailPage(): React.ReactElement {
               setTemplateEditForm(INITIAL_TEMPLATE_FORM);
             }}
             title="Edit Checklist Template"
+            closeOnBackdrop={false}
           >
             <div className="space-y-4">
               <Input
@@ -1725,6 +1731,7 @@ export default function StoreDetailPage(): React.ReactElement {
               setItemCreateForm(INITIAL_ITEM_FORM);
             }}
             title="Add Checklist Item"
+            closeOnBackdrop={false}
           >
             <div className="space-y-4">
               <Input
@@ -1820,6 +1827,7 @@ export default function StoreDetailPage(): React.ReactElement {
               setItemEditForm(INITIAL_ITEM_FORM);
             }}
             title="Edit Checklist Item"
+            closeOnBackdrop={false}
           >
             <div className="space-y-4">
               <Input
@@ -2267,6 +2275,7 @@ export default function StoreDetailPage(): React.ReactElement {
               setPresetCreateForm(INITIAL_PRESET_FORM);
             }}
             title="Create Shift Preset"
+            closeOnBackdrop={false}
           >
             <div className="space-y-4">
               <Input

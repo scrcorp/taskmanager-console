@@ -80,7 +80,7 @@ export function ChangePasswordModal({
     !currentPassword || !newPassword || !confirmPassword || changePassword.isPending;
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title={success ? "" : "Change Password"} size="sm">
+    <Modal isOpen={isOpen} onClose={handleClose} title={success ? "" : "Change Password"} size="sm" closeOnBackdrop={false}>
       {success ? (
         <div className="text-center py-4">
           <div className="w-14 h-14 rounded-full bg-success/15 flex items-center justify-center mx-auto mb-4">

@@ -23,7 +23,13 @@ interface ModalProps {
   onClose: () => void;
   title?: string;
   children: React.ReactNode;
+  /** 하단 고정 footer (Save/Cancel 버튼 영역). 전달하면 body 스크롤 중에도 항상 보임. */
+  footer?: React.ReactNode;
   size?: ModalSize;
+  /** backdrop 클릭으로 닫기 허용 여부. 입력/수정 폼 모달은 false 권장 (우발적 변경 분실 방지) */
+  closeOnBackdrop?: boolean;
+  /** ESC 키로 닫기 허용 여부. 기본 true */
+  closeOnEscape?: boolean;
 }
 
 const sizeStyles: Record<ModalSize, string> = {
@@ -37,15 +43,18 @@ export function Modal({
   onClose,
   title,
   children,
+  footer,
   size = "md",
+  closeOnBackdrop = true,
+  closeOnEscape = true,
 }: ModalProps): React.ReactElement | null {
   const handleKeyDown: (e: KeyboardEvent) => void = useCallback(
     (e: KeyboardEvent): void => {
-      if (e.key === "Escape") {
+      if (e.key === "Escape" && closeOnEscape) {
         onClose();
       }
     },
-    [onClose],
+    [onClose, closeOnEscape],
   );
 
   useEffect(() => {
@@ -67,6 +76,7 @@ export function Modal({
   const handleBackdropClick: (e: React.MouseEvent<HTMLDivElement>) => void = (
     e: React.MouseEvent<HTMLDivElement>,
   ): void => {
+    if (!closeOnBackdrop) return;
     if (e.target === e.currentTarget) {
       onClose();
     }
@@ -101,6 +111,9 @@ export function Modal({
           </div>
         )}
         <div className="px-4 md:px-6 py-4 flex-1 overflow-auto">{children}</div>
+        {footer && (
+          <div className="shrink-0 border-t border-border bg-card px-4 md:px-6 py-3">{footer}</div>
+        )}
       </div>
     </div>
   );

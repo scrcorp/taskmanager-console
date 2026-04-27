@@ -208,6 +208,7 @@ export default function AnnouncementDetailPage(): React.ReactElement {
         onClose={() => setIsEditOpen(false)}
         title="Edit Notice"
         size="md"
+        closeOnBackdrop={false}
       >
         <div className="flex flex-col gap-4">
           <Input

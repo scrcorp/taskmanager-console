@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient, type UseQueryResult, type UseMut
 import type { AxiosError, AxiosResponse } from "axios";
 import api from "@/lib/api";
 import { useToast } from "@/components/ui/Toast";
-import type { Schedule, ScheduleBulkCreate, ScheduleBulkResult, ScheduleCreate, ScheduleUpdate, PaginatedResponse, BulkPreviewEntry, BulkPreviewResponse, BulkUpdateRequest, BulkUpdateResult, BulkDeleteRequest, BulkDeleteResult } from "@/types";
+import type { Schedule, ScheduleBulkCreate, ScheduleBulkResult, ScheduleCreate, ScheduleUpdate, ScheduleValidation, PaginatedResponse, BulkPreviewEntry, BulkPreviewResponse, BulkUpdateRequest, BulkUpdateResult, BulkDeleteRequest, BulkDeleteResult } from "@/types";
 
 /** FastAPI/Axios error → 사람이 읽을 수 있는 메시지 */
 function extractErrorMessage(err: unknown): string {
@@ -60,6 +60,15 @@ export const useSchedules = (
   });
 };
 
+export const useValidateSchedule = (): UseMutationResult<ScheduleValidation, Error, ScheduleCreate> => {
+  return useMutation<ScheduleValidation, Error, ScheduleCreate>({
+    mutationFn: async (data) => {
+      const res: AxiosResponse<ScheduleValidation> = await api.post("/admin/schedules/validate", data);
+      return res.data;
+    },
+  });
+};
+
 export const useCreateSchedule = (): UseMutationResult<Schedule, Error, ScheduleCreate> => {
   const qc = useQueryClient();
   const onErr = useErrorToast();
@@ -97,8 +106,11 @@ export const useUpdateSchedule = (): UseMutationResult<Schedule, Error, { id: st
     onSuccess: (updated, variables) => {
       // 개별 schedule cache 즉시 갱신 (낙관적 반영)
       qc.setQueryData(["schedules", variables.id], updated);
-      // 목록 및 audit log 무효화
+      // 목록 무효화
       qc.invalidateQueries({ queryKey: ["schedules"] });
+      // 개별 audit log + aggregated history 무효화 — 실시간 반영
+      qc.invalidateQueries({ queryKey: ["schedules", variables.id, "audit"] });
+      qc.invalidateQueries({ queryKey: ["schedule-history"] });
     },
     onError: onErr("Failed to update schedule"),
   });
@@ -109,7 +121,10 @@ export const useDeleteSchedule = (): UseMutationResult<void, Error, string> => {
   const onErr = useErrorToast();
   return useMutation<void, Error, string>({
     mutationFn: async (id) => { await api.delete(`/admin/schedules/${id}`); },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["schedules"] }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["schedules"] });
+      qc.invalidateQueries({ queryKey: ["schedule-history"] });
+    },
     onError: onErr("Failed to delete schedule"),
   });
 };
@@ -135,7 +150,11 @@ export const useConfirmSchedule = (): UseMutationResult<Schedule, Error, string>
       const res: AxiosResponse<Schedule> = await api.post(`/admin/schedules/${id}/confirm`);
       return res.data;
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["schedules"] }); },
+    onSuccess: (_, id) => {
+      qc.invalidateQueries({ queryKey: ["schedules"] });
+      qc.invalidateQueries({ queryKey: ["schedules", id, "audit"] });
+      qc.invalidateQueries({ queryKey: ["schedule-history"] });
+    },
     onError: onErr("Failed to confirm schedule"),
   });
 };
@@ -148,7 +167,11 @@ export const useRejectSchedule = (): UseMutationResult<Schedule, Error, { id: st
       const res: AxiosResponse<Schedule> = await api.post(`/admin/schedules/${id}/reject`, { rejection_reason: rejection_reason ?? null });
       return res.data;
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["schedules"] }); },
+    onSuccess: (_, { id }) => {
+      qc.invalidateQueries({ queryKey: ["schedules"] });
+      qc.invalidateQueries({ queryKey: ["schedules", id, "audit"] });
+      qc.invalidateQueries({ queryKey: ["schedule-history"] });
+    },
     onError: onErr("Failed to reject schedule"),
   });
 };
@@ -163,7 +186,11 @@ export const useSubmitSchedule = (): UseMutationResult<Schedule, Error, string> 
       const res: AxiosResponse<Schedule> = await api.post(`/admin/schedules/${id}/submit`);
       return res.data;
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["schedules"] }); },
+    onSuccess: (_, id) => {
+      qc.invalidateQueries({ queryKey: ["schedules"] });
+      qc.invalidateQueries({ queryKey: ["schedules", id, "audit"] });
+      qc.invalidateQueries({ queryKey: ["schedule-history"] });
+    },
     onError: onErr("Failed to submit schedule"),
   });
 };
@@ -176,7 +203,11 @@ export const useRevertSchedule = (): UseMutationResult<Schedule, Error, string> 
       const res: AxiosResponse<Schedule> = await api.post(`/admin/schedules/${id}/revert`);
       return res.data;
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["schedules"] }); },
+    onSuccess: (_, id) => {
+      qc.invalidateQueries({ queryKey: ["schedules"] });
+      qc.invalidateQueries({ queryKey: ["schedules", id, "audit"] });
+      qc.invalidateQueries({ queryKey: ["schedule-history"] });
+    },
     onError: onErr("Failed to revert schedule"),
   });
 };
@@ -189,7 +220,11 @@ export const useCancelSchedule = (): UseMutationResult<Schedule, Error, { id: st
       const res: AxiosResponse<Schedule> = await api.post(`/admin/schedules/${id}/cancel`, { cancellation_reason: cancellation_reason ?? null });
       return res.data;
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["schedules"] }); },
+    onSuccess: (_, { id }) => {
+      qc.invalidateQueries({ queryKey: ["schedules"] });
+      qc.invalidateQueries({ queryKey: ["schedules", id, "audit"] });
+      qc.invalidateQueries({ queryKey: ["schedule-history"] });
+    },
     onError: onErr("Failed to cancel schedule"),
   });
 };
@@ -205,7 +240,12 @@ export const useSwitchSchedule = (): UseMutationResult<{ a: Schedule; b: Schedul
       );
       return res.data;
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["schedules"] }); },
+    onSuccess: (_, { id, other_schedule_id }) => {
+      qc.invalidateQueries({ queryKey: ["schedules"] });
+      qc.invalidateQueries({ queryKey: ["schedules", id, "audit"] });
+      qc.invalidateQueries({ queryKey: ["schedules", other_schedule_id, "audit"] });
+      qc.invalidateQueries({ queryKey: ["schedule-history"] });
+    },
     onError: onErr("Failed to switch schedules"),
   });
 };

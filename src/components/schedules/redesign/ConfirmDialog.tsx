@@ -7,6 +7,8 @@ interface Props {
   confirmLabel?: string
   confirmVariant?: 'danger' | 'primary'
   requiresReason?: boolean
+  /** reason 입력 자체를 강제 (빈 값 시 버튼 비활성) */
+  reasonMandatory?: boolean
   reasonLabel?: string
   onConfirm: (reason?: string) => void
   onCancel: () => void
@@ -19,6 +21,7 @@ export function ConfirmDialog({
   confirmLabel = 'Confirm',
   confirmVariant = 'primary',
   requiresReason = false,
+  reasonMandatory = false,
   reasonLabel = 'Reason',
   onConfirm,
   onCancel,
@@ -52,7 +55,8 @@ export function ConfirmDialog({
         {requiresReason && (
           <div className="px-5 pb-3">
             <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">
-              {reasonLabel} <span className="text-[var(--color-danger)]">*</span>
+              {reasonLabel}
+              {reasonMandatory && <span className="text-[var(--color-danger)]"> *</span>}
             </label>
             <textarea
               value={reason}

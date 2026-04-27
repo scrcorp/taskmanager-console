@@ -286,7 +286,7 @@ export function ApplyToSelectedModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/60" />
       <div className="relative bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl shadow-2xl w-[min(940px,96vw)] max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">

@@ -18,6 +18,7 @@ import { useUsers } from "@/hooks/useUsers";
 import { useAuthStore } from "@/stores/authStore";
 import { ROLE_PRIORITY } from "@/lib/permissions";
 import { DiffDisplay } from "@/components/schedules/redesign/DiffDisplay";
+import { ConfirmDialog } from "@/components/schedules/redesign/ConfirmDialog";
 import type { User } from "@/types";
 
 const EVENT_TYPES = [
@@ -108,9 +109,7 @@ function HistoryRow({ item, onDelete, users }: { item: ScheduleHistoryItem; onDe
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                if (window.confirm("Delete this history entry permanently?")) {
-                  onDelete(item.id);
-                }
+                onDelete(item.id);
               }}
               className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-semibold uppercase tracking-wider text-[var(--color-danger)] hover:bg-[var(--color-danger-muted)] px-1.5 py-0.5 rounded"
               title="Delete history entry (Owner only)"
@@ -150,6 +149,7 @@ export default function ScheduleHistoryPage() {
   const [dateFrom, setDateFrom] = useState(monthAgo);
   const [dateTo, setDateTo] = useState(today);
   const [page, setPage] = useState(1);
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const storesQ = useStores();
   const usersQ = useUsers();
@@ -349,7 +349,7 @@ export default function ScheduleHistoryPage() {
                     key={item.id}
                     item={item}
                     users={usersQ.data ?? []}
-                    onDelete={isOwner ? (id) => deleteHistoryMutation.mutate(id) : undefined}
+                    onDelete={isOwner ? (id) => setPendingDeleteId(id) : undefined}
                   />
                 ))}
               </tbody>
@@ -357,6 +357,19 @@ export default function ScheduleHistoryPage() {
           )}
         </div>
       </div>
+
+      <ConfirmDialog
+        open={pendingDeleteId !== null}
+        title="Delete History Entry"
+        message="This will permanently remove the audit log entry. This action cannot be undone."
+        confirmLabel="Delete"
+        confirmVariant="danger"
+        onConfirm={() => {
+          if (pendingDeleteId) deleteHistoryMutation.mutate(pendingDeleteId);
+          setPendingDeleteId(null);
+        }}
+        onCancel={() => setPendingDeleteId(null)}
+      />
     </div>
   );
 }

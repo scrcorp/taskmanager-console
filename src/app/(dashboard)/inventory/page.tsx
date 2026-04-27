@@ -497,6 +497,7 @@ export default function InventoryPage(): React.ReactElement {
         onClose={() => setIsCreateOpen(false)}
         title="Add Product"
         size="lg"
+        closeOnBackdrop={false}
       >
         <div className="flex flex-col gap-4">
           <ProductForm onChange={setFormData} />

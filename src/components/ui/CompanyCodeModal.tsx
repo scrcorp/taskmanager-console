@@ -43,7 +43,7 @@ export function CompanyCodeModal({
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Company Code" size="sm">
+    <Modal isOpen={isOpen} onClose={onClose} title="Company Code" size="sm" closeOnBackdrop={false}>
       <div className="flex flex-col gap-4">
         <p className="text-text-secondary text-sm">
           Enter the 6-digit company code to connect to your organization.

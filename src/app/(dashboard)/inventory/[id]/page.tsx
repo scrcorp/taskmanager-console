@@ -335,6 +335,7 @@ export default function ProductDetailPage(): React.ReactElement {
         onClose={() => setIsEditOpen(false)}
         title="Edit Product"
         size="lg"
+        closeOnBackdrop={false}
       >
         <div className="flex flex-col gap-4">
           <ProductForm

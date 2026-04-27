@@ -16,8 +16,7 @@ import {
   Tablet,
   KeyRound,
   RefreshCw,
-  Eye,
-  EyeOff,
+  Copy,
   Edit,
   Check,
   X as CloseIcon,
@@ -72,9 +71,9 @@ function AttendanceDevicesContent(): React.ReactElement {
     ATTENDANCE_SERVICE_KEY,
   );
   const rotateCode = useRotateAccessCode();
-  const [codeRevealed, setCodeRevealed] = useState<boolean>(false);
   const [isRotateConfirmOpen, setIsRotateConfirmOpen] =
     useState<boolean>(false);
+  const [codeCopied, setCodeCopied] = useState<boolean>(false);
 
   /* ---- Devices ----------------------------------------------------------- */
   const { data: devices, isLoading: devicesLoading } =
@@ -104,7 +103,6 @@ function AttendanceDevicesContent(): React.ReactElement {
     try {
       await rotateCode.mutateAsync(ATTENDANCE_SERVICE_KEY);
       setIsRotateConfirmOpen(false);
-      setCodeRevealed(true);
       toast({ type: "success", message: "Access code rotated." });
     } catch (err) {
       toast({
@@ -113,6 +111,17 @@ function AttendanceDevicesContent(): React.ReactElement {
       });
     }
   }, [rotateCode, toast]);
+
+  const handleCopyCode = useCallback(async (code: string): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setCodeCopied(true);
+      toast({ type: "success", message: "Access code copied to clipboard." });
+      window.setTimeout(() => setCodeCopied(false), 1500);
+    } catch {
+      toast({ type: "error", message: "Failed to copy access code." });
+    }
+  }, [toast]);
 
   const handleStartRename = useCallback(
     (device: AttendanceDevice): void => {
@@ -165,9 +174,7 @@ function AttendanceDevicesContent(): React.ReactElement {
   /*  Render                                                                 */
   /* ======================================================================= */
 
-  const maskedCode = "••••••";
   const codeValue = accessCode?.code ?? "";
-  const codeDisplay = codeRevealed ? codeValue : maskedCode;
 
   return (
     <div>
@@ -196,15 +203,15 @@ function AttendanceDevicesContent(): React.ReactElement {
               <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  onClick={() => setCodeRevealed((v) => !v)}
+                  onClick={() => handleCopyCode(codeValue)}
                   className="flex items-center gap-2 text-2xl font-extrabold tracking-[0.3em] text-text hover:text-accent transition-colors"
-                  title={codeRevealed ? "Hide code" : "Reveal code"}
+                  title="Click to copy"
                 >
-                  {codeDisplay}
-                  {codeRevealed ? (
-                    <EyeOff className="h-4 w-4" />
+                  {codeValue || "—"}
+                  {codeCopied ? (
+                    <Check className="h-4 w-4 text-success" />
                   ) : (
-                    <Eye className="h-4 w-4" />
+                    <Copy className="h-4 w-4" />
                   )}
                 </button>
                 <Badge variant={accessCode.source === "env" ? "accent" : "default"}>

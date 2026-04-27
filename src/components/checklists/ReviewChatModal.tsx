@@ -269,7 +269,7 @@ export function ReviewChatModal({
 
   return (
     <>
-      <Modal isOpen={isOpen} onClose={onClose} title={`Review — ${itemTitle}`} size="md">
+      <Modal isOpen={isOpen} onClose={onClose} title={`Review — ${itemTitle}`} size="md" closeOnBackdrop={false}>
         {/* Review result + O/X buttons */}
         <div className="flex items-center gap-3 mb-3 pb-3 border-b border-border">
           <span className="text-xs text-text-muted">Result:</span>

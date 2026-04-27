@@ -6,13 +6,13 @@ import { useAttendances } from '@/hooks/useAttendances'
 import { useStores } from '@/hooks/useStores'
 import type { AttendanceBreakItem } from '@/types'
 
-type AttendanceState = "not_yet" | "working" | "on_break" | "late" | "clocked_out" | "no_show"
+type AttendanceState = "upcoming" | "soon" | "working" | "on_break" | "late" | "clocked_out" | "no_show" | "cancelled"
 type FilterKey = AttendanceState | 'all'
 
 // "all" 은 집합에서 "0개 선택" 을 의미 (= 모두 표시). 체크 가능한 필터 키만 여기에.
 type CheckableFilterKey = Exclude<FilterKey, 'all'>
 
-const VALID_FILTER_KEYS: FilterKey[] = ['all', 'working', 'on_break', 'late', 'no_show', 'clocked_out']
+const VALID_FILTER_KEYS: FilterKey[] = ['all', 'upcoming', 'soon', 'working', 'on_break', 'late', 'no_show', 'clocked_out', 'cancelled']
 
 /** YYYY-MM-DD 형식인지 간이 검증. 잘못된 값이면 null 반환. */
 function sanitizeDateParam(raw: string | null): string | null {
@@ -43,12 +43,14 @@ function parseFilterSet(raw: string | null): Set<CheckableFilterKey> {
 const ROLE_DEFAULT_COLOR = "bg-[var(--color-success-muted)] text-[var(--color-success)]"
 
 const stateMeta: Record<string, { label: string; bg: string; text: string; dot: string }> = {
-  not_yet: { label: 'Scheduled', bg: 'bg-[var(--color-bg)]', text: 'text-[var(--color-text-muted)]', dot: 'bg-[var(--color-text-muted)]' },
+  upcoming: { label: 'Upcoming', bg: 'bg-[var(--color-bg)]', text: 'text-[var(--color-text-muted)]', dot: 'bg-[var(--color-text-muted)]' },
+  soon: { label: 'Soon', bg: 'bg-[var(--color-warning-muted)]', text: 'text-[var(--color-warning)]', dot: 'bg-[var(--color-warning)]' },
   working: { label: 'Working', bg: 'bg-[var(--color-success-muted)]', text: 'text-[var(--color-success)]', dot: 'bg-[var(--color-success)] animate-pulse' },
   on_break: { label: 'On break', bg: 'bg-[var(--color-warning-muted)]', text: 'text-[var(--color-warning)]', dot: 'bg-[var(--color-warning)]' },
   late: { label: 'Late', bg: 'bg-[var(--color-danger-muted)]', text: 'text-[var(--color-danger)]', dot: 'bg-[var(--color-danger)]' },
   clocked_out: { label: 'Done', bg: 'bg-[var(--color-info-muted,#E0F2FE)]', text: 'text-[var(--color-info)]', dot: 'bg-[var(--color-info)]' },
   no_show: { label: 'No show', bg: 'bg-[var(--color-danger-muted)]', text: 'text-[var(--color-danger)]', dot: 'bg-[var(--color-danger)]' },
+  cancelled: { label: 'Cancelled', bg: 'bg-[var(--color-text-muted)]/10', text: 'text-[var(--color-text-muted)]', dot: 'bg-[var(--color-text-muted)]' },
 }
 
 const tabs: { key: FilterKey; label: string }[] = [
@@ -334,7 +336,7 @@ export function AttendancePage() {
   }
 
   const stats = useMemo(() => ({
-    scheduled: records.length,
+    upcoming: records.filter((r) => r.status === 'upcoming' || r.status === 'soon').length,
     working: records.filter((r) => r.status === 'working').length,
     onBreak: records.filter((r) => r.status === 'on_break').length,
     late: records.filter(isLateRow).length,
@@ -384,7 +386,7 @@ export function AttendancePage() {
 
       {/* Stat cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
-        <StatCard label="Scheduled" value={stats.scheduled} color="text-[var(--color-text)]" />
+        <StatCard label="Upcoming" value={stats.upcoming} color="text-[var(--color-text)]" />
         <StatCard label="Clocked In" value={stats.working} color="text-[var(--color-success)]" />
         <StatCard label="Late" value={stats.late} color="text-[var(--color-danger)]" />
         <StatCard label="On Break" value={stats.onBreak} color="text-[var(--color-warning)]" />
@@ -454,7 +456,7 @@ export function AttendancePage() {
               </tr>
             )}
             {filtered.map((att) => {
-              const meta = stateMeta[att.status] ?? stateMeta.not_yet
+              const meta = stateMeta[att.status] ?? stateMeta.upcoming
               const anomalies = att.anomalies ?? []
               const initials = (att.user_name || '??').split(/\s+/).slice(0, 2).map((s: string) => s[0] ?? '').join('').toUpperCase() || '??'
               const breaks = att.breaks ?? []
@@ -481,7 +483,7 @@ export function AttendancePage() {
               return (
                 <tr
                   key={att.id}
-                  onClick={() => router.push(`/attendances/${att.id}`)}
+                  onClick={() => router.push(`/attendances/${att.id}?from=${date}`)}
                   className="border-b border-[var(--color-border)] last:border-b-0 hover:bg-[var(--color-surface-hover)] transition-colors cursor-pointer"
                 >
                   <td className="px-4 py-3">

@@ -11,7 +11,9 @@ interface Props {
   onAction: (action: string) => void
 }
 
-type Item = { id: string; label: string; danger?: boolean }
+type Tone = 'danger' | 'warning'
+type Item = { id: string; label: string; tone?: Tone }
+type Group = { key: string; label?: string; items: Item[] }
 
 const ARROW_SIZE = 6
 const GAP = 4
@@ -22,14 +24,17 @@ export function ContextMenu({ anchorEl, status, userRole = 'gm', isPast = false,
   const menuRef = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState({ left: 0, top: 0, side: 'right' as 'right' | 'left', arrowTop: ARROW_OFFSET_TOP })
 
-  // 외부 클릭 닫기
+  // 외부 클릭 닫기 — anchorEl(현재 카드) 내부 클릭은 무시해서 카드의 toggle 로직이 동작하도록.
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) onClose()
+      const target = e.target as Node
+      if (menuRef.current && menuRef.current.contains(target)) return
+      if (anchorEl && anchorEl.contains(target)) return
+      onClose()
     }
     const id = window.setTimeout(() => document.addEventListener('mousedown', handler), 0)
     return () => { window.clearTimeout(id); document.removeEventListener('mousedown', handler) }
-  }, [onClose])
+  }, [onClose, anchorEl])
 
   // 위치 계산
   const reposition = useCallback(() => {
@@ -94,69 +99,52 @@ export function ContextMenu({ anchorEl, status, userRole = 'gm', isPast = false,
     }
   }, [anchorEl, reposition])
 
-  // 메뉴 항목 빌드
+  // ─── 메뉴 항목을 4개 그룹으로 구성: View / Modify / State / Remove ───
   const isGmPlus = userRole === 'gm' || userRole === 'owner'
-  const syncItem: Item | null = canSyncRate
-    ? { id: 'sync-rate', label: syncRateLabel ? `Apply rate (${syncRateLabel})` : 'Apply current rate' }
-    : null
+  const isEditable = status !== 'rejected' && status !== 'cancelled'
+  const isConfirmed = status === 'confirmed'
+  const isRequested = status === 'requested'
+  const isDraft = status === 'draft'
+  const isCancelled = status === 'cancelled'
 
-  let items: Item[] = []
-  if (status === 'draft') {
-    items = [
-      { id: 'details', label: 'View Details' },
-      { id: 'edit', label: 'Edit Schedule' },
-      { id: 'add', label: 'Add Schedule' },
-      ...(syncItem ? [syncItem] : []),
-      { id: 'divider', label: '' },
-      { id: 'delete', label: 'Delete', danger: true },
-    ]
-  } else if (status === 'requested') {
-    items = [
-      { id: 'details', label: 'View Details' },
-      { id: 'edit', label: 'Edit Schedule' },
-      { id: 'add', label: 'Add Schedule' },
-      { id: 'confirm', label: 'Confirm' },
-      ...(syncItem ? [syncItem] : []),
-      { id: 'reject', label: 'Reject...', danger: true },
-      { id: 'history', label: 'View History' },
-      { id: 'divider', label: '' },
-      { id: 'delete', label: 'Delete', danger: true },
-    ]
-  } else if (status === 'confirmed') {
-    items = isGmPlus
-      ? [
-          { id: 'details', label: 'View Details' },
-          { id: 'edit', label: 'Edit Schedule' },
-          { id: 'add', label: 'Add Schedule' },
-          ...(syncItem ? [syncItem] : []),
-          { id: 'revert', label: 'Revert to Requested' },
-          { id: 'change-staff', label: 'Change Staff' },
-          ...(!isPast ? [{ id: 'switch', label: 'Switch Schedule' }] : []),
-          { id: 'cancel', label: 'Cancel...', danger: true },
-          { id: 'history', label: 'View History' },
-          { id: 'divider', label: '' },
-          { id: 'delete', label: 'Delete', danger: true },
-        ]
-      : [
-          { id: 'details', label: 'View Details' },
-          { id: 'add', label: 'Add Schedule' },
-          { id: 'history', label: 'View History' },
-        ]
-  } else if (status === 'rejected' || status === 'cancelled') {
-    items = [
-      { id: 'details', label: 'View Details' },
-      { id: 'add', label: 'Add Schedule' },
-      { id: 'history', label: 'View History' },
-    ]
-  } else {
-    items = [
-      { id: 'details', label: 'View Details' },
-      { id: 'edit', label: 'Edit Schedule' },
-      { id: 'add', label: 'Add Schedule' },
-      { id: 'divider', label: '' },
-      { id: 'delete', label: 'Delete', danger: true },
-    ]
+  const viewItems: Item[] = [
+    { id: 'details', label: 'View Details' },
+    { id: 'history', label: 'View History' },
+  ]
+
+  const modifyItems: Item[] = []
+  if (isEditable && (isDraft || isRequested || (isConfirmed && isGmPlus))) {
+    modifyItems.push({ id: 'edit', label: 'Edit Schedule' })
   }
+  modifyItems.push({ id: 'add', label: 'Add Schedule' })
+  if (isConfirmed && isGmPlus) {
+    modifyItems.push({ id: 'change-staff', label: 'Change Staff' })
+    if (!isPast) modifyItems.push({ id: 'switch', label: 'Switch Schedule' })
+  }
+
+  const stateItems: Item[] = []
+  if (isRequested) stateItems.push({ id: 'confirm', label: 'Confirm' })
+  if (isRequested) stateItems.push({ id: 'reject', label: 'Reject...', tone: 'warning' })
+  if (isConfirmed && isGmPlus) stateItems.push({ id: 'revert', label: 'Revert to Requested' })
+  if (isCancelled && isGmPlus) stateItems.push({ id: 'revert', label: 'Restore Schedule' })
+  if (canSyncRate) {
+    stateItems.push({
+      id: 'sync-rate',
+      label: syncRateLabel ? `Apply rate (${syncRateLabel})` : 'Apply current rate',
+    })
+  }
+
+  const removeItems: Item[] = []
+  if (isConfirmed && isGmPlus) removeItems.push({ id: 'cancel', label: 'Cancel...', tone: 'warning' })
+  const canDelete = isDraft || isRequested || (isConfirmed && isGmPlus)
+  if (canDelete) removeItems.push({ id: 'delete', label: 'Delete', tone: 'danger' })
+
+  const groups: Group[] = [
+    { key: 'view', items: viewItems },
+    { key: 'modify', items: modifyItems },
+    { key: 'state', items: stateItems },
+    { key: 'remove', items: removeItems },
+  ].filter((g) => g.items.length > 0)
 
   const isLeft = pos.side === 'left'
 
@@ -177,25 +165,28 @@ export function ContextMenu({ anchorEl, status, userRole = 'gm', isPast = false,
         }}
       />
 
-      {/* 메뉴 본체 */}
+      {/* 메뉴 본체 — 4 group: View / Modify / State / Remove */}
       <div className="relative z-[2] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.15)] py-1.5 min-w-[180px] max-h-[calc(100vh-16px)] overflow-y-auto">
-        {items.map((item, i) =>
-          item.id === 'divider' ? (
-            <div key={i} className="h-px bg-[var(--color-border)] my-1 mx-2" />
-          ) : (
-            <button
-              key={item.id}
-              onClick={() => { onAction(item.id); onClose() }}
-              className={`w-full flex items-center px-3.5 py-2 text-[13px] font-medium transition-colors text-left ${
-                item.danger
-                  ? 'text-[var(--color-danger)] hover:bg-[var(--color-danger-muted)]'
-                  : 'text-[var(--color-text)] hover:bg-[var(--color-surface-hover)]'
-              }`}
-            >
-              {item.label}
-            </button>
-          )
-        )}
+        {groups.map((group, gi) => (
+          <div key={group.key}>
+            {gi > 0 && <div className="h-px bg-[var(--color-border)] my-1 mx-2" />}
+            {group.items.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => { onAction(item.id); onClose() }}
+                className={`w-full flex items-center px-3.5 py-2 text-[13px] font-medium transition-colors text-left ${
+                  item.tone === 'danger'
+                    ? 'text-[var(--color-danger)] hover:bg-[var(--color-danger-muted)]'
+                    : item.tone === 'warning'
+                    ? 'text-[var(--color-warning)] hover:bg-[var(--color-warning-muted)]'
+                    : 'text-[var(--color-text)] hover:bg-[var(--color-surface-hover)]'
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        ))}
       </div>
     </div>
   )

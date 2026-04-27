@@ -10,8 +10,18 @@ interface Props {
   schedule: Schedule;
   showCost: boolean;
   attendance?: Attendance | null;
-  /** 현재 보고 있는 매장 ID — 다른 매장 스케줄(isOtherStore) 표시용 */
+  /**
+   * 현재 보고 있는 매장 ID.
+   *  - "__all__" = All Stores / 다중 선택: isOtherStore 판단은 isOtherStore prop으로 별도 제어
+   *  - 단일 store: 이 store와 다르면 isOtherStore (dim).
+   */
   currentStoreId: string;
+  /** 명시적으로 "다른 매장(dim)" 으로 표시하고 싶을 때 (다중 선택에서 subset 밖). */
+  isOtherStore?: boolean;
+  /** 컨텍스트 메뉴가 이 카드를 가리키고 있으면 true → ring/shadow 강조 */
+  isActive?: boolean;
+  /** 이 카드(schedule.store_id)의 타임존. clock in/out 등 UTC timestamp를 현지시각으로 렌더링하는 데 사용. */
+  storeTimezone?: string | null;
   onClick?: (e: React.MouseEvent) => void;
 }
 
@@ -94,10 +104,15 @@ function fmtH(h: number): string {
   return r % 1 === 0 ? String(r) : r.toFixed(r * 10 % 1 === 0 ? 1 : 2);
 }
 
-function formatClockTime(iso: string | null): string {
+function formatClockTime(iso: string | null, tz?: string): string {
   if (!iso) return "";
   const d = new Date(iso);
-  return d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit", hour12: true });
+  return d.toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+    timeZone: tz,
+  });
 }
 
 function elapsedSince(iso: string): string {
@@ -109,7 +124,7 @@ function elapsedSince(iso: string): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-export function ScheduleBlock({ schedule, showCost, attendance, currentStoreId, onClick }: Props) {
+export function ScheduleBlock({ schedule, showCost, attendance, currentStoreId, isOtherStore: isOtherStoreProp, isActive, storeTimezone, onClick }: Props) {
   const startH = parseTimeToHours(schedule.start_time);
   const endH = parseTimeToHours(schedule.end_time);
   // overnight: end < start → wrap (e.g. 22:00–02:00 = 4h)
@@ -122,16 +137,24 @@ export function ScheduleBlock({ schedule, showCost, attendance, currentStoreId, 
   // stored rate만 사용. NULL이면 "No cost" 표시 (preview/cascade 안 함 — 사용자가 명시적으로 sync해야 함).
   const storedRate = schedule.hourly_rate;
   const cost = storedRate && storedRate > 0 ? (hours * storedRate).toFixed(2) : null;
+  // overnight: 종료 시각이 시작 시각보다 작으면 다음날 걸침.
+  const isOvernight = endH <= startH && endH > 0;
+  const nextDayTag = isOvernight ? <sup className="text-[8px] font-bold text-[var(--color-accent)] ml-0.5" title="Ends next day">+1</sup> : null;
   const timeRange = hasBreak
-    ? `${formatTime(schedule.start_time)}–${formatTime(schedule.break_start_time)} · ${formatTime(schedule.break_end_time)}–${formatTime(schedule.end_time)}`
-    : `${formatTime(schedule.start_time)}–${formatTime(schedule.end_time)}`;
+    ? <>
+        {formatTime(schedule.start_time)}–{formatTime(schedule.break_start_time)} · {formatTime(schedule.break_end_time)}–{formatTime(schedule.end_time)}{nextDayTag}
+      </>
+    : <>
+        {formatTime(schedule.start_time)}–{formatTime(schedule.end_time)}{nextDayTag}
+      </>;
 
   // "__all__" = All 모드 → dimming 없이 모든 스토어 표시
   const isAllMode = currentStoreId === "__all__";
-  const isOtherStore = !isAllMode && schedule.store_id !== currentStoreId;
+  // 단일 store 선택 시 이 store와 다르면 dim. 다중 선택/All Stores일 때는 caller가 명시한 isOtherStoreProp 사용.
+  const isOtherStore = (!isAllMode && schedule.store_id !== currentStoreId) || !!isOtherStoreProp;
   const roleName = schedule.work_role_name_snapshot || schedule.work_role_name || "Shift";
   const positionName = schedule.position_snapshot || "—";
-  const showStoreName = isAllMode; // All 모드에서는 스토어명 항상 표시
+  const showStoreName = true; // 뷰 모드와 무관하게 항상 스토어명 노출 (맥락 유지)
 
   if (isOtherStore) {
     return (
@@ -186,6 +209,7 @@ export function ScheduleBlock({ schedule, showCost, attendance, currentStoreId, 
         ${isDraft ? "border-dashed border-[var(--color-accent)] bg-[var(--color-accent-muted)] opacity-75" : ""}
         ${rejectedClasses}
         ${cancelledClasses}
+        ${isActive ? "ring-2 ring-[var(--color-accent)] ring-offset-1 ring-offset-[var(--color-bg)] shadow-[0_4px_16px_rgba(108,92,231,0.35)] z-20" : ""}
       `}
       style={isRequested ? { backgroundImage: pendingBg } : undefined}
     >
@@ -283,7 +307,7 @@ export function ScheduleBlock({ schedule, showCost, attendance, currentStoreId, 
                 <span className="opacity-60 truncate">· {elapsedSince(attendance.clock_in)}</span>
               )}
               {attendance.status === "clocked_out" && attendance.clock_out && (
-                <span className="opacity-60 truncate">· {formatClockTime(attendance.clock_out)}</span>
+                <span className="opacity-60 truncate">· {formatClockTime(attendance.clock_out, storeTimezone ?? undefined)}</span>
               )}
             </>
           )}

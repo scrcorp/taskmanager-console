@@ -342,6 +342,7 @@ export default function TaskDetailPage() {
         isOpen={showEdit}
         onClose={() => setShowEdit(false)}
         title="Edit Task"
+        closeOnBackdrop={false}
       >
         <div className="space-y-4">
           <Input

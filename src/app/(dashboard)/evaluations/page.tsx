@@ -240,6 +240,7 @@ export default function EvaluationsPage(): React.ReactElement {
         isOpen={isTemplateFormOpen}
         onClose={() => setIsTemplateFormOpen(false)}
         title="New Evaluation Template"
+        closeOnBackdrop={false}
       >
         <div className="space-y-4">
           <Input

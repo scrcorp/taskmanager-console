@@ -445,11 +445,7 @@ export function ScheduleDetailPage({ schedule, user, attendance, auditEvents, re
                       {onDeleteHistoryEntry && (
                         <button
                           type="button"
-                          onClick={() => {
-                            if (window.confirm("Delete this history entry permanently?")) {
-                              onDeleteHistoryEntry(e.id);
-                            }
-                          }}
+                          onClick={() => onDeleteHistoryEntry(e.id)}
                           className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-semibold uppercase tracking-wider text-[var(--color-danger)] hover:bg-[var(--color-danger-muted)] px-1.5 py-0.5 rounded shrink-0"
                           title="Delete history entry (Owner only)"
                         >
@@ -517,7 +513,7 @@ export function ScheduleDetailPage({ schedule, user, attendance, auditEvents, re
                   onClick={onRevert}
                   className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-[13px] font-semibold border border-[var(--color-border)] text-[var(--color-text)] hover:bg-[var(--color-surface-hover)]"
                 >
-                  Revert to Pending
+                  Revert to Requested
                 </button>
               )}
               {onDelete && (

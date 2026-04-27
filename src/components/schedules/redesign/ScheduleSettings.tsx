@@ -21,6 +21,8 @@
 
 import { useState, useMemo, useRef, useEffect } from "react";
 import { useStores } from "@/hooks/useStores";
+import { useToast } from "@/components/ui/Toast";
+import { ConfirmDialog } from "@/components/schedules/redesign/ConfirmDialog";
 import {
   useSettingsRegistry,
   useOrgSettings,
@@ -57,11 +59,14 @@ export function ScheduleSettings({ onBack }: Props) {
   const stores = storesQ.data ?? [];
   const [activeTab, setActiveTab] = useState<"org" | string>("org");
   const [draft, setDraft] = useState<DraftState>(EMPTY_DRAFT);
+  const [pendingTab, setPendingTab] = useState<"org" | string | null>(null);
+  const { toast } = useToast();
 
   // 탭 변경 시 draft 폐기 (혼동 방지)
   function handleTabChange(tab: "org" | string) {
     if (Object.keys(draft.values).length > 0 || draft.deletedKeys.length > 0) {
-      if (!window.confirm("You have unsaved changes. Discard them and switch?")) return;
+      setPendingTab(tab);
+      return;
     }
     setDraft(EMPTY_DRAFT);
     setActiveTab(tab);
@@ -185,6 +190,17 @@ export function ScheduleSettings({ onBack }: Props) {
 
   const isDirty = Object.keys(draft.values).length > 0 || draft.deletedKeys.length > 0;
 
+  // beforeunload: 탭/브라우저 종료, 뒤로가기, 새로고침 등으로 페이지를 떠날 때 경고
+  useEffect(() => {
+    if (!isDirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [isDirty]);
+
   /** 해당 key가 draft에서 변경되었는지 */
   function isChanged(key: string): boolean {
     return key in draft.values || draft.deletedKeys.includes(key);
@@ -203,7 +219,10 @@ export function ScheduleSettings({ onBack }: Props) {
       for (const [key, entry] of Object.entries(rangeValue)) {
         if (entry && typeof entry === "object" && "start" in entry && "end" in entry) {
           if (toMinutes(entry.start) >= toMinutes(entry.end)) {
-            window.alert(`Schedule Range: Start must be before End (${key === "all" ? "all days" : key}).`);
+            toast({
+              type: "error",
+              message: `Schedule Range: Start must be before End (${key === "all" ? "all days" : key}).`,
+            });
             return;
           }
         }
@@ -227,8 +246,12 @@ export function ScheduleSettings({ onBack }: Props) {
       }
 
       setDraft(EMPTY_DRAFT);
+      toast({ type: "success", message: "Settings saved" });
     } catch (e) {
-      window.alert("Save failed: " + (e instanceof Error ? e.message : String(e)));
+      toast({
+        type: "error",
+        message: "Save failed: " + (e instanceof Error ? e.message : String(e)),
+      });
     }
   }
 
@@ -411,6 +434,20 @@ export function ScheduleSettings({ onBack }: Props) {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={pendingTab !== null}
+        title="Discard unsaved changes?"
+        message="You have unsaved changes in this tab. Switching will discard them."
+        confirmLabel="Discard"
+        confirmVariant="danger"
+        onConfirm={() => {
+          setDraft(EMPTY_DRAFT);
+          if (pendingTab !== null) setActiveTab(pendingTab);
+          setPendingTab(null);
+        }}
+        onCancel={() => setPendingTab(null)}
+      />
     </div>
   );
 }
@@ -546,12 +583,14 @@ function useSectionInherit(props: SectionCommonProps, keys: string[]) {
 function WorkHourAlertsSection(props: SectionCommonProps) {
   const NORMAL_KEY = "schedule.work_hour_alert.normal_max";
   const CAUTION_KEY = "schedule.work_hour_alert.caution_max";
+  const MAX_SHIFT_KEY = "schedule.max_shift_hours";
 
   const normalMax = Number(props.getValue(NORMAL_KEY) ?? 5.5);
   const cautionMax = Number(props.getValue(CAUTION_KEY) ?? 7.5);
+  const maxShiftHours = Number(props.getValue(MAX_SHIFT_KEY) ?? 16);
 
-  const locked = props.isLocked(NORMAL_KEY) || props.isLocked(CAUTION_KEY);
-  const inheritState = useSectionInherit(props, [NORMAL_KEY, CAUTION_KEY]);
+  const locked = props.isLocked(NORMAL_KEY) || props.isLocked(CAUTION_KEY) || props.isLocked(MAX_SHIFT_KEY);
+  const inheritState = useSectionInherit(props, [NORMAL_KEY, CAUTION_KEY, MAX_SHIFT_KEY]);
 
   const normalPct = Math.min(100, (normalMax / 12) * 100);
   const cautionPct = Math.min(100 - normalPct, Math.max(0, (cautionMax - normalMax) / 12) * 100);
@@ -639,6 +678,27 @@ function WorkHourAlertsSection(props: SectionCommonProps) {
             <span className="absolute right-0 text-[10px] text-[var(--color-text-muted)]">12h+</span>
           </div>
         </div>
+        <ChangedMark changed={props.isChanged(MAX_SHIFT_KEY)}>
+          <div className="pt-2 border-t border-[var(--color-border)]">
+            <label className="text-[12px] font-medium text-[var(--color-text)] mb-1.5 block">
+              Max shift duration warning
+            </label>
+            <div className="flex items-center gap-2">
+              <span className="text-[13px] text-[var(--color-text-secondary)]">Shifts longer than</span>
+              <input
+                type="number"
+                value={maxShiftHours}
+                step="0.5"
+                min="0"
+                max="24"
+                disabled={locked}
+                onChange={(e) => props.queueChange(MAX_SHIFT_KEY, Number(e.target.value))}
+                className="w-20 px-3 py-1.5 border border-[var(--color-border)] rounded-lg text-[13px] text-center disabled:opacity-50"
+              />
+              <span className="text-[13px] text-[var(--color-text-secondary)]">hours require confirmation before saving</span>
+            </div>
+          </div>
+        </ChangedMark>
       </div>
     </Card>
   );
@@ -1119,11 +1179,11 @@ function ScheduleRangeSection(props: ScheduleRangeSectionProps) {
                     <div key={d} className="flex items-center gap-3">
                       <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-muted)] w-10 shrink-0">{d}</span>
                       <HourMinuteSelect value={dayVal.start} maxHour={23}
-                        onChange={(v) => save({ ...range, per_day: { ...range.per_day, [d]: { ...dayVal, start: v } } })}
+                        onChange={(v) => save({ ...range, mode: "per_day", per_day: { ...range.per_day, [d]: { ...dayVal, start: v } } })}
                         className="px-1.5 py-1 border border-[var(--color-border)] rounded text-[12px] bg-[var(--color-bg)] text-[var(--color-text)]" />
                       <span className="text-[var(--color-text-muted)] text-[12px]">–</span>
                       <HourMinuteSelect value={dayVal.end} maxHour={48}
-                        onChange={(v) => save({ ...range, per_day: { ...range.per_day, [d]: { ...dayVal, end: v } } })}
+                        onChange={(v) => save({ ...range, mode: "per_day", per_day: { ...range.per_day, [d]: { ...dayVal, end: v } } })}
                         className="px-1.5 py-1 border border-[var(--color-border)] rounded text-[12px] bg-[var(--color-bg)] text-[var(--color-text)]" />
                       {isDayChanged && (
                         <button type="button" onClick={() => resetDay(d)} title={`Reset ${d}`}
