@@ -1372,6 +1372,8 @@ export interface InventoryProductFilters {
   search_field?: "all" | "name" | "code";
   page?: number;
   per_page?: number;
+  sort_by?: string;
+  sort_dir?: "asc" | "desc";
 }
 
 /** 매장 재고 목록 필터 파라미터.
@@ -1384,6 +1386,8 @@ export interface StoreInventoryFilters {
   is_frequent?: boolean;
   page?: number;
   per_page?: number;
+  sort_by?: string;
+  sort_dir?: "asc" | "desc";
 }
 
 /** 매장 재고 설정 수정 요청.

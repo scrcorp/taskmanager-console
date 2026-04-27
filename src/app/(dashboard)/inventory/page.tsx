@@ -67,11 +67,26 @@ export default function InventoryPage(): React.ReactElement {
     search_field: "all",
     status: "active",
     page: "1",
+    sort_by: "",
+    sort_dir: "asc",
   });
   const filterCategory = urlParams.category;
   const filterSearchField = urlParams.search_field || "all";
   const filterStatus = urlParams.status;
   const page = Number(urlParams.page);
+  const sortBy = urlParams.sort_by || "";
+  const sortDir = (urlParams.sort_dir === "desc" ? "desc" : "asc") as "asc" | "desc";
+
+  /** Cycle: not sorted → asc → desc → not sorted (clears sort). */
+  const handleSort = (key: string) => {
+    if (sortBy !== key) {
+      setUrlParams({ sort_by: key, sort_dir: "asc", page: null });
+    } else if (sortDir === "asc") {
+      setUrlParams({ sort_dir: "desc" });
+    } else {
+      setUrlParams({ sort_by: null, sort_dir: null });
+    }
+  };
 
   // Local search input — debounced before URL update
   const [searchInput, setSearchInput] = useState(urlParams.search);
@@ -98,9 +113,17 @@ export default function InventoryPage(): React.ReactElement {
       return next;
     });
   };
-  const toggleSelectAll = () => {
-    if (selectedIds.size === products.length) setSelectedIds(new Set());
-    else setSelectedIds(new Set(products.map((p) => p.id)));
+  /** Toggle selection for the *current page only*. Selections from previous
+   *  pages stay intact so users can build up a multi-page selection. */
+  const toggleSelectAllOnPage = () => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      const pageIds = products.map((p) => p.id);
+      const allOnPageSelected = pageIds.every((id) => next.has(id));
+      if (allOnPageSelected) pageIds.forEach((id) => next.delete(id));
+      else pageIds.forEach((id) => next.add(id));
+      return next;
+    });
   };
   const clearSelection = () => setSelectedIds(new Set());
 
@@ -120,6 +143,8 @@ export default function InventoryPage(): React.ReactElement {
     is_active: filterStatus === "all" ? undefined : filterStatus === "inactive" ? false : true,
     page,
     per_page: PER_PAGE,
+    sort_by: sortBy || undefined,
+    sort_dir: sortBy ? sortDir : undefined,
   });
   const createProduct = useCreateProduct();
   const deactivateProduct = useDeactivateProduct();
@@ -128,6 +153,11 @@ export default function InventoryPage(): React.ReactElement {
 
   const products: InventoryProduct[] = productsData?.items ?? [];
   const totalPages = productsData ? Math.ceil(productsData.total / productsData.per_page) : 1;
+
+  /** Header checkbox state — shows checked when every row on this page
+   *  is part of the cumulative selection. */
+  const isPageAllSelected =
+    products.length > 0 && products.every((p) => selectedIds.has(p.id));
 
   const topLevelCategories: InventoryCategory[] = (categoriesRaw ?? []).filter(
     (c) => !c.parent_id,
@@ -148,16 +178,17 @@ export default function InventoryPage(): React.ReactElement {
   const columns: {
     key: string;
     header: string | React.ReactNode;
-    render?: (item: InventoryProduct) => React.ReactNode;
+    render?: (item: InventoryProduct, index: number) => React.ReactNode;
     className?: string;
+    sortable?: boolean;
   }[] = [
     {
       key: "select",
       header: (
         <input
           type="checkbox"
-          checked={products.length > 0 && selectedIds.size === products.length}
-          onChange={toggleSelectAll}
+          checked={isPageAllSelected}
+          onChange={toggleSelectAllOnPage}
           className="w-4 h-4 accent-accent cursor-pointer"
         />
       ),
@@ -171,6 +202,16 @@ export default function InventoryPage(): React.ReactElement {
             className="w-4 h-4 accent-accent cursor-pointer"
           />
         </div>
+      ),
+    },
+    {
+      key: "no",
+      header: "No",
+      className: "w-12 text-text-muted",
+      render: (_item, index) => (
+        <span className="text-xs text-text-muted">
+          {(page - 1) * PER_PAGE + index + 1}
+        </span>
       ),
     },
     {
@@ -193,6 +234,7 @@ export default function InventoryPage(): React.ReactElement {
       key: "name",
       header: "Name",
       className: "min-w-[160px]",
+      sortable: true,
       render: (item) => (
         <span className="font-medium text-text">{item.name}</span>
       ),
@@ -200,6 +242,7 @@ export default function InventoryPage(): React.ReactElement {
     {
       key: "code",
       header: "Code",
+      sortable: true,
       render: (item) => (
         <span className="text-xs text-text-muted font-mono">{item.code}</span>
       ),
@@ -239,8 +282,9 @@ export default function InventoryPage(): React.ReactElement {
       ),
     },
     {
-      key: "status",
+      key: "is_active",
       header: "Status",
+      sortable: true,
       render: (item) => {
         const { variant, label } = stockStatusBadge(item);
         return <Badge variant={variant}>{label}</Badge>;
@@ -400,10 +444,33 @@ export default function InventoryPage(): React.ReactElement {
 
   return (
     <div>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-2xl font-extrabold text-text">Products</h1>
-        {canCreate && (
+      {/* Header — Import/Add buttons swap with bulk-action toolbar when selecting,
+          so the table doesn't shift when selection state changes. */}
+      <div className="flex items-center justify-between mb-6 gap-3">
+        <div className="flex items-center gap-3 min-w-0">
+          <h1 className="text-2xl font-extrabold text-text whitespace-nowrap">Products</h1>
+          {selectedIds.size > 0 && (
+            <span className="text-sm text-text-secondary">
+              <span className="font-semibold text-accent">{selectedIds.size}</span> selected
+              <button
+                type="button"
+                onClick={clearSelection}
+                className="ml-2 text-xs text-text-muted hover:text-text underline"
+              >
+                Clear
+              </button>
+            </span>
+          )}
+        </div>
+        {selectedIds.size > 0 ? (
+          <div className="flex items-center gap-2">
+            <button onClick={() => setBulkAction("activate")} className="px-3 py-1.5 rounded-lg text-xs font-medium text-success bg-success-muted hover:bg-success/20 transition-colors">Activate</button>
+            <button onClick={() => setBulkAction("deactivate")} className="px-3 py-1.5 rounded-lg text-xs font-medium text-warning bg-warning-muted hover:bg-warning/20 transition-colors">Deactivate</button>
+            {canDelete && (
+              <button onClick={() => setBulkAction("delete")} className="px-3 py-1.5 rounded-lg text-xs font-medium text-danger bg-danger-muted hover:bg-danger/20 transition-colors">Delete</button>
+            )}
+          </div>
+        ) : canCreate && (
           <div className="flex items-center gap-2">
             <Button variant="secondary" size="md" onClick={() => setIsImportOpen(true)}>
               <Upload size={16} />
@@ -459,17 +526,6 @@ export default function InventoryPage(): React.ReactElement {
         </div>
       </Card>
 
-      {/* Bulk action bar */}
-      {selectedIds.size > 0 && (
-        <div className="flex items-center gap-3 px-4 py-2.5 rounded-lg bg-accent-muted border border-accent/20 mb-3">
-          <span className="text-sm font-medium text-text">{selectedIds.size} selected</span>
-          <div className="flex-1" />
-          <button onClick={() => setBulkAction("activate")} className="px-3 py-1.5 rounded-lg text-xs font-medium text-success bg-success-muted hover:bg-success/20 transition-colors">Activate</button>
-          <button onClick={() => setBulkAction("deactivate")} className="px-3 py-1.5 rounded-lg text-xs font-medium text-warning bg-warning-muted hover:bg-warning/20 transition-colors">Deactivate</button>
-          <button onClick={() => setBulkAction("delete")} className="px-3 py-1.5 rounded-lg text-xs font-medium text-danger bg-danger-muted hover:bg-danger/20 transition-colors">Delete</button>
-        </div>
-      )}
-
       {/* Table */}
       <Card padding="p-0">
         <Table<InventoryProduct>
@@ -479,6 +535,9 @@ export default function InventoryPage(): React.ReactElement {
           onRowClick={handleRowClick}
           rowClassName={(item) => selectedIds.has(item.id) ? "!bg-accent-muted" : ""}
           emptyMessage="No products found."
+          sortKey={sortBy || undefined}
+          sortDirection={sortBy ? sortDir : undefined}
+          onSort={handleSort}
         />
       </Card>
 
