@@ -10,6 +10,7 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useQueries } from "@tanstack/react-query";
 import api from "@/lib/api";
+import { parseApiError } from "@/lib/utils";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSchedules, useConfirmSchedule, useRejectSchedule, useDeleteSchedule, useSubmitSchedule, useRevertSchedule, useCancelSchedule, useCreateSchedule, useUpdateSchedule, useSwitchSchedule } from "@/hooks/useSchedules";
 import { useUsers } from "@/hooks/useUsers";
@@ -111,10 +112,13 @@ function fmtH(h: number): string {
 
 function formatHourLabel(h: number): string {
   const hNorm = h % 24; // overnight hours (24, 25, ...) → (0, 1, ...)
-  if (hNorm === 0) return "12A";
-  if (hNorm < 12) return `${hNorm}A`;
-  if (hNorm === 12) return "12P";
-  return `${hNorm - 12}P`;
+  const isNextDay = h >= 24;
+  const base =
+    hNorm === 0 ? "0A" :
+    hNorm < 12 ? `${hNorm}A` :
+    hNorm === 12 ? "12P" :
+    `${hNorm - 12}P`;
+  return isNextDay ? `${base}+1` : base;
 }
 
 function rolePriorityToBadge(p: number): string {
@@ -300,6 +304,10 @@ export default function SchedulesCalendarView() {
   const [changeStaffOpen, setChangeStaffOpen] = useState(false);
   const [changeStaffSourceId, setChangeStaffSourceId] = useState<string | null>(null);
   const [editModal, setEditModal] = useState<{ open: boolean; mode: "add" | "edit"; blockId?: string; staffId?: string; date?: string; startTime?: string }>({ open: false, mode: "add" });
+  const [editModalError, setEditModalError] = useState<string | null>(null);
+  const [bulkSaveError, setBulkSaveError] = useState<{ phase: string; details: string; partial: { created: number; updated: number; deleted: number } } | null>(null);
+  /** 체크리스트 conflict 확인 (reset_checklist 플래그 동의 유도) */
+  const [clResetPrompt, setClResetPrompt] = useState<{ payload: ScheduleEditPayload; blockId: string; message: string } | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; type: "delete" | "revert" | "reject" | "cancel" | "confirm"; blockId?: string }>({ open: false, type: "delete" });
   const [filters, setFilters] = useState<FilterState>({ staffIds: [], roles: [], statuses: [], positions: [], shifts: [] });
   const [legendOpen, setLegendOpen] = useState(false);
@@ -313,6 +321,10 @@ export default function SchedulesCalendarView() {
   const bulkSaving = bulkCreateMutation.isPending || bulkUpdateMutation.isPending || bulkDeleteMutation.isPending;
 
   async function handleBulkSave(payload: SavePayload) {
+    let created = 0;
+    let updated = 0;
+    let deleted = 0;
+    let phase = "creates";
     try {
       // 1. Creates
       if (payload.creates.length > 0) {
@@ -328,8 +340,10 @@ export default function SchedulesCalendarView() {
           status: (isGMView ? "confirmed" : "requested") as "confirmed" | "requested",
         }));
         await bulkCreateMutation.mutateAsync({ entries: creates, skip_on_conflict: true });
+        created = payload.creates.length;
       }
       // 2. Updates
+      phase = "updates";
       if (payload.updates.length > 0) {
         const updates = payload.updates.map((u) => ({
           id: u.id,
@@ -338,17 +352,26 @@ export default function SchedulesCalendarView() {
           end_time: u.data.endTime,
           break_start_time: u.data.breakStartTime,
           break_end_time: u.data.breakEndTime,
+          reset_checklist: u.data.resetChecklist,
         }));
         await bulkUpdateMutation.mutateAsync({ updates });
+        updated = payload.updates.length;
       }
       // 3. Deletes
+      phase = "deletes";
       if (payload.deletes.length > 0) {
         await bulkDeleteMutation.mutateAsync({ ids: payload.deletes });
+        deleted = payload.deletes.length;
       }
-      toast({ type: "success", message: `Saved: ${payload.creates.length} created, ${payload.updates.length} updated, ${payload.deletes.length} deleted` });
+      toast({ type: "success", message: `Saved: ${created} created, ${updated} updated, ${deleted} deleted` });
       setBulkMode(false);
-    } catch {
-      toast({ type: "error", message: "Save failed — some operations may not have completed" });
+    } catch (err) {
+      // 부분 실패 가능 — 어디서 멈췄는지 + 에러 메시지를 모달로 명확히 표시
+      setBulkSaveError({
+        phase,
+        details: parseApiError(err, "Unknown error"),
+        partial: { created, updated, deleted },
+      });
     }
   }
 
@@ -392,20 +415,22 @@ export default function SchedulesCalendarView() {
   const shiftsQ = useShifts(isSingleStore ? selectedStores[0] : undefined);
   const monthlyWorkRolesQ = useWorkRoles(isSingleStore ? selectedStores[0] : undefined);
 
-  // 첫 store 자동 선택 (URL store 파라미터가 있으면 우선)
+  // URL store 파라미터 ↔ selectedStores 동기화.
+  // stores 로드 후 + searchParams 변경 시에도 재반영. "all"이면 빈 배열 유지.
+  const urlStoreKey = searchParams.get("store") ?? "";
   useEffect(() => {
-    if (selectedStores.length === 0 && stores.length > 0) {
-      const urlStore = searchParams.get("store");
-      if (urlStore === "all" || !urlStore) {
-        // All mode — 빈 배열 유지
-      } else {
-        const ids = urlStore.split(",").filter((id) => stores.some((s) => s.id === id));
-        if (ids.length > 0) setSelectedStores(ids);
-        else setSelectedStores([stores[0]!.id]);
-      }
+    if (stores.length === 0) return;
+    if (urlStoreKey === "all" || urlStoreKey === "") {
+      if (selectedStores.length > 0) setSelectedStores([]);
+      return;
     }
+    const ids = urlStoreKey.split(",").filter((id) => stores.some((s) => s.id === id));
+    if (ids.length === 0) return;
+    // 이미 같으면 no-op (무한 재동기화 방지)
+    const same = ids.length === selectedStores.length && ids.every((id) => selectedStores.includes(id));
+    if (!same) setSelectedStores(ids);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stores]);
+  }, [stores, urlStoreKey]);
 
   // view / weekStart / selectedDay / selectedStore 변경 시 URL sync.
   // window.history.replaceState 직접 사용 — router.replace는 Next.js navigation을
@@ -473,6 +498,41 @@ export default function SchedulesCalendarView() {
 
   const currentStore = stores.find((s) => s.id === primaryStoreId) ?? stores[0];
 
+  // 스케줄 그리드가 나타내는 "벽시계 시간"의 기준 타임존.
+  // 표시 전용 — schedule.start_time 은 이미 store-local wall-clock string.
+  // All / multi-select 모드면 뷰에 포함된 store 들의 tz 집합을 구해 동일하면 그 값,
+  // 섞였으면 "Multiple" 로 표시.
+  const browserTimezone = typeof Intl !== "undefined"
+    ? Intl.DateTimeFormat().resolvedOptions().timeZone
+    : undefined;
+  const tzAbbrev = (tz: string | undefined | null): string => {
+    if (!tz) return "";
+    try {
+      const dtf = new Intl.DateTimeFormat("en-US", { timeZone: tz, timeZoneName: "short" });
+      const part = dtf.formatToParts(new Date()).find((p) => p.type === "timeZoneName");
+      return part?.value ?? "";
+    } catch { return ""; }
+  };
+  // 현재 뷰에 포함된 store 들의 고유 tz 집합 (All Stores = 전체, 아니면 선택된 것).
+  const viewStoresForTz = isAllStores ? stores : stores.filter((s) => selectedStoreSet.has(s.id));
+  const tzSet = new Set(
+    viewStoresForTz
+      .map((s) => s.timezone ?? currentUser?.organization_timezone ?? "")
+      .filter(Boolean),
+  );
+  const isMultipleTz = tzSet.size > 1;
+  const singleViewTz: string | undefined = tzSet.size === 1 ? [...tzSet][0] : undefined;
+  const storeTimezone = singleViewTz ?? currentUser?.organization_timezone ?? undefined;
+  const tzMismatch = !isMultipleTz && !!storeTimezone && !!browserTimezone && storeTimezone !== browserTimezone;
+  const storeTzAbbrev = tzAbbrev(storeTimezone);
+  const browserTzAbbrev = tzAbbrev(browserTimezone);
+  // tooltip 용 — multi tz 상황에서 어떤 store 가 어떤 tz 인지 보여줌
+  const multiTzTooltip = isMultipleTz
+    ? viewStoresForTz
+        .map((s) => `${s.name}: ${tzAbbrev(s.timezone) || s.timezone || "—"}`)
+        .join(" · ")
+    : "";
+
   // schedule.range → 선택된 모든 store의 설정을 resolve해서 min start / max end
   const resolveStoreIds = useMemo(
     () => isAllStores ? stores.map((s) => s.id) : selectedStores,
@@ -524,7 +584,7 @@ export default function SchedulesCalendarView() {
     return null;
   }, []);
 
-  const { openHour, closeHour } = useMemo(() => {
+  const { openHour, closeHour, configuredOpenHour, configuredCloseHour } = useMemo(() => {
     const DEFAULT_OH = 6;
     const DEFAULT_CH = 23;
     const DAY_KEYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
@@ -545,14 +605,39 @@ export default function SchedulesCalendarView() {
       if (orgR) { globalOh = orgR.start; globalCh = orgR.end; found = true; }
     }
 
+    const configuredOh = found ? Math.floor(globalOh) : DEFAULT_OH;
+    const configuredCh = found ? Math.ceil(globalCh) : DEFAULT_CH;
+
+    // A-7: Daily view는 실제 스케줄 범위로 동적 확장 (클리핑 방지)
+    let effectiveOh = configuredOh;
+    let effectiveCh = configuredCh;
+    if (view === "daily" && selectedDay) {
+      const dayScheds = schedules.filter((s) => s.work_date === selectedDay && matchesStoreFilter(s.store_id));
+      for (const s of dayScheds) {
+        const sH = Math.floor(parseTimeToHours(s.start_time));
+        const eH = Math.ceil(parseTimeToHours(s.end_time));
+        // overnight: end <= start → effective end = end + 24
+        const eff = eH <= sH ? eH + 24 : eH;
+        effectiveOh = Math.min(effectiveOh, sH);
+        effectiveCh = Math.max(effectiveCh, eff);
+      }
+    }
+
     return {
-      openHour: found ? Math.floor(globalOh) : DEFAULT_OH,
-      closeHour: found ? Math.ceil(globalCh) : DEFAULT_CH,
+      openHour: effectiveOh,
+      closeHour: effectiveCh,
+      configuredOpenHour: configuredOh,
+      configuredCloseHour: configuredCh,
     };
-  }, [rangeQueries, orgRangeQ.data, view, selectedDay, extractRange]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rangeQueries, orgRangeQ.data, view, selectedDay, extractRange, schedules, selectedStores, isAllStores]);
+
+  // axis가 configured range 밖으로 확장됐는지 여부 (Daily view에서 경고 표시용)
+  const axisExpandedOutsideRange = view === "daily" && (openHour < configuredOpenHour || closeHour > configuredCloseHour);
 
   function getSchedulesForCell(userId: string, date: string): Schedule[] {
-    // store 필터 제거 — 다른 매장 schedule도 같은 셀에 표시 (ScheduleBlock의 isOtherStore 분기로 dimmed).
+    // 선택 외 store도 같은 셀에 표시 — ScheduleBlock의 isOtherStore dim으로 구분.
+    // All Stores는 전부 "선택됨"으로 취급 (dim 없음).
     return schedules.filter((s) => s.user_id === userId && s.work_date === date);
   }
 
@@ -762,6 +847,11 @@ export default function SchedulesCalendarView() {
   function handleBlockClick(e: React.MouseEvent, sched: Schedule) {
     e.preventDefault();
     e.stopPropagation();
+    // 같은 카드를 다시 클릭하면 메뉴 닫기 (토글)
+    if (contextMenu && contextMenu.blockId === sched.id) {
+      setContextMenu(null);
+      return;
+    }
     setContextMenu({ anchorEl: e.currentTarget as HTMLElement, blockId: sched.id, status: sched.status });
   }
 
@@ -808,6 +898,7 @@ export default function SchedulesCalendarView() {
 
   function closeEditModal() {
     setEditModal({ open: false, mode: "add" });
+    setEditModalError(null);
     // 쿼리 정리
     if (searchParams.get("edit")) {
       router.replace("/schedules", { scroll: false });
@@ -815,6 +906,7 @@ export default function SchedulesCalendarView() {
   }
 
   function handleScheduleEditSave(payload: ScheduleEditPayload) {
+    setEditModalError(null);
     if (editModal.mode === "add") {
       createMutation.mutate({
         user_id: payload.userId,
@@ -829,31 +921,47 @@ export default function SchedulesCalendarView() {
         status: isGMView ? "confirmed" : "requested",
         note: payload.notes || null,
         hourly_rate: payload.hourlyRate,
+        force: payload.force,
       }, {
         onSuccess: closeEditModal,
+        onError: (err) => setEditModalError(parseApiError(err, "Failed to create schedule")),
       });
     } else if (editModal.mode === "edit" && editModal.blockId) {
-      const orig = schedules.find((s) => s.id === editModal.blockId);
-      const userChanged = orig && payload.userId !== orig.user_id;
-      const rateUntouched = orig && payload.hourlyRate === orig.hourly_rate;
-      updateMutation.mutate({
-        id: editModal.blockId,
-        data: {
-          user_id: payload.userId,
-          work_role_id: payload.workRoleId,
-          work_date: payload.date,
-          start_time: payload.startTime,
-          end_time: payload.endTime,
-          break_start_time: payload.breakStartTime,
-          break_end_time: payload.breakEndTime,
-          note: payload.notes || null,
-          // user 변경 + rate 미수정 → null로 보내서 백엔드가 새 user 기준 재계산
-          hourly_rate: (userChanged && rateUntouched) ? null : payload.hourlyRate,
-        },
-      }, {
-        onSuccess: closeEditModal,
-      });
+      submitEditMutation(editModal.blockId, payload, undefined);
     }
+  }
+
+  function submitEditMutation(blockId: string, payload: ScheduleEditPayload, resetChecklist: boolean | undefined) {
+    const orig = schedules.find((s) => s.id === blockId);
+    const userChanged = orig && payload.userId !== orig.user_id;
+    const rateUntouched = orig && payload.hourlyRate === orig.hourly_rate;
+    updateMutation.mutate({
+      id: blockId,
+      data: {
+        user_id: payload.userId,
+        work_role_id: payload.workRoleId,
+        work_date: payload.date,
+        start_time: payload.startTime,
+        end_time: payload.endTime,
+        break_start_time: payload.breakStartTime,
+        break_end_time: payload.breakEndTime,
+        note: payload.notes || null,
+        hourly_rate: (userChanged && rateUntouched) ? null : payload.hourlyRate,
+        force: payload.force,
+        ...(resetChecklist !== undefined ? { reset_checklist: resetChecklist } : {}),
+      },
+    }, {
+      onSuccess: closeEditModal,
+      onError: (err) => {
+        const msg = parseApiError(err, "Failed to update schedule");
+        // 서버가 "Checklist is in_progress/completed..." 400으로 거절 → 확인 후 재전송
+        if (/reset_checklist=true/.test(msg)) {
+          setClResetPrompt({ payload, blockId, message: msg });
+          return;
+        }
+        setEditModalError(msg);
+      },
+    });
   }
 
   // ─── Daily view helper ────────────────────────────────
@@ -861,12 +969,18 @@ export default function SchedulesCalendarView() {
   function getDailyScheduleAtHour(userId: string, hour: number): Schedule | undefined {
     // 같은 시간대 겹치면 현재 매장 우선, 그 다음 다른 매장 (dimmed로 표시).
     // floor(start) <= hour: 12:30 시작도 12시 칸에서 매칭
-    const matches = schedules.filter((s) =>
-      s.user_id === userId &&
-      s.work_date === selectedDay &&
-      Math.floor(parseTimeToHours(s.start_time)) <= hour &&
-      Math.ceil(parseTimeToHours(s.end_time)) > hour,
-    );
+    // Overnight(end<=start): work_date 기준 시작일 셀만 표시 → [floor(start), 24) 범위
+    const matches = schedules.filter((s) => {
+      if (s.user_id !== userId || s.work_date !== selectedDay) return false;
+      const startH = parseTimeToHours(s.start_time);
+      const endH = parseTimeToHours(s.end_time);
+      const floorStart = Math.floor(startH);
+      if (endH > startH) {
+        return floorStart <= hour && Math.ceil(endH) > hour;
+      }
+      // overnight: 시작 시간 이후 ~ 자정 전까지만 현재 날짜 타임라인에 표시
+      return floorStart <= hour;
+    });
     return matches.find((s) => matchesStoreFilter(s.store_id)) ?? matches[0];
   }
 
@@ -906,9 +1020,6 @@ export default function SchedulesCalendarView() {
         (s.hourly_rate == null || s.hourly_rate === 0),
     );
   }
-
-  // ─── Store hours label ────────────────────────────────
-  const storeHoursLabel = `${openHour > 12 ? `${openHour - 12}PM` : `${openHour}AM`} - ${closeHour > 12 ? `${closeHour - 12}PM` : `${closeHour}AM`}`;
 
   // ─── Render ───────────────────────────────────────────
 
@@ -1037,6 +1148,8 @@ export default function SchedulesCalendarView() {
             selectedStoreIds={selectedStores}
             inheritedRate={editInheritedRate}
             showCost={isGMView}
+            errorMessage={editModalError}
+            onDismissError={() => setEditModalError(null)}
             onClose={closeEditModal}
             onSave={handleScheduleEditSave}
             isSaving={createMutation.isPending || updateMutation.isPending}
@@ -1054,9 +1167,17 @@ export default function SchedulesCalendarView() {
       {/* Confirm Dialog */}
       {(() => {
         const t = confirmDialog.type;
+        // revert 는 confirmed/cancelled 양쪽 모두에서 호출됨 → 현재 schedule status 로 문구 선택
+        const targetBlock = confirmDialog.blockId
+          ? schedules.find((s) => s.id === confirmDialog.blockId)
+          : undefined;
+        const revertingCancelled = t === "revert" && targetBlock?.status === "cancelled";
+        const revertCfg = revertingCancelled
+          ? { title: "Restore Schedule?", message: "This cancelled schedule will be restored to requested status and will need to be re-confirmed.", label: "Restore" }
+          : { title: "Revert to Requested?", message: "This confirmed schedule will be reverted to requested status and will need to be re-confirmed.", label: "Revert" };
         const cfg: Record<typeof t, { title: string; message: string; label: string; variant: "danger" | "primary"; reason: boolean; reasonLabel?: string }> = {
           delete:  { title: "Delete Schedule?", message: "This schedule will be permanently deleted. This action cannot be undone.", label: "Delete", variant: "danger", reason: false },
-          revert:  { title: "Revert to Requested?", message: "This confirmed schedule will be reverted to requested status and will need to be re-confirmed.", label: "Revert", variant: "primary", reason: false },
+          revert:  { ...revertCfg, variant: "primary", reason: false },
           reject:  { title: "Reject Schedule", message: "This will mark the schedule as rejected. You can optionally provide a reason.", label: "Reject", variant: "danger", reason: true, reasonLabel: "Rejection reason (optional)" },
           cancel:  { title: "Cancel Confirmed Schedule", message: "This will cancel the confirmed schedule. You can optionally provide a reason.", label: "Cancel Schedule", variant: "danger", reason: true, reasonLabel: "Cancellation reason (optional)" },
           confirm: { title: "Confirm Schedule?", message: "This will mark the schedule as confirmed and notify the staff member.", label: "Confirm", variant: "primary", reason: false },
@@ -1091,21 +1212,84 @@ export default function SchedulesCalendarView() {
       {/* Legend Modal */}
       <LegendModal open={legendOpen} onClose={() => setLegendOpen(false)} />
 
+      {/* 체크리스트 진행 중 → reset 동의 확인 */}
+      <ConfirmDialog
+        open={clResetPrompt !== null}
+        title="Checklist in progress"
+        message={
+          (clResetPrompt?.message ?? "") +
+          "\n\nReset the checklist with the new setup? Existing progress will be lost."
+        }
+        confirmLabel="Reset & save"
+        confirmVariant="danger"
+        onConfirm={() => {
+          if (clResetPrompt) submitEditMutation(clResetPrompt.blockId, clResetPrompt.payload, true);
+          setClResetPrompt(null);
+        }}
+        onCancel={() => setClResetPrompt(null)}
+      />
+
+      {/* Bulk Save 부분 실패 모달 */}
+      <ConfirmDialog
+        open={bulkSaveError !== null}
+        title="Bulk Save Partially Failed"
+        message={
+          bulkSaveError
+            ? `Failed during "${bulkSaveError.phase}" phase. ` +
+              `Completed so far — created: ${bulkSaveError.partial.created}, updated: ${bulkSaveError.partial.updated}, deleted: ${bulkSaveError.partial.deleted}. ` +
+              `Error: ${bulkSaveError.details}`
+            : ""
+        }
+        confirmLabel="Close"
+        confirmVariant="danger"
+        onConfirm={() => setBulkSaveError(null)}
+        onCancel={() => setBulkSaveError(null)}
+      />
+
 
       <div className="px-3 sm:px-4 lg:px-6 pb-4">
         {/* Row 1: Title + Stats */}
         <div className="flex items-center gap-3 md:gap-5 pt-4 pb-1 min-h-[40px]">
           <h1 className="text-[22px] font-semibold text-[var(--color-text)] shrink-0">Schedules</h1>
+          {isMultipleTz ? (
+            <span
+              className="text-[11px] font-medium px-2 py-0.5 rounded-md shrink-0 bg-[var(--color-warning-muted)] text-[var(--color-warning)]"
+              title={`Each card's time is shown in its own store timezone. ${multiTzTooltip}`}
+            >
+              Multiple timezones
+            </span>
+          ) : storeTimezone && (
+            <span
+              className={`text-[11px] font-medium px-2 py-0.5 rounded-md shrink-0 ${
+                tzMismatch
+                  ? "bg-[var(--color-warning-muted)] text-[var(--color-warning)]"
+                  : "bg-[var(--color-surface-hover)] text-[var(--color-text-muted)]"
+              }`}
+              title={
+                tzMismatch
+                  ? `Schedule times shown in ${storeTimezone} (${storeTzAbbrev}). Your browser is in ${browserTimezone} (${browserTzAbbrev}).`
+                  : `All times in ${storeTimezone}`
+              }
+            >
+              {storeTzAbbrev || storeTimezone}
+              {tzMismatch && browserTzAbbrev ? ` · viewing from ${browserTzAbbrev}` : ""}
+            </span>
+          )}
           {schedulesQ.isLoading && <span className="text-[11px] text-[var(--color-text-muted)]">Loading…</span>}
           <div className="hidden md:flex items-center gap-3 text-[13px] text-[var(--color-text-secondary)]">
-            <span>Staff: <strong className="text-[14px] text-[var(--color-text)]">{filteredUsers.length}</strong></span>
+            <span title="Staff with at least one schedule in range">Staff: <strong className="text-[14px] text-[var(--color-text)]">{filteredUsers.length}</strong></span>
             <span className="w-px h-4 bg-[var(--color-border)]" />
-            <span>Scheduled: <strong className="text-[14px] text-[var(--color-text)]">{totals.tc}</strong></span>
+            <span title="Confirmed / approved schedules">Scheduled: <strong className="text-[14px] text-[var(--color-text)]">{totals.tc}</strong></span>
             <span className="w-px h-4 bg-[var(--color-border)]" />
-            <span>Pending: <strong className="text-[14px] text-[var(--color-warning)]">{totals.tp}</strong></span>
+            <span title="Requested schedules awaiting approval">Pending: <strong className="text-[14px] text-[var(--color-warning)]">{totals.tp}</strong></span>
             {isGMView && <>
               <span className="w-px h-4 bg-[var(--color-border)]" />
-              <span>Cost: <strong className="text-[14px] text-[var(--color-success)]">${totals.lc.toFixed(2)}</strong>{totals.lp > 0 && <strong className="text-[14px] text-[var(--color-warning)]"> +${totals.lp.toFixed(2)}</strong>}</span>
+              <span title="Confirmed cost (approved) + pending cost (awaiting approval)">Cost: <strong className="text-[14px] text-[var(--color-success)]">${totals.lc.toFixed(2)}</strong>{totals.lp > 0 && <strong className="text-[14px] text-[var(--color-warning)]" title="Additional pending cost if approved"> +${totals.lp.toFixed(2)}</strong>}</span>
+              {totals.hc > 0 && (
+                <span className="text-[var(--color-text-muted)]" title="Average hourly rate = total cost / total hours across all confirmed schedules">
+                  (avg ${(totals.lc / totals.hc).toFixed(2)}/h)
+                </span>
+              )}
             </>}
           </div>
         </div>
@@ -1253,6 +1437,20 @@ export default function SchedulesCalendarView() {
           />
         )}
 
+        {/* A-7: Daily axis expanded outside configured range — 경고 배너 */}
+        {axisExpandedOutsideRange && (
+          <div className="bg-[var(--color-warning-muted)] border border-[var(--color-warning)]/40 rounded-lg px-3 py-2 flex items-center gap-2 text-[12px] text-[var(--color-warning)]">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+              <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+              <line x1="12" y1="9" x2="12" y2="13"/>
+              <line x1="12" y1="17" x2="12.01" y2="17"/>
+            </svg>
+            <span>
+              Some schedules fall outside configured store hours ({formatHourLabel(configuredOpenHour)}–{formatHourLabel(configuredCloseHour)}). Showing expanded {formatHourLabel(openHour)}–{formatHourLabel(closeHour)} to fit all shifts.
+            </span>
+          </div>
+        )}
+
         {/* Table Grid (Weekly / Daily) */}
         {view !== "monthly" && <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl overflow-auto flex-1" style={{ maxHeight: "calc(100vh - 220px)" }}>
           <div style={{ minWidth: 220 + columns.length * (view === "weekly" ? 120 : 52) + 90 }}>
@@ -1316,6 +1514,9 @@ export default function SchedulesCalendarView() {
                                       showCost={isGMView}
                                       attendance={getAttendanceFor(s.id)}
                                       currentStoreId={isAllStores || selectedStores.length > 1 ? "__all__" : primaryStoreId}
+                                      isOtherStore={!isAllStores && selectedStores.length > 1 && !selectedStoreSet.has(s.store_id)}
+                                      isActive={contextMenu?.blockId === s.id}
+                                      storeTimezone={stores.find((st) => st.id === s.store_id)?.timezone ?? currentUser?.organization_timezone}
                                       onClick={(e) => handleBlockClick(e, s)}
                                     />
                                   ))}
@@ -1350,11 +1551,18 @@ export default function SchedulesCalendarView() {
                       </>
                     ) : (
                       <td colSpan={closeHour - openHour} className="p-0 relative">
-                        {/* Border grid overlay (시간 구분선) */}
+                        {/* Border grid overlay (시간 구분선) + 익일(h>=24) 컬럼 옅은 배경 + 자정 경계 굵은 divider */}
                         <div className="absolute inset-0 grid pointer-events-none" style={{ gridTemplateColumns: `repeat(${closeHour - openHour}, 1fr)` }}>
-                          {dailyHourRange.map((hr) => (
-                            <div key={hr} className="border-r border-[var(--color-border)]" />
-                          ))}
+                          {dailyHourRange.map((hr) => {
+                            const isNextDay = hr >= 24;
+                            const isMidnightBoundary = hr === 24;
+                            return (
+                              <div
+                                key={hr}
+                                className={`${isMidnightBoundary ? "border-l-2 border-l-[var(--color-accent)] " : ""}border-r border-[var(--color-border)] ${isNextDay ? "bg-[var(--color-bg)]" : ""}`}
+                              />
+                            );
+                          })}
                         </div>
                         {/* Content: flex segments (normal flow → 높이 자동 확장) */}
                         {(() => {
@@ -1370,8 +1578,12 @@ export default function SchedulesCalendarView() {
                           for (const s of userScheds) {
                             if (seen.has(s.id)) continue;
                             seen.add(s.id);
-                            const sStart = Math.max(0, parseTimeToHours(s.start_time) * 60 - openHour * 60);
-                            const sEnd = Math.min(totalMin, parseTimeToHours(s.end_time) * 60 - openHour * 60);
+                            const startH = parseTimeToHours(s.start_time);
+                            const endH = parseTimeToHours(s.end_time);
+                            const sStart = Math.max(0, startH * 60 - openHour * 60);
+                            // Overnight(end<=start): 시작일 셀에서는 [start → close)까지만 표시
+                            const rawEndMin = endH > startH ? endH * 60 - openHour * 60 : totalMin;
+                            const sEnd = Math.min(totalMin, rawEndMin);
                             if (sEnd <= sStart) continue;
                             if (sStart > cursor) segments.push({ type: "gap", startMin: cursor, endMin: sStart });
                             segments.push({ type: "sched", sched: s, startMin: sStart, endMin: sEnd });
@@ -1414,6 +1626,9 @@ export default function SchedulesCalendarView() {
                                       showCost={isGMView}
                                       attendance={getAttendanceFor(seg.sched.id)}
                                       currentStoreId={isAllStores || selectedStores.length > 1 ? "__all__" : primaryStoreId}
+                                      isOtherStore={!isAllStores && selectedStores.length > 1 && !selectedStoreSet.has(seg.sched.store_id)}
+                                      isActive={contextMenu?.blockId === seg.sched.id}
+                                      storeTimezone={stores.find((st) => st.id === seg.sched.store_id)?.timezone ?? currentUser?.organization_timezone}
                                       onClick={(e) => handleBlockClick(e, seg.sched)}
                                     />
                                   </div>

@@ -84,6 +84,7 @@ interface ScheduleModification {
   endTime?: string;
   breakStartTime?: string | null;
   breakEndTime?: string | null;
+  resetChecklist?: boolean;
 }
 
 interface SavePayload {
@@ -153,7 +154,7 @@ export default function BulkScheduleView({
   type ClipboardType = "row" | "column" | "block";
   type ClipboardData = {
     type: ClipboardType;
-    entries: { workRoleId: string | null; workRoleName: string | null; startTime: string; endTime: string; breakStartTime: string | null; breakEndTime: string | null; dayIndex?: number }[];
+    entries: { workRoleId: string | null; workRoleName: string | null; startTime: string; endTime: string; breakStartTime: string | null; breakEndTime: string | null; dayIndex?: number; sourceUserId?: string }[];
     sourceUserId?: string;
     sourceDate?: string;
   };
@@ -348,10 +349,10 @@ export default function BulkScheduleView({
     const result: ClipboardData["entries"] = [];
     for (const s of getSchedulesForCell(userId, date).filter((x) => !isDeleted(x.id))) {
       const eff = getEffectiveSchedule(s);
-      result.push({ workRoleId: eff.work_role_id, workRoleName: eff.work_role_name, startTime: eff.start_time ?? "", endTime: eff.end_time ?? "", breakStartTime: eff.break_start_time, breakEndTime: eff.break_end_time, dayIndex });
+      result.push({ workRoleId: eff.work_role_id, workRoleName: eff.work_role_name, startTime: eff.start_time ?? "", endTime: eff.end_time ?? "", breakStartTime: eff.break_start_time, breakEndTime: eff.break_end_time, dayIndex, sourceUserId: userId });
     }
     for (const p of getPreviewsForCell(userId, date)) {
-      result.push({ workRoleId: p.workRoleId, workRoleName: p.workRoleName, startTime: p.startTime, endTime: p.endTime, breakStartTime: p.breakStartTime, breakEndTime: p.breakEndTime, dayIndex });
+      result.push({ workRoleId: p.workRoleId, workRoleName: p.workRoleName, startTime: p.startTime, endTime: p.endTime, breakStartTime: p.breakStartTime, breakEndTime: p.breakEndTime, dayIndex, sourceUserId: userId });
     }
     return result;
   }
@@ -526,7 +527,7 @@ export default function BulkScheduleView({
     toast({ type: "success", message: `${entries.length} previews added` });
   }
 
-  function handleEditApply(updates: { id: string; workRoleId: string | null | undefined; startTime: string | undefined; endTime: string | undefined; breakStartTime?: string; breakEndTime?: string }[]) {
+  function handleEditApply(updates: { id: string; workRoleId: string | null | undefined; startTime: string | undefined; endTime: string | undefined; breakStartTime?: string; breakEndTime?: string; resetChecklist?: boolean }[]) {
     pushDataSnapshot();
     setModifiedSchedules((prev) => {
       const next = new Map(prev);
@@ -554,6 +555,7 @@ export default function BulkScheduleView({
             ...(u.endTime && { endTime: u.endTime }),
             ...(u.breakStartTime !== undefined && { breakStartTime: u.breakStartTime || null }),
             ...(u.breakEndTime !== undefined && { breakEndTime: u.breakEndTime || null }),
+            ...(u.resetChecklist !== undefined && { resetChecklist: u.resetChecklist }),
           });
         }
       }
@@ -741,6 +743,8 @@ export default function BulkScheduleView({
         break_end_time: e.breakEndTime,
         net_work_minutes: 0,
         hourly_rate: 0,
+        effective_rate: null,
+        effective_rate_source: null,
         status: "draft" as const,
         submitted_at: null,
         is_modified: false,
@@ -990,20 +994,50 @@ export default function BulkScheduleView({
                               <button type="button" onClick={(e) => {
                                 e.stopPropagation();
                                 pushDataSnapshot();
-                                // 열 붙여넣기: 각 직원에게 clipboard 내용 붙여넣기
                                 const newEntries: PreviewEntry[] = [];
-                                for (const u of filteredUsers) {
+                                const visibleIds = new Set(filteredUsers.map((u) => u.id));
+                                if (clipboard.type === "column") {
+                                  // 열 → 열: 원본 column의 각 직원 스케줄을 "같은 직원 행"에 붙여넣기.
+                                  // 원본 직원이 현재 필터에서 숨겨져 있으면 skip.
+                                  const bySource = new Map<string, ClipboardData["entries"]>();
                                   for (const entry of clipboard.entries) {
-                                    newEntries.push({
-                                      tempId: `paste-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-                                      userId: u.id, storeId, workRoleId: entry.workRoleId, workRoleName: entry.workRoleName,
-                                      workDate: day.date, startTime: entry.startTime, endTime: entry.endTime,
-                                      breakStartTime: entry.breakStartTime, breakEndTime: entry.breakEndTime,
-                                    });
+                                    const sid = entry.sourceUserId;
+                                    if (!sid || !visibleIds.has(sid)) continue;
+                                    const arr = bySource.get(sid) ?? [];
+                                    arr.push(entry);
+                                    bySource.set(sid, arr);
                                   }
+                                  for (const [uid, entries] of bySource) {
+                                    for (const entry of entries) {
+                                      newEntries.push({
+                                        tempId: `paste-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                                        userId: uid, storeId, workRoleId: entry.workRoleId, workRoleName: entry.workRoleName,
+                                        workDate: day.date, startTime: entry.startTime, endTime: entry.endTime,
+                                        breakStartTime: entry.breakStartTime, breakEndTime: entry.breakEndTime,
+                                      });
+                                    }
+                                  }
+                                  setPreviewEntries((prev) => [...prev, ...newEntries]);
+                                  if (newEntries.length === 0) {
+                                    toast({ type: "error", message: "No matching staff visible in current filter" });
+                                  } else {
+                                    toast({ type: "success", message: `Pasted ${newEntries.length} schedule${newEntries.length !== 1 ? "s" : ""} to ${bySource.size} staff` });
+                                  }
+                                } else {
+                                  // row/block 클립보드를 column target에 붙여넣기: 보이는 모든 직원에게 동일 내용 배포
+                                  for (const u of filteredUsers) {
+                                    for (const entry of clipboard.entries) {
+                                      newEntries.push({
+                                        tempId: `paste-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                                        userId: u.id, storeId, workRoleId: entry.workRoleId, workRoleName: entry.workRoleName,
+                                        workDate: day.date, startTime: entry.startTime, endTime: entry.endTime,
+                                        breakStartTime: entry.breakStartTime, breakEndTime: entry.breakEndTime,
+                                      });
+                                    }
+                                  }
+                                  setPreviewEntries((prev) => [...prev, ...newEntries]);
+                                  toast({ type: "success", message: `Pasted to ${filteredUsers.length} staff` });
                                 }
-                                setPreviewEntries((prev) => [...prev, ...newEntries]);
-                                toast({ type: "success", message: `Pasted to ${filteredUsers.length} staff` });
                               }}
                                 title="Paste to column"
                                 className="w-7 h-7 rounded-lg flex items-center justify-center text-[var(--color-accent)] hover:bg-[var(--color-accent-muted)] transition-colors">
@@ -1554,7 +1588,7 @@ function SaveReviewModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/60" />
       <div className="relative bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl shadow-2xl w-[min(640px,96vw)] max-h-[85vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">

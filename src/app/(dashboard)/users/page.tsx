@@ -23,8 +23,14 @@ import { useToast } from "@/components/ui/Toast";
 import { formatDate, parseApiError } from "@/lib/utils";
 import { useTimezone } from "@/hooks/useTimezone";
 import { usePermissions } from "@/hooks/usePermissions";
-import { PERMISSIONS } from "@/lib/permissions";
+import { PERMISSIONS, ROLE_PRIORITY } from "@/lib/permissions";
 import type { User, Role, Store } from "@/types";
+
+/** 매장 배정 체크 상태 / Store assignment check state */
+interface StoreCheck {
+  is_work: boolean;
+  is_manager: boolean;
+}
 
 /** 사용자 생성 폼 데이터 / User creation form data */
 interface UserFormData {
@@ -34,6 +40,8 @@ interface UserFormData {
   email: string;
   phone: string;
   role_id: string;
+  hourly_rate: string;
+  store_checks: Record<string, StoreCheck>;
 }
 
 /** 초기 폼 상태 / Initial form state */
@@ -44,6 +52,8 @@ const INITIAL_FORM: UserFormData = {
   email: "",
   phone: "",
   role_id: "",
+  hourly_rate: "",
+  store_checks: {},
 };
 
 const STORAGE_KEY = "showInactiveUsers";
@@ -222,6 +232,14 @@ export default function UsersPage(): React.ReactElement {
     )
       return;
     try {
+      const store_assignments = Object.entries(createForm.store_checks)
+        .filter(([, v]) => v.is_work || v.is_manager)
+        .map(([storeId, v]) => ({
+          store_id: storeId,
+          is_manager: v.is_manager,
+          is_work_assignment: v.is_work,
+        }));
+      const parsedRate = createForm.hourly_rate.trim();
       await createUser.mutateAsync({
         username: createForm.username.trim(),
         password: createForm.password,
@@ -229,6 +247,8 @@ export default function UsersPage(): React.ReactElement {
         email: createForm.email.trim() || undefined,
         phone: createForm.phone.trim() || undefined,
         role_id: createForm.role_id,
+        hourly_rate: parsedRate ? Number(parsedRate) : null,
+        store_assignments: store_assignments.length > 0 ? store_assignments : undefined,
       });
       toast({ type: "success", message: "Staff member created successfully!" });
       setIsCreateOpen(false);
@@ -621,6 +641,33 @@ export default function UsersPage(): React.ReactElement {
           setCreateForm(INITIAL_FORM);
         }}
         title="Add Staff Member"
+        closeOnBackdrop={false}
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setIsCreateOpen(false);
+                setCreateForm(INITIAL_FORM);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleCreate}
+              isLoading={createUser.isPending}
+              disabled={
+                !createForm.username.trim() ||
+                !createForm.password.trim() ||
+                !createForm.full_name.trim() ||
+                !createForm.role_id
+              }
+            >
+              Create
+            </Button>
+          </div>
+        }
       >
         <div className="space-y-4">
           <Input
@@ -698,30 +745,77 @@ export default function UsersPage(): React.ReactElement {
               }))
             }
           />
-          <div className="flex justify-end gap-2 pt-2">
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setIsCreateOpen(false);
-                setCreateForm(INITIAL_FORM);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              variant="primary"
-              onClick={handleCreate}
-              isLoading={createUser.isPending}
-              disabled={
-                !createForm.username.trim() ||
-                !createForm.password.trim() ||
-                !createForm.full_name.trim() ||
-                !createForm.role_id
-              }
-            >
-              Create
-            </Button>
-          </div>
+          <Input
+            label="Hourly Rate (optional)"
+            type="number"
+            min={0}
+            step={0.01}
+            placeholder="Leave empty to use store/org default"
+            value={createForm.hourly_rate}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setCreateForm((prev: UserFormData) => ({
+                ...prev,
+                hourly_rate: e.target.value,
+              }))
+            }
+          />
+          {stores.length > 0 && (() => {
+            const selectedRole = roleList.find((r) => r.id === createForm.role_id);
+            const selectedRolePriority = selectedRole?.priority ?? ROLE_PRIORITY.STAFF;
+            const canManage = selectedRolePriority <= ROLE_PRIORITY.SV;
+            return (
+              <div>
+                <label className="mb-2 block text-sm font-medium text-text">
+                  Store Assignments
+                </label>
+                <div className="space-y-1 rounded border border-border bg-surface p-2">
+                  <div className="grid grid-cols-[1fr_70px_70px] gap-2 px-2 pb-1 text-xs text-text-muted">
+                    <span>Store</span>
+                    <span className="text-center">Work</span>
+                    <span className="text-center">Manager</span>
+                  </div>
+                  {stores.map((store) => {
+                    const check = createForm.store_checks[store.id] ?? { is_work: false, is_manager: false };
+                    return (
+                      <div key={store.id} className="grid grid-cols-[1fr_70px_70px] items-center gap-2 rounded px-2 py-1 hover:bg-surface-hover">
+                        <span className="text-sm text-text">{store.name}</span>
+                        <input
+                          type="checkbox"
+                          className="mx-auto"
+                          checked={check.is_work}
+                          onChange={(e) =>
+                            setCreateForm((prev: UserFormData) => ({
+                              ...prev,
+                              store_checks: {
+                                ...prev.store_checks,
+                                [store.id]: { ...check, is_work: e.target.checked },
+                              },
+                            }))
+                          }
+                        />
+                        <input
+                          type="checkbox"
+                          className="mx-auto disabled:cursor-not-allowed disabled:opacity-40"
+                          checked={check.is_manager}
+                          disabled={!canManage}
+                          title={canManage ? undefined : "Only SV/GM/Owner can be a manager"}
+                          onChange={(e) =>
+                            setCreateForm((prev: UserFormData) => ({
+                              ...prev,
+                              store_checks: {
+                                ...prev.store_checks,
+                                [store.id]: { ...check, is_manager: e.target.checked },
+                              },
+                            }))
+                          }
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
         </div>
       </Modal>
     </div>

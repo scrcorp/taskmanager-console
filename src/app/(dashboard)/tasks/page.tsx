@@ -344,6 +344,7 @@ export default function TasksPage(): React.ReactElement {
         onClose={() => setIsCreateOpen(false)}
         title="Create Task"
         size="lg"
+        closeOnBackdrop={false}
       >
         <div className="flex flex-col gap-4">
           <Input

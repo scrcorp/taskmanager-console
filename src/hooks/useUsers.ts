@@ -82,6 +82,9 @@ interface CreateUserData {
   phone?: string;
   role_id: string;
   store_ids?: string[];
+  hourly_rate?: number | null;
+  /** 생성 직후 Store Assignment 상세 (각 매장별 Manager/Work 플래그) */
+  store_assignments?: { store_id: string; is_manager: boolean; is_work_assignment: boolean }[];
 }
 
 /**
@@ -99,11 +102,13 @@ export const useCreateUser = (): UseMutationResult<
   const queryClient: QueryClient = useQueryClient();
   return useMutation<User, Error, CreateUserData>({
     mutationFn: async (data: CreateUserData): Promise<User> => {
-      const response: AxiosResponse<User> = await api.post(
-        "/admin/users",
-        data,
-      );
-      return response.data;
+      const { store_assignments, ...body } = data;
+      const response: AxiosResponse<User> = await api.post("/admin/users", body);
+      const user = response.data;
+      if (store_assignments && store_assignments.length > 0) {
+        await api.put(`/admin/users/${user.id}/stores`, { assignments: store_assignments });
+      }
+      return user;
     },
     onSuccess: (newUser: User): void => {
       queryClient.setQueriesData<User[]>(
@@ -331,7 +336,7 @@ export const useRemoveUserStore = (): UseMutationResult<
 /** 매장 배정 일괄 저장 요청 데이터 */
 interface SyncUserStoresData {
   userId: string;
-  assignments: { store_id: string; is_manager: boolean }[];
+  assignments: { store_id: string; is_manager: boolean; is_work_assignment: boolean }[];
 }
 
 /** 매장 배정 일괄 저장 훅 */

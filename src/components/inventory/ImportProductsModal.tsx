@@ -143,7 +143,7 @@ export function ImportProductsModal({ isOpen, onClose }: ImportProductsModalProp
   };
 
   return (
-    <Modal isOpen={isOpen} onClose={handleClose} title="Import Products from Excel" size="lg">
+    <Modal isOpen={isOpen} onClose={handleClose} title="Import Products from Excel" size="lg" closeOnBackdrop={false}>
       <div className="flex flex-col gap-5">
         {step === 1 && !result && (
           <>

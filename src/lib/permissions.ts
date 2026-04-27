@@ -149,7 +149,7 @@ export const MENU_PERMISSIONS: Record<string, string> = {
   "/evaluations": PERMISSIONS.EVALUATIONS_READ,
   "/daily-reports": PERMISSIONS.DAILY_REPORTS_READ,
   "/inventory": PERMISSIONS.INVENTORY_READ,
-  "/settings": PERMISSIONS.ORG_UPDATE,
+  "/settings": PERMISSIONS.ORG_READ,
   "/settings/roles": PERMISSIONS.ROLES_READ,
   "/settings/attendance-devices": PERMISSIONS.ATTENDANCE_DEVICES_READ,
 };

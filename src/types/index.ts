@@ -57,6 +57,7 @@ export interface Store {
 
 export interface UserStoreAssignment extends Store {
   is_manager: boolean;
+  is_work_assignment: boolean;
 }
 
 export interface StoreDetail extends Store {
@@ -563,7 +564,7 @@ export interface Attendance {
   scheduled_end: string | null;
   /** store tz 기준 "HH:MM" (서버 pre-format). */
   scheduled_end_display?: string | null;
-  status: "not_yet" | "working" | "on_break" | "late" | "clocked_out" | "no_show";
+  status: "upcoming" | "soon" | "working" | "on_break" | "late" | "clocked_out" | "no_show" | "cancelled";
   anomalies: string[] | null;
   total_work_minutes: number | null;
   total_break_minutes: number | null;
@@ -589,7 +590,7 @@ export interface AttendanceCorrection {
   field_name: string;
   original_value: string | null;
   corrected_value: string;
-  reason: string;
+  reason: string | null;
   corrected_by: string;
   corrected_by_name: string | null;
   created_at: string;
@@ -620,11 +621,29 @@ export interface AttendanceFilters {
 }
 
 /** 근태 수정 요청 타입.
- *  Attendance correction request payload. */
+ *  Attendance correction request payload.
+ *  field_name: clock_in | clock_out | break_start | break_end | status
+ *  corrected_value: ISO datetime (시간 필드) 또는 status 문자열
+ *  reason: optional */
 export interface AttendanceCorrectionRequest {
   field_name: string;
   corrected_value: string;
-  reason: string;
+  reason?: string | null;
+}
+
+/** Break session 추가 요청 타입. */
+export interface BreakSessionCreateRequest {
+  started_at: string; // ISO
+  ended_at?: string | null;
+  break_type: "paid_short" | "unpaid_long";
+}
+
+/** Break session 수정 요청 타입. None 인 필드는 변경하지 않음. */
+export interface BreakSessionUpdateRequest {
+  started_at?: string | null;
+  ended_at?: string | null;
+  break_type?: "paid_short" | "unpaid_long" | null;
+  clear_ended_at?: boolean;
 }
 
 // Evaluation
@@ -984,8 +1003,12 @@ export interface Schedule {
   break_start_time: string | null;
   break_end_time: string | null;
   net_work_minutes: number;
-  /** Effective hourly rate for labor cost calculation (org → store → user → schedule override cascade) */
+  /** 저장된 스냅샷 시급 (0이면 override 없음) */
   hourly_rate: number;
+  /** Cascade(user → store → org)로 계산한 실효 시급. redact 시 null. */
+  effective_rate: number | null;
+  /** effective_rate 출처 레이어 */
+  effective_rate_source: "schedule" | "user" | "store" | "org" | null;
   status: "draft" | "requested" | "confirmed" | "rejected" | "cancelled" | "deleted";
   submitted_at: string | null;
   is_modified: boolean;
@@ -1021,6 +1044,12 @@ export interface ScheduleCreate {
   force?: boolean;
 }
 
+export interface ScheduleValidation {
+  valid: boolean;
+  warnings: string[];
+  errors: string[];
+}
+
 export interface ScheduleBulkCreate {
   entries: ScheduleCreate[];
   skip_on_conflict?: boolean;
@@ -1046,6 +1075,11 @@ export interface ScheduleUpdate {
   hourly_rate?: number | null;
   note?: string | null;
   force?: boolean;
+  /** user_id/work_role_id 변경 시 체크리스트 처리:
+   *   - undefined: 진행 중이면 400으로 거절됨 (프론트가 사용자 확인 후 재전송)
+   *   - true: 진행 중이어도 강제 재생성
+   *   - false: 기존 CL 유지 (stale 허용) */
+  reset_checklist?: boolean;
 }
 
 // ─── Bulk Schedule ────────────────────────────────────────────────────────────
@@ -1094,6 +1128,7 @@ export interface BulkUpdateItem {
   break_end_time?: string | null;
   note?: string | null;
   hourly_rate?: number | null;
+  reset_checklist?: boolean | null;
 }
 
 export interface BulkUpdateRequest {

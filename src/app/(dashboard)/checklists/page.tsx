@@ -875,6 +875,7 @@ export default function ChecklistsPage(): React.ReactElement {
           setNewPositionName("");
         }}
         title="Create Checklist Template"
+        closeOnBackdrop={false}
       >
         <div className="space-y-4">
           {/* 제목 프리뷰 — 맨 위에 표시, 선택할 때마다 점진적으로 빌드 */}
@@ -1102,6 +1103,7 @@ export default function ChecklistsPage(): React.ReactElement {
         }}
         title="Bulk Add Checklist Items"
         size="lg"
+        closeOnBackdrop={false}
       >
         <div className="space-y-4">
           <div>
@@ -1210,6 +1212,7 @@ export default function ChecklistsPage(): React.ReactElement {
           setItemCreateForm(INITIAL_ITEM_FORM);
         }}
         title="Add Checklist Item"
+        closeOnBackdrop={false}
       >
         <div className="space-y-4">
           <Input
@@ -1377,6 +1380,7 @@ export default function ChecklistsPage(): React.ReactElement {
           setItemEditForm(INITIAL_ITEM_FORM);
         }}
         title="Edit Checklist Item"
+        closeOnBackdrop={false}
       >
         <div className="space-y-4">
           <Input
@@ -1562,6 +1566,7 @@ export default function ChecklistsPage(): React.ReactElement {
         }}
         title="Import Checklists from Excel"
         size="lg"
+        closeOnBackdrop={false}
       >
         <div className="space-y-4">
           {!importResult ? (

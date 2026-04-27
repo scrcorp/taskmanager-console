@@ -30,7 +30,7 @@ interface BlockEditModalProps {
   selectedSchedules: Schedule[];
   workRoles: WorkRole[];
   isSubmitting: boolean;
-  onApply: (updates: { id: string; workRoleId: string | null | undefined; startTime: string | undefined; endTime: string | undefined; breakStartTime?: string; breakEndTime?: string }[]) => void;
+  onApply: (updates: { id: string; workRoleId: string | null | undefined; startTime: string | undefined; endTime: string | undefined; breakStartTime?: string; breakEndTime?: string; resetChecklist?: boolean }[]) => void;
   onClose: () => void;
 }
 
@@ -72,6 +72,8 @@ export function BlockEditModal({
   const [globalEnd, setGlobalEnd] = useState("");
   const [globalBreakStart, setGlobalBreakStart] = useState("");
   const [globalBreakEnd, setGlobalBreakEnd] = useState("");
+  /** Work Role 변경 시 각 스케줄의 체크리스트 인스턴스를 새 템플릿으로 교체할지 여부 */
+  const [resetChecklists, setResetChecklists] = useState<boolean>(true);
 
   useEffect(() => {
     if (open) {
@@ -82,6 +84,7 @@ export function BlockEditModal({
       setGlobalEnd("");
       setGlobalBreakStart("");
       setGlobalBreakEnd("");
+      setResetChecklists(true);
     }
   }, [open]);
 
@@ -139,6 +142,7 @@ export function BlockEditModal({
       .filter((s) => !unchecked.has(s.id))
       .map((s) => {
         const ov = overrides.get(s.id) ?? {};
+        const workRoleChanged = "workRoleId" in ov && (ov.workRoleId || null) !== (s.work_role_id ?? null);
         // Only send fields that were actually changed
         return {
           id: s.id,
@@ -147,6 +151,8 @@ export function BlockEditModal({
           endTime: ov.endTime,
           breakStartTime: ov.breakStartTime,
           breakEndTime: ov.breakEndTime,
+          // work_role이 실제로 변경된 행에만 reset_checklist 플래그 전달
+          resetChecklist: workRoleChanged ? resetChecklists : undefined,
         };
       });
     if (updates.length === 0) return;
@@ -161,13 +167,21 @@ export function BlockEditModal({
       return ov && (ov.workRoleId !== undefined || ov.startTime !== undefined || ov.endTime !== undefined || ov.breakStartTime !== undefined || ov.breakEndTime !== undefined);
     });
 
+  // work_role이 실제로 변경되는 checked 행 수 — reset_checklist UI 조건부 노출용
+  const workRoleChangeCount = selectedSchedules
+    .filter((s) => !unchecked.has(s.id))
+    .filter((s) => {
+      const ov = overrides.get(s.id);
+      return ov && "workRoleId" in ov && (ov.workRoleId || null) !== (s.work_role_id ?? null);
+    }).length;
+
   if (!open) return null;
 
   const activeWorkRoles = workRoles.filter((wr) => wr.is_active);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/60" />
       <div className="relative bg-[var(--color-surface)] border border-[var(--color-border)] rounded-2xl shadow-2xl w-[min(940px,96vw)] max-h-[90vh] flex flex-col">
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--color-border)]">
@@ -350,10 +364,23 @@ export function BlockEditModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-5 py-4 border-t border-[var(--color-border)]">
-          <span className="text-[12px] text-[var(--color-text-secondary)]">
-            {checkedCount} of {selectedSchedules.length} will be updated
-          </span>
+        <div className="flex items-center justify-between px-5 py-4 border-t border-[var(--color-border)] gap-3 flex-wrap">
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-[12px] text-[var(--color-text-secondary)]">
+              {checkedCount} of {selectedSchedules.length} will be updated
+            </span>
+            {workRoleChangeCount > 0 && (
+              <label className="flex items-center gap-1.5 text-[12px] text-[var(--color-text-secondary)] cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={resetChecklists}
+                  onChange={(e) => setResetChecklists(e.target.checked)}
+                  className="w-3.5 h-3.5 accent-[var(--color-accent)]"
+                />
+                <span>Reset checklist on {workRoleChangeCount} work-role change{workRoleChangeCount === 1 ? "" : "s"}</span>
+              </label>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg text-[13px] font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] transition-colors">
               Cancel

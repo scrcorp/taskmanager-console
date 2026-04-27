@@ -321,6 +321,7 @@ export default function DailyReportTemplatesPage(): React.ReactElement {
         onClose={() => setIsFormOpen(false)}
         title={editingId ? "Edit Template" : "New Template"}
         size="lg"
+        closeOnBackdrop={false}
       >
         <div className="space-y-4">
           <Input
@@ -438,6 +439,7 @@ export default function DailyReportTemplatesPage(): React.ReactElement {
         isOpen={isExcelOpen}
         onClose={() => setIsExcelOpen(false)}
         title="Create Template from Excel"
+        closeOnBackdrop={false}
       >
         <div className="space-y-4">
           <Input

@@ -6,8 +6,10 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useWorkRoles } from "@/hooks/useWorkRoles";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { useUserStores } from "@/hooks/useUsers";
 import { useResolveSetting } from "@/hooks/useSettings";
+import { useValidateSchedule } from "@/hooks/useSchedules";
 import type { Schedule, User, WorkRole, Store } from "@/types";
 import { ROLE_PRIORITY } from "@/lib/permissions";
 
@@ -24,6 +26,8 @@ export interface ScheduleEditPayload {
   notes: string;
   /** stored hourly rate. null = clear (자동 cascade로 표시되지 않음 → No cost). */
   hourlyRate: number | null;
+  /** 서버 경고(overtime 등)를 사용자가 확인한 경우 true. 서버는 warning 을 무시하고 저장. */
+  force?: boolean;
 }
 
 // Status 전환은 dedicated actions (submit / confirm / reject / revert / cancel)로만.
@@ -45,8 +49,14 @@ interface Props {
   selectedStoreIds?: string[];
   /** 선택된 user의 cascade rate (user → store → org) — placeholder/Apply 버튼용 */
   inheritedRate?: number | null;
+  /** cascade 출처 레이어 — placeholder에 "(from org default)" 등 표시용 */
+  inheritedRateSource?: "user" | "store" | "org" | null;
   /** Cost 정보 표시/편집 가능 여부. false면 hourly_rate input 자체 숨김 (SV/Staff). */
   showCost?: boolean;
+  /** 서버 검증 실패 메시지 (inline banner). 사용자가 dismiss하거나 재시도 성공하면 사라짐 */
+  errorMessage?: string | null;
+  /** error banner dismiss (X 버튼) */
+  onDismissError?: () => void;
   onClose: () => void;
   onSave: (payload: ScheduleEditPayload) => void;
   onDelete?: () => void;
@@ -108,7 +118,7 @@ function computeAutoBreak(startHHMM: string, endHHMM: string, breakMin: number):
   return { start: minutesToTime(mid), end: minutesToTime(mid + breakMin) };
 }
 
-export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefilledDate, prefilledStartTime, users, storeId, stores, selectedStoreIds, inheritedRate, showCost = true, onClose, onSave, onDelete, isSaving }: Props) {
+export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefilledDate, prefilledStartTime, users, storeId, stores, selectedStoreIds, inheritedRate, inheritedRateSource, showCost = true, errorMessage, onDismissError, onClose, onSave, onDelete, isSaving }: Props) {
   const [userId, setUserId] = useState(prefilledUserId || users[0]?.id || "");
   const [date, setDate] = useState(prefilledDate || new Date().toISOString().slice(0, 10));
   const [startTime, setStartTime] = useState("09:00");
@@ -120,21 +130,43 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
   const [notes, setNotes] = useState("");
   // hourly rate input as string ("" = clear/null)
   const [hourlyRateInput, setHourlyRateInput] = useState<string>("");
+  // Discard confirmation (dirty & 닫기 시도 시)
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  // Edit 모드 원본 값 스냅샷 — 변경 여부 비교용
+  const originalRef = useRef<{
+    userId: string; storeId: string; date: string;
+    startTime: string; endTime: string;
+    breakStart: string; breakEnd: string; splitEnabled: boolean;
+    workRoleId: string; notes: string; hourlyRate: string;
+  } | null>(null);
 
-  // 선택된 staff의 소속 매장 조회
+  // 선택된 staff의 소속 매장 조회 (is_work_assignment=true인 것만 스케줄 대상)
   const userStoresQ = useUserStores(userId || undefined);
-  const userStoreIds = useMemo(() => new Set((userStoresQ.data ?? []).map((s) => s.id)), [userStoresQ.data]);
+  const workStoreIds = useMemo(
+    () =>
+      new Set(
+        (userStoresQ.data ?? [])
+          .filter((s) => s.is_work_assignment)
+          .map((s) => s.id),
+      ),
+    [userStoresQ.data],
+  );
 
-  // Store selector — staff 소속 store만 표시, store 2개 이상이면 드롭다운
+  // Store selector — staff의 Work 체크된 store만 표시. 폴백 금지 (B-3).
+  // 예외: Owner는 전 매장 접근권 있으므로 항상 전체 stores 노출.
+  // staff 미선택 시에도 전체 표시 (Add 모달에서 staff 선택 전)
+  const selectedUserForStoreFilter = useMemo(
+    () => users.find((u) => u.id === userId),
+    [users, userId],
+  );
+  const isSelectedOwner =
+    (selectedUserForStoreFilter?.role_priority ?? Number.POSITIVE_INFINITY) <= ROLE_PRIORITY.OWNER;
   const [modalStoreId, setModalStoreId] = useState(storeId);
   const availableStores = useMemo(() => {
     if (!stores || stores.length === 0) return [];
-    // staff 소속 store로 필터
-    const filtered = userStoreIds.size > 0
-      ? stores.filter((s) => userStoreIds.has(s.id))
-      : stores;
-    return filtered;
-  }, [stores, userStoreIds]);
+    if (!userId || isSelectedOwner) return stores;
+    return stores.filter((s) => workStoreIds.has(s.id));
+  }, [stores, userId, isSelectedOwner, workStoreIds]);
   const needsStoreSelector = availableStores.length > 0;
   const effectiveStoreId = modalStoreId || availableStores[0]?.id || storeId || "";
 
@@ -162,24 +194,42 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
   // 대신 open=true로 전환되는 "그 순간"에만 prefilled 값을 읽어 초기화.
   useEffect(() => {
     if (!open) return;
-    setModalStoreId(storeId || availableStores[0]?.id || stores?.[0]?.id || "");
     timeDirtyRef.current = false;
     endTimeDirtyRef.current = false;
     breakDirtyRef.current = false;
     if (mode === "edit" && schedule) {
-      setUserId(schedule.user_id);
-      setDate(schedule.work_date);
-      setStartTime(schedule.start_time?.slice(0, 5) ?? "09:00");
-      setEndTime(schedule.end_time?.slice(0, 5) ?? "17:00");
+      // edit 모드: shift의 store/work_role을 정확히 반영 (그리드 필터값 무시)
+      const initStore = schedule.store_id;
+      const initUser = schedule.user_id;
+      const initDate = schedule.work_date;
+      const initStart = schedule.start_time?.slice(0, 5) ?? "09:00";
+      const initEnd = schedule.end_time?.slice(0, 5) ?? "17:00";
       const hasBreak = !!(schedule.break_start_time && schedule.break_end_time);
+      const initBreakStart = schedule.break_start_time?.slice(0, 5) ?? "";
+      const initBreakEnd = schedule.break_end_time?.slice(0, 5) ?? "";
+      const initRole = schedule.work_role_id ?? "";
+      const initNotes = schedule.note ?? "";
+      const initRate = schedule.hourly_rate != null && schedule.hourly_rate > 0 ? String(schedule.hourly_rate) : "";
+      setModalStoreId(initStore);
+      setUserId(initUser);
+      setDate(initDate);
+      setStartTime(initStart);
+      setEndTime(initEnd);
       setSplitEnabled(hasBreak);
-      setBreakStart(schedule.break_start_time?.slice(0, 5) ?? "");
-      setBreakEnd(schedule.break_end_time?.slice(0, 5) ?? "");
-      setWorkRoleId(schedule.work_role_id ?? "");
-      setNotes(schedule.note ?? "");
-      setHourlyRateInput(schedule.hourly_rate != null && schedule.hourly_rate > 0 ? String(schedule.hourly_rate) : "");
-      // edit 모드에서 기존 값 로드는 dirty 아님 (role 바꾸면 auto-apply 가능)
+      setBreakStart(initBreakStart);
+      setBreakEnd(initBreakEnd);
+      setWorkRoleId(initRole);
+      setNotes(initNotes);
+      setHourlyRateInput(initRate);
+      // 변경 감지용 스냅샷
+      originalRef.current = {
+        userId: initUser, storeId: initStore, date: initDate,
+        startTime: initStart, endTime: initEnd,
+        breakStart: initBreakStart, breakEnd: initBreakEnd, splitEnabled: hasBreak,
+        workRoleId: initRole, notes: initNotes, hourlyRate: initRate,
+      };
     } else if (mode === "add") {
+      setModalStoreId(storeId || availableStores[0]?.id || stores?.[0]?.id || "");
       setUserId(prefilledUserId || users[0]?.id || "");
       setDate(prefilledDate || new Date().toISOString().slice(0, 10));
       const initStart = prefilledStartTime || "09:00";
@@ -191,6 +241,7 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
       setWorkRoleId("");
       setNotes("");
       setHourlyRateInput("");
+      originalRef.current = null;
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, mode, schedule?.id]);
@@ -216,9 +267,52 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
     }
   }
 
+  // Dirty check (edit 모드) + 필드별 changed 체크
+  const orig = originalRef.current;
+  function changed<K extends keyof NonNullable<typeof orig>>(key: K, current: NonNullable<typeof orig>[K]): boolean {
+    if (mode !== "edit" || !orig) return false;
+    return orig[key] !== current;
+  }
+  const isDirty =
+    mode === "edit" && orig !== null && (
+      orig.userId !== userId ||
+      orig.storeId !== modalStoreId ||
+      orig.date !== date ||
+      orig.startTime !== startTime ||
+      orig.endTime !== endTime ||
+      orig.breakStart !== breakStart ||
+      orig.breakEnd !== breakEnd ||
+      orig.splitEnabled !== splitEnabled ||
+      orig.workRoleId !== workRoleId ||
+      orig.notes !== notes ||
+      orig.hourlyRate !== hourlyRateInput
+    );
+
+  // Cancel/ESC/backdrop 공통 close 경로 — dirty면 확인 먼저
+  function tryClose() {
+    if (isDirty) setConfirmDiscard(true);
+    else onClose();
+  }
+
+  // ESC key handling
+  useEffect(() => {
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape" && !confirmDiscard) {
+        e.preventDefault();
+        tryClose();
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, isDirty, confirmDiscard]);
+
   if (!open) return null;
 
   const selectedUser = users.find((u) => u.id === userId);
+  // 변경된 필드에 accent border + 살짝 배경 — add 모드엔 영향 없음
+  const changedCls = "border-[var(--color-accent)] bg-[var(--color-accent-muted)]";
 
   // 핸들러들 — 사용자 편집 시 dirty flag 세팅
   function onChangeStart(v: string) {
@@ -286,8 +380,10 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
     return null;
   })();
 
-  function handleSave() {
-    if (validationError) return;
+  const validateSchedule = useValidateSchedule();
+  const [warningPrompt, setWarningPrompt] = useState<{ warnings: string[]; payload: ScheduleEditPayload } | null>(null);
+
+  function buildPayload(force: boolean): ScheduleEditPayload {
     let hourlyRate: number | null;
     if (!showCost) {
       // SV/Staff: hourly_rate 편집 권한 없음 → 기존 값 유지 (schedule의 stored 그대로)
@@ -297,7 +393,7 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
       const parsedRate = trimmed === "" ? null : Number(trimmed);
       hourlyRate = parsedRate != null && Number.isFinite(parsedRate) && parsedRate > 0 ? parsedRate : null;
     }
-    onSave({
+    return {
       userId,
       storeId: effectiveStoreId,
       date,
@@ -308,21 +404,50 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
       workRoleId: workRoleId || null,
       notes,
       hourlyRate,
-    });
+      force,
+    };
+  }
+
+  async function handleSave() {
+    if (validationError) return;
+    const payload = buildPayload(false);
+    // Preflight validate — overtime/max_shift_hours 같은 warning 은 저장 전에 사용자 확인.
+    try {
+      const res = await validateSchedule.mutateAsync({
+        user_id: payload.userId,
+        store_id: payload.storeId,
+        work_date: payload.date,
+        start_time: payload.startTime,
+        end_time: payload.endTime,
+        break_start_time: payload.breakStartTime,
+        break_end_time: payload.breakEndTime,
+        work_role_id: payload.workRoleId,
+        hourly_rate: payload.hourlyRate,
+        note: payload.notes || null,
+      });
+      if (res.warnings.length > 0) {
+        setWarningPrompt({ warnings: res.warnings, payload });
+        return;
+      }
+    } catch {
+      // validate 엔드포인트 자체가 실패하면 경고 없이 진행 (서버가 실제 저장 시점에 errors 반환)
+    }
+    onSave(payload);
   }
 
   return (
     <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative bg-[var(--color-surface)] rounded-2xl shadow-[0_16px_48px_rgba(0,0,0,0.2)] w-full max-w-md max-h-[90vh] overflow-y-auto">
-        {/* Header */}
-        <div className="px-5 py-4 border-b border-[var(--color-border)] flex items-center justify-between">
+      {/* Backdrop: 입력/수정 폼이라 클릭으로 닫히지 않음 (우발적 변경 분실 방지) */}
+      <div className="absolute inset-0 bg-black/40" />
+      <div className="relative bg-[var(--color-surface)] rounded-2xl shadow-[0_16px_48px_rgba(0,0,0,0.2)] w-full max-w-md max-h-[90vh] flex flex-col">
+        {/* Header (sticky) */}
+        <div className="shrink-0 px-5 py-4 border-b border-[var(--color-border)] flex items-center justify-between">
           <h2 className="text-[15px] font-bold text-[var(--color-text)]">
             {mode === "add" ? "Add Schedule" : "Edit Schedule"}
           </h2>
           <button
             type="button"
-            onClick={onClose}
+            onClick={tryClose}
             className="w-8 h-8 rounded-lg hover:bg-[var(--color-surface-hover)] flex items-center justify-center text-[var(--color-text-muted)]"
             aria-label="Close"
           >
@@ -331,6 +456,32 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
             </svg>
           </button>
         </div>
+
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto">
+        {/* Inline error banner (서버 검증 실패) */}
+        {errorMessage && (
+          <div className="mx-5 mt-4 px-3 py-2.5 rounded-lg border border-[var(--color-danger)] bg-[var(--color-danger-muted)] flex items-start gap-2">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" className="text-[var(--color-danger)] shrink-0 mt-0.5">
+              <circle cx="8" cy="8" r="7" stroke="currentColor" strokeWidth="1.5" />
+              <line x1="8" y1="5" x2="8" y2="9" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              <circle cx="8" cy="11.5" r="0.8" fill="currentColor" />
+            </svg>
+            <div className="flex-1 text-[12px] text-[var(--color-danger)] leading-relaxed">{errorMessage}</div>
+            {onDismissError && (
+              <button
+                type="button"
+                onClick={onDismissError}
+                className="text-[var(--color-danger)] opacity-60 hover:opacity-100 shrink-0"
+                aria-label="Dismiss error"
+              >
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                  <line x1="4" y1="4" x2="12" y2="12" /><line x1="12" y1="4" x2="4" y2="12" />
+                </svg>
+              </button>
+            )}
+          </div>
+        )}
 
         {/* Form */}
         <div className="px-5 py-4 space-y-3.5">
@@ -341,7 +492,7 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
               type="date"
               value={date}
               onChange={(e) => setDate(e.target.value)}
-              className="w-full px-3 py-2 border border-[var(--color-border)] rounded-lg text-[13px] bg-[var(--color-surface)]"
+              className={`w-full px-3 py-2 border rounded-lg text-[13px] bg-[var(--color-surface)] ${changed("date", date) ? changedCls : "border-[var(--color-border)]"}`}
             />
           </div>
 
@@ -357,7 +508,7 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
               <select
                 value={userId}
                 onChange={(e) => { setUserId(e.target.value); }}
-                className="flex-1 px-3 py-2 border border-[var(--color-border)] rounded-lg text-[13px] bg-[var(--color-surface)]"
+                className={`flex-1 px-3 py-2 border rounded-lg text-[13px] bg-[var(--color-surface)] ${changed("userId", userId) ? changedCls : "border-[var(--color-border)]"}`}
               >
                 {users.map((u) => (
                   <option key={u.id} value={u.id}>{u.full_name || u.username}</option>
@@ -366,21 +517,25 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
             </div>
           </div>
 
-          {/* Store — store가 2개 이상이면 항상 표시 */}
-          {needsStoreSelector && (
+          {/* Store — staff의 Work 체크된 store만 노출. 0이면 명시적 경고 */}
+          {needsStoreSelector ? (
             <div>
               <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">Store</label>
               <select
                 value={modalStoreId}
                 onChange={(e) => { setModalStoreId(e.target.value); setWorkRoleId(""); }}
-                className="w-full px-3 py-2 border border-[var(--color-border)] rounded-lg text-[13px] bg-[var(--color-surface)]"
+                className={`w-full px-3 py-2 border rounded-lg text-[13px] bg-[var(--color-surface)] ${changed("storeId", modalStoreId) ? changedCls : "border-[var(--color-border)]"}`}
               >
                 {availableStores.map((s) => (
                   <option key={s.id} value={s.id}>{s.name}</option>
                 ))}
               </select>
             </div>
-          )}
+          ) : userId && stores && stores.length > 0 ? (
+            <div className="rounded border border-[var(--color-warning)] bg-[var(--color-warning-muted)] px-3 py-2 text-[12px] text-[var(--color-warning)]">
+              No eligible stores for this staff. Enable &ldquo;Work&rdquo; in the staff&apos;s store assignments first.
+            </div>
+          ) : null}
 
           {/* Work Role */}
           <div>
@@ -388,7 +543,7 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
             <select
               value={workRoleId}
               onChange={(e) => onChangeWorkRole(e.target.value)}
-              className="w-full px-3 py-2 border border-[var(--color-border)] rounded-lg text-[13px] bg-[var(--color-surface)]"
+              className={`w-full px-3 py-2 border rounded-lg text-[13px] bg-[var(--color-surface)] ${changed("workRoleId", workRoleId) ? changedCls : "border-[var(--color-border)]"}`}
             >
               <option value="">— None (no role) —</option>
               {workRolesQ.isLoading && <option disabled>Loading…</option>}
@@ -412,7 +567,7 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
                   type="time"
                   value={startTime}
                   onChange={(e) => onChangeStart(e.target.value)}
-                  className="w-full px-3 py-2 border border-[var(--color-border)] rounded-lg text-[13px] bg-[var(--color-surface)]"
+                  className={`w-full px-3 py-2 border rounded-lg text-[13px] bg-[var(--color-surface)] ${changed("startTime", startTime) ? changedCls : "border-[var(--color-border)]"}`}
                 />
               </div>
               <div>
@@ -423,7 +578,7 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
                   type="time"
                   value={endTime}
                   onChange={(e) => onChangeEnd(e.target.value)}
-                  className="w-full px-3 py-2 border border-[var(--color-border)] rounded-lg text-[13px] bg-[var(--color-surface)]"
+                  className={`w-full px-3 py-2 border rounded-lg text-[13px] bg-[var(--color-surface)] ${changed("endTime", endTime) ? changedCls : "border-[var(--color-border)]"}`}
                 />
               </div>
             </div>
@@ -445,7 +600,7 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
                     type="time"
                     value={breakStart}
                     onChange={(e) => onChangeBreakStart(e.target.value)}
-                    className="w-full px-3 py-2 border border-[var(--color-border)] rounded-lg text-[13px] bg-[var(--color-surface)]"
+                    className={`w-full px-3 py-2 border rounded-lg text-[13px] bg-[var(--color-surface)] ${changed("breakStart", breakStart) ? changedCls : "border-[var(--color-border)]"}`}
                   />
                 </div>
               </div>
@@ -462,7 +617,7 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
                     type="time"
                     value={breakEnd}
                     onChange={(e) => onChangeBreakEnd(e.target.value)}
-                    className="w-full px-3 py-2 border border-[var(--color-border)] rounded-lg text-[13px] bg-[var(--color-surface)]"
+                    className={`w-full px-3 py-2 border rounded-lg text-[13px] bg-[var(--color-surface)] ${changed("breakEnd", breakEnd) ? changedCls : "border-[var(--color-border)]"}`}
                   />
                 </div>
                 <div>
@@ -511,7 +666,7 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
               Hourly Rate <span className="text-[var(--color-text-muted)] normal-case font-normal">(stored on this schedule)</span>
             </label>
             <div className="flex items-center gap-2">
-              <div className="flex items-center flex-1 px-3 py-2 border border-[var(--color-border)] rounded-lg bg-[var(--color-surface)] focus-within:border-[var(--color-accent)]">
+              <div className={`flex items-center flex-1 px-3 py-2 border rounded-lg bg-[var(--color-surface)] focus-within:border-[var(--color-accent)] ${changed("hourlyRate", hourlyRateInput) ? changedCls : "border-[var(--color-border)]"}`}>
                 <span className="text-[13px] text-[var(--color-text-muted)] mr-1">$</span>
                 <input
                   type="number"
@@ -519,7 +674,13 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
                   step="0.01"
                   value={hourlyRateInput}
                   onChange={(e) => setHourlyRateInput(e.target.value)}
-                  placeholder={inheritedRate != null ? `${inheritedRate} (current default)` : "No rate"}
+                  placeholder={
+                    inheritedRate != null
+                      ? inheritedRateSource
+                        ? `${inheritedRate} (from ${inheritedRateSource})`
+                        : `${inheritedRate} (current default)`
+                      : "No rate"
+                  }
                   className="flex-1 text-[13px] outline-none bg-transparent tabular-nums"
                 />
                 <span className="text-[11px] text-[var(--color-text-muted)] ml-1">/hr</span>
@@ -529,14 +690,18 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
                   type="button"
                   onClick={() => setHourlyRateInput(String(inheritedRate))}
                   className="px-2.5 py-1.5 rounded-lg text-[11px] font-semibold bg-[var(--color-accent-muted)] text-[var(--color-accent)] hover:bg-[var(--color-accent)] hover:text-white transition-colors whitespace-nowrap"
-                  title="Fill with current cascade rate"
+                  title={inheritedRateSource ? `Sync to ${inheritedRateSource} default` : "Sync to current cascade rate"}
                 >
-                  Use ${inheritedRate}
+                  Sync ${inheritedRate}
                 </button>
               )}
             </div>
             <p className="text-[10px] text-[var(--color-text-muted)] mt-1">
-              Empty = no cost (must apply rate later via context menu or detail page).
+              {inheritedRate != null
+                ? inheritedRateSource
+                  ? `Leave empty to inherit from ${inheritedRateSource} default ($${inheritedRate}).`
+                  : `Leave empty to inherit the current default ($${inheritedRate}).`
+                : "No rate configured at any level — cost will be $0 until one is set."}
             </p>
           </div>
           )}
@@ -575,13 +740,14 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Add any notes about this shift..."
-              className="w-full min-h-[60px] px-3 py-2 text-[12px] border border-[var(--color-border)] rounded-lg resize-none focus:outline-none focus:border-[var(--color-accent)]"
+              className={`w-full min-h-[60px] px-3 py-2 text-[12px] border rounded-lg resize-none focus:outline-none focus:border-[var(--color-accent)] ${changed("notes", notes) ? changedCls : "border-[var(--color-border)]"}`}
             />
           </div>
         </div>
 
-        {/* Footer */}
-        <div className="px-5 py-4 border-t border-[var(--color-border)] flex items-center gap-2">
+        </div>
+        {/* Footer (sticky) */}
+        <div className="shrink-0 px-5 py-4 border-t border-[var(--color-border)] flex items-center gap-2 bg-[var(--color-surface)]">
           {mode === "edit" && onDelete && (
             <button
               type="button"
@@ -594,7 +760,7 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
           <div className="ml-auto flex items-center gap-2">
             <button
               type="button"
-              onClick={onClose}
+              onClick={tryClose}
               className="px-4 py-2 rounded-lg text-[13px] font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]"
             >
               Cancel
@@ -610,6 +776,37 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
           </div>
         </div>
       </div>
+
+      {/* Discard confirmation — dirty 상태에서 backdrop/ESC/Cancel 시도 시 */}
+      <ConfirmDialog
+        open={confirmDiscard}
+        title="Discard changes?"
+        message="You have unsaved changes in this schedule. Close without saving?"
+        confirmLabel="Discard"
+        confirmVariant="danger"
+        onConfirm={() => {
+          setConfirmDiscard(false);
+          onClose();
+        }}
+        onCancel={() => setConfirmDiscard(false)}
+      />
+
+      {/* Overtime / max-shift-hours 경고 — 저장 전 최종 확인 */}
+      <ConfirmDialog
+        open={warningPrompt !== null}
+        title="Confirm schedule"
+        message={warningPrompt ? warningPrompt.warnings.join("\n") : ""}
+        confirmLabel="Save anyway"
+        confirmVariant="danger"
+        onConfirm={() => {
+          if (warningPrompt) {
+            const forced: ScheduleEditPayload = { ...warningPrompt.payload, force: true };
+            onSave(forced);
+          }
+          setWarningPrompt(null);
+        }}
+        onCancel={() => setWarningPrompt(null)}
+      />
     </div>
   );
 }

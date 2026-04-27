@@ -490,6 +490,7 @@ export default function StoresPage(): React.ReactElement {
         }}
         title="Create Store"
         size="lg"
+        closeOnBackdrop={false}
       >
         <div className="space-y-4">
           <Input
@@ -672,6 +673,7 @@ export default function StoresPage(): React.ReactElement {
           setEditForm(INITIAL_FORM);
         }}
         title="Edit Store"
+        closeOnBackdrop={false}
       >
         <div className="space-y-4">
           <Input

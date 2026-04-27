@@ -57,7 +57,7 @@ export function ChangeStaffModal({ open, onClose, schedule, currentUser, users, 
   function handleNext() { if (selectedUserId) setStep("confirm"); }
 
   return (
-    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/40" onClick={handleClose}>
+    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/40">
       <div className="bg-[var(--color-surface)] rounded-2xl shadow-2xl w-full max-w-sm mx-4" onClick={(e) => e.stopPropagation()}>
         <div className="px-6 py-4 border-b border-[var(--color-border)]">
           <h2 className="text-[16px] font-bold text-[var(--color-text)]">Change Staff</h2>

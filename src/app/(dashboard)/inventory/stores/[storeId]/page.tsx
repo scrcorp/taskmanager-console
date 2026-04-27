@@ -650,6 +650,7 @@ export default function StoreInventoryPage(): React.ReactElement {
             : "Add Products — Configure"
         }
         size="lg"
+        closeOnBackdrop={false}
       >
         {addStep === "create" ? (
           <div className="flex flex-col gap-4">

@@ -299,6 +299,7 @@ function CategoriesTab({ canManage }: { canManage: boolean }): React.ReactElemen
         onClose={() => setIsAddOpen(false)}
         title={addParentId ? "Add Subcategory" : "Add Category"}
         size="sm"
+        closeOnBackdrop={false}
       >
         <div className="flex flex-col gap-4">
           {addParentId && (
@@ -338,6 +339,7 @@ function CategoriesTab({ canManage }: { canManage: boolean }): React.ReactElemen
         onClose={() => setEditTarget(null)}
         title="Edit Category"
         size="sm"
+        closeOnBackdrop={false}
       >
         <div className="flex flex-col gap-4">
           <Input
@@ -523,6 +525,7 @@ function SubUnitsTab({ canManage }: { canManage: boolean }): React.ReactElement 
         onClose={() => setIsAddOpen(false)}
         title="Add Sub Unit"
         size="sm"
+        closeOnBackdrop={false}
       >
         <div className="flex flex-col gap-4">
           <Input
@@ -559,6 +562,7 @@ function SubUnitsTab({ canManage }: { canManage: boolean }): React.ReactElement 
         onClose={() => setEditTarget(null)}
         title="Edit Sub Unit"
         size="sm"
+        closeOnBackdrop={false}
       >
         <div className="flex flex-col gap-4">
           <Input
