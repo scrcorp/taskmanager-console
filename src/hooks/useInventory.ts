@@ -1,9 +1,12 @@
 import {
   useQuery,
+  useInfiniteQuery,
   useMutation,
   useQueryClient,
   keepPreviousData,
   type UseQueryResult,
+  type UseInfiniteQueryResult,
+  type InfiniteData,
   type UseMutationResult,
   type QueryClient,
 } from "@tanstack/react-query";
@@ -296,6 +299,8 @@ export interface ImportPreviewResult {
   items?: ImportPreviewItem[];
   total?: number;
   error?: string;
+  /** Per-row parse/coercion errors (e.g. wrong column type). */
+  row_errors?: string[];
 }
 
 /**
@@ -360,6 +365,8 @@ export const useProducts = (
       if (filters?.search_field) params.search_field = filters.search_field;
       if (filters?.page) params.page = String(filters.page);
       if (filters?.per_page) params.per_page = String(filters.per_page);
+      if (filters?.sort_by) params.sort_by = filters.sort_by;
+      if (filters?.sort_dir) params.sort_dir = filters.sort_dir;
 
       const response: AxiosResponse<PaginatedResponse<InventoryProduct>> = await api.get(
         "/admin/inventory/products",
@@ -501,6 +508,8 @@ export const useStoreInventory = (
       if (filters?.is_frequent !== undefined) params.is_frequent = String(filters.is_frequent);
       if (filters?.page) params.page = String(filters.page);
       if (filters?.per_page) params.per_page = String(filters.per_page);
+      if (filters?.sort_by) params.sort_by = filters.sort_by;
+      if (filters?.sort_dir) params.sort_dir = filters.sort_dir;
 
       const response: AxiosResponse<PaginatedResponse<StoreInventoryItem>> = await api.get(
         `/admin/stores/${storeId}/inventory`,
@@ -532,6 +541,54 @@ export const useStoreInventorySummary = (
     // Keep previous data visible while refetching — prevents cards from flashing 0
     placeholderData: keepPreviousData,
     staleTime: 30_000,
+  });
+};
+
+/** Product item augmented with `is_in_store` flag (Add Products modal). */
+export interface AddableProduct extends InventoryProduct {
+  is_in_store: boolean;
+}
+
+interface AddableProductsPage {
+  items: AddableProduct[];
+  total: number;
+  page: number;
+  per_page: number;
+}
+
+const ADDABLE_PER_PAGE = 30;
+
+/**
+ * Infinite scroll list of products for the "Add Products" modal.
+ * Server returns every active org product with `is_in_store` flag,
+ * sorted addable-first then by name. Search is server-side.
+ */
+export const useAddableProducts = (
+  storeId: string | undefined,
+  search: string,
+  enabled: boolean,
+): UseInfiniteQueryResult<InfiniteData<AddableProductsPage>, Error> => {
+  return useInfiniteQuery<AddableProductsPage, Error>({
+    queryKey: ["inventory", "stores", storeId, "addable-products", search],
+    queryFn: async ({ pageParam }): Promise<AddableProductsPage> => {
+      const params: Record<string, string> = {
+        page: String(pageParam ?? 1),
+        per_page: String(ADDABLE_PER_PAGE),
+      };
+      if (search) params.keyword = search;
+      const response: AxiosResponse<AddableProductsPage> = await api.get(
+        `/admin/stores/${storeId}/inventory/addable-products`,
+        { params },
+      );
+      return response.data;
+    },
+    initialPageParam: 1,
+    getNextPageParam: (last) => {
+      const loaded = last.page * last.per_page;
+      return loaded < last.total ? last.page + 1 : undefined;
+    },
+    enabled: !!storeId && enabled,
+    staleTime: 0,
   });
 };
 
