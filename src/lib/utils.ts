@@ -273,32 +273,52 @@ export function timeAgo(dateStr: string): string {
  * @returns 사용자용 에러 문자열
  */
 export function parseApiError(error: unknown, fallback: string): string {
-  if (
-    error &&
-    typeof error === "object" &&
-    "response" in error
-  ) {
-    const resp = (error as { response?: { data?: unknown } }).response;
+  // Response body parsing — try this BEFORE network-error codes, since a 5xx
+  // response with no CORS headers can also show up with ERR_NETWORK on the
+  // axios error object even though the server did respond.
+  if (error && typeof error === "object" && "response" in error) {
+    const resp = (error as { response?: { data?: unknown; status?: number } }).response;
     const data = resp?.data;
-    if (data && typeof data === "object" && "detail" in (data as Record<string, unknown>)) {
-      const detail = (data as { detail: unknown }).detail;
-      if (typeof detail === "string") return detail;
-      if (Array.isArray(detail) && detail.length > 0) {
-        return detail
-          .map((d: { loc?: string[]; msg?: string }) => {
-            const loc = (d.loc ?? []).filter((l) => l !== "body").join(" > ");
-            const msg = d.msg ?? "";
-            return loc ? `${loc}: ${msg}` : msg;
-          })
-          .join(", ");
+    if (data && typeof data === "object") {
+      const obj = data as Record<string, unknown>;
+
+      // FastAPI HTTPException → {detail: string | [{loc, msg}]}
+      if ("detail" in obj) {
+        const detail = obj.detail;
+        if (typeof detail === "string" && detail !== "Internal Server Error") return detail;
+        if (Array.isArray(detail) && detail.length > 0) {
+          return detail
+            .map((d: { loc?: string[]; msg?: string }) => {
+              const loc = (d.loc ?? []).filter((l) => l !== "body").join(" > ");
+              const msg = d.msg ?? "";
+              return loc ? `${loc}: ${msg}` : msg;
+            })
+            .join(", ");
+        }
       }
+
+      // Custom endpoints (e.g. inventory import) → {error, validation_errors?}
+      if ("error" in obj && typeof obj.error === "string") {
+        const errMsg = obj.error;
+        const ve = obj.validation_errors;
+        if (Array.isArray(ve) && ve.length > 0) {
+          const head = ve.slice(0, 3).map(String).join("; ");
+          const more = ve.length > 3 ? ` (+${ve.length - 3} more)` : "";
+          return `${errMsg} — ${head}${more}`;
+        }
+        return errMsg;
+      }
+
+      // Generic message field
+      if ("message" in obj && typeof obj.message === "string") return obj.message;
     }
+
+    // Response received but body unparseable — surface the status so we don't
+    // mislabel a server error as "no internet".
+    if (resp?.status) return `Server error (HTTP ${resp.status}).`;
   }
-  if (
-    error &&
-    typeof error === "object" &&
-    "code" in error
-  ) {
+
+  if (error && typeof error === "object" && "code" in error) {
     const code = (error as { code?: string }).code;
     if (code === "ECONNABORTED") return "Server not responding. Please try again.";
     if (code === "ERR_NETWORK") return "No internet connection.";

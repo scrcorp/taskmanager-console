@@ -20,6 +20,7 @@ import {
   Search,
   Store as StoreIcon,
   ArrowLeft,
+  Pencil,
 } from "lucide-react";
 import {
   useStoreInventory,
@@ -27,9 +28,10 @@ import {
   useBulkAddStoreInventory,
   useUpdateStoreInventoryItem,
   useCategories,
-  useProducts,
+  useAddableProducts,
   useCreateProduct,
   useRemoveStoreInventoryItem,
+  useCreateTransaction,
 } from "@/hooks/useInventory";
 import { useStores } from "@/hooks/useStores";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -94,12 +96,27 @@ export default function StoreInventoryPage(): React.ReactElement {
     stock: "",
     frequent: "",
     page: "1",
+    sort_by: "",
+    sort_dir: "asc",
   });
   const filterCategory = urlParams.category;
   const filterSearchField = urlParams.search_field || "all";
   const filterStock = urlParams.stock as "" | "in_stock" | "low_stock" | "out_of_stock";
   const filterFrequent = urlParams.frequent === "1";
   const page = Number(urlParams.page);
+  const sortBy = urlParams.sort_by || "";
+  const sortDir = (urlParams.sort_dir === "desc" ? "desc" : "asc") as "asc" | "desc";
+
+  /** Sort cycle: not sorted → asc → desc → not sorted. */
+  const handleSort = (key: string) => {
+    if (sortBy !== key) {
+      setUrlParams({ sort_by: key, sort_dir: "asc", page: null });
+    } else if (sortDir === "asc") {
+      setUrlParams({ sort_dir: "desc" });
+    } else {
+      setUrlParams({ sort_by: null, sort_dir: null });
+    }
+  };
 
   // Local search input state — debounced before passing to API
   const [searchInput, setSearchInput] = useState(urlParams.search);
@@ -118,6 +135,35 @@ export default function StoreInventoryPage(): React.ReactElement {
   // -- Detail modal --
   const [detailItem, setDetailItem] = useState<StoreInventoryItem | null>(null);
   const [removeItemId, setRemoveItemId] = useState<string | null>(null);
+
+  // -- Multi-select state — preserved across page navigation. --
+  const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
+  const [bulkRemoveOpen, setBulkRemoveOpen] = useState(false);
+
+  // -- Edit modal state — opened from row's Edit button or detail modal.
+  //    The actual form lives inside <EditItemModal> so per-row hooks
+  //    (useCreateTransaction needs item id at hook init) work cleanly.
+  const [editItem, setEditItem] = useState<StoreInventoryItem | null>(null);
+  const openEdit = (item: StoreInventoryItem) => setEditItem(item);
+  const toggleItemSelect = (id: string) => {
+    setSelectedItemIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+  const toggleSelectAllOnPage = () => {
+    setSelectedItemIds((prev) => {
+      const next = new Set(prev);
+      const pageIds = items.map((i) => i.id);
+      const allOnPageSelected = pageIds.every((id) => next.has(id));
+      if (allOnPageSelected) pageIds.forEach((id) => next.delete(id));
+      else pageIds.forEach((id) => next.add(id));
+      return next;
+    });
+  };
+  const clearItemSelection = () => setSelectedItemIds(new Set());
 
   // -- Add products modal (Step 1: select, Step 2: configure, Step "create": inline product creation) --
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -139,14 +185,17 @@ export default function StoreInventoryPage(): React.ReactElement {
     is_frequent: filterFrequent || undefined,
     page,
     per_page: PER_PAGE,
+    sort_by: sortBy || undefined,
+    sort_dir: sortBy ? sortDir : undefined,
   });
 
-  // 제품 검색 (Step 1 모달)
-  const { data: productsSearchData, isFetching: isSearchFetching } = useProducts(
-    isAddOpen && addStep === 1
-      ? { search: debouncedAddSearch || undefined, is_active: true, per_page: 30 }
-      : undefined,
+  // 제품 검색 (Step 1 모달) — 무한 스크롤. 서버가 is_in_store 플래그 + 안추가 우선 정렬.
+  const addableProductsQuery = useAddableProducts(
+    storeId,
+    debouncedAddSearch,
+    isAddOpen && addStep === 1,
   );
+  const isSearchFetching = addableProductsQuery.isFetching;
 
   const bulkAdd = useBulkAddStoreInventory(storeId);
   const removeItem = useRemoveStoreInventoryItem(storeId);
@@ -157,15 +206,44 @@ export default function StoreInventoryPage(): React.ReactElement {
   const items: StoreInventoryItem[] = inventoryData?.items ?? [];
   const totalPages = inventoryData ? Math.ceil(inventoryData.total / inventoryData.per_page) : 1;
 
+  const isPageAllSelected =
+    items.length > 0 && items.every((it) => selectedItemIds.has(it.id));
+
   const topLevelCategories: InventoryCategory[] = (categoriesRaw ?? []).filter(
     (c) => !c.parent_id,
   );
 
-  // 이미 추가된 제품 ID 세트 (already in store inventory)
+  // 현재 페이지의 store inventory product IDs — table row UX용. Add 모달은 서버의
+  // is_in_store 플래그를 쓰므로 페이지네이션 영향을 받지 않는다.
   const existingProductIds = useMemo(
     () => new Set(items.map((i) => i.product_id)),
     [items],
   );
+
+  // Step 1 모달용: 무한 스크롤 페이지들을 평탄화
+  const addableItems = useMemo(
+    () => addableProductsQuery.data?.pages.flatMap((p) => p.items) ?? [],
+    [addableProductsQuery.data],
+  );
+
+  // IntersectionObserver — 마지막 row 보이면 다음 페이지 로드
+  const sentinelRef = React.useRef<HTMLDivElement | null>(null);
+  React.useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    const observer = new IntersectionObserver((entries) => {
+      const entry = entries[0];
+      if (
+        entry.isIntersecting &&
+        addableProductsQuery.hasNextPage &&
+        !addableProductsQuery.isFetchingNextPage
+      ) {
+        addableProductsQuery.fetchNextPage();
+      }
+    }, { rootMargin: "100px" });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [addableProductsQuery, addableItems.length]);
 
   const categoryFilterOptions = [
     { value: "", label: "All Categories" },
@@ -179,10 +257,47 @@ export default function StoreInventoryPage(): React.ReactElement {
   /** 테이블 컬럼 */
   const columns: {
     key: string;
-    header: string;
-    render?: (item: StoreInventoryItem) => React.ReactNode;
+    header: string | React.ReactNode;
+    render?: (item: StoreInventoryItem, index: number) => React.ReactNode;
     className?: string;
+    sortable?: boolean;
   }[] = [
+    ...(canDelete
+      ? [
+          {
+            key: "select",
+            header: (
+              <input
+                type="checkbox"
+                checked={isPageAllSelected}
+                onChange={toggleSelectAllOnPage}
+                className="w-4 h-4 accent-accent cursor-pointer"
+              />
+            ),
+            className: "w-10",
+            render: (item: StoreInventoryItem): React.ReactNode => (
+              <div onClick={(e) => e.stopPropagation()}>
+                <input
+                  type="checkbox"
+                  checked={selectedItemIds.has(item.id)}
+                  onChange={() => toggleItemSelect(item.id)}
+                  className="w-4 h-4 accent-accent cursor-pointer"
+                />
+              </div>
+            ),
+          },
+        ]
+      : []),
+    {
+      key: "no",
+      header: "No",
+      className: "w-12 text-text-muted",
+      render: (_item, index) => (
+        <span className="text-xs text-text-muted">
+          {(page - 1) * PER_PAGE + index + 1}
+        </span>
+      ),
+    },
     {
       key: "image",
       header: "",
@@ -200,9 +315,10 @@ export default function StoreInventoryPage(): React.ReactElement {
         ),
     },
     {
-      key: "product_name",
+      key: "name",
       header: "Product",
       className: "min-w-[140px]",
+      sortable: true,
       render: (item) => (
         <div>
           <div className="font-medium text-text text-sm">{item.product_name}</div>
@@ -213,6 +329,7 @@ export default function StoreInventoryPage(): React.ReactElement {
     {
       key: "current_quantity",
       header: "Current Qty",
+      sortable: true,
       render: (item) => {
         const subDisplay =
           item.sub_unit && item.sub_unit_ratio
@@ -229,6 +346,7 @@ export default function StoreInventoryPage(): React.ReactElement {
     {
       key: "min_quantity",
       header: "Min Qty",
+      sortable: true,
       render: (item) => (
         <span className="text-sm text-text-secondary">{item.min_quantity} ea</span>
       ),
@@ -244,6 +362,7 @@ export default function StoreInventoryPage(): React.ReactElement {
     {
       key: "is_frequent",
       header: "Frequent",
+      sortable: true,
       render: (item) => (
         <button
           type="button"
@@ -266,28 +385,47 @@ export default function StoreInventoryPage(): React.ReactElement {
     {
       key: "last_audited_at",
       header: "Last Audited",
+      sortable: true,
       render: (item) => (
         <span className="text-xs text-text-muted">
           {item.last_audited_at ? formatDateTime(item.last_audited_at) : "Never"}
         </span>
       ),
     },
-    ...(canDelete
+    ...(canManage || canDelete
       ? [
           {
             key: "actions",
-            header: "",
+            header: "Actions",
             render: (item: StoreInventoryItem): React.ReactNode => (
-              <button
-                type="button"
-                onClick={(e: React.MouseEvent) => {
-                  e.stopPropagation();
-                  setRemoveItemId(item.id);
-                }}
-                className="px-2 py-1 rounded text-xs text-danger hover:bg-danger-muted transition-colors cursor-pointer"
-              >
-                Remove
-              </button>
+              <div className="flex gap-1">
+                {canManage && (
+                  <button
+                    type="button"
+                    onClick={(e: React.MouseEvent) => {
+                      e.stopPropagation();
+                      openEdit(item);
+                    }}
+                    className="px-2 py-1 rounded text-xs text-accent hover:bg-accent-muted transition-colors cursor-pointer inline-flex items-center gap-1"
+                    title="Edit"
+                  >
+                    <Pencil size={12} />
+                    Edit
+                  </button>
+                )}
+                {canDelete && (
+                  <button
+                    type="button"
+                    onClick={(e: React.MouseEvent) => {
+                      e.stopPropagation();
+                      setRemoveItemId(item.id);
+                    }}
+                    className="px-2 py-1 rounded text-xs text-danger hover:bg-danger-muted transition-colors cursor-pointer"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
             ),
           },
         ]
@@ -406,15 +544,6 @@ export default function StoreInventoryPage(): React.ReactElement {
     );
   }, [selectedProducts, bulkAdd, toast]);
 
-  // 검색 결과 정렬 — 미등록 제품 위, 등록 제품 아래
-  const sortedSearchResults: InventoryProduct[] = useMemo(() => {
-    const results = productsSearchData?.items ?? [];
-    return [
-      ...results.filter((p) => !existingProductIds.has(p.id)),
-      ...results.filter((p) => existingProductIds.has(p.id)),
-    ];
-  }, [productsSearchData, existingProductIds]);
-
   // Server returns { total, normal, low, out }
   const rawSummary = summaryData ?? { total: 0, normal: 0, low: 0, out: 0 };
   const summary = {
@@ -426,32 +555,59 @@ export default function StoreInventoryPage(): React.ReactElement {
 
   return (
     <div>
-      {/* Header row */}
+      {/* Header row — Add Products button swaps with bulk-action toolbar
+          when items are selected. No layout shift on the table below. */}
       <div className="flex items-center gap-4 mb-6 flex-wrap">
-        <div className="flex-1">
-          <h1 className="text-2xl font-extrabold text-text">Store Inventory</h1>
+        <div className="flex-1 flex items-center gap-3">
+          <h1 className="text-2xl font-extrabold text-text whitespace-nowrap">Store Inventory</h1>
+          {selectedItemIds.size > 0 && (
+            <span className="text-sm text-text-secondary">
+              <span className="font-semibold text-accent">{selectedItemIds.size}</span> selected
+              <button
+                type="button"
+                onClick={clearItemSelection}
+                className="ml-2 text-xs text-text-muted hover:text-text underline"
+              >
+                Clear
+              </button>
+            </span>
+          )}
         </div>
 
-        {/* Store selector */}
-        {storeOptions.length > 1 && (
-          <div className="flex items-center gap-2">
-            <StoreIcon size={16} className="text-text-muted shrink-0" />
-            <span className="text-sm font-medium text-text-secondary whitespace-nowrap">Store:</span>
-            <div className="w-52">
-              <Select
-                options={storeOptions}
-                value={storeId}
-                onChange={(e) => router.push(`/inventory/stores/${e.target.value}`)}
-              />
-            </div>
-          </div>
-        )}
+        {selectedItemIds.size > 0 ? (
+          canDelete && (
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={() => setBulkRemoveOpen(true)}
+            >
+              Remove Selected
+            </Button>
+          )
+        ) : (
+          <>
+            {/* Store selector */}
+            {storeOptions.length > 1 && (
+              <div className="flex items-center gap-2">
+                <StoreIcon size={16} className="text-text-muted shrink-0" />
+                <span className="text-sm font-medium text-text-secondary whitespace-nowrap">Store:</span>
+                <div className="w-52">
+                  <Select
+                    options={storeOptions}
+                    value={storeId}
+                    onChange={(e) => router.push(`/inventory/stores/${e.target.value}`)}
+                  />
+                </div>
+              </div>
+            )}
 
-        {canManage && (
-          <Button variant="primary" size="sm" onClick={handleOpenAdd}>
-            <Plus size={16} />
-            Add Products
-          </Button>
+            {canManage && (
+              <Button variant="primary" size="sm" onClick={handleOpenAdd}>
+                <Plus size={16} />
+                Add Products
+              </Button>
+            )}
+          </>
         )}
       </div>
 
@@ -539,11 +695,15 @@ export default function StoreInventoryPage(): React.ReactElement {
           isLoading={isLoading}
           onRowClick={handleRowClick}
           emptyMessage="No inventory items found."
-          rowClassName={(item) =>
-            item.current_quantity <= item.min_quantity
-              ? "bg-danger-muted/30 hover:bg-danger-muted/50"
-              : ""
-          }
+          rowClassName={(item) => {
+            const lowStock = item.current_quantity <= item.min_quantity;
+            const selected = selectedItemIds.has(item.id);
+            if (selected) return "!bg-accent-muted";
+            return lowStock ? "bg-danger-muted/30 hover:bg-danger-muted/50" : "";
+          }}
+          sortKey={sortBy || undefined}
+          sortDirection={sortBy ? sortDir : undefined}
+          onSort={handleSort}
         />
       </Card>
 
@@ -707,58 +867,69 @@ export default function StoreInventoryPage(): React.ReactElement {
               </div>
             )}
 
-            {/* Product list */}
+            {/* Product list — infinite scroll. Server returns addable-first, then by name. */}
             <div className="max-h-72 overflow-y-auto divide-y divide-border rounded-lg border border-border">
-              {sortedSearchResults.length === 0 ? (
+              {addableItems.length === 0 && !addableProductsQuery.isFetching ? (
                 <div className="py-8 text-center text-sm text-text-muted">
                   No products found.
                 </div>
               ) : (
-                sortedSearchResults.map((product) => {
-                  const alreadyAdded = existingProductIds.has(product.id);
-                  const isSelected = selectedProducts.some(
-                    (p) => p.product_id === product.id,
-                  );
-                  return (
-                    <label
-                      key={product.id}
-                      className={cn(
-                        "flex items-center gap-3 px-3 py-2.5 transition-colors",
-                        alreadyAdded
-                          ? "opacity-50 cursor-not-allowed"
-                          : "cursor-pointer hover:bg-surface-hover",
-                      )}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={isSelected}
-                        disabled={alreadyAdded}
-                        onChange={() => !alreadyAdded && handleToggleSelect(product)}
-                        className="rounded border-border bg-surface text-accent focus:ring-accent/50"
-                      />
-                      {product.image_url ? (
-                        <img
-                          src={product.image_url}
-                          alt={product.name}
-                          className="w-8 h-8 object-cover rounded-md border border-border shrink-0"
+                <>
+                  {addableItems.map((product) => {
+                    const alreadyAdded = product.is_in_store;
+                    const isSelected = selectedProducts.some(
+                      (p) => p.product_id === product.id,
+                    );
+                    return (
+                      <label
+                        key={product.id}
+                        className={cn(
+                          "flex items-center gap-3 px-3 py-2.5 transition-colors",
+                          alreadyAdded
+                            ? "opacity-50 cursor-not-allowed"
+                            : "cursor-pointer hover:bg-surface-hover",
+                        )}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isSelected}
+                          disabled={alreadyAdded}
+                          onChange={() => !alreadyAdded && handleToggleSelect(product)}
+                          className="rounded border-border bg-surface text-accent focus:ring-accent/50"
                         />
-                      ) : (
-                        <div className="w-8 h-8 rounded-md border border-border bg-surface flex items-center justify-center shrink-0">
-                          <Package size={12} className="text-text-muted" />
+                        {product.image_url ? (
+                          <img
+                            src={product.image_url}
+                            alt={product.name}
+                            className="w-8 h-8 object-cover rounded-md border border-border shrink-0"
+                          />
+                        ) : (
+                          <div className="w-8 h-8 rounded-md border border-border bg-surface flex items-center justify-center shrink-0">
+                            <Package size={12} className="text-text-muted" />
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm font-medium text-text truncate">
+                            {product.name}
+                          </div>
+                          <div className="text-xs text-text-muted font-mono">{product.code}</div>
                         </div>
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium text-text truncate">
-                          {product.name}
-                        </div>
-                        <div className="text-xs text-text-muted font-mono">{product.code}</div>
-                      </div>
-                      {alreadyAdded && (
-                        <Badge variant="default">Already Added</Badge>
-                      )}
-                    </label>
-                  );
-                })
+                        {alreadyAdded && (
+                          <Badge variant="default">Already Added</Badge>
+                        )}
+                      </label>
+                    );
+                  })}
+                  <div ref={sentinelRef} className="h-px" />
+                  {addableProductsQuery.isFetchingNextPage && (
+                    <div className="py-3 text-center text-xs text-text-muted">Loading more...</div>
+                  )}
+                  {!addableProductsQuery.hasNextPage && addableItems.length > 0 && (
+                    <div className="py-3 text-center text-xs text-text-muted">
+                      End of list ({addableItems.length} shown)
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
@@ -897,6 +1068,191 @@ export default function StoreInventoryPage(): React.ReactElement {
         confirmLabel="Remove"
         isLoading={removeItem.isPending}
       />
+
+      <ConfirmDialog
+        isOpen={bulkRemoveOpen}
+        onClose={() => setBulkRemoveOpen(false)}
+        onConfirm={async () => {
+          // Sequentially fire single-item removes — there's no bulk-remove endpoint,
+          // and selections are typically small enough that this is fine.
+          const ids = Array.from(selectedItemIds);
+          let success = 0;
+          for (const id of ids) {
+            try {
+              await removeItem.mutateAsync(id);
+              success += 1;
+            } catch {
+              // continue; final toast reports success/fail counts
+            }
+          }
+          const failed = ids.length - success;
+          if (failed === 0) {
+            toast({ type: "success", message: `${success} item(s) removed from store.` });
+          } else {
+            toast({
+              type: "error",
+              message: `${success} removed, ${failed} failed.`,
+            });
+          }
+          clearItemSelection();
+          setBulkRemoveOpen(false);
+        }}
+        title="Remove Selected Items"
+        message={`Remove ${selectedItemIds.size} product(s) from this store's inventory? Products themselves will stay in the catalog.`}
+        confirmLabel="Remove"
+        isLoading={removeItem.isPending}
+      />
+
+      {editItem && (
+        <EditItemModal
+          item={editItem}
+          storeId={storeId}
+          onClose={() => setEditItem(null)}
+        />
+      )}
     </div>
+  );
+}
+
+/** Edit modal — single item. Edits min_qty/is_frequent via PUT, and writes
+ *  any current_qty change as a stock_in/stock_out transaction so audit
+ *  history stays accurate. */
+function EditItemModal({
+  item,
+  storeId,
+  onClose,
+}: {
+  item: StoreInventoryItem;
+  storeId: string;
+  onClose: () => void;
+}): React.ReactElement {
+  const { toast } = useToast();
+  const updateItem = useUpdateStoreInventoryItem(storeId);
+  const createTransaction = useCreateTransaction(storeId, item.id);
+
+  const [minQty, setMinQty] = useState(String(item.min_quantity));
+  const [currentQty, setCurrentQty] = useState(String(item.current_quantity));
+  const [isFrequent, setIsFrequent] = useState(item.is_frequent);
+  const [reason, setReason] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const minQtyNum = parseInt(minQty, 10);
+  const currentQtyNum = parseInt(currentQty, 10);
+  const qtyDiff = isNaN(currentQtyNum) ? 0 : currentQtyNum - item.current_quantity;
+  const minQtyChanged = !isNaN(minQtyNum) && minQtyNum !== item.min_quantity;
+  const frequentChanged = isFrequent !== item.is_frequent;
+  const hasAnyChange = minQtyChanged || frequentChanged || qtyDiff !== 0;
+  const reasonRequired = qtyDiff !== 0;
+
+  const handleSave = async () => {
+    if (isNaN(minQtyNum) || minQtyNum < 0) {
+      toast({ type: "error", message: "Min Qty must be a non-negative integer." });
+      return;
+    }
+    if (isNaN(currentQtyNum) || currentQtyNum < 0) {
+      toast({ type: "error", message: "Current Qty must be a non-negative integer." });
+      return;
+    }
+    if (reasonRequired && !reason.trim()) {
+      toast({ type: "error", message: "Please provide a reason for the quantity change." });
+      return;
+    }
+    setSaving(true);
+    try {
+      // 1) min_qty / is_frequent → PUT update
+      if (minQtyChanged || frequentChanged) {
+        await updateItem.mutateAsync({
+          id: item.id,
+          ...(minQtyChanged ? { min_quantity: minQtyNum } : {}),
+          ...(frequentChanged ? { is_frequent: isFrequent } : {}),
+        });
+      }
+      // 2) current_qty diff → stock_in or stock_out transaction
+      if (qtyDiff !== 0) {
+        await createTransaction.mutateAsync({
+          type: qtyDiff > 0 ? "stock_in" : "stock_out",
+          quantity: Math.abs(qtyDiff),
+          reason: reason.trim(),
+        });
+      }
+      toast({ type: "success", message: "Item updated." });
+      onClose();
+    } catch (err) {
+      toast({ type: "error", message: parseApiError(err, "Failed to update.") });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal isOpen={true} onClose={onClose} title={`Edit — ${item.product_name}`} size="md">
+      <div className="flex flex-col gap-4">
+        <div className="text-xs text-text-muted font-mono">{item.product_code}</div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <Input
+            type="number"
+            min={0}
+            label="Min Qty (ea)"
+            value={minQty}
+            onChange={(e) => setMinQty(e.target.value)}
+          />
+          <Input
+            type="number"
+            min={0}
+            label="Current Qty (ea)"
+            value={currentQty}
+            onChange={(e) => setCurrentQty(e.target.value)}
+          />
+        </div>
+
+        {qtyDiff !== 0 && (
+          <div className="rounded-lg border border-warning/40 bg-warning-muted px-3 py-2 text-xs text-text">
+            Current Qty change will be recorded as a{" "}
+            <span className="font-semibold">
+              {qtyDiff > 0 ? `stock-in of +${qtyDiff}` : `stock-out of ${qtyDiff}`}
+            </span>{" "}
+            transaction.
+          </div>
+        )}
+
+        <Input
+          label={`Reason${reasonRequired ? " (required for qty change)" : " (optional)"}`}
+          placeholder="e.g. On-site recount on 2026-04-27"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+        />
+
+        <label className="flex items-center gap-2 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={isFrequent}
+            onChange={(e) => setIsFrequent(e.target.checked)}
+            className="w-4 h-4 accent-accent"
+          />
+          <Star
+            size={14}
+            className={isFrequent ? "text-warning" : "text-text-muted"}
+            fill={isFrequent ? "currentColor" : "none"}
+          />
+          <span className="text-sm text-text">Mark as frequent</span>
+        </label>
+
+        <div className="flex justify-end gap-2 pt-2 border-t border-border">
+          <Button variant="secondary" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={handleSave}
+            disabled={!hasAnyChange || saving}
+            isLoading={saving}
+          >
+            Save
+          </Button>
+        </div>
+      </div>
+    </Modal>
   );
 }

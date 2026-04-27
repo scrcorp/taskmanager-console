@@ -29,6 +29,7 @@ export function ImportProductsModal({ isOpen, onClose }: ImportProductsModalProp
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [previewItems, setPreviewItems] = useState<ImportPreviewItem[]>([]);
+  const [previewRowErrors, setPreviewRowErrors] = useState<string[]>([]);
   const [selectedRows, setSelectedRows] = useState<Set<number>>(new Set());
   const [step, setStep] = useState<1 | 2>(1);
   const [result, setResult] = useState<ProductImportResult | null>(null);
@@ -38,6 +39,7 @@ export function ImportProductsModal({ isOpen, onClose }: ImportProductsModalProp
     setSelectedFile(null);
     setIsDragging(false);
     setPreviewItems([]);
+    setPreviewRowErrors([]);
     setSelectedRows(new Set());
     setStep(1);
     setResult(null);
@@ -95,8 +97,16 @@ export function ImportProductsModal({ isOpen, onClose }: ImportProductsModalProp
           return;
         }
         const items = data.items ?? [];
+        const rowErrors = data.row_errors ?? [];
         setPreviewItems(items);
+        setPreviewRowErrors(rowErrors);
         setSelectedRows(new Set(items.map((_, i) => i)));
+        if (rowErrors.length > 0) {
+          toast({
+            type: "error",
+            message: `${rowErrors.length} row(s) have invalid values. Fix them before importing.`,
+          });
+        }
         setStep(2);
       },
       onError: (err) => {
@@ -233,10 +243,26 @@ export function ImportProductsModal({ isOpen, onClose }: ImportProductsModalProp
               <p className="text-sm font-medium text-text">
                 {previewItems.length} item(s) found — {selectedRows.size} selected
               </p>
-              <Button variant="secondary" size="sm" onClick={() => { setStep(1); setPreviewItems([]); }}>
+              <Button variant="secondary" size="sm" onClick={() => { setStep(1); setPreviewItems([]); setPreviewRowErrors([]); }}>
                 Back
               </Button>
             </div>
+
+            {previewRowErrors.length > 0 && (
+              <div className="rounded-lg border border-danger/40 bg-danger-muted p-3">
+                <div className="flex items-center gap-2 mb-2">
+                  <AlertTriangle size={14} className="text-danger" />
+                  <p className="text-sm font-medium text-danger">
+                    {previewRowErrors.length} row(s) skipped — invalid column values
+                  </p>
+                </div>
+                <ul className="text-xs text-text-secondary space-y-0.5 max-h-32 overflow-y-auto">
+                  {previewRowErrors.map((err, i) => (
+                    <li key={i} className="font-mono">{err}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
 
             <div className="overflow-x-auto rounded-lg border border-border max-h-[400px] overflow-y-auto">
               <table className="w-full text-sm">
