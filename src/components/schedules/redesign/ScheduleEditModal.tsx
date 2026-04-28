@@ -308,6 +308,9 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, isDirty, confirmDiscard]);
 
+  const validateSchedule = useValidateSchedule();
+  const [warningPrompt, setWarningPrompt] = useState<{ warnings: string[]; payload: ScheduleEditPayload } | null>(null);
+
   if (!open) return null;
 
   const selectedUser = users.find((u) => u.id === userId);
@@ -379,9 +382,6 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
     }
     return null;
   })();
-
-  const validateSchedule = useValidateSchedule();
-  const [warningPrompt, setWarningPrompt] = useState<{ warnings: string[]; payload: ScheduleEditPayload } | null>(null);
 
   function buildPayload(force: boolean): ScheduleEditPayload {
     let hourlyRate: number | null;
