@@ -30,6 +30,7 @@ import {
   ClipboardCheck,
   ShieldCheck,
   Tablet,
+  UserPlus,
 } from "lucide-react";
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useAuthStore } from "@/stores/authStore";
@@ -57,6 +58,7 @@ const navItems: NavItem[] = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
   { href: "/stores", label: "Stores", icon: Store },
   { href: "/users", label: "Staff", icon: Users },
+  { href: "/hiring", label: "Hiring", icon: UserPlus },
   {
     href: "/schedules",
     label: "Schedules",
