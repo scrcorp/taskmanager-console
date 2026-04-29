@@ -321,7 +321,15 @@ export function parseApiError(error: unknown, fallback: string): string {
   if (error && typeof error === "object" && "code" in error) {
     const code = (error as { code?: string }).code;
     if (code === "ECONNABORTED") return "Server not responding. Please try again.";
-    if (code === "ERR_NETWORK") return "No internet connection.";
+    if (code === "ERR_NETWORK") {
+      // ERR_NETWORK 는 실제 offline 외에도 CORS preflight 실패, DNS, SSL,
+      // 서버 다운 등에서 동일하게 발생함. navigator.onLine 으로 진짜 offline
+      // 인지 구분해서 오해의 소지를 줄인다.
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        return "No internet connection.";
+      }
+      return "Cannot reach server. Check your connection or contact admin.";
+    }
   }
   return fallback;
 }
