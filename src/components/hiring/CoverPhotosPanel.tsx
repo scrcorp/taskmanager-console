@@ -10,6 +10,8 @@ import {
 } from "@/hooks/useHiring";
 import { cn } from "@/lib/utils";
 
+const MAX_COVER_PHOTOS = 8;
+
 interface Props {
   storeId: string;
 }
@@ -21,9 +23,13 @@ export function CoverPhotosPanel({ storeId }: Props) {
   const remove = useDeleteCoverPhoto(storeId);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const remaining = Math.max(MAX_COVER_PHOTOS - photos.length, 0);
+  const atLimit = remaining === 0;
+
   const handlePickFiles = async (files: FileList | null) => {
     if (!files) return;
-    for (const file of Array.from(files)) {
+    const acceptable = Array.from(files).slice(0, remaining);
+    for (const file of acceptable) {
       try {
         await upload.mutateAsync({ file });
       } catch (err) {
@@ -40,20 +46,24 @@ export function CoverPhotosPanel({ storeId }: Props) {
           <div>
             <h3 className="text-[14px] font-semibold text-[#1A1D27]">
               Cover photos
+              <span className="ml-2 text-[11.5px] font-medium text-[#94A3B8]">
+                {photos.length} / {MAX_COVER_PHOTOS}
+              </span>
             </h3>
             <p className="mt-0.5 text-[12px] leading-relaxed text-[#64748B]">
-              The primary photo appears as the hero on your signup page. Add
-              up to 8 photos.
+              The primary photo is the hero on your signup page. Other photos
+              show in a gallery below it. Up to {MAX_COVER_PHOTOS} photos.
             </p>
           </div>
           <button
             type="button"
             onClick={() => inputRef.current?.click()}
-            disabled={upload.isPending}
-            className="flex flex-shrink-0 items-center gap-1.5 rounded-lg bg-[#6C5CE7] px-3 py-2 text-[12px] font-medium text-white shadow-sm shadow-[rgba(108,92,231,0.25)] transition-colors hover:bg-[#5A4BD1] disabled:opacity-60"
+            disabled={upload.isPending || atLimit}
+            title={atLimit ? `Maximum ${MAX_COVER_PHOTOS} photos reached.` : undefined}
+            className="flex flex-shrink-0 items-center gap-1.5 rounded-lg bg-[#6C5CE7] px-3 py-2 text-[12px] font-medium text-white shadow-sm shadow-[rgba(108,92,231,0.25)] transition-colors hover:bg-[#5A4BD1] disabled:cursor-not-allowed disabled:opacity-50"
           >
             <Plus size={14} />
-            {upload.isPending ? "Uploading…" : "Upload"}
+            {upload.isPending ? "Uploading…" : atLimit ? "Limit reached" : "Upload"}
           </button>
           <input
             ref={inputRef}
@@ -129,15 +139,17 @@ export function CoverPhotosPanel({ storeId }: Props) {
             </div>
           ))}
 
-          <button
-            type="button"
-            onClick={() => inputRef.current?.click()}
-            className="flex aspect-[4/3] flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[#CBD5E1] bg-[#F5F6FA] text-[#64748B] transition-colors hover:border-[#94A3B8] hover:bg-[#F0F1F5] hover:text-[#1A1D27]"
-          >
-            <ImageIcon size={28} />
-            <span className="text-[12px] font-medium">Add photo</span>
-            <span className="text-[10.5px] text-[#94A3B8]">JPG, PNG · max 5MB</span>
-          </button>
+          {!atLimit && (
+            <button
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              className="flex aspect-[4/3] flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-[#CBD5E1] bg-[#F5F6FA] text-[#64748B] transition-colors hover:border-[#94A3B8] hover:bg-[#F0F1F5] hover:text-[#1A1D27]"
+            >
+              <ImageIcon size={28} />
+              <span className="text-[12px] font-medium">Add photo</span>
+              <span className="text-[10.5px] text-[#94A3B8]">JPG, PNG · max 5MB</span>
+            </button>
+          )}
         </div>
       </div>
     </div>

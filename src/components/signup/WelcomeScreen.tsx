@@ -8,8 +8,12 @@ interface Props {
 const FALLBACK_HERO_BG = "bg-gradient-to-br from-slate-700 via-slate-800 to-slate-900";
 
 export function WelcomeScreen({ ctx, onContinue }: Props) {
-  const primary = ctx.store.cover_photos.find((p) => p.is_primary)?.url
-    ?? ctx.store.cover_photos[0]?.url;
+  const photos = ctx.store.cover_photos;
+  const primaryPhoto = photos.find((p) => p.is_primary) ?? photos[0];
+  const primary = primaryPhoto?.url;
+  const galleryPhotos = primary
+    ? photos.filter((p) => p.url !== primary)
+    : [];
 
   return (
     <div className="flex min-h-[100dvh] flex-col bg-white">
@@ -63,6 +67,31 @@ export function WelcomeScreen({ ctx, onContinue }: Props) {
           Set up your account to clock in, view shifts, and complete daily
           tasks.
         </p>
+
+        {galleryPhotos.length > 0 && (
+          <div className="mt-5">
+            <p className="mb-2 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-slate-400">
+              More from this store
+            </p>
+            <div className="-mx-5 overflow-x-auto px-5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              <div className="flex gap-2">
+                {galleryPhotos.map((photo) => (
+                  <div
+                    key={photo.url}
+                    className="aspect-[4/3] h-24 flex-shrink-0 overflow-hidden rounded-xl bg-slate-100 ring-1 ring-slate-200"
+                  >
+                    <img
+                      src={photo.url}
+                      alt=""
+                      className="h-full w-full object-cover"
+                      loading="lazy"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className="mt-5">
           <p className="mb-2 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-slate-400">
