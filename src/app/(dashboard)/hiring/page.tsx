@@ -14,10 +14,7 @@ import { ApplicantsPanel } from "@/components/hiring/ApplicantsPanel";
 import { PipelinePanel } from "@/components/hiring/PipelinePanel";
 import { ExternalLink } from "lucide-react";
 import { encodeUuid } from "@/lib/url-encoding";
-import {
-  MOCK_APPLICANTS,
-  MOCK_QUESTIONS,
-} from "@/components/hiring/_phase2Mock";
+import { useApplications } from "@/hooks/useHiring";
 
 export default function HiringPage() {
   const { data: stores = [], isLoading } = useStores();
@@ -51,18 +48,21 @@ export default function HiringPage() {
       case "photos":
         return <CoverPhotosPanel storeId={selected.id} />;
       case "questions":
-        return <QuestionsPanel />;
+        return <QuestionsPanel storeId={selected.id} />;
       case "applicants":
-        return <ApplicantsPanel />;
+        return <ApplicantsPanel storeId={selected.id} />;
       case "pipeline":
-        return <PipelinePanel />;
+        return <PipelinePanel storeId={selected.id} />;
     }
   };
 
-  // Phase 2 mock 카운트 — sub-tab 배지에 표시
+  // sub-tab 배지 카운트
+  const { data: appsData } = useApplications(
+    selected?.id,
+    "active",
+  );
   const tabCounts = {
-    questions: MOCK_QUESTIONS.length,
-    applicants: MOCK_APPLICANTS.length,
+    applicants: appsData?.items.length ?? 0,
   };
 
   return (

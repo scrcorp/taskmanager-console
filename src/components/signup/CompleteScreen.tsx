@@ -32,12 +32,14 @@ export function CompleteScreen({ ctx, fullName, onRestart }: Props) {
         </div>
 
         <h1 className="text-[28px] font-semibold leading-tight tracking-tight text-slate-900">
-          {firstName ? `You're all set, ${firstName}!` : "You're all set!"}
+          {firstName ? `Thanks, ${firstName}!` : "Thanks!"}
         </h1>
-        <p className="mt-2 max-w-[280px] text-[14px] leading-relaxed text-slate-500">
-          You&apos;ve been added to{" "}
+        <p className="mt-2 max-w-[300px] text-[14px] leading-relaxed text-slate-500">
+          Your application to{" "}
           <span className="font-medium text-slate-700">{ctx.store.name}</span>{" "}
-          as Staff.
+          has been submitted. The hiring manager will review it and reach out to
+          you. Once approved, you can log into the staff app with your username
+          and password.
         </p>
 
         <div className="mt-7 w-full">

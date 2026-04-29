@@ -104,6 +104,12 @@ export const PERMISSIONS = {
   // ── Clockin PIN ──
   CLOCKIN_PIN_READ: "clockin_pin:read",
   CLOCKIN_PIN_UPDATE: "clockin_pin:update",
+
+  // ── Hiring ──
+  HIRING_READ: "hiring:read",
+  HIRING_UPDATE: "hiring:update",
+  HIRING_HIRE: "hiring:hire",
+  HIRING_BLOCK: "hiring:block",
 } as const;
 
 /**

@@ -19,9 +19,9 @@ export interface HiringTabDef {
 export const HIRING_TABS: HiringTabDef[] = [
   { key: "link", label: "Link & QR", phase: 1 },
   { key: "photos", label: "Cover Photos", phase: 1 },
-  { key: "questions", label: "Screening Questions", phase: 2 },
-  { key: "applicants", label: "Applicants", phase: 2 },
-  { key: "pipeline", label: "Pipeline", phase: 2 },
+  { key: "questions", label: "Form", phase: 1 },
+  { key: "applicants", label: "Applicants", phase: 1 },
+  { key: "pipeline", label: "Pipeline", phase: 1 },
 ];
 
 interface Props {

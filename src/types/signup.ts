@@ -3,7 +3,12 @@
  * Used by /join/[code] route group.
  */
 
-export type SignupStep = "welcome" | "account" | "email" | "complete";
+export type SignupStep =
+  | "welcome"
+  | "account"
+  | "form"
+  | "email"
+  | "complete";
 
 export interface SignupStore {
   id: string;

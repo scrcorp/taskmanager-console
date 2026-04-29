@@ -9,15 +9,20 @@ import type {
   SignupContext,
   SignupStep,
 } from "@/types/signup";
+import type { HiringFormConfig } from "@/hooks/useHiring";
 import { WelcomeScreen } from "./WelcomeScreen";
 import { AccountScreen } from "./AccountScreen";
 import { EmailVerifyScreen } from "./EmailVerifyScreen";
 import { CompleteScreen } from "./CompleteScreen";
 import { InvalidLinkScreen } from "./InvalidLinkScreen";
+import {
+  FormStepScreen,
+  type AnswerMap,
+  type AttachmentMap,
+} from "./FormStepScreen";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "";
 
-/** 공개 가입 페이지 — 토큰 없이 호출 가능한 axios 인스턴스. */
 const publicApi = axios.create({
   baseURL: API_BASE,
   headers: { "Content-Type": "application/json" },
@@ -31,6 +36,7 @@ export function SignupFlow({ encoded }: Props) {
   const [loading, setLoading] = useState(true);
   const [linkError, setLinkError] = useState<LinkErrorCode | null>(null);
   const [ctx, setCtx] = useState<SignupContext | null>(null);
+  const [formConfig, setFormConfig] = useState<HiringFormConfig | null>(null);
   const [step, setStep] = useState<SignupStep>("welcome");
 
   const [account, setAccount] = useState<AccountFormState>({
@@ -50,23 +56,37 @@ export function SignupFlow({ encoded }: Props) {
     verified: false,
   });
 
+  const [answers, setAnswers] = useState<AnswerMap>({});
+  const [attachments, setAttachments] = useState<AttachmentMap>({});
+
   const [emailLoading, setEmailLoading] = useState(false);
   const [emailError, setEmailError] = useState<string | null>(null);
   const [submittingFinal, setSubmittingFinal] = useState(false);
   const [finalError, setFinalError] = useState<string | null>(null);
 
-  // 매장 정보 fetch
+  const hasForm =
+    !!formConfig &&
+    ((formConfig.questions?.length ?? 0) > 0 ||
+      (formConfig.attachments?.length ?? 0) > 0 ||
+      !!formConfig.welcome_message);
+
+  // 매장 + 폼 fetch
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await publicApi.get<SignupContext>(
-          `/app/auth/stores/by-code/${encoded}`,
-        );
-        if (!cancelled) {
-          setCtx(res.data);
-          setLoading(false);
-        }
+        const [storeRes, formRes] = await Promise.all([
+          publicApi.get<SignupContext>(`/app/auth/stores/by-code/${encoded}`),
+          publicApi.get<{
+            store_id: string;
+            form_id: string | null;
+            config: HiringFormConfig;
+          }>(`/app/applications/form/${encoded}`),
+        ]);
+        if (cancelled) return;
+        setCtx(storeRes.data);
+        setFormConfig(formRes.data.config);
+        setLoading(false);
       } catch (err) {
         if (cancelled) return;
         const code =
@@ -81,7 +101,6 @@ export function SignupFlow({ encoded }: Props) {
     };
   }, [encoded]);
 
-  // Account → Email로 넘어갈 때 email pre-fill
   const handleAccountChange = (next: AccountFormState) => {
     setAccount(next);
     setEmailForm((prev) => ({ ...prev, email: next.email }));
@@ -119,23 +138,61 @@ export function SignupFlow({ encoded }: Props) {
       const verificationToken: string = verifyRes.data.verification_token;
 
       setSubmittingFinal(true);
-      await publicApi.post("/app/auth/register", {
+
+      // 폼 답변 → submit body 형태로 변환
+      const answerArr = Object.entries(answers).map(([qid, value]) => ({
+        question_id: qid,
+        value,
+      }));
+      const attachmentArr = Object.entries(attachments)
+        .filter(([, v]) => v !== null)
+        .map(([slotId, v]) => ({
+          slot_id: slotId,
+          file_key: v!.file_key,
+          file_name: v!.file_name,
+          file_size: v!.file_size,
+          mime_type: v!.mime_type,
+        }));
+
+      await publicApi.post("/app/applications/submit", {
+        encoded,
         username: account.username,
         password: account.password,
         full_name: account.fullName,
         email: account.email,
-        company_code: ctx.organization.company_code,
         verification_token: verificationToken,
-        store_ids: [ctx.store.id],
+        answers: answerArr,
+        attachments: attachmentArr,
       });
 
       setEmailForm((prev) => ({ ...prev, verified: true }));
       setStep("complete");
     } catch (err) {
-      const msg =
-        (axios.isAxiosError(err) && err.response?.data?.detail) ||
-        "Verification failed. Check the code and try again.";
-      setEmailError(typeof msg === "string" ? msg : "Verification failed.");
+      const detail =
+        axios.isAxiosError(err) && err.response?.data?.detail;
+      let msg = "Verification failed. Check the code and try again.";
+      if (detail && typeof detail === "object") {
+        const code = (detail as { code?: string }).code;
+        const message = (detail as { message?: string }).message;
+        if (code === "username_taken") {
+          msg = "This username is already in use. Choose a different one.";
+        } else if (code === "email_taken") {
+          msg =
+            "An account with this email exists. If it's yours, log into the app instead of signing up again.";
+        } else if (code === "credential_mismatch") {
+          msg =
+            "An account with this username/email already exists with a different password. Log into the app to apply with your existing account.";
+        } else if (code === "active_application_exists") {
+          msg = "You already have an active application for this store.";
+        } else if (code === "not_eligible") {
+          msg = "You are not eligible to apply to this store.";
+        } else if (typeof message === "string") {
+          msg = message;
+        }
+      } else if (typeof detail === "string") {
+        msg = detail;
+      }
+      setEmailError(msg);
     } finally {
       setEmailLoading(false);
       setSubmittingFinal(false);
@@ -166,6 +223,24 @@ export function SignupFlow({ encoded }: Props) {
           form={account}
           onChange={handleAccountChange}
           onBack={() => setStep("welcome")}
+          onContinue={() => setStep(hasForm ? "form" : "email")}
+        />
+      );
+    case "form":
+      if (!formConfig) {
+        setStep("email");
+        return null;
+      }
+      return (
+        <FormStepScreen
+          config={formConfig}
+          encoded={encoded}
+          apiBase={API_BASE}
+          answers={answers}
+          setAnswers={setAnswers}
+          attachments={attachments}
+          setAttachments={setAttachments}
+          onBack={() => setStep("account")}
           onContinue={() => setStep("email")}
         />
       );
@@ -174,7 +249,7 @@ export function SignupFlow({ encoded }: Props) {
         <EmailVerifyScreen
           form={emailForm}
           onChange={setEmailForm}
-          onBack={() => setStep("account")}
+          onBack={() => setStep(hasForm ? "form" : "account")}
           onSendCode={handleSendCode}
           onVerify={handleVerify}
           loading={emailLoading || submittingFinal}
@@ -202,6 +277,8 @@ export function SignupFlow({ encoded }: Props) {
               code: "",
               verified: false,
             });
+            setAnswers({});
+            setAttachments({});
             setEmailError(null);
             setFinalError(null);
             setStep("welcome");
