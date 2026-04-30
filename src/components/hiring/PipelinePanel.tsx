@@ -35,6 +35,14 @@ export function PipelinePanel({ storeId }: Props) {
       return;
     }
     if (app.stage === stage) return;
+    // Withdrawn은 지원자 본인 의사. 매니저가 drag로 다른 컬럼 이동 시 그 카드는
+    // 그대로 rejected 컬럼 안에 유지 (drag 무시).
+    if (app.stage === "withdrawn") {
+      alert(
+        "Withdrawn is set by the applicant. Open the card and use the stage buttons if you need to override.",
+      );
+      return;
+    }
     patch.mutate({ applicationId: app.id, patch: { stage } });
   };
 
@@ -42,7 +50,12 @@ export function PipelinePanel({ storeId }: Props) {
     <div className="space-y-5">
       <div className="grid grid-cols-5 gap-3">
         {STAGES.map((stage) => {
-          const cards = items.filter((a) => a.stage === stage.key);
+          // Rejected 컬럼에는 withdrawn(지원자 본인 철회)도 함께 노출.
+          const cards = items.filter((a) =>
+            stage.key === "rejected"
+              ? a.stage === "rejected" || a.stage === "withdrawn"
+              : a.stage === stage.key,
+          );
           return (
             <div
               key={stage.key}
@@ -112,6 +125,11 @@ export function PipelinePanel({ storeId }: Props) {
                             {a.attempt_no > 1 ? `Attempt #${a.attempt_no}` : "First attempt"}
                           </p>
                         </div>
+                        {stage.key === "rejected" && a.stage === "withdrawn" && (
+                          <span className="flex-shrink-0 rounded-full bg-[#F0F1F5] px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wider text-[#64748B]">
+                            Withdrew
+                          </span>
+                        )}
                       </div>
                       <div className="mt-2 flex items-center justify-between text-[10.5px] text-[#64748B]">
                         <span>{a.submitted_at.slice(0, 10)}</span>
