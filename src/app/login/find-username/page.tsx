@@ -79,7 +79,7 @@ export default function FindUsernamePage() {
         {step === "email" && (
           <>
             <div className="text-center mb-8">
-              <h1 className="text-xl font-extrabold text-text">Find Username</h1>
+              <h1 className="text-xl font-extrabold text-text">Find ID</h1>
               <p className="text-sm text-text-secondary mt-2">
                 Enter the email associated with your account.
               </p>
@@ -119,7 +119,7 @@ export default function FindUsernamePage() {
         {step === "masked" && (
           <>
             <div className="text-center mb-8">
-              <h1 className="text-xl font-extrabold text-text">Find Username</h1>
+              <h1 className="text-xl font-extrabold text-text">Find ID</h1>
               <p className="text-sm text-text-secondary mt-2">
                 We found an account associated with your email.
               </p>

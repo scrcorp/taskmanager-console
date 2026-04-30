@@ -121,13 +121,13 @@ function LoginContent() {
           )}
           <div>
             <label className="block text-text-secondary text-sm font-semibold mb-1.5">
-              Username
+              ID
             </label>
             <input
               type="text"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="Enter username"
+              placeholder="Enter ID"
               className="w-full px-4 py-3 rounded-lg border border-border bg-surface text-text text-sm outline-none focus:border-accent"
             />
           </div>
@@ -157,7 +157,7 @@ function LoginContent() {
               href="/login/find-username"
               className="text-sm text-text-muted hover:text-accent transition-colors"
             >
-              Find Username
+              Find ID
             </Link>
             <span className="text-border text-sm">|</span>
             <Link

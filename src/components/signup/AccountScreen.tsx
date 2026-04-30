@@ -122,7 +122,7 @@ export function AccountScreen({ form, onChange, onBack, onContinue }: Props) {
         </Field>
 
         <Field
-          label="Username"
+          label="ID"
           hint="Used to log in. Lowercase letters and numbers."
         >
           <div className="relative">

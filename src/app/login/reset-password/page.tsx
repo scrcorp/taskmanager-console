@@ -93,13 +93,13 @@ export default function ResetPasswordPage() {
               )}
               <div>
                 <label className="block text-sm font-semibold text-text-secondary mb-1.5">
-                  Username
+                  ID
                 </label>
                 <input
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Enter your username"
+                  placeholder="Enter your ID"
                   className="w-full px-4 py-3 rounded-lg border border-border bg-surface text-text text-sm outline-none focus:border-accent transition-colors"
                   required
                 />

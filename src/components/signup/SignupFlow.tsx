@@ -37,6 +37,7 @@ export function SignupFlow({ encoded }: Props) {
   const [linkError, setLinkError] = useState<LinkErrorCode | null>(null);
   const [ctx, setCtx] = useState<SignupContext | null>(null);
   const [formConfig, setFormConfig] = useState<HiringFormConfig | null>(null);
+  const [formId, setFormId] = useState<string | null>(null);
   const [step, setStep] = useState<SignupStep>("welcome");
 
   const [account, setAccount] = useState<AccountFormState>({
@@ -64,6 +65,14 @@ export function SignupFlow({ encoded }: Props) {
   const [submittingFinal, setSubmittingFinal] = useState(false);
   const [finalError, setFinalError] = useState<string | null>(null);
 
+  // 기존 candidate 로그인 — "가입만 하고 이탈" 케이스
+  const [showLogin, setShowLogin] = useState(false);
+  const [loginUsername, setLoginUsername] = useState("");
+  const [loginPassword, setLoginPassword] = useState("");
+  const [loginLoading, setLoginLoading] = useState(false);
+  const [loginError, setLoginError] = useState<string | null>(null);
+  const [prefilledToken, setPrefilledToken] = useState<string | null>(null);
+
   const hasForm =
     !!formConfig &&
     ((formConfig.questions?.length ?? 0) > 0 ||
@@ -86,6 +95,7 @@ export function SignupFlow({ encoded }: Props) {
         if (cancelled) return;
         setCtx(storeRes.data);
         setFormConfig(formRes.data.config);
+        setFormId(formRes.data.form_id);
         setLoading(false);
       } catch (err) {
         if (cancelled) return;
@@ -125,6 +135,95 @@ export function SignupFlow({ encoded }: Props) {
     }
   };
 
+  const handleLogin = async () => {
+    setLoginError(null);
+    setLoginLoading(true);
+    try {
+      const res = await publicApi.post<{
+        candidate_id: string;
+        username: string;
+        email: string;
+        full_name: string;
+        verification_token: string;
+      }>("/app/applications/login", {
+        encoded,
+        username: loginUsername,
+        password: loginPassword,
+      });
+      // candidate 정보로 account state 채움
+      setAccount({
+        fullName: res.data.full_name,
+        username: res.data.username,
+        password: loginPassword,
+        confirmPassword: loginPassword,
+        email: res.data.email,
+        showPassword: false,
+        showConfirmPassword: false,
+      });
+      setEmailForm((prev) => ({ ...prev, email: res.data.email, verified: true }));
+      setPrefilledToken(res.data.verification_token);
+      setShowLogin(false);
+      // 폼이 있으면 form step, 없으면 바로 submit (verify step 건너뛰기)
+      if (hasForm) {
+        setStep("form");
+      } else {
+        // 폼 없으면 즉시 submit
+        await submitWithToken(res.data.verification_token);
+      }
+    } catch (err) {
+      const detail = axios.isAxiosError(err) && err.response?.data?.detail;
+      let msg = "Login failed.";
+      if (detail && typeof detail === "object") {
+        const code = (detail as { code?: string }).code;
+        const m = (detail as { message?: string }).message;
+        if (code === "invalid_credentials") msg = "ID or password incorrect.";
+        else if (code === "active_application_exists")
+          msg = "You already have an active application for this store.";
+        else if (code === "not_eligible")
+          msg = "You are not eligible to apply to this store.";
+        else if (typeof m === "string") msg = m;
+      }
+      setLoginError(msg);
+    } finally {
+      setLoginLoading(false);
+    }
+  };
+
+  const submitWithToken = async (verificationToken: string) => {
+    if (!ctx) return;
+    setSubmittingFinal(true);
+    try {
+      const answerArr = Object.entries(answers).map(([qid, value]) => ({
+        question_id: qid,
+        value,
+      }));
+      const attachmentArr = Object.entries(attachments)
+        .filter(([, v]) => v !== null)
+        .map(([slotId, v]) => ({
+          slot_id: slotId,
+          file_key: v!.file_key,
+          file_name: v!.file_name,
+          file_size: v!.file_size,
+          mime_type: v!.mime_type,
+        }));
+      await publicApi.post("/app/applications/submit", {
+        encoded,
+        form_id: formId,
+        username: account.username,
+        password: account.password,
+        full_name: account.fullName,
+        email: account.email,
+        verification_token: verificationToken,
+        answers: answerArr,
+        attachments: attachmentArr,
+      });
+      setEmailForm((prev) => ({ ...prev, verified: true }));
+      setStep("complete");
+    } finally {
+      setSubmittingFinal(false);
+    }
+  };
+
   const handleVerify = async () => {
     if (!ctx) return;
     setEmailLoading(true);
@@ -156,6 +255,7 @@ export function SignupFlow({ encoded }: Props) {
 
       await publicApi.post("/app/applications/submit", {
         encoded,
+        form_id: formId,
         username: account.username,
         password: account.password,
         full_name: account.fullName,
@@ -214,9 +314,85 @@ export function SignupFlow({ encoded }: Props) {
     return <InvalidLinkScreen reason={linkError ?? "invalid_link"} />;
   }
 
+  // 로그인 모달은 어떤 step에서든 표시 가능
+  const loginModal = showLogin ? (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={() => setShowLogin(false)}
+    >
+      <div
+        className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-[16px] font-semibold text-slate-900">
+          Log in to continue
+        </h3>
+        <p className="mt-1 text-[12.5px] leading-relaxed text-slate-500">
+          Already have an account from a previous application? Log in and
+          we&apos;ll skip the account/email step.
+        </p>
+        <div className="mt-4 space-y-2">
+          <input
+            value={loginUsername}
+            onChange={(e) => setLoginUsername(e.target.value)}
+            placeholder="ID"
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-[13px] outline-none focus:border-blue-500"
+          />
+          <input
+            type="password"
+            value={loginPassword}
+            onChange={(e) => setLoginPassword(e.target.value)}
+            placeholder="Password"
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-[13px] outline-none focus:border-blue-500"
+          />
+        </div>
+        {loginError && (
+          <p className="mt-2 text-[12px] text-red-600">{loginError}</p>
+        )}
+        <div className="mt-4 flex gap-2">
+          <button
+            type="button"
+            onClick={() => setShowLogin(false)}
+            disabled={loginLoading}
+            className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-[13px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleLogin}
+            disabled={loginLoading || !loginUsername || !loginPassword}
+            className="flex-[2] rounded-lg bg-blue-600 px-3 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+          >
+            {loginLoading ? "Logging in…" : "Log in"}
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   switch (step) {
     case "welcome":
-      return <WelcomeScreen ctx={ctx} onContinue={() => setStep("account")} />;
+      return (
+        <>
+          <div className="relative">
+            <WelcomeScreen ctx={ctx} onContinue={() => setStep("account")} />
+            <div className="border-t border-slate-100 bg-white px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2">
+              <p className="text-center text-[12px] text-slate-500">
+                Already applied somewhere?{" "}
+                <button
+                  type="button"
+                  onClick={() => setShowLogin(true)}
+                  className="font-semibold text-blue-600 underline-offset-2 hover:underline"
+                >
+                  Log in
+                </button>
+              </p>
+            </div>
+          </div>
+          {loginModal}
+        </>
+      );
     case "account":
       return (
         <AccountScreen
@@ -240,8 +416,24 @@ export function SignupFlow({ encoded }: Props) {
           setAnswers={setAnswers}
           attachments={attachments}
           setAttachments={setAttachments}
-          onBack={() => setStep("account")}
-          onContinue={() => setStep("email")}
+          onBack={() => setStep(prefilledToken ? "welcome" : "account")}
+          onContinue={async () => {
+            if (prefilledToken) {
+              // 이미 로그인된 candidate — email step 건너뛰고 바로 submit
+              try {
+                await submitWithToken(prefilledToken);
+              } catch (err) {
+                const detail =
+                  axios.isAxiosError(err) && err.response?.data?.detail;
+                const m =
+                  (detail && typeof detail === "object" && (detail as { message?: string }).message) ||
+                  "Submit failed.";
+                setFinalError(typeof m === "string" ? m : "Submit failed.");
+              }
+            } else {
+              setStep("email");
+            }
+          }}
         />
       );
     case "email":
