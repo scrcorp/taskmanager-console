@@ -305,7 +305,39 @@ export function QuestionsPanel({ storeId }: Props) {
   const removeAttachment = (idx: number) =>
     setDraft((d) => ({ ...d, attachments: d.attachments.filter((_, i) => i !== idx) }));
 
+  // 저장 직전 trim 검증 — 라벨/옵션이 공백뿐이면 저장 차단
+  const validateForSave = (): string | null => {
+    for (let i = 0; i < draft.questions.length; i++) {
+      const q = draft.questions[i];
+      if (!q.label || !q.label.trim()) {
+        return `Question ${i + 1} needs a label.`;
+      }
+      if (q.type === "single_choice" || q.type === "multi_choice") {
+        const opts = q.options ?? [];
+        if (opts.length === 0 || opts.every((o) => !o.trim())) {
+          return `Question ${i + 1} ("${q.label}") needs at least one non-empty option.`;
+        }
+        const blankIdx = opts.findIndex((o) => !o.trim());
+        if (blankIdx !== -1) {
+          return `Question ${i + 1} ("${q.label}") has an empty option (option ${blankIdx + 1}).`;
+        }
+      }
+    }
+    for (let i = 0; i < draft.attachments.length; i++) {
+      const a = draft.attachments[i];
+      if (!a.label || !a.label.trim()) {
+        return `Attachment slot ${i + 1} needs a label.`;
+      }
+    }
+    return null;
+  };
+
   const handleSaveDraft = async () => {
+    const err = validateForSave();
+    if (err) {
+      toast({ type: "error", message: err });
+      return;
+    }
     try {
       await saveDraft.mutateAsync(draft);
       setSavedAt(Date.now());
@@ -321,7 +353,11 @@ export function QuestionsPanel({ storeId }: Props) {
   };
 
   const handlePublish = async () => {
-    // dirty면 먼저 draft 저장 후 publish
+    const err = validateForSave();
+    if (err) {
+      toast({ type: "error", message: err });
+      return;
+    }
     try {
       if (isDirty) await saveDraft.mutateAsync(draft);
       await publish.mutateAsync();
@@ -880,7 +916,12 @@ export function QuestionsPanel({ storeId }: Props) {
           {!savedAt && !isDirty && hasServerDraft && !canPublish && (
             <span className="text-[#94A3B8]">Draft = published</span>
           )}
-          {!savedAt && !isDirty && !hasServerDraft && data?.published && (
+          {!savedAt && !isDirty && !hasServerDraft && data?.published && data.published.is_default && (
+            <span className="text-[#94A3B8]">
+              Default form (V0) — edit & publish to customize
+            </span>
+          )}
+          {!savedAt && !isDirty && !hasServerDraft && data?.published && !data.published.is_default && (
             <span className="text-[#00B894]">Published v{data.published.version}</span>
           )}
           {!savedAt && !isDirty && !hasServerDraft && !data?.published && (

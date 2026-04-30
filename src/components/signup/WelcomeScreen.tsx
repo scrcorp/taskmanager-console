@@ -3,11 +3,21 @@ import type { SignupContext } from "@/types/signup";
 interface Props {
   ctx: SignupContext;
   onContinue: () => void;
+  hasForm: boolean;
 }
 
 const FALLBACK_HERO_BG = "bg-gradient-to-br from-slate-700 via-slate-800 to-slate-900";
 
-export function WelcomeScreen({ ctx, onContinue }: Props) {
+export function WelcomeScreen({ ctx, onContinue, hasForm }: Props) {
+  const previewStages: { label: string; sub: string }[] = [
+    { label: "Sign up", sub: "Name, email, password, verify" },
+    ...(hasForm
+      ? [{ label: "Submit application", sub: "Tell the manager about you" }]
+      : []),
+    { label: "Manager review", sub: "We look over your application" },
+    { label: "Interview", sub: "Meet the team" },
+    { label: "Hired", sub: "Start your first shift" },
+  ];
   const photos = ctx.store.cover_photos;
   const primaryPhoto = photos.find((p) => p.is_primary) ?? photos[0];
   const primary = primaryPhoto?.url;
@@ -95,19 +105,15 @@ export function WelcomeScreen({ ctx, onContinue }: Props) {
 
         <div className="mt-5">
           <p className="mb-2 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-            What's next · ~2 min
+            How it works
           </p>
           <ol className="space-y-1.5">
-            {[
-              { label: "Account setup", sub: "Name, email, password" },
-              { label: "Email verification", sub: "6-digit code" },
-              { label: "Open the app", sub: "Start your first shift" },
-            ].map((item, idx) => (
+            {previewStages.map((item, idx) => (
               <li
                 key={item.label}
                 className="flex items-center gap-3 rounded-xl border border-slate-100 bg-white px-3 py-2"
               >
-                <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-blue-50 text-[12px] font-semibold text-blue-600">
+                <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-slate-100 text-[12px] font-semibold text-slate-500">
                   {idx + 1}
                 </span>
                 <div className="min-w-0 flex-1">
@@ -121,6 +127,9 @@ export function WelcomeScreen({ ctx, onContinue }: Props) {
               </li>
             ))}
           </ol>
+          <p className="mt-2 text-[11px] text-slate-400">
+            You&apos;ll see your live progress after signing up.
+          </p>
         </div>
       </div>
 

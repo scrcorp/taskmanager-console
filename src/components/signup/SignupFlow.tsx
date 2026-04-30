@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import axios from "axios";
 import type {
   AccountFormState,
+  ApplicationStageClient,
   EmailFormState,
   LinkErrorCode,
   SignupContext,
@@ -13,7 +14,7 @@ import type { HiringFormConfig } from "@/hooks/useHiring";
 import { WelcomeScreen } from "./WelcomeScreen";
 import { AccountScreen } from "./AccountScreen";
 import { EmailVerifyScreen } from "./EmailVerifyScreen";
-import { CompleteScreen } from "./CompleteScreen";
+import { StatusScreen } from "./StatusScreen";
 import { InvalidLinkScreen } from "./InvalidLinkScreen";
 import {
   FormStepScreen,
@@ -65,13 +66,17 @@ export function SignupFlow({ encoded }: Props) {
   const [submittingFinal, setSubmittingFinal] = useState(false);
   const [finalError, setFinalError] = useState<string | null>(null);
 
+  // 진행형 가입 — /start로 받은 pending_form application id 보관
+  const [applicationId, setApplicationId] = useState<string | null>(null);
+  // status screen 에서 보여줄 application stage (signup 완료 후 갱신)
+  const [appStage, setAppStage] = useState<ApplicationStageClient>("pending_form");
+
   // 기존 candidate 로그인 — "가입만 하고 이탈" 케이스
   const [showLogin, setShowLogin] = useState(false);
   const [loginUsername, setLoginUsername] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
   const [loginLoading, setLoginLoading] = useState(false);
   const [loginError, setLoginError] = useState<string | null>(null);
-  const [prefilledToken, setPrefilledToken] = useState<string | null>(null);
 
   const hasForm =
     !!formConfig &&
@@ -145,12 +150,12 @@ export function SignupFlow({ encoded }: Props) {
         email: string;
         full_name: string;
         verification_token: string;
+        pending_application: { id: string; store_id: string; stage: string } | null;
       }>("/app/applications/login", {
         encoded,
         username: loginUsername,
         password: loginPassword,
       });
-      // candidate 정보로 account state 채움
       setAccount({
         fullName: res.data.full_name,
         username: res.data.username,
@@ -161,14 +166,25 @@ export function SignupFlow({ encoded }: Props) {
         showConfirmPassword: false,
       });
       setEmailForm((prev) => ({ ...prev, email: res.data.email, verified: true }));
-      setPrefilledToken(res.data.verification_token);
       setShowLogin(false);
-      // 폼이 있으면 form step, 없으면 바로 submit (verify step 건너뛰기)
-      if (hasForm) {
-        setStep("form");
+
+      const pending = res.data.pending_application;
+      if (pending) {
+        // 어느 stage 든 status 화면으로 — pending_form 이면 status 에서 "Continue your application"
+        // 버튼으로 form 진입, 다른 stage 면 진행 상황 확인.
+        setApplicationId(pending.id);
+        setAppStage(pending.stage as ApplicationStageClient);
+        if (pending.stage === "pending_form" && !hasForm) {
+          // 폼 없는 매장에서 pending_form 으로 남아있는 비정상 케이스 — 자동 complete
+          await completePendingApplication(pending.id);
+        } else {
+          setStep("status");
+        }
       } else {
-        // 폼 없으면 즉시 submit
-        await submitWithToken(res.data.verification_token);
+        // pending 없음 = 이 매장에서 새로 시작해야. 일단은 안내.
+        setLoginError(
+          "No application in progress for this store. Please use 'Continue with sign up' to start a new one.",
+        );
       }
     } catch (err) {
       const detail = axios.isAxiosError(err) && err.response?.data?.detail;
@@ -189,8 +205,7 @@ export function SignupFlow({ encoded }: Props) {
     }
   };
 
-  const submitWithToken = async (verificationToken: string) => {
-    if (!ctx) return;
+  const completePendingApplication = async (appId: string) => {
     setSubmittingFinal(true);
     try {
       const answerArr = Object.entries(answers).map(([qid, value]) => ({
@@ -206,19 +221,15 @@ export function SignupFlow({ encoded }: Props) {
           file_size: v!.file_size,
           mime_type: v!.mime_type,
         }));
-      await publicApi.post("/app/applications/submit", {
-        encoded,
+      await publicApi.post("/app/applications/complete", {
+        application_id: appId,
         form_id: formId,
-        username: account.username,
-        password: account.password,
-        full_name: account.fullName,
-        email: account.email,
-        verification_token: verificationToken,
         answers: answerArr,
         attachments: attachmentArr,
       });
       setEmailForm((prev) => ({ ...prev, verified: true }));
-      setStep("complete");
+      setAppStage("new");
+      setStep("status");
     } finally {
       setSubmittingFinal(false);
     }
@@ -238,35 +249,34 @@ export function SignupFlow({ encoded }: Props) {
 
       setSubmittingFinal(true);
 
-      // 폼 답변 → submit body 형태로 변환
-      const answerArr = Object.entries(answers).map(([qid, value]) => ({
-        question_id: qid,
-        value,
-      }));
-      const attachmentArr = Object.entries(attachments)
-        .filter(([, v]) => v !== null)
-        .map(([slotId, v]) => ({
-          slot_id: slotId,
-          file_key: v!.file_key,
-          file_name: v!.file_name,
-          file_size: v!.file_size,
-          mime_type: v!.mime_type,
-        }));
-
-      await publicApi.post("/app/applications/submit", {
+      // Step 1 — /start로 회원가입만 진행. application_id 받아 form step으로.
+      const startRes = await publicApi.post<{
+        application_id: string;
+        candidate_id: string;
+        stage: string;
+        resumed: boolean;
+      }>("/app/applications/start", {
         encoded,
-        form_id: formId,
         username: account.username,
         password: account.password,
         full_name: account.fullName,
         email: account.email,
         verification_token: verificationToken,
-        answers: answerArr,
-        attachments: attachmentArr,
       });
 
+      const newAppId = startRes.data.application_id;
+      setApplicationId(newAppId);
+      setAppStage("pending_form");
       setEmailForm((prev) => ({ ...prev, verified: true }));
-      setStep("complete");
+
+      // 폼이 있으면 status로 가서 "지원서 제출" CTA 보여주거나 form 으로 직행
+      // (UX: 가입 직후 logged-in 인지를 명확히 하기 위해 일단 status 로 이동하고
+      // pending_form 상태에서 'Continue your application' 버튼으로 form 진입)
+      if (hasForm) {
+        setStep("status");
+      } else {
+        await completePendingApplication(newAppId);
+      }
     } catch (err) {
       const detail =
         axios.isAxiosError(err) && err.response?.data?.detail;
@@ -376,7 +386,11 @@ export function SignupFlow({ encoded }: Props) {
       return (
         <>
           <div className="relative">
-            <WelcomeScreen ctx={ctx} onContinue={() => setStep("account")} />
+            <WelcomeScreen
+              ctx={ctx}
+              hasForm={hasForm}
+              onContinue={() => setStep("account")}
+            />
             <div className="border-t border-slate-100 bg-white px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2">
               <p className="text-center text-[12px] text-slate-500">
                 Already applied somewhere?{" "}
@@ -399,12 +413,26 @@ export function SignupFlow({ encoded }: Props) {
           form={account}
           onChange={handleAccountChange}
           onBack={() => setStep("welcome")}
-          onContinue={() => setStep(hasForm ? "form" : "email")}
+          onContinue={() => setStep("email")}
+          hasForm={hasForm}
+        />
+      );
+    case "email":
+      return (
+        <EmailVerifyScreen
+          form={emailForm}
+          onChange={setEmailForm}
+          onBack={() => setStep("account")}
+          onSendCode={handleSendCode}
+          onVerify={handleVerify}
+          loading={emailLoading || submittingFinal}
+          error={emailError ?? finalError}
+          hasForm={hasForm}
         />
       );
     case "form":
       if (!formConfig) {
-        setStep("email");
+        setStep("status");
         return null;
       }
       return (
@@ -416,65 +444,87 @@ export function SignupFlow({ encoded }: Props) {
           setAnswers={setAnswers}
           attachments={attachments}
           setAttachments={setAttachments}
-          onBack={() => setStep(prefilledToken ? "welcome" : "account")}
+          onBack={() => setStep("status")}
           onContinue={async () => {
-            if (prefilledToken) {
-              // 이미 로그인된 candidate — email step 건너뛰고 바로 submit
-              try {
-                await submitWithToken(prefilledToken);
-              } catch (err) {
-                const detail =
-                  axios.isAxiosError(err) && err.response?.data?.detail;
-                const m =
-                  (detail && typeof detail === "object" && (detail as { message?: string }).message) ||
-                  "Submit failed.";
-                setFinalError(typeof m === "string" ? m : "Submit failed.");
-              }
-            } else {
-              setStep("email");
+            if (!applicationId) {
+              setFinalError("Application not initialized. Please restart.");
+              return;
+            }
+            try {
+              await completePendingApplication(applicationId);
+            } catch (err) {
+              const detail =
+                axios.isAxiosError(err) && err.response?.data?.detail;
+              const m =
+                (detail && typeof detail === "object" && (detail as { message?: string }).message) ||
+                "Submit failed.";
+              setFinalError(typeof m === "string" ? m : "Submit failed.");
             }
           }}
         />
       );
-    case "email":
+    case "status":
       return (
-        <EmailVerifyScreen
-          form={emailForm}
-          onChange={setEmailForm}
-          onBack={() => setStep(hasForm ? "form" : "account")}
-          onSendCode={handleSendCode}
-          onVerify={handleVerify}
-          loading={emailLoading || submittingFinal}
-          error={emailError ?? finalError}
-        />
-      );
-    case "complete":
-      return (
-        <CompleteScreen
+        <StatusScreen
           ctx={ctx}
           fullName={account.fullName}
-          onRestart={() => {
-            setAccount({
-              fullName: "",
-              username: "",
-              password: "",
-              confirmPassword: "",
-              email: "",
-              showPassword: false,
-              showConfirmPassword: false,
-            });
-            setEmailForm({
-              email: "",
-              codeSent: false,
-              code: "",
-              verified: false,
-            });
-            setAnswers({});
-            setAttachments({});
-            setEmailError(null);
-            setFinalError(null);
-            setStep("welcome");
-          }}
+          username={account.username}
+          stage={appStage}
+          hasForm={hasForm}
+          onContinueForm={
+            hasForm && appStage === "pending_form"
+              ? () => setStep("form")
+              : undefined
+          }
+          onWithdraw={
+            applicationId
+              ? async () => {
+                  try {
+                    await publicApi.post(
+                      `/app/applications/${applicationId}/withdraw`,
+                      {
+                        username: account.username,
+                        password: account.password,
+                      },
+                    );
+                    setAppStage("withdrawn");
+                  } catch {
+                    // no-op fallback — UI 표시만 일단 갱신
+                    setAppStage("withdrawn");
+                  }
+                }
+              : undefined
+          }
+          onGoToApp={
+            appStage === "hired"
+              ? () => {
+                  window.location.href = "/login";
+                }
+              : undefined
+          }
+          onRefresh={
+            applicationId
+              ? async () => {
+                  try {
+                    const res = await publicApi.post<{
+                      pending_application: {
+                        id: string;
+                        store_id: string;
+                        stage: ApplicationStageClient;
+                      } | null;
+                    }>("/app/applications/login", {
+                      encoded,
+                      username: account.username,
+                      password: account.password,
+                    });
+                    const pa = res.data.pending_application;
+                    if (pa) setAppStage(pa.stage);
+                  } catch {
+                    // no-op
+                  }
+                }
+              : undefined
+          }
         />
       );
   }
