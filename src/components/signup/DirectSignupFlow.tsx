@@ -161,7 +161,11 @@ export function DirectSignupFlow({ encoded }: Props) {
   if (step === "welcome") {
     return (
       <div className="flex min-h-[100dvh] flex-col bg-white">
-        <WelcomeScreen ctx={ctx} onContinue={() => setStep("account")} />
+        <WelcomeScreen
+          ctx={ctx}
+          hasForm={false}
+          onContinue={() => setStep("account")}
+        />
         <div className="border-t border-slate-100 bg-emerald-50 px-5 py-3">
           <div className="flex items-start gap-2">
             <ShieldCheck className="mt-0.5 flex-shrink-0 text-emerald-600" size={16} />
@@ -185,6 +189,7 @@ export function DirectSignupFlow({ encoded }: Props) {
           onChange={handleAccountChange}
           onBack={() => setStep("welcome")}
           onContinue={() => setStep("email")}
+          hasForm={false}
         />
       );
     case "email":
@@ -197,6 +202,7 @@ export function DirectSignupFlow({ encoded }: Props) {
           onVerify={handleVerify}
           loading={emailLoading || submittingFinal}
           error={emailError}
+          hasForm={false}
         />
       );
     case "complete":

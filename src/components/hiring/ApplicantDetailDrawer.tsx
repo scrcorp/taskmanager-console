@@ -14,10 +14,12 @@ import {
 import {
   useApplicationDetail,
   useBlockApplication,
+  useDeleteMyReview,
   useHireApplication,
   usePatchApplication,
   useUnblockApplication,
   useUnhireApplication,
+  useUpsertMyReview,
   type ApplicationStage,
 } from "@/hooks/useHiring";
 import api from "@/lib/api";
@@ -47,7 +49,6 @@ export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPag
   const block = useBlockApplication(storeId);
   const unblock = useUnblockApplication(storeId);
 
-  const [scoreInput, setScoreInput] = useState<string>("");
   const [blockReason, setBlockReason] = useState<string>("");
   const [showBlockBox, setShowBlockBox] = useState(false);
   const [usernameOverride, setUsernameOverride] = useState<string>("");
@@ -70,13 +71,6 @@ export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPag
 
   const handleStageChange = (stage: ApplicationStage) => {
     patch.mutate({ applicationId, patch: { stage } });
-  };
-
-  const handleSetScore = () => {
-    const v = parseInt(scoreInput, 10);
-    if (Number.isNaN(v)) return;
-    patch.mutate({ applicationId, patch: { score: v } });
-    setScoreInput("");
   };
 
   const [pendingUserId, setPendingUserId] = useState<string>("");
@@ -320,56 +314,45 @@ export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPag
               <h3 className="text-[12.5px] font-semibold uppercase tracking-wider text-[#94A3B8]">
                 Stage
               </h3>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {STAGE_OPTIONS.map((s) => (
-                  <button
-                    key={s.value}
-                    type="button"
-                    onClick={() => handleStageChange(s.value)}
-                    disabled={data.stage === s.value || data.stage === "hired"}
+              {data.stage === "pending_form" ? (
+                <p className="mt-2 text-[12px] text-[#94A3B8]">
+                  This applicant signed up but hasn&apos;t submitted the form
+                  yet — wait for them to complete it. Stage is locked until
+                  submission.
+                </p>
+              ) : (
+                <div className="mt-2 flex flex-wrap gap-1.5">
+                  {STAGE_OPTIONS.map((s) => (
+                    <button
+                      key={s.value}
+                      type="button"
+                      onClick={() => handleStageChange(s.value)}
+                      disabled={data.stage === s.value || data.stage === "hired"}
+                      className={[
+                        "rounded-md px-2.5 py-1 text-[11.5px] font-medium ring-1",
+                        data.stage === s.value
+                          ? "bg-[#6C5CE7] text-white ring-[#6C5CE7]"
+                          : "bg-white text-[#64748B] ring-[#E2E4EA] hover:bg-[#F0F1F5]",
+                      ].join(" ")}
+                    >
+                      {s.label}
+                    </button>
+                  ))}
+                  <span
                     className={[
-                      "rounded-md px-2.5 py-1 text-[11.5px] font-medium ring-1",
-                      data.stage === s.value
-                        ? "bg-[#6C5CE7] text-white ring-[#6C5CE7]"
-                        : "bg-white text-[#64748B] ring-[#E2E4EA] hover:bg-[#F0F1F5]",
+                      "rounded-md px-2.5 py-1 text-[11.5px] font-semibold ring-1",
+                      data.stage === "hired"
+                        ? "bg-[#00B894] text-white ring-[#00B894]"
+                        : "bg-[#F0F1F5] text-[#94A3B8] ring-[#E2E4EA]",
                     ].join(" ")}
                   >
-                    {s.label}
-                  </button>
-                ))}
-                <span
-                  className={[
-                    "rounded-md px-2.5 py-1 text-[11.5px] font-semibold ring-1",
-                    data.stage === "hired"
-                      ? "bg-[#00B894] text-white ring-[#00B894]"
-                      : "bg-[#F0F1F5] text-[#94A3B8] ring-[#E2E4EA]",
-                  ].join(" ")}
-                >
-                  Hired (use button below)
-                </span>
-              </div>
+                    Hired (use button below)
+                  </span>
+                </div>
+              )}
 
-              {/* Score */}
-              <div className="mt-3 flex items-center gap-2">
-                <span className="text-[11.5px] text-[#64748B]">Score:</span>
-                <span className="text-[12.5px] font-mono text-[#1A1D27]">
-                  {data.score ?? "—"}
-                </span>
-                <input
-                  value={scoreInput}
-                  onChange={(e) => setScoreInput(e.target.value)}
-                  type="number"
-                  placeholder="0–100"
-                  className="ml-2 w-20 rounded border border-[#E2E4EA] px-1.5 py-0.5 text-[11.5px] outline-none focus:border-[#6C5CE7]"
-                />
-                <button
-                  type="button"
-                  onClick={handleSetScore}
-                  className="rounded border border-[#E2E4EA] bg-white px-2 py-0.5 text-[11px] hover:bg-[#F0F1F5]"
-                >
-                  Set
-                </button>
-              </div>
+              {/* Reviews — 평가자별 점수+코멘트. 평균만 list 에 노출. */}
+              <ReviewsBlock applicationId={data.id} stage={data.stage} reviews={data.reviews} avgScore={data.score} />
             </div>
 
             {/* Audit log — stage/score/notes 변경 이력 */}
@@ -656,6 +639,214 @@ interface AttachmentInfo {
   file_name: string;
   file_size: number;
   mime_type: string;
+}
+
+function ReviewsBlock({
+  applicationId,
+  stage,
+  reviews,
+  avgScore,
+}: {
+  applicationId: string;
+  stage: ApplicationStage;
+  reviews: Array<{
+    id: string;
+    reviewer_id: string;
+    reviewer_full_name: string;
+    reviewer_username: string;
+    score: number | null;
+    comment: string | null;
+    is_mine: boolean;
+    updated_at: string;
+  }>;
+  avgScore: number | null;
+}) {
+  const upsert = useUpsertMyReview(applicationId);
+  const remove = useDeleteMyReview(applicationId);
+  const mine = reviews.find((r) => r.is_mine) ?? null;
+  const others = reviews.filter((r) => !r.is_mine);
+
+  const [scoreStr, setScoreStr] = useState<string>(
+    mine?.score != null ? String(mine.score) : "",
+  );
+  const [comment, setComment] = useState<string>(mine?.comment ?? "");
+  const [editing, setEditing] = useState(false);
+
+  // sync with server data when mine changes (different application loaded)
+  useEffect(() => {
+    setScoreStr(mine?.score != null ? String(mine.score) : "");
+    setComment(mine?.comment ?? "");
+    setEditing(false);
+  }, [mine?.id, mine?.score, mine?.comment]);
+
+  if (stage === "pending_form") {
+    return (
+      <div className="mt-3 rounded-lg bg-[#F5F6FA] p-3 text-[11.5px] text-[#94A3B8]">
+        Reviews are available after the applicant submits the form.
+      </div>
+    );
+  }
+
+  const scoreLocked = stage !== "interview" && stage !== "hired" && stage !== "rejected";
+  const handleSave = async () => {
+    const n = scoreStr.trim();
+    const score = n === "" ? null : Number(n);
+    if (score !== null && (Number.isNaN(score) || score < 0 || score > 100)) return;
+    await upsert.mutateAsync({
+      score: scoreLocked ? null : score,
+      comment: comment.trim() ? comment : null,
+    });
+    setEditing(false);
+  };
+  const handleDelete = async () => {
+    await remove.mutateAsync();
+    setScoreStr("");
+    setComment("");
+    setEditing(false);
+  };
+
+  return (
+    <div className="mt-3 space-y-2.5">
+      {/* Average */}
+      <div className="flex items-baseline gap-2">
+        <span className="text-[11.5px] text-[#64748B]">Average score:</span>
+        <span className="font-mono text-[14px] font-semibold text-[#1A1D27]">
+          {avgScore ?? "—"}
+        </span>
+        <span className="text-[10.5px] text-[#94A3B8]">
+          ({reviews.filter((r) => r.score != null).length}{" "}
+          {reviews.filter((r) => r.score != null).length === 1
+            ? "score"
+            : "scores"})
+        </span>
+        {scoreLocked && (
+          <span className="ml-auto text-[10.5px] text-[#94A3B8]">
+            Score input unlocks at Interview stage
+          </span>
+        )}
+      </div>
+
+      {/* My review (editable) */}
+      <div className="rounded-lg border border-[#E2E4EA] bg-white p-2.5">
+        <div className="flex items-center justify-between">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-[#94A3B8]">
+            Your review
+          </p>
+          {mine && !editing && (
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className="text-[11px] font-medium text-[#6C5CE7] hover:underline"
+            >
+              Edit
+            </button>
+          )}
+        </div>
+        {!mine && !editing ? (
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            className="mt-1.5 w-full rounded-md border border-dashed border-[#CBD5E1] px-3 py-2 text-[12px] text-[#64748B] hover:bg-[#F5F6FA]"
+          >
+            + Add your review
+          </button>
+        ) : !editing && mine ? (
+          <div className="mt-1.5">
+            <div className="flex items-center gap-2">
+              <span className="text-[11.5px] text-[#64748B]">Score:</span>
+              <span className="font-mono text-[12.5px] font-semibold text-[#1A1D27]">
+                {mine.score ?? "—"}
+              </span>
+            </div>
+            {mine.comment && (
+              <p className="mt-1 whitespace-pre-wrap text-[12px] leading-relaxed text-[#1A1D27]">
+                {mine.comment}
+              </p>
+            )}
+          </div>
+        ) : (
+          <div className="mt-1.5 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="text-[11.5px] text-[#64748B]">Score (0–100):</span>
+              <input
+                value={scoreStr}
+                onChange={(e) => setScoreStr(e.target.value)}
+                type="number"
+                min={0}
+                max={100}
+                placeholder="0–100"
+                disabled={scoreLocked}
+                className="w-20 rounded border border-[#E2E4EA] px-1.5 py-0.5 text-[11.5px] outline-none focus:border-[#6C5CE7] disabled:cursor-not-allowed disabled:bg-[#F0F1F5]"
+              />
+            </div>
+            <textarea
+              value={comment}
+              onChange={(e) => setComment(e.target.value)}
+              placeholder="Comment / impressions (optional)"
+              rows={3}
+              className="block w-full rounded border border-[#E2E4EA] px-2 py-1.5 text-[12px] outline-none focus:border-[#6C5CE7]"
+            />
+            <div className="flex items-center justify-end gap-2">
+              {mine && (
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  className="text-[11px] font-medium text-[#EF4444] hover:underline"
+                >
+                  Delete my review
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setEditing(false)}
+                className="rounded border border-[#E2E4EA] bg-white px-2.5 py-1 text-[11px] hover:bg-[#F0F1F5]"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleSave}
+                className="rounded bg-[#6C5CE7] px-2.5 py-1 text-[11px] font-semibold text-white hover:opacity-90"
+              >
+                Save
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Other reviewers */}
+      {others.length > 0 && (
+        <div className="space-y-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-[#94A3B8]">
+            Other reviewers ({others.length})
+          </p>
+          <ul className="space-y-2">
+            {others.map((r) => (
+              <li
+                key={r.id}
+                className="rounded-lg border border-[#E2E4EA] bg-[#F8F9FB] p-2.5"
+              >
+                <div className="flex items-center justify-between">
+                  <p className="text-[12px] font-medium text-[#1A1D27]">
+                    {r.reviewer_full_name}
+                  </p>
+                  <span className="font-mono text-[12px] font-semibold text-[#1A1D27]">
+                    {r.score ?? "—"}
+                  </span>
+                </div>
+                {r.comment && (
+                  <p className="mt-1 whitespace-pre-wrap text-[11.5px] leading-relaxed text-[#475569]">
+                    {r.comment}
+                  </p>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function AttachmentRow({

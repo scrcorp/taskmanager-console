@@ -14,6 +14,7 @@ interface Props {
 }
 
 const STAGES: { key: ApplicationStage; label: string; tone: string }[] = [
+  { key: "pending_form", label: "Filling out", tone: "bg-[#F0F1F5] text-[#64748B]" },
   { key: "new", label: "New", tone: "bg-[rgba(108,92,231,0.1)] text-[#6C5CE7]" },
   { key: "reviewing", label: "Reviewing", tone: "bg-[rgba(240,165,0,0.12)] text-[#C28100]" },
   { key: "interview", label: "Interview", tone: "bg-[rgba(59,141,217,0.12)] text-[#3B8DD9]" },
@@ -34,6 +35,17 @@ export function PipelinePanel({ storeId }: Props) {
       alert("To hire, click the applicant and use 'Hire — create staff account'.");
       return;
     }
+    if (stage === "pending_form") {
+      // pending_form 은 지원자가 폼 작성 중인 상태. 매니저가 강제 진입 불가.
+      return;
+    }
+    if (app.stage === "pending_form") {
+      // 폼 미제출 카드는 매니저가 stage 변경 불가 (지원자가 제출해야 'new' 로 자동 전환).
+      alert(
+        "This applicant hasn't submitted their application yet. Wait for them to complete the form.",
+      );
+      return;
+    }
     if (app.stage === stage) return;
     // Withdrawn은 지원자 본인 의사. 매니저가 drag로 다른 컬럼 이동 시 그 카드는
     // 그대로 rejected 컬럼 안에 유지 (drag 무시).
@@ -48,7 +60,7 @@ export function PipelinePanel({ storeId }: Props) {
 
   return (
     <div className="space-y-5">
-      <div className="grid grid-cols-5 gap-3">
+      <div className="grid grid-cols-6 gap-3">
         {STAGES.map((stage) => {
           // Rejected 컬럼에는 withdrawn(지원자 본인 철회)도 함께 노출.
           const cards = items.filter((a) =>

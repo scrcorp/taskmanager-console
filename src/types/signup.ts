@@ -6,9 +6,18 @@
 export type SignupStep =
   | "welcome"
   | "account"
-  | "form"
   | "email"
-  | "complete";
+  | "form"
+  | "status";
+
+export type ApplicationStageClient =
+  | "pending_form"
+  | "new"
+  | "reviewing"
+  | "interview"
+  | "hired"
+  | "rejected"
+  | "withdrawn";
 
 export interface SignupStore {
   id: string;

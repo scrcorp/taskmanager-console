@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { EmailFormState } from "@/types/signup";
 import { StepIndicator } from "./StepIndicator";
-import { SIGNUP_STEPS } from "./steps";
+import { getSignupSteps } from "./steps";
 
 interface OtpInputProps {
   value: string;
@@ -83,6 +83,7 @@ interface Props {
   onVerify: () => Promise<void>;
   loading?: boolean;
   error?: string | null;
+  hasForm: boolean;
 }
 
 export function EmailVerifyScreen({
@@ -93,6 +94,7 @@ export function EmailVerifyScreen({
   onVerify,
   loading = false,
   error = null,
+  hasForm,
 }: Props) {
   const [resendCooldown, setResendCooldown] = useState(0);
 
@@ -110,7 +112,7 @@ export function EmailVerifyScreen({
   return (
     <div className="flex min-h-[100dvh] flex-col bg-white">
       <div className="border-b border-slate-100 bg-white px-5 pt-[max(0.75rem,env(safe-area-inset-top))] pb-4">
-        <StepIndicator steps={SIGNUP_STEPS} current="email" />
+        <StepIndicator steps={getSignupSteps(hasForm)} current="email" />
       </div>
       <div className="px-5 pt-3 pb-1">
         <button

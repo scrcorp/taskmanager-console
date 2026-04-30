@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useSessionState } from "@/hooks/useSessionState";
 import { useStores } from "@/hooks/useStores";
 import { HiringStorePicker } from "@/components/hiring/StorePicker";
 import {
@@ -18,15 +19,20 @@ import { useApplications } from "@/hooks/useHiring";
 
 export default function HiringPage() {
   const { data: stores = [], isLoading } = useStores();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [tab, setTab] = useState<HiringTab>("link");
+  // sessionStorage 에 selectedId / tab 기억 — 새로고침/뒤로가기 시 복원, URL 은 안 건드림
+  const [selectedId, setSelectedId] = useSessionState<string | null>(
+    "hiring:selectedStoreId",
+    null,
+  );
+  const [tab, setTab] = useSessionState<HiringTab>("hiring:tab", "link");
 
-  // 첫 매장 자동 선택
+  // 매장 목록이 로드된 후, 저장된 id 가 유효하지 않으면 첫 매장으로 fallback
   useEffect(() => {
-    if (!selectedId && stores.length > 0) {
+    if (stores.length === 0) return;
+    if (!selectedId || !stores.some((s) => s.id === selectedId)) {
       setSelectedId(stores[0].id);
     }
-  }, [stores, selectedId]);
+  }, [stores, selectedId, setSelectedId]);
 
   const selected = useMemo(
     () => stores.find((s) => s.id === selectedId) ?? null,
@@ -71,8 +77,8 @@ export default function HiringPage() {
         stores={stores}
         selectedId={selectedId}
         onSelect={(id) => {
+          // 매장만 바꾸고 현재 탭은 유지 — Form 보다가 매장 비교할 때 편함
           setSelectedId(id);
-          setTab("link");
         }}
       />
 

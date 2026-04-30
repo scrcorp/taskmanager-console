@@ -37,6 +37,7 @@ export function LinkAndQrPanel({ storeId }: Props) {
   const [directCopied, setDirectCopied] = useState(false);
   const accepting = (store as { accepting_signups?: boolean } | undefined)?.accepting_signups ?? true;
   const qrRef = useRef<QrCanvasHandle>(null);
+  const directQrRef = useRef<QrCanvasHandle>(null);
 
   const slugify = (s: string) =>
     s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "store";
@@ -63,37 +64,46 @@ export function LinkAndQrPanel({ storeId }: Props) {
     }
   };
 
-  const handleDownload = async () => {
+  const handleDownload = async (kind: "signup" | "direct" = "signup") => {
     if (!store) return;
-    const blob = await qrRef.current?.toPngBlob();
+    const ref = kind === "direct" ? directQrRef : qrRef;
+    const blob = await ref.current?.toPngBlob();
     if (!blob) return;
     const objectUrl = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = objectUrl;
-    a.download = `signup-qr-${slugify(store.name)}.png`;
+    a.download = `${kind}-qr-${slugify(store.name)}.png`;
     document.body.appendChild(a);
     a.click();
     a.remove();
     URL.revokeObjectURL(objectUrl);
   };
 
-  const handlePrint = () => {
+  const handlePrint = (kind: "signup" | "direct" = "signup") => {
     if (!store) return;
-    const dataUrl = qrRef.current?.toPngDataUrl();
+    const ref = kind === "direct" ? directQrRef : qrRef;
+    const dataUrl = ref.current?.toPngDataUrl();
     if (!dataUrl) return;
+    const targetUrl = kind === "direct" ? directUrl : url;
+    const eyebrowLabel =
+      kind === "direct" ? "Direct staff signup" : "New hire signup";
+    const leadCopy =
+      kind === "direct"
+        ? "Trusted staff only. Scanning this skips the applicant review and adds you to the team immediately."
+        : "Scan this QR code with your phone camera to apply. Takes about 2 minutes.";
     const w = window.open("", "_blank", "width=860,height=1180");
     if (!w) return;
     const escapedName = store.name.replace(/[<>&]/g, (c) =>
       c === "<" ? "&lt;" : c === ">" ? "&gt;" : "&amp;",
     );
-    const escapedUrl = url.replace(/[<>&]/g, (c) =>
+    const escapedUrl = targetUrl.replace(/[<>&]/g, (c) =>
       c === "<" ? "&lt;" : c === ">" ? "&gt;" : "&amp;",
     );
     w.document.write(`<!doctype html>
 <html>
 <head>
   <meta charset="utf-8" />
-  <title>Signup QR · ${escapedName}</title>
+  <title>${eyebrowLabel} QR · ${escapedName}</title>
   <style>
     @page { size: A4; margin: 18mm; }
     html, body { margin: 0; padding: 0; font-family: ui-sans-serif, system-ui, sans-serif; color: #1A1D27; }
@@ -110,9 +120,9 @@ export function LinkAndQrPanel({ storeId }: Props) {
 </head>
 <body>
   <div class="poster">
-    <div class="eyebrow">New hire signup</div>
+    <div class="eyebrow">${eyebrowLabel}</div>
     <h1>${escapedName}</h1>
-    <p class="lead">Scan this QR code with your phone camera to join the team. Takes about 2 minutes.</p>
+    <p class="lead">${leadCopy}</p>
     <div class="qr-wrap"><img class="qr" src="${dataUrl}" alt="Signup QR code" /></div>
     <div class="scan-hint">Scan with your phone camera</div>
     <div class="url">${escapedUrl}</div>
@@ -190,15 +200,22 @@ export function LinkAndQrPanel({ storeId }: Props) {
         </button>
       </div>
 
-      {/* Link + QR */}
+      {/* Signup link card — link + dedicated QR */}
       <div className="grid gap-5 lg:grid-cols-[1fr_280px]">
-        <div className="space-y-4 rounded-2xl border border-[#E2E4EA] bg-white p-5">
-          <div>
-            <h3 className="text-[14px] font-semibold text-[#1A1D27]">Signup link</h3>
-            <p className="mt-0.5 text-[12px] text-[#64748B]">
-              Share this URL with new hires. Anyone with the link can register
-              to this store.
-            </p>
+        <div className="space-y-3 rounded-2xl border border-[#E2E4EA] bg-white p-5">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h3 className="text-[14px] font-semibold text-[#1A1D27]">
+                Signup link
+                <span className="ml-2 rounded-full bg-[rgba(108,92,231,0.12)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#5A4BD1] ring-1 ring-[rgba(108,92,231,0.25)]">
+                  Applicant review
+                </span>
+              </h3>
+              <p className="mt-0.5 text-[12px] text-[#64748B]">
+                Share this URL with new hires. They land in your Applicants
+                inbox first.
+              </p>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <div className="flex flex-1 items-center gap-2 overflow-hidden rounded-lg bg-[#F5F6FA] px-3 py-2.5 text-[12px] ring-1 ring-[#E2E4EA]">
@@ -219,8 +236,48 @@ export function LinkAndQrPanel({ storeId }: Props) {
             <span className="font-semibold">{store.name}</span>. They become
             Staff only after you Hire them.
           </div>
+        </div>
 
-          <div className="mt-3 border-t border-[#E2E4EA] pt-3">
+        <div className="rounded-2xl border border-[#6C5CE7]/30 bg-white p-5 ring-1 ring-[rgba(108,92,231,0.15)]">
+          <div className="flex items-center justify-between">
+            <h3 className="text-[13px] font-semibold text-[#1A1D27]">
+              Signup QR
+            </h3>
+            <span className="rounded-full bg-[rgba(108,92,231,0.12)] px-2 py-0.5 text-[9.5px] font-semibold uppercase tracking-wider text-[#5A4BD1]">
+              Applicant
+            </span>
+          </div>
+          <p className="mt-0.5 text-[11px] text-[#64748B]">
+            Scan → applies to {store.name}.
+          </p>
+          <div className="mt-3 flex items-center justify-center rounded-xl bg-[#F5F6FA] p-4">
+            <QrCanvas ref={qrRef} data={url} size={180} margin={2} />
+          </div>
+          <div className="mt-3 space-y-1.5">
+            <button
+              type="button"
+              onClick={() => handleDownload("signup")}
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#1A1D27] px-3 py-2 text-[12px] font-medium text-white transition-colors hover:bg-[#22252F]"
+            >
+              <Download size={14} />
+              Download PNG
+            </button>
+            <button
+              type="button"
+              onClick={() => handlePrint("signup")}
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-[#E2E4EA] bg-white px-3 py-2 text-[12px] font-medium text-[#64748B] transition-colors hover:bg-[#F0F1F5]"
+            >
+              <Printer size={14} />
+              Print poster
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Direct staff link card — link + dedicated QR */}
+      <div className="grid gap-5 lg:grid-cols-[1fr_280px]">
+        <div className="space-y-3 rounded-2xl border border-[#E2E4EA] bg-white p-5">
+          <div>
             <h3 className="text-[14px] font-semibold text-[#1A1D27]">
               Direct staff link
               <span className="ml-2 rounded-full bg-[rgba(0,184,148,0.12)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#00997A] ring-1 ring-[rgba(0,184,148,0.25)]">
@@ -231,44 +288,62 @@ export function LinkAndQrPanel({ storeId }: Props) {
               Use only for trusted staff. Sign-ups become Staff immediately
               without going through the Applicants inbox.
             </p>
-            <div className="mt-3 flex items-center gap-2">
-              <div className="flex flex-1 items-center gap-2 overflow-hidden rounded-lg bg-[#F5F6FA] px-3 py-2.5 text-[12px] ring-1 ring-[#E2E4EA]">
-                <span className="truncate font-mono text-[#1A1D27]">
-                  {directUrl}
-                </span>
-              </div>
-              <button
-                type="button"
-                onClick={handleCopyDirect}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-[#00B894] bg-white px-3.5 py-2.5 text-[12px] font-medium text-[#00997A] transition-colors hover:bg-[rgba(0,184,148,0.06)]"
-              >
-                {directCopied ? <Check size={14} /> : <Copy size={14} />}
-                {directCopied ? "Copied!" : "Copy"}
-              </button>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="flex flex-1 items-center gap-2 overflow-hidden rounded-lg bg-[#F5F6FA] px-3 py-2.5 text-[12px] ring-1 ring-[#E2E4EA]">
+              <span className="truncate font-mono text-[#1A1D27]">
+                {directUrl}
+              </span>
             </div>
+            <button
+              type="button"
+              onClick={handleCopyDirect}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#00B894] bg-white px-3.5 py-2.5 text-[12px] font-medium text-[#00997A] transition-colors hover:bg-[rgba(0,184,148,0.06)]"
+            >
+              {directCopied ? <Check size={14} /> : <Copy size={14} />}
+              {directCopied ? "Copied!" : "Copy"}
+            </button>
+          </div>
+          <div className="rounded-lg bg-[rgba(0,184,148,0.08)] px-3 py-2.5 text-[11.5px] leading-relaxed text-[#00997A] ring-1 ring-[rgba(0,184,148,0.15)]">
+            <span className="font-semibold">Warning:</span> anyone who scans
+            this becomes a Staff member at{" "}
+            <span className="font-semibold">{store.name}</span> immediately.
+            Don&apos;t post in public spaces.
           </div>
         </div>
 
-        <div className="rounded-2xl border border-[#E2E4EA] bg-white p-5">
-          <h3 className="text-[14px] font-semibold text-[#1A1D27]">QR code</h3>
-          <p className="mt-0.5 text-[11.5px] text-[#64748B]">
-            Print and post in the break room.
+        <div className="rounded-2xl border border-[#00B894]/30 bg-white p-5 ring-1 ring-[rgba(0,184,148,0.15)]">
+          <div className="flex items-center justify-between">
+            <h3 className="text-[13px] font-semibold text-[#1A1D27]">
+              Direct staff QR
+            </h3>
+            <span className="rounded-full bg-[rgba(0,184,148,0.12)] px-2 py-0.5 text-[9.5px] font-semibold uppercase tracking-wider text-[#00997A]">
+              Trusted
+            </span>
+          </div>
+          <p className="mt-0.5 text-[11px] text-[#64748B]">
+            Scan → instant staff at {store.name}.
           </p>
-          <div className="mt-3 flex items-center justify-center rounded-xl bg-[#F5F6FA] p-4">
-            <QrCanvas ref={qrRef} data={url} size={180} margin={2} />
+          <div className="mt-3 flex items-center justify-center rounded-xl bg-[rgba(0,184,148,0.06)] p-4">
+            <QrCanvas
+              ref={directQrRef}
+              data={directUrl}
+              size={180}
+              margin={2}
+            />
           </div>
           <div className="mt-3 space-y-1.5">
             <button
               type="button"
-              onClick={handleDownload}
-              className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#1A1D27] px-3 py-2 text-[12px] font-medium text-white transition-colors hover:bg-[#22252F]"
+              onClick={() => handleDownload("direct")}
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#00B894] px-3 py-2 text-[12px] font-medium text-white transition-colors hover:bg-[#00A380]"
             >
               <Download size={14} />
               Download PNG
             </button>
             <button
               type="button"
-              onClick={handlePrint}
+              onClick={() => handlePrint("direct")}
               className="flex w-full items-center justify-center gap-2 rounded-lg border border-[#E2E4EA] bg-white px-3 py-2 text-[12px] font-medium text-[#64748B] transition-colors hover:bg-[#F0F1F5]"
             >
               <Printer size={14} />

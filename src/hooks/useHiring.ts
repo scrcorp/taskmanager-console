@@ -149,10 +149,11 @@ export interface HiringFormConfig {
 
 export interface HiringFormResponse {
   published: {
-    id: string;
+    id: string | null; // null when this is the default V0 fallback
     version: number;
     config: HiringFormConfig;
-    updated_at: string;
+    updated_at: string | null;
+    is_default?: boolean;
   } | null;
   draft: {
     id: string;
@@ -234,6 +235,7 @@ export const useDiscardHiringFormDraft = (
 // Applications
 // ────────────────────────────────────────────────────────────────
 export type ApplicationStage =
+  | "pending_form"
   | "new"
   | "reviewing"
   | "interview"
@@ -248,6 +250,7 @@ export interface ApplicationListItem {
   attempt_no: number;
   stage: ApplicationStage;
   score: number | null;
+  review_count: number;
   interview_at: string | null;
   notes: string | null;
   submitted_at: string;
@@ -261,6 +264,19 @@ export interface ApplicationListItem {
     email_verified: boolean;
     promoted_user_id: string | null;
   };
+}
+
+export interface ApplicationReview {
+  id: string;
+  reviewer_id: string;
+  reviewer_username: string;
+  reviewer_full_name: string;
+  reviewer_role_priority: number | null;
+  score: number | null;
+  comment: string | null;
+  created_at: string;
+  updated_at: string;
+  is_mine: boolean;
 }
 
 export interface ApplicationListResponse {
@@ -316,7 +332,48 @@ export interface ApplicationDetail extends ApplicationListItem {
   }>;
   is_blocked: boolean;
   block: { reason: string | null; created_at: string } | null;
+  reviews: ApplicationReview[];
 }
+
+export const useUpsertMyReview = (
+  applicationId: string,
+): UseMutationResult<
+  ApplicationReview,
+  Error,
+  { score?: number | null; comment?: string | null }
+> => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body) => {
+      const res = await api.put(
+        `/admin/hiring/applications/${applicationId}/reviews/me`,
+        body,
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["hiring", "application", applicationId] });
+      qc.invalidateQueries({ queryKey: ["hiring", "applications"] });
+    },
+  });
+};
+
+export const useDeleteMyReview = (
+  applicationId: string,
+): UseMutationResult<void, Error, void> => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      await api.delete(
+        `/admin/hiring/applications/${applicationId}/reviews/me`,
+      );
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["hiring", "application", applicationId] });
+      qc.invalidateQueries({ queryKey: ["hiring", "applications"] });
+    },
+  });
+};
 
 export const useApplicationDetail = (
   applicationId: string | undefined,
