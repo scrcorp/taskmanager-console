@@ -30,12 +30,13 @@ interface Props {
   fullPage?: boolean;
 }
 
+// Withdrawn은 지원자 본인이 결정하는 상태이므로 매니저 dropdown에서 제외.
+// (Pipeline의 Rejected 컬럼에 함께 표시되어 visibility는 유지.)
 const STAGE_OPTIONS: { value: ApplicationStage; label: string }[] = [
   { value: "new", label: "New" },
   { value: "reviewing", label: "Reviewing" },
   { value: "interview", label: "Interview" },
   { value: "rejected", label: "Rejected" },
-  { value: "withdrawn", label: "Withdrawn" },
 ];
 
 export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPage = false }: Props) {
