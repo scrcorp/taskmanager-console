@@ -2,13 +2,14 @@
 
 import type { AccountFormState } from "@/types/signup";
 import { StepIndicator } from "./StepIndicator";
-import { SIGNUP_STEPS } from "./steps";
+import { getSignupSteps } from "./steps";
 
 interface Props {
   form: AccountFormState;
   onChange: (next: AccountFormState) => void;
   onBack: () => void;
   onContinue: () => void;
+  hasForm: boolean;
 }
 
 const Field = ({
@@ -60,7 +61,7 @@ const EyeIcon = ({ open }: { open: boolean }) => (
   </svg>
 );
 
-export function AccountScreen({ form, onChange, onBack, onContinue }: Props) {
+export function AccountScreen({ form, onChange, onBack, onContinue, hasForm }: Props) {
   const update = <K extends keyof AccountFormState>(
     key: K,
     value: AccountFormState[K],
@@ -79,7 +80,7 @@ export function AccountScreen({ form, onChange, onBack, onContinue }: Props) {
   return (
     <div className="flex min-h-[100dvh] flex-col bg-white">
       <div className="border-b border-slate-100 bg-white px-5 pt-[max(0.75rem,env(safe-area-inset-top))] pb-4">
-        <StepIndicator steps={SIGNUP_STEPS} current="account" />
+        <StepIndicator steps={getSignupSteps(hasForm)} current="account" />
       </div>
       <div className="px-5 pt-3 pb-1">
         <button
@@ -122,7 +123,7 @@ export function AccountScreen({ form, onChange, onBack, onContinue }: Props) {
         </Field>
 
         <Field
-          label="Username"
+          label="ID"
           hint="Used to log in. Lowercase letters and numbers."
         >
           <div className="relative">

@@ -110,7 +110,12 @@ export const useSetAcceptingSignups = (
 // ────────────────────────────────────────────────────────────────
 // Hiring Form (Builder)
 // ────────────────────────────────────────────────────────────────
-export type QuestionType = "text" | "number" | "single_choice" | "multi_choice";
+export type QuestionType =
+  | "short_text"
+  | "long_text"
+  | "number"
+  | "single_choice"
+  | "multi_choice";
 
 export type AcceptPreset = "pdf" | "image" | "pdf_or_image";
 
@@ -131,6 +136,7 @@ export interface QuestionDef {
 export interface AttachmentSlotDef {
   id: string;
   label: string;
+  description?: string | null;
   accept: AcceptPreset;
   required: boolean;
 }
@@ -141,10 +147,25 @@ export interface HiringFormConfig {
   attachments: AttachmentSlotDef[];
 }
 
+export interface HiringFormResponse {
+  published: {
+    id: string | null; // null when this is the default V0 fallback
+    version: number;
+    config: HiringFormConfig;
+    updated_at: string | null;
+    is_default?: boolean;
+  } | null;
+  draft: {
+    id: string;
+    config: HiringFormConfig;
+    updated_at: string;
+  } | null;
+}
+
 export const useHiringForm = (
   storeId: string | undefined,
-): UseQueryResult<{ config: HiringFormConfig }, Error> => {
-  return useQuery<{ config: HiringFormConfig }, Error>({
+): UseQueryResult<HiringFormResponse, Error> => {
+  return useQuery<HiringFormResponse, Error>({
     queryKey: ["hiring", "form", storeId],
     queryFn: async () => {
       const res = await api.get(`/admin/hiring/stores/${storeId}/form`);
@@ -154,9 +175,14 @@ export const useHiringForm = (
   });
 };
 
-export const useSaveHiringForm = (
+/** Draft 저장 (upsert). 지원자에게는 영향 없음. */
+export const useSaveHiringFormDraft = (
   storeId: string,
-): UseMutationResult<{ config: HiringFormConfig }, Error, HiringFormConfig> => {
+): UseMutationResult<
+  { id: string; config: HiringFormConfig; updated_at: string },
+  Error,
+  HiringFormConfig
+> => {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (config: HiringFormConfig) => {
@@ -169,10 +195,47 @@ export const useSaveHiringForm = (
   });
 };
 
+/** Draft → Published 승격. 새 지원자부터 새 폼이 보임. */
+export const usePublishHiringForm = (
+  storeId: string,
+): UseMutationResult<
+  { id: string; version: number; config: HiringFormConfig; updated_at: string },
+  Error,
+  void
+> => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const res = await api.post(`/admin/hiring/stores/${storeId}/form/publish`);
+      return res.data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["hiring", "form", storeId] });
+    },
+  });
+};
+
+/** Draft 폐기. Published 폼은 영향 없음. */
+export const useDiscardHiringFormDraft = (
+  storeId: string,
+): UseMutationResult<{ discarded: boolean }, Error, void> => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      const res = await api.delete(`/admin/hiring/stores/${storeId}/form/draft`);
+      return res.data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["hiring", "form", storeId] });
+    },
+  });
+};
+
 // ────────────────────────────────────────────────────────────────
 // Applications
 // ────────────────────────────────────────────────────────────────
 export type ApplicationStage =
+  | "pending_form"
   | "new"
   | "reviewing"
   | "interview"
@@ -187,6 +250,7 @@ export interface ApplicationListItem {
   attempt_no: number;
   stage: ApplicationStage;
   score: number | null;
+  review_count: number;
   interview_at: string | null;
   notes: string | null;
   submitted_at: string;
@@ -200,6 +264,19 @@ export interface ApplicationListItem {
     email_verified: boolean;
     promoted_user_id: string | null;
   };
+}
+
+export interface ApplicationReview {
+  id: string;
+  reviewer_id: string;
+  reviewer_username: string;
+  reviewer_full_name: string;
+  reviewer_role_priority: number | null;
+  score: number | null;
+  comment: string | null;
+  created_at: string;
+  updated_at: string;
+  is_mine: boolean;
 }
 
 export interface ApplicationListResponse {
@@ -243,9 +320,60 @@ export interface ApplicationDetail extends ApplicationListItem {
     stage: ApplicationStage;
     submitted_at: string;
   }>;
+  audit_log: Array<{
+    action: "stage" | "score" | "notes" | "interview_at";
+    before: unknown;
+    after: unknown;
+    by_user_id: string | null;
+    by_username: string;
+    by_full_name: string;
+    at: string;
+    note?: string;
+  }>;
   is_blocked: boolean;
   block: { reason: string | null; created_at: string } | null;
+  reviews: ApplicationReview[];
 }
+
+export const useUpsertMyReview = (
+  applicationId: string,
+): UseMutationResult<
+  ApplicationReview,
+  Error,
+  { score?: number | null; comment?: string | null }
+> => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (body) => {
+      const res = await api.put(
+        `/admin/hiring/applications/${applicationId}/reviews/me`,
+        body,
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["hiring", "application", applicationId] });
+      qc.invalidateQueries({ queryKey: ["hiring", "applications"] });
+    },
+  });
+};
+
+export const useDeleteMyReview = (
+  applicationId: string,
+): UseMutationResult<void, Error, void> => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      await api.delete(
+        `/admin/hiring/applications/${applicationId}/reviews/me`,
+      );
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["hiring", "application", applicationId] });
+      qc.invalidateQueries({ queryKey: ["hiring", "applications"] });
+    },
+  });
+};
 
 export const useApplicationDetail = (
   applicationId: string | undefined,
@@ -288,20 +416,43 @@ export const useHireApplication = (
 ): UseMutationResult<
   { user_id: string; username: string; application_id: string; stage: string },
   Error,
-  { applicationId: string; usernameOverride?: string }
+  { applicationId: string; usernameOverride?: string; userId?: string; clockinPin?: string }
 > => {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: async ({ applicationId, usernameOverride }) => {
+    mutationFn: async ({ applicationId, usernameOverride, userId, clockinPin }) => {
       const res = await api.post(
         `/admin/hiring/applications/${applicationId}/hire`,
-        { username_override: usernameOverride },
+        { username_override: usernameOverride, user_id: userId, clockin_pin: clockinPin },
       );
       return res.data;
     },
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["hiring", "applications", storeId] });
       qc.invalidateQueries({ queryKey: ["hiring", "application", vars.applicationId] });
+      qc.invalidateQueries({ queryKey: ["users"] });
+    },
+  });
+};
+
+export const useUnhireApplication = (
+  storeId: string,
+): UseMutationResult<
+  { application_id: string; stage: string; user_id: string | null; removed_user_store: boolean },
+  Error,
+  string
+> => {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (applicationId) => {
+      const res = await api.post(
+        `/admin/hiring/applications/${applicationId}/unhire`,
+      );
+      return res.data;
+    },
+    onSuccess: (_data, applicationId) => {
+      qc.invalidateQueries({ queryKey: ["hiring", "applications", storeId] });
+      qc.invalidateQueries({ queryKey: ["hiring", "application", applicationId] });
       qc.invalidateQueries({ queryKey: ["users"] });
     },
   });

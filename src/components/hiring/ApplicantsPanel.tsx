@@ -6,6 +6,7 @@ import {
   useApplications,
   type ApplicationStage,
 } from "@/hooks/useHiring";
+import { useSessionState } from "@/hooks/useSessionState";
 import { ApplicantDetailDrawer } from "./ApplicantDetailDrawer";
 
 interface Props {
@@ -13,6 +14,7 @@ interface Props {
 }
 
 const STAGE_LABEL: Record<ApplicationStage, string> = {
+  pending_form: "Filling out",
   new: "New",
   reviewing: "Reviewing",
   interview: "Interview",
@@ -22,6 +24,7 @@ const STAGE_LABEL: Record<ApplicationStage, string> = {
 };
 
 const STAGE_STYLE: Record<ApplicationStage, string> = {
+  pending_form: "bg-[#F0F1F5] text-[#94A3B8] ring-[#E2E4EA]",
   new: "bg-[rgba(108,92,231,0.1)] text-[#6C5CE7] ring-[rgba(108,92,231,0.2)]",
   reviewing: "bg-[rgba(240,165,0,0.12)] text-[#C28100] ring-[rgba(240,165,0,0.25)]",
   interview: "bg-[rgba(59,141,217,0.12)] text-[#3B8DD9] ring-[rgba(59,141,217,0.25)]",
@@ -33,6 +36,7 @@ const STAGE_STYLE: Record<ApplicationStage, string> = {
 const STAGE_FILTERS: { key: string; label: string }[] = [
   { key: "all", label: "All" },
   { key: "active", label: "Active" },
+  { key: "pending_form", label: "Filling out" },
   { key: "new", label: "New" },
   { key: "reviewing", label: "Reviewing" },
   { key: "interview", label: "Interview" },
@@ -42,7 +46,11 @@ const STAGE_FILTERS: { key: string; label: string }[] = [
 ];
 
 export function ApplicantsPanel({ storeId }: Props) {
-  const [stageFilter, setStageFilter] = useState<string>("active");
+  // store 별로 필터 상태 따로 — 매장 바꿔도 각 매장의 직전 필터 유지
+  const [stageFilter, setStageFilter] = useSessionState<string>(
+    `hiring:applicantsFilter:${storeId}`,
+    "all",
+  );
   const { data, isLoading } = useApplications(
     storeId,
     stageFilter === "all" ? undefined : stageFilter,
@@ -142,7 +150,7 @@ export function ApplicantsPanel({ storeId }: Props) {
                     </span>
                   </td>
                   <td className="px-3 py-3 text-right">
-                    {a.score !== null ? (
+                    {a.stage !== "pending_form" && a.score !== null ? (
                       <span className="font-mono text-[12.5px] font-semibold tabular-nums text-[#1A1D27]">
                         {a.score}
                       </span>

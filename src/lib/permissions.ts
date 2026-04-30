@@ -121,7 +121,7 @@ export const PERMISSIONS = {
  */
 export const PAGE_PERMISSIONS: Record<string, string> = {
   "/stores": PERMISSIONS.STORES_READ,
-  "/hiring": PERMISSIONS.STORES_READ,
+  "/hiring": PERMISSIONS.HIRING_READ,
   "/users": PERMISSIONS.USERS_READ,
   "/schedules": PERMISSIONS.SCHEDULES_READ,
   "/schedules/history": PERMISSIONS.SCHEDULE_HISTORY_READ,
@@ -148,7 +148,7 @@ export const PAGE_PERMISSIONS: Record<string, string> = {
  */
 export const MENU_PERMISSIONS: Record<string, string> = {
   "/stores": PERMISSIONS.STORES_READ,
-  "/hiring": PERMISSIONS.STORES_READ,
+  "/hiring": PERMISSIONS.HIRING_READ,
   "/users": PERMISSIONS.USERS_READ,
   "/schedules": PERMISSIONS.SCHEDULES_READ,
   "/checklists/progress": PERMISSIONS.CHECKLISTS_READ,

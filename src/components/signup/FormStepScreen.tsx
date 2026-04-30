@@ -179,15 +179,20 @@ export function FormStepScreen({
                   key={slot.id}
                   className="rounded-xl border border-slate-200 p-3"
                 >
-                  <div className="flex items-center justify-between">
-                    <div>
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0 flex-1">
                       <p className="text-[13px] font-medium text-slate-900">
                         {slot.label}
                         {slot.required && (
                           <span className="ml-1 text-[#EF4444]">*</span>
                         )}
                       </p>
-                      <p className="text-[11px] text-slate-500">
+                      {slot.description && (
+                        <p className="mt-0.5 text-[12px] leading-relaxed text-slate-600">
+                          {slot.description}
+                        </p>
+                      )}
+                      <p className="mt-0.5 text-[11px] text-slate-500">
                         {ACCEPT_DISPLAY[slot.accept]}
                       </p>
                     </div>
@@ -282,12 +287,21 @@ function QuestionField({
         {q.required && <span className="ml-1 text-[#EF4444]">*</span>}
       </label>
       <div className="mt-1.5">
-        {q.type === "text" && (
+        {(q.type === "short_text" || (q.type as string) === "text") && (
           <input
             value={typeof value === "string" ? value : ""}
             onChange={(e) => onChange(e.target.value)}
             placeholder={q.placeholder ?? ""}
             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-[13px] outline-none focus:border-blue-500"
+          />
+        )}
+        {q.type === "long_text" && (
+          <textarea
+            rows={4}
+            value={typeof value === "string" ? value : ""}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder={q.placeholder ?? ""}
+            className="w-full resize-none rounded-lg border border-slate-200 px-3 py-2 text-[13px] outline-none focus:border-blue-500"
           />
         )}
         {q.type === "number" && (
