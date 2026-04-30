@@ -4,9 +4,11 @@ interface Props {
   ctx: SignupContext;
   fullName: string;
   onRestart: () => void;
+  /** 'application' (지원 제출): 매니저 리뷰 메시지 / 'direct' (즉시 가입): 로그인 안내 */
+  mode?: "application" | "direct";
 }
 
-export function CompleteScreen({ ctx, fullName, onRestart }: Props) {
+export function CompleteScreen({ ctx, fullName, onRestart, mode = "application" }: Props) {
   const firstName = fullName.split(" ")[0];
   const primary = ctx.store.cover_photos.find((p) => p.is_primary)?.url
     ?? ctx.store.cover_photos[0]?.url;
@@ -32,14 +34,31 @@ export function CompleteScreen({ ctx, fullName, onRestart }: Props) {
         </div>
 
         <h1 className="text-[28px] font-semibold leading-tight tracking-tight text-slate-900">
-          {firstName ? `Thanks, ${firstName}!` : "Thanks!"}
+          {mode === "direct"
+            ? firstName
+              ? `You're in, ${firstName}!`
+              : "You're in!"
+            : firstName
+              ? `Thanks, ${firstName}!`
+              : "Thanks!"}
         </h1>
         <p className="mt-2 max-w-[300px] text-[14px] leading-relaxed text-slate-500">
-          Your application to{" "}
-          <span className="font-medium text-slate-700">{ctx.store.name}</span>{" "}
-          has been submitted. The hiring manager will review it and reach out to
-          you. Once approved, you can log into the staff app with your username
-          and password.
+          {mode === "direct" ? (
+            <>
+              You&apos;ve been added to{" "}
+              <span className="font-medium text-slate-700">{ctx.store.name}</span>{" "}
+              as staff. Open the app and log in with your username and password
+              to start your first shift.
+            </>
+          ) : (
+            <>
+              Your application to{" "}
+              <span className="font-medium text-slate-700">{ctx.store.name}</span>{" "}
+              has been submitted. The hiring manager will review it and reach
+              out to you. Once approved, you can log into the staff app with
+              your username and password.
+            </>
+          )}
         </p>
 
         <div className="mt-7 w-full">

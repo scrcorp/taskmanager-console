@@ -42,7 +42,7 @@ const STAGE_FILTERS: { key: string; label: string }[] = [
 ];
 
 export function ApplicantsPanel({ storeId }: Props) {
-  const [stageFilter, setStageFilter] = useState<string>("active");
+  const [stageFilter, setStageFilter] = useState<string>("all");
   const { data, isLoading } = useApplications(
     storeId,
     stageFilter === "all" ? undefined : stageFilter,

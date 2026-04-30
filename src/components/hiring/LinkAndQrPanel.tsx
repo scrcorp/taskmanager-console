@@ -15,23 +15,26 @@ export function LinkAndQrPanel({ storeId }: Props) {
   const { data: store } = useStore(storeId);
   const setAccepting = useSetAcceptingSignups(storeId);
 
-  const url = useMemo(() => {
-    if (!store) return "";
-    // 환경별 공개 가입 URL 호스트 — admin과 가입 페이지 도메인이 분리되는 케이스 대응:
-    //   prod    : console.hermesops.site → hermesops.site
-    //   staging : stg-console.hermesops.site → stg.hermesops.site
-    // Vercel 프로젝트 env 에서 NEXT_PUBLIC_SIGNUP_BASE_URL 로 주입.
-    // 미설정(local 등) 시 현재 페이지 origin 사용.
+  const origin = useMemo(() => {
     const explicit = process.env.NEXT_PUBLIC_SIGNUP_BASE_URL;
-    const origin =
+    return (
       (explicit && explicit.replace(/\/$/, "")) ||
       (typeof window !== "undefined" && window.location.origin
         ? window.location.origin
-        : "https://hermesops.site");
-    return `${origin}/join/${encodeUuid(store.id)}`;
-  }, [store]);
+        : "https://hermesops.site")
+    );
+  }, []);
+  const url = useMemo(
+    () => (store ? `${origin}/join/${encodeUuid(store.id)}` : ""),
+    [store, origin],
+  );
+  const directUrl = useMemo(
+    () => (store ? `${origin}/direct/${encodeUuid(store.id)}` : ""),
+    [store, origin],
+  );
 
   const [copied, setCopied] = useState(false);
+  const [directCopied, setDirectCopied] = useState(false);
   const accepting = (store as { accepting_signups?: boolean } | undefined)?.accepting_signups ?? true;
   const qrRef = useRef<QrCanvasHandle>(null);
 
@@ -44,6 +47,17 @@ export function LinkAndQrPanel({ storeId }: Props) {
       await navigator.clipboard.writeText(url);
       setCopied(true);
       setTimeout(() => setCopied(false), 1500);
+    } catch {
+      /* noop */
+    }
+  };
+
+  const handleCopyDirect = async () => {
+    if (!directUrl) return;
+    try {
+      await navigator.clipboard.writeText(directUrl);
+      setDirectCopied(true);
+      setTimeout(() => setDirectCopied(false), 1500);
     } catch {
       /* noop */
     }
@@ -200,9 +214,38 @@ export function LinkAndQrPanel({ storeId }: Props) {
             </button>
           </div>
           <div className="rounded-lg bg-[rgba(108,92,231,0.08)] px-3 py-2.5 text-[11.5px] leading-relaxed text-[#5A4BD1] ring-1 ring-[rgba(108,92,231,0.15)]">
-            <span className="font-semibold">New hires from this link</span> are
-            assigned to <span className="font-semibold">{store.name}</span> as
-            Staff.
+            People who apply through this link land in your{" "}
+            <span className="font-semibold">Applicants</span> inbox at{" "}
+            <span className="font-semibold">{store.name}</span>. They become
+            Staff only after you Hire them.
+          </div>
+
+          <div className="mt-3 border-t border-[#E2E4EA] pt-3">
+            <h3 className="text-[14px] font-semibold text-[#1A1D27]">
+              Direct staff link
+              <span className="ml-2 rounded-full bg-[rgba(0,184,148,0.12)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[#00997A] ring-1 ring-[rgba(0,184,148,0.25)]">
+                Skip review
+              </span>
+            </h3>
+            <p className="mt-0.5 text-[12px] text-[#64748B]">
+              Use only for trusted staff. Sign-ups become Staff immediately
+              without going through the Applicants inbox.
+            </p>
+            <div className="mt-3 flex items-center gap-2">
+              <div className="flex flex-1 items-center gap-2 overflow-hidden rounded-lg bg-[#F5F6FA] px-3 py-2.5 text-[12px] ring-1 ring-[#E2E4EA]">
+                <span className="truncate font-mono text-[#1A1D27]">
+                  {directUrl}
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={handleCopyDirect}
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[#00B894] bg-white px-3.5 py-2.5 text-[12px] font-medium text-[#00997A] transition-colors hover:bg-[rgba(0,184,148,0.06)]"
+              >
+                {directCopied ? <Check size={14} /> : <Copy size={14} />}
+                {directCopied ? "Copied!" : "Copy"}
+              </button>
+            </div>
           </div>
         </div>
 
