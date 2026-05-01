@@ -70,6 +70,8 @@ export function SignupFlow({ encoded }: Props) {
   const [applicationId, setApplicationId] = useState<string | null>(null);
   // status screen 에서 보여줄 application stage (signup 완료 후 갱신)
   const [appStage, setAppStage] = useState<ApplicationStageClient>("pending_form");
+  // 이미 가입된 이메일 안내 모달
+  const [showEmailInUseModal, setShowEmailInUseModal] = useState(false);
 
   // 기존 candidate 로그인 — "가입만 하고 이탈" 케이스
   const [showLogin, setShowLogin] = useState(false);
@@ -127,14 +129,32 @@ export function SignupFlow({ encoded }: Props) {
     try {
       await publicApi.post("/app/auth/send-verification-code", {
         email: emailForm.email,
-        purpose: "registration",
+        // candidate_reg: hiring 가입 — 서버가 User + Candidate 양쪽 중복 체크해서
+        // 이미 가입된 이메일이면 409 ConflictError 반환.
+        purpose: "candidate_reg",
       });
       setEmailForm((prev) => ({ ...prev, codeSent: true, code: "" }));
     } catch (err) {
-      const msg =
-        (axios.isAxiosError(err) && err.response?.data?.detail) ||
-        "Failed to send code. Try again.";
-      setEmailError(typeof msg === "string" ? msg : "Failed to send code.");
+      const status = axios.isAxiosError(err) && err.response?.status;
+      const detail = axios.isAxiosError(err) && err.response?.data?.detail;
+      // detail 은 string (BadRequestError) 또는 {message: string} (ConflictError) 형태
+      const text =
+        typeof detail === "string"
+          ? detail
+          : (detail && typeof detail === "object" && typeof (detail as { message?: string }).message === "string")
+            ? (detail as { message: string }).message
+            : "Failed to send code. Try again.";
+      // 이미 가입된 이메일 → 모달
+      if (status === 409 && /already registered|already.*use/i.test(text)) {
+        setShowEmailInUseModal(true);
+        return;
+      }
+      // 쿨다운 안내 (60초 안에 재요청한 케이스)
+      if (status === 400 && /wait/i.test(text)) {
+        setEmailError("Please wait a moment before requesting another code.");
+        return;
+      }
+      setEmailError(text);
     } finally {
       setEmailLoading(false);
     }
@@ -381,6 +401,56 @@ export function SignupFlow({ encoded }: Props) {
     </div>
   ) : null;
 
+  // 이미 가입된 이메일 안내 모달 — Send code 단계에서 409 시 표시.
+  // "이미 가입되어 있는 메일입니다" — 사용자가 로그인 또는 다른 이메일로 시도하도록 안내.
+  const emailInUseModal = showEmailInUseModal ? (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={() => setShowEmailInUseModal(false)}
+    >
+      <div
+        className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-[16px] font-semibold text-slate-900">
+          This email is already registered
+        </h3>
+        <p className="mt-1.5 text-[13px] leading-relaxed text-slate-500">
+          An account with{" "}
+          <span className="font-semibold text-slate-700">
+            {emailForm.email || account.email}
+          </span>{" "}
+          already exists. Log in to continue, or use a different email.
+        </p>
+        <div className="mt-4 flex flex-col gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setLoginUsername("");
+              setLoginPassword("");
+              setLoginError(null);
+              setShowEmailInUseModal(false);
+              setShowLogin(true);
+            }}
+            className="w-full rounded-lg bg-blue-600 px-3 py-2.5 text-[13px] font-semibold text-white hover:bg-blue-700"
+          >
+            Log in
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setShowEmailInUseModal(false);
+              setStep("account");
+            }}
+            className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-[13px] font-medium text-slate-700 hover:bg-slate-50"
+          >
+            Use a different email
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   switch (step) {
     case "welcome":
       return (
@@ -419,16 +489,20 @@ export function SignupFlow({ encoded }: Props) {
       );
     case "email":
       return (
-        <EmailVerifyScreen
-          form={emailForm}
-          onChange={setEmailForm}
-          onBack={() => setStep("account")}
-          onSendCode={handleSendCode}
-          onVerify={handleVerify}
-          loading={emailLoading || submittingFinal}
-          error={emailError ?? finalError}
-          hasForm={hasForm}
-        />
+        <>
+          <EmailVerifyScreen
+            form={emailForm}
+            onChange={setEmailForm}
+            onBack={() => setStep("account")}
+            onSendCode={handleSendCode}
+            onVerify={handleVerify}
+            loading={emailLoading || submittingFinal}
+            error={emailError ?? finalError}
+            hasForm={hasForm}
+          />
+          {emailInUseModal}
+          {loginModal}
+        </>
       );
     case "form":
       if (!formConfig) {
