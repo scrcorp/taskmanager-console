@@ -1,27 +1,23 @@
 import { useQuery, useMutation, useQueryClient, type UseQueryResult, type UseMutationResult } from "@tanstack/react-query";
-import type { AxiosError, AxiosResponse } from "axios";
+import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
-import { useToast } from "@/components/ui/Toast";
+import { useResultModal } from "@/components/ui/ResultModal";
+import { parseApiError } from "@/lib/utils";
 import type { Schedule, ScheduleBulkCreate, ScheduleBulkResult, ScheduleCreate, ScheduleUpdate, ScheduleValidation, PaginatedResponse, BulkPreviewEntry, BulkPreviewResponse, BulkUpdateRequest, BulkUpdateResult, BulkDeleteRequest, BulkDeleteResult } from "@/types";
 
-/** FastAPI/Axios error → 사람이 읽을 수 있는 메시지 */
-function extractErrorMessage(err: unknown): string {
-  const ax = err as AxiosError<{ detail?: string | { msg?: string }[] }> | undefined;
-  const detail = ax?.response?.data?.detail;
-  if (typeof detail === "string") return detail;
-  if (Array.isArray(detail)) {
-    const msgs = detail.map((d) => (typeof d === "string" ? d : d?.msg ?? "")).filter(Boolean);
-    if (msgs.length > 0) return msgs.join("; ");
-  }
-  if (ax?.message) return ax.message;
-  return (err as Error)?.message ?? "Unknown error";
+/** mutation에 공통 onError(modal) 부착 — parseApiError 로 status code별 친화 메시지 사용 */
+function useErrorToast() {
+  const { showError } = useResultModal();
+  return (action: string) => (err: unknown) => {
+    showError(parseApiError(err, "Unexpected error"), { title: action });
+  };
 }
 
-/** mutation에 공통 onError(toast) 부착하기 위한 helper */
-function useErrorToast() {
-  const { toast } = useToast();
-  return (action: string) => (err: unknown) => {
-    toast({ type: "error", message: `${action}: ${extractErrorMessage(err)}` });
+/** mutation 성공 시 일관된 결과 모달 띄우는 helper — 사용자가 직접 닫아 결과를 인지 */
+function useSuccessToast() {
+  const { showSuccess } = useResultModal();
+  return (message: string) => {
+    showSuccess(message);
   };
 }
 
@@ -72,12 +68,16 @@ export const useValidateSchedule = (): UseMutationResult<ScheduleValidation, Err
 export const useCreateSchedule = (): UseMutationResult<Schedule, Error, ScheduleCreate> => {
   const qc = useQueryClient();
   const onErr = useErrorToast();
+  const onOk = useSuccessToast();
   return useMutation<Schedule, Error, ScheduleCreate>({
     mutationFn: async (data) => {
       const res: AxiosResponse<Schedule> = await api.post("/admin/schedules", data);
       return res.data;
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["schedules"] }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["schedules"] });
+      onOk("Schedule created.");
+    },
     onError: onErr("Failed to create schedule"),
   });
 };
@@ -85,12 +85,17 @@ export const useCreateSchedule = (): UseMutationResult<Schedule, Error, Schedule
 export const useBulkCreateSchedules = (): UseMutationResult<ScheduleBulkResult, Error, ScheduleBulkCreate> => {
   const qc = useQueryClient();
   const onErr = useErrorToast();
+  const onOk = useSuccessToast();
   return useMutation<ScheduleBulkResult, Error, ScheduleBulkCreate>({
     mutationFn: async (data) => {
       const res: AxiosResponse<ScheduleBulkResult> = await api.post("/admin/schedules/bulk", data);
       return res.data;
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["schedules"] }); },
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ["schedules"] });
+      const created = (result as { created?: number })?.created ?? 0;
+      onOk(`${created} schedule${created === 1 ? "" : "s"} created.`);
+    },
     onError: onErr("Failed to bulk create schedules"),
   });
 };
@@ -98,19 +103,18 @@ export const useBulkCreateSchedules = (): UseMutationResult<ScheduleBulkResult, 
 export const useUpdateSchedule = (): UseMutationResult<Schedule, Error, { id: string; data: ScheduleUpdate }> => {
   const qc = useQueryClient();
   const onErr = useErrorToast();
+  const onOk = useSuccessToast();
   return useMutation<Schedule, Error, { id: string; data: ScheduleUpdate }>({
     mutationFn: async ({ id, data }) => {
       const res: AxiosResponse<Schedule> = await api.patch(`/admin/schedules/${id}`, data);
       return res.data;
     },
     onSuccess: (updated, variables) => {
-      // 개별 schedule cache 즉시 갱신 (낙관적 반영)
       qc.setQueryData(["schedules", variables.id], updated);
-      // 목록 무효화
       qc.invalidateQueries({ queryKey: ["schedules"] });
-      // 개별 audit log + aggregated history 무효화 — 실시간 반영
       qc.invalidateQueries({ queryKey: ["schedules", variables.id, "audit"] });
       qc.invalidateQueries({ queryKey: ["schedule-history"] });
+      onOk("Schedule updated.");
     },
     onError: onErr("Failed to update schedule"),
   });
@@ -119,11 +123,13 @@ export const useUpdateSchedule = (): UseMutationResult<Schedule, Error, { id: st
 export const useDeleteSchedule = (): UseMutationResult<void, Error, string> => {
   const qc = useQueryClient();
   const onErr = useErrorToast();
+  const onOk = useSuccessToast();
   return useMutation<void, Error, string>({
     mutationFn: async (id) => { await api.delete(`/admin/schedules/${id}`); },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["schedules"] });
       qc.invalidateQueries({ queryKey: ["schedule-history"] });
+      onOk("Schedule deleted.");
     },
     onError: onErr("Failed to delete schedule"),
   });
@@ -132,12 +138,16 @@ export const useDeleteSchedule = (): UseMutationResult<void, Error, string> => {
 export const useGenerateFromRequests = (): UseMutationResult<Schedule[], Error, string> => {
   const qc = useQueryClient();
   const onErr = useErrorToast();
+  const onOk = useSuccessToast();
   return useMutation<Schedule[], Error, string>({
     mutationFn: async (periodId) => {
       const res: AxiosResponse<Schedule[]> = await api.post(`/admin/schedules/generate-from-requests?period_id=${periodId}`);
       return res.data;
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["schedules"] }); },
+    onSuccess: (created) => {
+      qc.invalidateQueries({ queryKey: ["schedules"] });
+      onOk(`${created.length} schedule${created.length === 1 ? "" : "s"} generated.`);
+    },
     onError: onErr("Failed to generate schedules"),
   });
 };
@@ -145,6 +155,7 @@ export const useGenerateFromRequests = (): UseMutationResult<Schedule[], Error, 
 export const useConfirmSchedule = (): UseMutationResult<Schedule, Error, string> => {
   const qc = useQueryClient();
   const onErr = useErrorToast();
+  const onOk = useSuccessToast();
   return useMutation<Schedule, Error, string>({
     mutationFn: async (id) => {
       const res: AxiosResponse<Schedule> = await api.post(`/admin/schedules/${id}/confirm`);
@@ -154,6 +165,7 @@ export const useConfirmSchedule = (): UseMutationResult<Schedule, Error, string>
       qc.invalidateQueries({ queryKey: ["schedules"] });
       qc.invalidateQueries({ queryKey: ["schedules", id, "audit"] });
       qc.invalidateQueries({ queryKey: ["schedule-history"] });
+      onOk("Schedule confirmed.");
     },
     onError: onErr("Failed to confirm schedule"),
   });
@@ -162,6 +174,7 @@ export const useConfirmSchedule = (): UseMutationResult<Schedule, Error, string>
 export const useRejectSchedule = (): UseMutationResult<Schedule, Error, { id: string; rejection_reason?: string }> => {
   const qc = useQueryClient();
   const onErr = useErrorToast();
+  const onOk = useSuccessToast();
   return useMutation<Schedule, Error, { id: string; rejection_reason?: string }>({
     mutationFn: async ({ id, rejection_reason }) => {
       const res: AxiosResponse<Schedule> = await api.post(`/admin/schedules/${id}/reject`, { rejection_reason: rejection_reason ?? null });
@@ -171,6 +184,7 @@ export const useRejectSchedule = (): UseMutationResult<Schedule, Error, { id: st
       qc.invalidateQueries({ queryKey: ["schedules"] });
       qc.invalidateQueries({ queryKey: ["schedules", id, "audit"] });
       qc.invalidateQueries({ queryKey: ["schedule-history"] });
+      onOk("Schedule rejected.");
     },
     onError: onErr("Failed to reject schedule"),
   });
@@ -181,6 +195,7 @@ export const useRejectSchedule = (): UseMutationResult<Schedule, Error, { id: st
 export const useSubmitSchedule = (): UseMutationResult<Schedule, Error, string> => {
   const qc = useQueryClient();
   const onErr = useErrorToast();
+  const onOk = useSuccessToast();
   return useMutation<Schedule, Error, string>({
     mutationFn: async (id) => {
       const res: AxiosResponse<Schedule> = await api.post(`/admin/schedules/${id}/submit`);
@@ -190,6 +205,7 @@ export const useSubmitSchedule = (): UseMutationResult<Schedule, Error, string> 
       qc.invalidateQueries({ queryKey: ["schedules"] });
       qc.invalidateQueries({ queryKey: ["schedules", id, "audit"] });
       qc.invalidateQueries({ queryKey: ["schedule-history"] });
+      onOk("Submitted for approval.");
     },
     onError: onErr("Failed to submit schedule"),
   });
@@ -198,6 +214,7 @@ export const useSubmitSchedule = (): UseMutationResult<Schedule, Error, string> 
 export const useRevertSchedule = (): UseMutationResult<Schedule, Error, string> => {
   const qc = useQueryClient();
   const onErr = useErrorToast();
+  const onOk = useSuccessToast();
   return useMutation<Schedule, Error, string>({
     mutationFn: async (id) => {
       const res: AxiosResponse<Schedule> = await api.post(`/admin/schedules/${id}/revert`);
@@ -207,6 +224,7 @@ export const useRevertSchedule = (): UseMutationResult<Schedule, Error, string> 
       qc.invalidateQueries({ queryKey: ["schedules"] });
       qc.invalidateQueries({ queryKey: ["schedules", id, "audit"] });
       qc.invalidateQueries({ queryKey: ["schedule-history"] });
+      onOk("Reverted to draft.");
     },
     onError: onErr("Failed to revert schedule"),
   });
@@ -215,6 +233,7 @@ export const useRevertSchedule = (): UseMutationResult<Schedule, Error, string> 
 export const useCancelSchedule = (): UseMutationResult<Schedule, Error, { id: string; cancellation_reason?: string }> => {
   const qc = useQueryClient();
   const onErr = useErrorToast();
+  const onOk = useSuccessToast();
   return useMutation<Schedule, Error, { id: string; cancellation_reason?: string }>({
     mutationFn: async ({ id, cancellation_reason }) => {
       const res: AxiosResponse<Schedule> = await api.post(`/admin/schedules/${id}/cancel`, { cancellation_reason: cancellation_reason ?? null });
@@ -224,6 +243,7 @@ export const useCancelSchedule = (): UseMutationResult<Schedule, Error, { id: st
       qc.invalidateQueries({ queryKey: ["schedules"] });
       qc.invalidateQueries({ queryKey: ["schedules", id, "audit"] });
       qc.invalidateQueries({ queryKey: ["schedule-history"] });
+      onOk("Schedule cancelled.");
     },
     onError: onErr("Failed to cancel schedule"),
   });
@@ -316,11 +336,13 @@ export interface ScheduleHistoryFilters {
 export const useDeleteScheduleHistoryEntry = (): UseMutationResult<void, Error, string> => {
   const qc = useQueryClient();
   const onErr = useErrorToast();
+  const onOk = useSuccessToast();
   return useMutation<void, Error, string>({
     mutationFn: async (logId) => { await api.delete(`/admin/schedules/history/${logId}`); },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["schedule-history"] });
       qc.invalidateQueries({ queryKey: ["schedules"] });
+      onOk("History entry deleted.");
     },
     onError: onErr("Failed to delete history entry"),
   });
@@ -364,12 +386,17 @@ export const useBulkPreviewSchedules = (): UseMutationResult<BulkPreviewResponse
 export const useBulkUpdateSchedules = (): UseMutationResult<BulkUpdateResult, Error, BulkUpdateRequest> => {
   const qc = useQueryClient();
   const onErr = useErrorToast();
+  const onOk = useSuccessToast();
   return useMutation<BulkUpdateResult, Error, BulkUpdateRequest>({
     mutationFn: async (data) => {
       const res: AxiosResponse<BulkUpdateResult> = await api.patch("/admin/schedules/bulk", data);
       return res.data;
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["schedules"] }); },
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ["schedules"] });
+      const updated = (result as { updated?: number })?.updated ?? 0;
+      onOk(`${updated} schedule${updated === 1 ? "" : "s"} updated.`);
+    },
     onError: onErr("Bulk update failed"),
   });
 };
@@ -377,25 +404,46 @@ export const useBulkUpdateSchedules = (): UseMutationResult<BulkUpdateResult, Er
 export const useBulkDeleteSchedules = (): UseMutationResult<BulkDeleteResult, Error, BulkDeleteRequest> => {
   const qc = useQueryClient();
   const onErr = useErrorToast();
+  const onOk = useSuccessToast();
   return useMutation<BulkDeleteResult, Error, BulkDeleteRequest>({
     mutationFn: async (data) => {
       const res: AxiosResponse<BulkDeleteResult> = await api.delete("/admin/schedules/bulk", { data });
       return res.data;
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["schedules"] }); },
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ["schedules"] });
+      const deleted = (result as { deleted?: number })?.deleted ?? 0;
+      onOk(`${deleted} schedule${deleted === 1 ? "" : "s"} deleted.`);
+    },
     onError: onErr("Bulk delete failed"),
   });
 };
 
 export const useBulkConfirmSchedules = (): UseMutationResult<{ confirmed: number; errors: string[] }, Error, { store_id: string; date_from: string; date_to: string }> => {
   const qc = useQueryClient();
+  const { showSuccess, showError } = useResultModal();
   const onErr = useErrorToast();
   return useMutation<{ confirmed: number; errors: string[] }, Error, { store_id: string; date_from: string; date_to: string }>({
     mutationFn: async (params) => {
       const res: AxiosResponse<{ confirmed: number; errors: string[] }> = await api.post("/admin/schedules/bulk-confirm", params);
       return res.data;
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["schedules"] }); },
-    onError: onErr("Failed to bulk confirm schedules"),
+    onSuccess: (result) => {
+      qc.invalidateQueries({ queryKey: ["schedules"] });
+      const errCount = result.errors?.length ?? 0;
+      if (errCount > 0) {
+        // 부분 성공 — error 모달에 details 로 실패 항목들 표시
+        showError(
+          `Confirmed ${result.confirmed} schedule${result.confirmed === 1 ? "" : "s"}, but ${errCount} failed.`,
+          { title: "Bulk confirm finished with issues", details: result.errors.slice(0, 5) },
+        );
+      } else {
+        showSuccess(
+          `${result.confirmed} schedule${result.confirmed === 1 ? "" : "s"} confirmed.`,
+          { title: "Confirmed" },
+        );
+      }
+    },
+    onError: onErr("Couldn't bulk-confirm schedules"),
   });
 };

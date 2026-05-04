@@ -10,6 +10,7 @@
 import { useMutation } from "@tanstack/react-query";
 import type { UseMutationResult } from "@tanstack/react-query";
 import api from "@/lib/api";
+import { useMutationResult } from "@/lib/mutationResult";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
@@ -48,9 +49,11 @@ export function useFindUsername(): UseMutationResult<
   Error,
   { email: string }
 > {
-  return useMutation({
+  const { error } = useMutationResult();
+  return useMutation<FindUsernameResponse, Error, { email: string }>({
     mutationFn: ({ email }) =>
       publicPost<FindUsernameResponse>("/auth/find-username", { email }),
+    onError: error("Couldn't find username"),
   });
 }
 
@@ -60,12 +63,17 @@ export function useFindUsernameSendCode(): UseMutationResult<
   Error,
   { email: string }
 > {
-  return useMutation({
+  const { success, error } = useMutationResult();
+  return useMutation<FindUsernameSendCodeResponse, Error, { email: string }>({
     mutationFn: ({ email }) =>
       publicPost<FindUsernameSendCodeResponse>(
         "/auth/find-username/send-code",
         { email },
       ),
+    onSuccess: () => {
+      success("Verification code sent.");
+    },
+    onError: error("Couldn't send verification code"),
   });
 }
 
@@ -75,12 +83,18 @@ export function useFindUsernameVerifyCode(): UseMutationResult<
   Error,
   { email: string; code: string }
 > {
-  return useMutation({
+  const { error } = useMutationResult();
+  return useMutation<
+    FindUsernameVerifyResponse,
+    Error,
+    { email: string; code: string }
+  >({
     mutationFn: (data) =>
       publicPost<FindUsernameVerifyResponse>(
         "/auth/find-username/verify-code",
         data,
       ),
+    onError: error("Couldn't verify code"),
   });
 }
 
@@ -105,12 +119,21 @@ export function useResetPasswordSendCode(): UseMutationResult<
   Error,
   { username: string; email: string }
 > {
-  return useMutation({
+  const { success, error } = useMutationResult();
+  return useMutation<
+    ResetPasswordSendCodeResponse,
+    Error,
+    { username: string; email: string }
+  >({
     mutationFn: (data) =>
       publicPost<ResetPasswordSendCodeResponse>(
         "/auth/reset-password/send-code",
         data,
       ),
+    onSuccess: () => {
+      success("Verification code sent.");
+    },
+    onError: error("Couldn't send verification code"),
   });
 }
 
@@ -120,12 +143,18 @@ export function useResetPasswordVerifyCode(): UseMutationResult<
   Error,
   { email: string; code: string }
 > {
-  return useMutation({
+  const { error } = useMutationResult();
+  return useMutation<
+    ResetPasswordVerifyResponse,
+    Error,
+    { email: string; code: string }
+  >({
     mutationFn: (data) =>
       publicPost<ResetPasswordVerifyResponse>(
         "/auth/reset-password/verify-code",
         data,
       ),
+    onError: error("Couldn't verify code"),
   });
 }
 
@@ -135,12 +164,21 @@ export function useResetPasswordConfirm(): UseMutationResult<
   Error,
   { reset_token: string; new_password: string }
 > {
-  return useMutation({
+  const { success, error } = useMutationResult();
+  return useMutation<
+    ResetPasswordConfirmResponse,
+    Error,
+    { reset_token: string; new_password: string }
+  >({
     mutationFn: (data) =>
       publicPost<ResetPasswordConfirmResponse>(
         "/auth/reset-password/confirm",
         data,
       ),
+    onSuccess: () => {
+      success("Password reset.");
+    },
+    onError: error("Couldn't reset password"),
   });
 }
 
@@ -158,7 +196,12 @@ export function useChangePassword(): UseMutationResult<
   Error,
   { current_password: string; new_password: string }
 > {
-  return useMutation({
+  const { success, error } = useMutationResult();
+  return useMutation<
+    ChangePasswordResponse,
+    Error,
+    { current_password: string; new_password: string }
+  >({
     mutationFn: async (data) => {
       const res = await api.post<ChangePasswordResponse>(
         "/auth/change-password",
@@ -166,6 +209,10 @@ export function useChangePassword(): UseMutationResult<
       );
       return res.data;
     },
+    onSuccess: () => {
+      success("Password changed.");
+    },
+    onError: error("Couldn't change password"),
   });
 }
 
@@ -182,12 +229,17 @@ export function useAdminResetPassword(): UseMutationResult<
   Error,
   string
 > {
-  return useMutation({
+  const { success, error } = useMutationResult();
+  return useMutation<AdminResetPasswordResponse, Error, string>({
     mutationFn: async (userId: string) => {
       const res = await api.post<AdminResetPasswordResponse>(
         `/admin/users/${userId}/reset-password`,
       );
       return res.data;
     },
+    onSuccess: () => {
+      success("Password reset.");
+    },
+    onError: error("Couldn't reset password"),
   });
 }

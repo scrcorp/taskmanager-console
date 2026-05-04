@@ -22,7 +22,7 @@ import {
   ConfirmDialog,
   LoadingSpinner,
 } from "@/components/ui";
-import { useToast } from "@/components/ui/Toast";
+import { useResultModal } from "@/components/ui/ResultModal";
 import { parseApiError, formatDateTime } from "@/lib/utils";
 import { ProductForm, type ProductFormData } from "@/components/inventory/ProductForm";
 import type { StoreInventoryItem, StoreInventoryBrief } from "@/types";
@@ -39,7 +39,7 @@ export default function ProductDetailPage(): React.ReactElement {
   const params = useParams<{ id: string }>();
   const productId = params.id;
 
-  const { toast } = useToast();
+  const { showSuccess, showError } = useResultModal();
   const { hasPermission } = usePermissions();
   const canUpdate = hasPermission(PERMISSIONS.INVENTORY_UPDATE);
   const canDelete = hasPermission(PERMISSIONS.INVENTORY_DELETE);
@@ -122,56 +122,56 @@ export default function ProductDetailPage(): React.ReactElement {
       },
       {
         onSuccess: () => {
-          toast({ type: "success", message: "Product updated." });
+          showSuccess("Product updated.");
           setIsEditOpen(false);
         },
         onError: (err) => {
-          toast({ type: "error", message: parseApiError(err, "Failed to update product.") });
+          showError(parseApiError(err, "Failed to update product."));
         },
       },
     );
-  }, [editFormData, product, updateProduct, toast]);
+  }, [editFormData, product, updateProduct, showSuccess, showError]);
 
   const handleDeactivate = useCallback(() => {
     if (!product) return;
     deactivateProduct.mutate(product.id, {
       onSuccess: () => {
-        toast({ type: "success", message: "Product deactivated." });
+        showSuccess("Product deactivated.");
         setIsDeactivateOpen(false);
         router.push("/inventory");
       },
       onError: (err) => {
-        toast({ type: "error", message: parseApiError(err, "Failed to deactivate.") });
+        showError(parseApiError(err, "Failed to deactivate."));
       },
     });
-  }, [product, deactivateProduct, toast, router]);
+  }, [product, deactivateProduct, showSuccess, showError, router]);
 
   const handleActivate = useCallback(() => {
     if (!product) return;
     activateProduct.mutate(product.id, {
       onSuccess: () => {
-        toast({ type: "success", message: "Product activated." });
+        showSuccess("Product activated.");
         router.refresh();
       },
       onError: (err) => {
-        toast({ type: "error", message: parseApiError(err, "Failed to activate.") });
+        showError(parseApiError(err, "Failed to activate."));
       },
     });
-  }, [product, activateProduct, toast, router]);
+  }, [product, activateProduct, showSuccess, showError, router]);
 
   const handleDelete = useCallback(() => {
     if (!product) return;
     deleteProduct.mutate(product.id, {
       onSuccess: () => {
-        toast({ type: "success", message: "Product permanently deleted." });
+        showSuccess("Product permanently deleted.");
         setIsDeleteOpen(false);
         router.push("/inventory");
       },
       onError: (err) => {
-        toast({ type: "error", message: parseApiError(err, "Failed to delete.") });
+        showError(parseApiError(err, "Failed to delete."));
       },
     });
-  }, [product, deleteProduct, toast, router]);
+  }, [product, deleteProduct, showSuccess, showError, router]);
 
   if (isLoading) {
     return (

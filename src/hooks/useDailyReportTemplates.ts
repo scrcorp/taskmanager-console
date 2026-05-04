@@ -12,6 +12,7 @@ import {
 } from "@tanstack/react-query";
 import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
+import { useMutationResult } from "@/lib/mutationResult";
 import type {
   DailyReportTemplate,
   DailyReportTemplateCreate,
@@ -59,7 +60,8 @@ export const useCreateTemplate = (): UseMutationResult<
   DailyReportTemplateCreate
 > => {
   const qc = useQueryClient();
-  return useMutation({
+  const { success, error } = useMutationResult();
+  return useMutation<DailyReportTemplate, Error, DailyReportTemplateCreate>({
     mutationFn: async (data: DailyReportTemplateCreate) => {
       const res: AxiosResponse<DailyReportTemplate> = await api.post(
         "/admin/daily-report-templates",
@@ -69,7 +71,9 @@ export const useCreateTemplate = (): UseMutationResult<
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["daily-report-templates"] });
+      success("Template created.");
     },
+    onError: error("Couldn't create template"),
   });
 };
 
@@ -80,7 +84,8 @@ export const useUpdateTemplate = (): UseMutationResult<
   { id: string; data: DailyReportTemplateUpdate }
 > => {
   const qc = useQueryClient();
-  return useMutation({
+  const { success, error } = useMutationResult();
+  return useMutation<DailyReportTemplate, Error, { id: string; data: DailyReportTemplateUpdate }>({
     mutationFn: async ({ id, data }: { id: string; data: DailyReportTemplateUpdate }) => {
       const res: AxiosResponse<DailyReportTemplate> = await api.put(
         `/admin/daily-report-templates/${id}`,
@@ -90,20 +95,25 @@ export const useUpdateTemplate = (): UseMutationResult<
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["daily-report-templates"] });
+      success("Template updated.");
     },
+    onError: error("Couldn't update template"),
   });
 };
 
 /** 일일 보고서 템플릿 삭제 */
 export const useDeleteTemplate = (): UseMutationResult<void, Error, string> => {
   const qc = useQueryClient();
-  return useMutation({
+  const { success, error } = useMutationResult();
+  return useMutation<void, Error, string>({
     mutationFn: async (id: string) => {
       await api.delete(`/admin/daily-report-templates/${id}`);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["daily-report-templates"] });
+      success("Template deleted.");
     },
+    onError: error("Couldn't delete template"),
   });
 };
 
@@ -114,7 +124,12 @@ export const useUploadTemplateExcel = (): UseMutationResult<
   { file: File; name: string; store_id?: string }
 > => {
   const qc = useQueryClient();
-  return useMutation({
+  const { success, error } = useMutationResult();
+  return useMutation<
+    DailyReportTemplate,
+    Error,
+    { file: File; name: string; store_id?: string }
+  >({
     mutationFn: async ({ file, name, store_id }) => {
       const formData = new FormData();
       formData.append("file", file);
@@ -129,7 +144,9 @@ export const useUploadTemplateExcel = (): UseMutationResult<
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["daily-report-templates"] });
+      success("Import complete.");
     },
+    onError: error("Couldn't upload Excel file"),
   });
 };
 

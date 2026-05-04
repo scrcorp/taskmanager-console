@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query";
 import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
+import { useMutationResult } from "@/lib/mutationResult";
 import type { Role } from "@/types";
 
 /**
@@ -46,6 +47,7 @@ export const useCreateRole = (): UseMutationResult<
   CreateRoleData
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<Role, Error, CreateRoleData>({
     mutationFn: async (data: CreateRoleData): Promise<Role> => {
       const response: AxiosResponse<Role> = await api.post(
@@ -58,7 +60,9 @@ export const useCreateRole = (): UseMutationResult<
       queryClient.setQueryData<Role[]>(["roles"], (old) =>
         old ? [...old, newRole] : [newRole],
       );
+      success("Role created.");
     },
+    onError: error("Couldn't create role"),
   });
 };
 
@@ -82,6 +86,7 @@ export const useUpdateRole = (): UseMutationResult<
   UpdateRoleData
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<Role, Error, UpdateRoleData>({
     mutationFn: async ({ id, ...data }: UpdateRoleData): Promise<Role> => {
       const response: AxiosResponse<Role> = await api.put(
@@ -94,7 +99,9 @@ export const useUpdateRole = (): UseMutationResult<
       queryClient.setQueryData<Role[]>(["roles"], (old) =>
         old?.map((r) => (r.id === variables.id ? updated : r)),
       );
+      success("Role updated.");
     },
+    onError: error("Couldn't update role"),
   });
 };
 
@@ -107,6 +114,7 @@ export const useUpdateRole = (): UseMutationResult<
  */
 export const useDeleteRole = (): UseMutationResult<void, Error, string> => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<void, Error, string>({
     mutationFn: async (id: string): Promise<void> => {
       await api.delete(`/admin/roles/${id}`);
@@ -115,6 +123,8 @@ export const useDeleteRole = (): UseMutationResult<void, Error, string> => {
       queryClient.setQueryData<Role[]>(["roles"], (old) =>
         old?.filter((r) => r.id !== id),
       );
+      success("Role deleted.");
     },
+    onError: error("Couldn't delete role"),
   });
 };

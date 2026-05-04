@@ -36,7 +36,7 @@ import { useShifts } from "@/hooks/useShifts";
 import { useWorkRoles } from "@/hooks/useWorkRoles";
 import { useBulkCreateSchedules, useBulkUpdateSchedules, useBulkDeleteSchedules } from "@/hooks/useSchedules";
 import BulkScheduleView, { type SavePayload } from "./BulkScheduleView";
-import { useToast } from "@/components/ui/Toast";
+import { useResultModal } from "@/components/ui/ResultModal";
 
 type ViewMode = "weekly" | "daily" | "monthly";
 type SortState = "none" | "confirmed" | "requested";
@@ -326,7 +326,7 @@ export default function SchedulesCalendarView() {
 
   // ─── Bulk mode ─────────────────────────────────────
   const [bulkMode, setBulkMode] = useState(false);
-  const { toast } = useToast();
+  const { showSuccess } = useResultModal();
   const bulkCreateMutation = useBulkCreateSchedules();
   const bulkUpdateMutation = useBulkUpdateSchedules();
   const bulkDeleteMutation = useBulkDeleteSchedules();
@@ -375,7 +375,7 @@ export default function SchedulesCalendarView() {
         await bulkDeleteMutation.mutateAsync({ ids: payload.deletes });
         deleted = payload.deletes.length;
       }
-      toast({ type: "success", message: `Saved: ${created} created, ${updated} updated, ${deleted} deleted` });
+      showSuccess(`Saved: ${created} created, ${updated} updated, ${deleted} deleted`);
       setBulkMode(false);
     } catch (err) {
       // 부분 실패 가능 — 어디서 멈췄는지 + 에러 메시지를 모달로 명확히 표시

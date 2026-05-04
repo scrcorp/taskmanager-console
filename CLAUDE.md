@@ -330,3 +330,70 @@ if (name.includes("owner"))                 // → isOwner (문자열 비교 금
 - Tailwind for all styling, custom theme colors in config
 - Components: PascalCase files, one component per file
 - Use `cn()` helper for conditional classes (clsx + tailwind-merge)
+
+## Result Feedback Policy (반드시 따를 것)
+
+사용자 액션 결과는 일관된 패턴으로 표시한다.
+
+### MODAL (`useResultModal` / `ResultModal` / `AppModal`)
+
+자동 dismiss 안 함, 사용자가 OK 눌러야 닫힘. 화면 중앙.
+
+다음의 경우 **반드시 모달**:
+
+- 명시적 사용자 액션 결과 (생성/수정/삭제/확정/취소/제출/전송 등)
+- 폼 제출 결과 (입력값 손실 방지)
+- 권한/인증/세션 만료 오류
+- 네트워크/서버 오류 (재시도 필요한 경우)
+- bulk 작업 결과 (부분 실패 시 `details` bullet 표시)
+- 영구 변경 / 결제 / 게시 / 송신
+- 회원가입 / 로그인 결과
+
+### TOAST (`useToast` / `ToastManager.info`)
+
+자동 사라짐. 가벼운 정보용.
+
+다음에만 사용:
+
+- "Copied to clipboard"
+- 광학적 reorder/sort/copy-paste 즉시 시각 피드백 동반된 micro 작업
+- 자동 백그라운드 sync 결과 (사용자 의도 X)
+
+### Hook 패턴
+
+```typescript
+import { useMutationResult } from "@/lib/mutationResult";
+
+const { success, error } = useMutationResult();
+return useMutation({
+  mutationFn,
+  onSuccess: () => success("X created."),
+  onError: error("Couldn't create X"),
+});
+```
+
+### Component 패턴
+
+```typescript
+import { useResultModal } from "@/components/ui/ResultModal";
+
+const { showSuccess, showError } = useResultModal();
+// ...
+showSuccess("Saved.");
+showError(parseApiError(err, "Unexpected error"), { title: "Couldn't save" });
+```
+
+### Flutter 패턴
+
+```dart
+import '../../widgets/app_modal.dart';
+
+await AppModal.show(context, title: 'Saved', message: '...', type: ModalType.success);
+await AppModal.show(context, title: 'Couldn\'t save', message: '...', type: ModalType.error);
+```
+
+### parseApiError
+
+광범위한 "Failed to do X" fallback 대신 `parseApiError(err, "Unexpected error")` 사용.
+status code (401/403/404/408/409/413/422/429/5xx)와 `detail`/`message` 필드를 자동
+가공하여 친화 메시지 반환.

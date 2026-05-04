@@ -38,7 +38,7 @@ import {
   useEvaluationSummary,
 } from "@/hooks";
 import { Card, Select, Badge, LoadingSpinner, Button } from "@/components/ui";
-import { useToast } from "@/components/ui/Toast";
+import { useResultModal } from "@/components/ui/ResultModal";
 import api from "@/lib/api";
 import { cn, formatDate, parseApiError, todayInTimezone } from "@/lib/utils";
 import { useTimezone } from "@/hooks/useTimezone";
@@ -177,7 +177,7 @@ function StatusRow({
 export default function DashboardPage(): React.ReactElement {
   const router = useRouter();
   useAuthStore();
-  const { toast } = useToast();
+  const { showSuccess, showError } = useResultModal();
   const tz = useTimezone();
   const today: string = todayInTimezone(tz);
 
@@ -315,13 +315,13 @@ export default function DashboardPage(): React.ReactElement {
       link.download = `dashboard_${exportDate}.xlsx`;
       link.click();
       window.URL.revokeObjectURL(url);
-      toast({ type: "success", message: "Dashboard exported." });
+      showSuccess("Dashboard exported.");
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to export dashboard.") });
+      showError(parseApiError(err, "Failed to export dashboard."));
     } finally {
       setIsExporting(false);
     }
-  }, [toast, tz]);
+  }, [showSuccess, showError, tz]);
 
   // ─── Date range button handler ────────────────────
   const handleDateRange = useCallback((range: DateRange) => {

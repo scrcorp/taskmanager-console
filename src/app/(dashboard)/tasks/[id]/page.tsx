@@ -26,7 +26,7 @@ import {
   ConfirmDialog,
   LoadingSpinner,
 } from "@/components/ui";
-import { useToast } from "@/components/ui/Toast";
+import { useResultModal } from "@/components/ui/ResultModal";
 import { formatDateTime, formatFixedDate, timeAgo, parseApiError } from "@/lib/utils";
 
 
@@ -37,7 +37,7 @@ import { formatDateTime, formatFixedDate, timeAgo, parseApiError } from "@/lib/u
 export default function TaskDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { toast } = useToast();
+  const { showSuccess, showError } = useResultModal();
   const tz = useTimezone();
 
   const { data: task, isLoading } = useTask(id);
@@ -81,10 +81,10 @@ export default function TaskDetailPage() {
       { id, ...payload },
       {
         onSuccess: () => {
-          toast({ type: "success", message: "업무가 수정되었습니다 (Task updated)" });
+          showSuccess("Task updated");
           setShowEdit(false);
         },
-        onError: (err) => toast({ type: "error", message: parseApiError(err, "수정 실패 (Update failed)") }),
+        onError: (err) => showError(parseApiError(err, "Update failed")),
       }
     );
   };
@@ -94,10 +94,10 @@ export default function TaskDetailPage() {
   const handleDelete = (): void => {
     deleteTask.mutate(id, {
       onSuccess: () => {
-        toast({ type: "success", message: "업무가 삭제되었습니다 (Task deleted)" });
+        showSuccess("Task deleted");
         router.push("/tasks");
       },
-      onError: (err) => toast({ type: "error", message: parseApiError(err, "삭제 실패 (Delete failed)") }),
+      onError: (err) => showError(parseApiError(err, "Delete failed")),
     });
   };
 
@@ -107,9 +107,8 @@ export default function TaskDetailPage() {
     updateTask.mutate(
       { id, status },
       {
-        onSuccess: () =>
-          toast({ type: "success", message: "상태가 변경되었습니다 (Status changed)" }),
-        onError: (err) => toast({ type: "error", message: parseApiError(err, "상태 변경 실패 (Status change failed)") }),
+        onSuccess: () => showSuccess("Status changed"),
+        onError: (err) => showError(parseApiError(err, "Status change failed")),
       }
     );
   };

@@ -36,6 +36,7 @@ import { Button } from "@/components/ui/Button";
 import { Badge, ConfirmDialog } from "@/components/ui";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useToast } from "@/components/ui/Toast";
+import { useResultModal } from "@/components/ui/ResultModal";
 import { formatDate, formatDateTimeSeconds, parseApiError } from "@/lib/utils";
 import type { AttendanceDevice } from "@/types";
 
@@ -59,6 +60,7 @@ export default function AttendanceDevicesSettingsPage(): React.ReactElement {
 
 function AttendanceDevicesContent(): React.ReactElement {
   const { toast } = useToast();
+  const { showSuccess, showError } = useResultModal();
   const { hasPermission } = usePermissions();
   const tz = useTimezone();
   const canUpdate = hasPermission(PERMISSIONS.ATTENDANCE_DEVICES_UPDATE);
@@ -103,14 +105,11 @@ function AttendanceDevicesContent(): React.ReactElement {
     try {
       await rotateCode.mutateAsync(ATTENDANCE_SERVICE_KEY);
       setIsRotateConfirmOpen(false);
-      toast({ type: "success", message: "Access code rotated." });
+      showSuccess("Access code rotated.");
     } catch (err) {
-      toast({
-        type: "error",
-        message: parseApiError(err, "Failed to rotate access code."),
-      });
+      showError(parseApiError(err, "Failed to rotate access code."));
     }
-  }, [rotateCode, toast]);
+  }, [rotateCode, showSuccess, showError]);
 
   const handleCopyCode = useCallback(async (code: string): Promise<void> => {
     try {
@@ -140,35 +139,29 @@ function AttendanceDevicesContent(): React.ReactElement {
     if (!renamingId) return;
     const name = renameValue.trim();
     if (!name) {
-      toast({ type: "error", message: "Device name cannot be empty." });
+      showError("Device name cannot be empty.");
       return;
     }
     try {
       await updateDevice.mutateAsync({ id: renamingId, device_name: name });
-      toast({ type: "success", message: "Device renamed." });
+      showSuccess("Device renamed.");
       setRenamingId(null);
       setRenameValue("");
     } catch (err) {
-      toast({
-        type: "error",
-        message: parseApiError(err, "Failed to rename device."),
-      });
+      showError(parseApiError(err, "Failed to rename device."));
     }
-  }, [renamingId, renameValue, updateDevice, toast]);
+  }, [renamingId, renameValue, updateDevice, showSuccess, showError]);
 
   const handleRevoke = useCallback(async (): Promise<void> => {
     if (!revokeTarget) return;
     try {
       await revokeDevice.mutateAsync(revokeTarget.id);
-      toast({ type: "success", message: "Device revoked." });
+      showSuccess("Device revoked.");
       setRevokeTarget(null);
     } catch (err) {
-      toast({
-        type: "error",
-        message: parseApiError(err, "Failed to revoke device."),
-      });
+      showError(parseApiError(err, "Failed to revoke device."));
     }
-  }, [revokeTarget, revokeDevice, toast]);
+  }, [revokeTarget, revokeDevice, showSuccess, showError]);
 
   /* ======================================================================= */
   /*  Render                                                                 */

@@ -26,7 +26,7 @@ import {
   ConfirmDialog,
   LoadingSpinner,
 } from "@/components/ui";
-import { useToast } from "@/components/ui/Toast";
+import { useResultModal } from "@/components/ui/ResultModal";
 import { formatFixedDate, parseApiError } from "@/lib/utils";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@/lib/permissions";
@@ -56,7 +56,7 @@ const PER_PAGE: number = 20;
 
 export default function TasksPage(): React.ReactElement {
   const router = useRouter();
-  const { toast } = useToast();
+  const { showSuccess, showError } = useResultModal();
   const { hasPermission } = usePermissions();
   const canManageTasks = hasPermission(PERMISSIONS.TASKS_CREATE);
 
@@ -235,7 +235,7 @@ export default function TasksPage(): React.ReactElement {
 
   const handleCreateSubmit: () => void = useCallback((): void => {
     if (!formTitle.trim()) {
-      toast({ type: "error", message: "Task title is required." });
+      showError("Task title is required.");
       return;
     }
 
@@ -250,28 +250,28 @@ export default function TasksPage(): React.ReactElement {
       },
       {
         onSuccess: (): void => {
-          toast({ type: "success", message: "Task created successfully." });
+          showSuccess("Task created successfully.");
           setIsCreateOpen(false);
         },
         onError: (err): void => {
-          toast({ type: "error", message: parseApiError(err, "Failed to create task.") });
+          showError(parseApiError(err, "Failed to create task."));
         },
       },
     );
-  }, [formTitle, formDescription, formStoreId, formPriority, formDueDate, formAssigneeIds, createTask, toast]);
+  }, [formTitle, formDescription, formStoreId, formPriority, formDueDate, formAssigneeIds, createTask, showSuccess, showError]);
 
   const handleDelete: () => void = useCallback((): void => {
     if (!deleteId) return;
     deleteTask.mutate(deleteId, {
       onSuccess: (): void => {
-        toast({ type: "success", message: "Task deleted successfully." });
+        showSuccess("Task deleted successfully.");
         setDeleteId(null);
       },
       onError: (err): void => {
-        toast({ type: "error", message: parseApiError(err, "Failed to delete task.") });
+        showError(parseApiError(err, "Failed to delete task."));
       },
     });
-  }, [deleteId, deleteTask, toast]);
+  }, [deleteId, deleteTask, showSuccess, showError]);
 
   return (
     <div>

@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
-import { useToast } from "@/components/ui/Toast";
+import { useResultModal } from "@/components/ui/ResultModal";
 import { parseApiError, formatDate } from "@/lib/utils";
 import { TIMEZONE_OPTIONS } from "@/lib/timezones";
 import { ChangePasswordModal } from "@/components/auth/ChangePasswordModal";
@@ -32,7 +32,7 @@ const LANGUAGE_OPTIONS = [
 ];
 
 export default function SettingsPage(): React.ReactElement {
-  const { toast } = useToast();
+  const { showSuccess, showError } = useResultModal();
   const { data: org, isLoading } = useOrganization();
   const updateOrg = useUpdateOrganization();
   const user = useAuthStore((s) => s.user);
@@ -58,20 +58,20 @@ export default function SettingsPage(): React.ReactElement {
 
   const handleSave = async (): Promise<void> => {
     if (!timezone) {
-      toast({ type: "error", message: "Please select a timezone." });
+      showError("Please select a timezone.");
       return;
     }
     const rateStr = defaultHourlyRate.trim();
     const rateVal = rateStr === "" ? null : Number(rateStr);
     if (rateVal !== null && (isNaN(rateVal) || rateVal < 0)) {
-      toast({ type: "error", message: "Default hourly rate must be a positive number." });
+      showError("Default hourly rate must be a positive number.");
       return;
     }
     try {
       await updateOrg.mutateAsync({ timezone, default_hourly_rate: rateVal });
-      toast({ type: "success", message: "Organization settings updated!" });
+      showSuccess("Organization settings updated!");
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to update settings.") });
+      showError(parseApiError(err, "Failed to update settings."));
     }
   };
 
@@ -188,9 +188,9 @@ export default function SettingsPage(): React.ReactElement {
             onClick={async () => {
               try {
                 await updateLanguage.mutateAsync(language);
-                toast({ type: "success", message: "Language preference saved." });
+                showSuccess("Language preference saved.");
               } catch (err) {
-                toast({ type: "error", message: parseApiError(err, "Failed to update language.") });
+                showError(parseApiError(err, "Failed to update language."));
               }
             }}
           >

@@ -49,6 +49,7 @@ export function SignupFlow({ encoded }: Props) {
     email: "",
     showPassword: false,
     showConfirmPassword: false,
+    preferredLanguage: "en",
   });
 
   const [emailForm, setEmailForm] = useState<EmailFormState>({
@@ -184,6 +185,7 @@ export function SignupFlow({ encoded }: Props) {
         email: res.data.email,
         showPassword: false,
         showConfirmPassword: false,
+        preferredLanguage: "en",
       });
       setEmailForm((prev) => ({ ...prev, email: res.data.email, verified: true }));
       setShowLogin(false);
@@ -282,6 +284,7 @@ export function SignupFlow({ encoded }: Props) {
         full_name: account.fullName,
         email: account.email,
         verification_token: verificationToken,
+        preferred_language: account.preferredLanguage,
       });
 
       const newAppId = startRes.data.application_id;

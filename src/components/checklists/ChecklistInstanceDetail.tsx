@@ -13,7 +13,7 @@
 import React, { useMemo } from "react";
 import { Card, Badge, EmptyState } from "@/components/ui";
 import { Button } from "@/components/ui/Button";
-import { useToast } from "@/components/ui/Toast";
+import { useResultModal } from "@/components/ui/ResultModal";
 import { formatFixedDate, parseApiError } from "@/lib/utils";
 import { ChecklistItemRow } from "./ChecklistItemRow";
 import { ScoreSection } from "./ScoreSection";
@@ -42,7 +42,7 @@ export function ChecklistInstanceDetail({
   timezone,
   onRefetch,
 }: ChecklistInstanceDetailProps): React.ReactElement {
-  const { toast } = useToast();
+  const { showSuccess, showError } = useResultModal();
   const bulkReview = useBulkReview();
 
   const items = instance.items ?? [];
@@ -83,10 +83,10 @@ export function ChecklistInstanceDetail({
         item_indexes: reviewStats.unreviewedIndexes,
         result: "pass",
       });
-      toast({ type: "success", message: `${reviewStats.unreviewedIndexes.length} item(s) passed.` });
+      showSuccess(`${reviewStats.unreviewedIndexes.length} item(s) passed.`);
       onRefetch?.();
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to pass all items.") });
+      showError(parseApiError(err, "Failed to pass all items."));
     }
   };
 

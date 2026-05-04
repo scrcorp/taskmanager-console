@@ -39,7 +39,7 @@ import {
 import { Textarea } from "@/components/ui/Textarea";
 import { SortableList } from "@/components/ui/SortableList";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
-import { useToast } from "@/components/ui/Toast";
+import { useResultModal } from "@/components/ui/ResultModal";
 import { cn, parseApiError } from "@/lib/utils";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@/lib/permissions";
@@ -111,7 +111,7 @@ function hasVerificationType(value: string, type: "photo" | "text"): boolean {
 }
 
 export default function ChecklistsPage(): React.ReactElement {
-  const { toast } = useToast();
+  const { showSuccess, showError } = useResultModal();
   const { hasPermission } = usePermissions();
   const canManageChecklists = hasPermission(PERMISSIONS.CHECKLISTS_CREATE);
 
@@ -280,7 +280,7 @@ export default function ChecklistsPage(): React.ReactElement {
         shift_id: createShiftId,
         position_id: createPositionId,
       });
-      toast({ type: "success", message: "Checklist template created! Add items below." });
+      showSuccess("Checklist template created! Add items below.");
       setIsCreateOpen(false);
       // 필터를 생성한 템플릿의 store로 설정하여 목록에 보이게 함
       setUrlParams({ store: createStoreId, shift: null, position: null });
@@ -291,9 +291,9 @@ export default function ChecklistsPage(): React.ReactElement {
       // 생성 후 아이템 추가 화면으로 자동 전환
       setExpandedTemplateId(created.id);
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to create checklist template.") });
+      showError(parseApiError(err, "Failed to create checklist template."));
     }
-  }, [createTitle, createStoreId, createShiftId, createPositionId, createTemplate, toast]);
+  }, [createTitle, createStoreId, createShiftId, createPositionId, createTemplate, showSuccess, showError]);
 
   const handleCreateInlineShift = useCallback(async (): Promise<void> => {
     if (!createStoreId || !newShiftName.trim()) return;
@@ -306,11 +306,11 @@ export default function ChecklistsPage(): React.ReactElement {
       setCreatePositionId("");
       setIsCreatingShift(false);
       setNewShiftName("");
-      toast({ type: "success", message: "Shift created!" });
+      showSuccess("Shift created!");
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to create shift.") });
+      showError(parseApiError(err, "Failed to create shift."));
     }
-  }, [createStoreId, newShiftName, createNewShift, toast]);
+  }, [createStoreId, newShiftName, createNewShift, showSuccess, showError]);
 
   const handleCreateInlinePosition = useCallback(async (): Promise<void> => {
     if (!createStoreId || !newPositionName.trim()) return;
@@ -322,11 +322,11 @@ export default function ChecklistsPage(): React.ReactElement {
       setCreatePositionId(created.id);
       setIsCreatingPosition(false);
       setNewPositionName("");
-      toast({ type: "success", message: "Position created!" });
+      showSuccess("Position created!");
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to create position.") });
+      showError(parseApiError(err, "Failed to create position."));
     }
-  }, [createStoreId, newPositionName, createNewPosition, toast]);
+  }, [createStoreId, newPositionName, createNewPosition, showSuccess, showError]);
 
   const handleImport = useCallback(async (): Promise<void> => {
     if (!importFile) return;
@@ -336,20 +336,20 @@ export default function ChecklistsPage(): React.ReactElement {
         duplicate_action: duplicateAction,
       });
       setImportResult(result);
-      toast({ type: "success", message: `Import complete! ${result.created_templates} templates created.` });
+      showSuccess(`Import complete! ${result.created_templates} templates created.`);
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to import Excel file.") });
+      showError(parseApiError(err, "Failed to import Excel file."));
     }
-  }, [importFile, duplicateAction, importTemplates, toast]);
+  }, [importFile, duplicateAction, importTemplates, showSuccess, showError]);
 
   const handleDownloadSample = useCallback(async (): Promise<void> => {
     try {
       await downloadSampleExcel();
-      toast({ type: "success", message: "Sample template downloaded!" });
+      showSuccess("Sample template downloaded!");
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to download sample template.") });
+      showError(parseApiError(err, "Failed to download sample template."));
     }
-  }, [toast]);
+  }, [showSuccess, showError]);
 
   const handleDragOver = useCallback((e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -371,9 +371,9 @@ export default function ChecklistsPage(): React.ReactElement {
     if (file && file.name.endsWith(".xlsx")) {
       setImportFile(file);
     } else if (file) {
-      toast({ type: "error", message: "Only .xlsx files are supported." });
+      showError("Only .xlsx files are supported.");
     }
-  }, [toast]);
+  }, [showError]);
 
   const formatFileSize = (bytes: number): string => {
     if (bytes < 1024) return `${bytes} B`;
@@ -395,16 +395,16 @@ export default function ChecklistsPage(): React.ReactElement {
     if (!deletingTemplateId) return;
     try {
       await deleteTemplate.mutateAsync(deletingTemplateId);
-      toast({ type: "success", message: "Checklist template deleted!" });
+      showSuccess("Checklist template deleted!");
       setIsDeleteOpen(false);
       setDeletingTemplateId(null);
       if (expandedTemplateId === deletingTemplateId) {
         setExpandedTemplateId(null);
       }
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to delete checklist template.") });
+      showError(parseApiError(err, "Failed to delete checklist template."));
     }
-  }, [deletingTemplateId, deleteTemplate, expandedTemplateId, toast]);
+  }, [deletingTemplateId, deleteTemplate, expandedTemplateId, showSuccess, showError]);
 
   const toggleExpand = useCallback((templateId: string): void => {
     setExpandedTemplateId((prev) => (prev === templateId ? null : templateId));
@@ -488,15 +488,15 @@ export default function ChecklistsPage(): React.ReactElement {
           sort_order: startOrder + index,
         })),
       });
-      toast({ type: "success", message: `${parsedItems.length} items added!` });
+      showSuccess(`${parsedItems.length} items added!`);
       setIsBulkOpen(false);
       setBulkText("");
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to add items.") });
+      showError(parseApiError(err, "Failed to add items."));
     } finally {
       setIsBulkAdding(false);
     }
-  }, [expandedTemplateId, parsedItems, sortedItems, bulkCreateItems, toast]);
+  }, [expandedTemplateId, parsedItems, sortedItems, bulkCreateItems, showSuccess, showError]);
 
   /* ---- Item CRUD handlers ---- */
   const handleCreateItem = useCallback(async (): Promise<void> => {
@@ -517,13 +517,13 @@ export default function ChecklistsPage(): React.ReactElement {
         recurrence_days: recurrence.recurrence_days,
         sort_order: nextOrder,
       });
-      toast({ type: "success", message: "Checklist item created!" });
+      showSuccess("Checklist item created!");
       setIsItemCreateOpen(false);
       setItemCreateForm(INITIAL_ITEM_FORM);
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to create checklist item.") });
+      showError(parseApiError(err, "Failed to create checklist item."));
     }
-  }, [expandedTemplateId, itemCreateForm, createItem, toast, sortedItems]);
+  }, [expandedTemplateId, itemCreateForm, createItem, showSuccess, showError, sortedItems]);
 
   const handleOpenItemEdit = useCallback(
     (item: ChecklistItem, e: React.MouseEvent): void => {
@@ -555,14 +555,14 @@ export default function ChecklistsPage(): React.ReactElement {
         recurrence_type: recurrence.recurrence_type,
         recurrence_days: recurrence.recurrence_days,
       });
-      toast({ type: "success", message: "Checklist item updated!" });
+      showSuccess("Checklist item updated!");
       setIsItemEditOpen(false);
       setEditingItemId(null);
       setItemEditForm(INITIAL_ITEM_FORM);
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to update checklist item.") });
+      showError(parseApiError(err, "Failed to update checklist item."));
     }
-  }, [editingItemId, itemEditForm, updateItem, expandedTemplateId, toast]);
+  }, [editingItemId, itemEditForm, updateItem, expandedTemplateId, showSuccess, showError]);
 
   const handleOpenItemDelete = useCallback(
     (item: ChecklistItem, e: React.MouseEvent): void => {
@@ -578,14 +578,14 @@ export default function ChecklistsPage(): React.ReactElement {
     if (!deletingItemId) return;
     try {
       await deleteItem.mutateAsync({ id: deletingItemId, templateId: expandedTemplateId || "" });
-      toast({ type: "success", message: "Checklist item deleted!" });
+      showSuccess("Checklist item deleted!");
       setIsItemDeleteOpen(false);
       setDeletingItemId(null);
       setDeletingItemTitle("");
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to delete checklist item.") });
+      showError(parseApiError(err, "Failed to delete checklist item."));
     }
-  }, [deletingItemId, deleteItem, expandedTemplateId, toast]);
+  }, [deletingItemId, deleteItem, expandedTemplateId, showSuccess, showError]);
 
   /* ---- Store-specific shift/position data for display ---- */
   // For each unique store_id in templates, we'd need shifts/positions

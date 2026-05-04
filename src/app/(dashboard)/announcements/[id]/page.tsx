@@ -28,7 +28,7 @@ import {
   LoadingSpinner,
   EmptyState,
 } from "@/components/ui";
-import { useToast } from "@/components/ui/Toast";
+import { useResultModal } from "@/components/ui/ResultModal";
 import { formatDate, parseApiError } from "@/lib/utils";
 import { useTimezone } from "@/hooks/useTimezone";
 import type { Announcement, Store } from "@/types";
@@ -36,7 +36,7 @@ import type { Announcement, Store } from "@/types";
 export default function AnnouncementDetailPage(): React.ReactElement {
   const params = useParams();
   const router = useRouter();
-  const { toast } = useToast();
+  const { showSuccess, showError } = useResultModal();
   const tz = useTimezone();
 
   const announcementId: string = params.id as string;
@@ -70,7 +70,7 @@ export default function AnnouncementDetailPage(): React.ReactElement {
 
   const handleEditSubmit: () => void = useCallback((): void => {
     if (!formTitle.trim() || !formContent.trim()) {
-      toast({ type: "error", message: "Title and content are required." });
+      showError("Title and content are required.");
       return;
     }
 
@@ -83,27 +83,27 @@ export default function AnnouncementDetailPage(): React.ReactElement {
       },
       {
         onSuccess: (): void => {
-          toast({ type: "success", message: "Notice updated successfully." });
+          showSuccess("Notice updated successfully.");
           setIsEditOpen(false);
         },
         onError: (err): void => {
-          toast({ type: "error", message: parseApiError(err, "Failed to update notice.") });
+          showError(parseApiError(err, "Failed to update notice."));
         },
       },
     );
-  }, [announcementId, formTitle, formContent, formStoreId, updateAnnouncement, toast]);
+  }, [announcementId, formTitle, formContent, formStoreId, updateAnnouncement, showSuccess, showError]);
 
   const handleDelete: () => void = useCallback((): void => {
     deleteAnnouncement.mutate(announcementId, {
       onSuccess: (): void => {
-        toast({ type: "success", message: "Notice deleted successfully." });
+        showSuccess("Notice deleted successfully.");
         router.push("/announcements");
       },
       onError: (err): void => {
-        toast({ type: "error", message: parseApiError(err, "Failed to delete notice.") });
+        showError(parseApiError(err, "Failed to delete notice."));
       },
     });
-  }, [announcementId, deleteAnnouncement, toast, router]);
+  }, [announcementId, deleteAnnouncement, showSuccess, showError, router]);
 
   if (isLoading) {
     return (

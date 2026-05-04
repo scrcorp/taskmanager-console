@@ -36,6 +36,8 @@ export interface SignupContext {
   organization: SignupOrganization;
 }
 
+export type PreferredLanguage = "en" | "es" | "ko";
+
 export interface AccountFormState {
   fullName: string;
   username: string;
@@ -44,6 +46,7 @@ export interface AccountFormState {
   email: string;
   showPassword: boolean;
   showConfirmPassword: boolean;
+  preferredLanguage: PreferredLanguage;
 }
 
 export interface EmailFormState {

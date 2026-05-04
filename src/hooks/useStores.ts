@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query";
 import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
+import { useMutationToast } from "@/lib/mutationToast";
 import type { Store, StoreDetail } from "@/types";
 
 /**
@@ -70,6 +71,7 @@ export const useCreateStore = (): UseMutationResult<
   CreateStoreData
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationToast();
   return useMutation<Store, Error, CreateStoreData>({
     mutationFn: async (data: CreateStoreData): Promise<Store> => {
       const response: AxiosResponse<Store> = await api.post(
@@ -82,7 +84,9 @@ export const useCreateStore = (): UseMutationResult<
       queryClient.setQueryData<Store[]>(["stores"], (old) =>
         old ? [...old, newStore] : [newStore],
       );
+      success("Brand created.");
     },
+    onError: error("Failed to create brand"),
   });
 };
 
@@ -111,6 +115,7 @@ export const useUpdateStore = (): UseMutationResult<
   UpdateStoreData
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationToast();
   return useMutation<Store, Error, UpdateStoreData>({
     mutationFn: async ({ id, ...data }: UpdateStoreData): Promise<Store> => {
       const response: AxiosResponse<Store> = await api.put(
@@ -128,7 +133,9 @@ export const useUpdateStore = (): UseMutationResult<
       );
       // default_hourly_rate 변경 시 server가 users에 cascade하므로 캐시 무효화
       queryClient.invalidateQueries({ queryKey: ["users"] });
+      success("Brand updated.");
     },
+    onError: error("Failed to update brand"),
   });
 };
 
@@ -141,6 +148,7 @@ export const useUpdateStore = (): UseMutationResult<
  */
 export const useDeleteStore = (): UseMutationResult<void, Error, string> => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationToast();
   return useMutation<void, Error, string>({
     mutationFn: async (id: string): Promise<void> => {
       await api.delete(`/admin/stores/${id}`);
@@ -149,6 +157,8 @@ export const useDeleteStore = (): UseMutationResult<void, Error, string> => {
       queryClient.setQueryData<Store[]>(["stores"], (old) =>
         old?.filter((s) => s.id !== id),
       );
+      success("Brand deleted.");
     },
+    onError: error("Failed to delete brand"),
   });
 };

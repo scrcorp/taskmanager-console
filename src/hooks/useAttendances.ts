@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query";
 import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
+import { useMutationResult } from "@/lib/mutationResult";
 import type {
   Attendance,
   AttendanceBreakItem,
@@ -87,6 +88,7 @@ export const useCorrectAttendance = (): UseMutationResult<
   { id: string; data: AttendanceCorrectionRequest }
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<
     AttendanceCorrection,
     Error,
@@ -110,7 +112,9 @@ export const useCorrectAttendance = (): UseMutationResult<
       queryClient.invalidateQueries({
         queryKey: ["attendances", variables.id],
       });
+      success("Attendance corrected.");
     },
+    onError: error("Couldn't correct attendance"),
   });
 };
 
@@ -124,6 +128,7 @@ export const useAddBreakSession = (): UseMutationResult<
   { attendanceId: string; data: BreakSessionCreateRequest }
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<
     AttendanceBreakItem,
     Error,
@@ -141,7 +146,9 @@ export const useAddBreakSession = (): UseMutationResult<
       queryClient.invalidateQueries({
         queryKey: ["attendances", variables.attendanceId],
       });
+      success("Break added.");
     },
+    onError: error("Couldn't add break"),
   });
 };
 
@@ -155,6 +162,7 @@ export const useUpdateBreakSession = (): UseMutationResult<
   { attendanceId: string; breakId: string; data: BreakSessionUpdateRequest }
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<
     AttendanceBreakItem,
     Error,
@@ -172,7 +180,9 @@ export const useUpdateBreakSession = (): UseMutationResult<
       queryClient.invalidateQueries({
         queryKey: ["attendances", variables.attendanceId],
       });
+      success("Break updated.");
     },
+    onError: error("Couldn't update break"),
   });
 };
 
@@ -186,6 +196,7 @@ export const useDeleteBreakSession = (): UseMutationResult<
   { attendanceId: string; breakId: string }
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<void, Error, { attendanceId: string; breakId: string }>({
     mutationFn: async ({ attendanceId, breakId }) => {
       await api.delete(`/admin/attendances/${attendanceId}/breaks/${breakId}`);
@@ -195,7 +206,9 @@ export const useDeleteBreakSession = (): UseMutationResult<
       queryClient.invalidateQueries({
         queryKey: ["attendances", variables.attendanceId],
       });
+      success("Break deleted.");
     },
+    onError: error("Couldn't delete break"),
   });
 };
 
@@ -235,6 +248,7 @@ export const useCreateQRCode = (): UseMutationResult<
   string
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<QRCode, Error, string>({
     mutationFn: async (storeId: string): Promise<QRCode> => {
       const response: AxiosResponse<QRCode> = await api.post(
@@ -246,7 +260,9 @@ export const useCreateQRCode = (): UseMutationResult<
       queryClient.invalidateQueries({
         queryKey: ["qr-codes", newQR.store_id],
       });
+      success("QR code created.");
     },
+    onError: error("Couldn't create QR code"),
   });
 };
 
@@ -263,6 +279,7 @@ export const useRegenerateQRCode = (): UseMutationResult<
   string
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<QRCode, Error, string>({
     mutationFn: async (qrId: string): Promise<QRCode> => {
       const response: AxiosResponse<QRCode> = await api.post(
@@ -270,8 +287,10 @@ export const useRegenerateQRCode = (): UseMutationResult<
       );
       return response.data;
     },
-    onSuccess: (newQR: QRCode): void => {
+    onSuccess: (_newQR: QRCode): void => {
       queryClient.invalidateQueries({ queryKey: ["qr-codes"] });
+      success("Regenerated.");
     },
+    onError: error("Couldn't regenerate QR code"),
   });
 };

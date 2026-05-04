@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query";
 import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
+import { useMutationResult } from "@/lib/mutationResult";
 import type { Notification, PaginatedResponse } from "@/types";
 
 /**
@@ -70,6 +71,7 @@ export const useUnreadCount = (): UseQueryResult<number, Error> => {
  */
 export const useMarkRead = (): UseMutationResult<void, Error, string> => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<void, Error, string>({
     mutationFn: async (id: string): Promise<void> => {
       await api.patch(`/admin/notifications/${id}/read`);
@@ -91,7 +93,9 @@ export const useMarkRead = (): UseMutationResult<void, Error, string> => {
         ["notifications", "unread-count"],
         (old) => (old !== undefined ? Math.max(0, old - 1) : 0),
       );
+      success("Marked as read.");
     },
+    onError: error("Couldn't mark as read"),
   });
 };
 
@@ -104,6 +108,7 @@ export const useMarkRead = (): UseMutationResult<void, Error, string> => {
  */
 export const useMarkAllRead = (): UseMutationResult<void, Error, void> => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<void, Error, void>({
     mutationFn: async (): Promise<void> => {
       await api.patch("/admin/notifications/read-all");
@@ -120,6 +125,8 @@ export const useMarkAllRead = (): UseMutationResult<void, Error, void> => {
         },
       );
       queryClient.setQueryData<number>(["notifications", "unread-count"], 0);
+      success("Marked as read.");
     },
+    onError: error("Couldn't mark all as read"),
   });
 };
