@@ -16,13 +16,30 @@ export interface FilterState {
   shifts: string[];
 }
 
+/** 빈 직원 정렬 차원 — bottom(기본) / top / in-order */
+export type EmptyStaffSort = "bottom" | "top" | "in-order";
+
 interface Props {
   filters: FilterState;
   onChange: (filters: FilterState) => void;
   users: User[];
   schedules: Schedule[];
   selectedStoreId: string;
+  /** 필터 row 우측 끝에 추가로 노출할 컨트롤 */
+  rightSlot?: React.ReactNode;
+  /** 빈 직원 정렬 (bottom 기본). hide=true면 무시 */
+  emptyStaffSort?: EmptyStaffSort;
+  onEmptyStaffSortChange?: (sort: EmptyStaffSort) => void;
+  /** 빈 직원 숨김 여부 */
+  emptyStaffHide?: boolean;
+  onEmptyStaffHideChange?: (hide: boolean) => void;
 }
+
+const EMPTY_SORT_OPTIONS: { id: EmptyStaffSort; label: string; description: string }[] = [
+  { id: "bottom", label: "Bottom", description: "Sort empty staff to the bottom" },
+  { id: "top", label: "Top", description: "Sort empty staff to the top" },
+  { id: "in-order", label: "In order", description: "Keep default sort — no reorder" },
+];
 
 const ALL_STATUSES = [
   { id: "confirmed", label: "Confirmed", color: "var(--color-success)" },
@@ -60,7 +77,7 @@ function getInitials(name: string | null | undefined): string {
   return ((parts[0]![0] ?? "") + (parts[parts.length - 1]![0] ?? "")).toUpperCase();
 }
 
-export function FilterBar({ filters, onChange, users, schedules, selectedStoreId }: Props) {
+export function FilterBar({ filters, onChange, users, schedules, selectedStoreId, rightSlot, emptyStaffSort, onEmptyStaffSortChange, emptyStaffHide, onEmptyStaffHideChange }: Props) {
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
@@ -298,10 +315,98 @@ export function FilterBar({ filters, onChange, users, schedules, selectedStoreId
         </div>
 
         {totalActive > 0 && (
-          <button type="button" onClick={clearAll} className="ml-auto text-[12px] text-[var(--color-text-muted)] hover:text-[var(--color-danger)] flex items-center gap-1 transition-colors">
+          <button type="button" onClick={clearAll} className="text-[12px] text-[var(--color-text-muted)] hover:text-[var(--color-danger)] flex items-center gap-1 transition-colors">
             <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="9" y1="3" x2="3" y2="9" /><line x1="3" y1="3" x2="9" y2="9" /></svg>
             Clear All ({totalActive})
           </button>
+        )}
+
+        {/* Empty staff — 우측 끝, hide 토글 + sort 라디오 분리 */}
+        {emptyStaffSort && onEmptyStaffSortChange && onEmptyStaffHideChange && (() => {
+          const isDefault = !emptyStaffHide && emptyStaffSort === "bottom";
+          const chipLabel = emptyStaffHide
+            ? "Hidden"
+            : EMPTY_SORT_OPTIONS.find((o) => o.id === emptyStaffSort)?.label ?? "Bottom";
+          return (
+            <div className="relative ml-auto">
+              <button
+                type="button"
+                onClick={() => setOpenMenu(openMenu === "empty-staff" ? null : "empty-staff")}
+                title="How to display staff without any schedule in this view"
+                className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold border flex items-center gap-1.5 transition-colors ${
+                  !isDefault
+                    ? "bg-[var(--color-accent-muted)] text-[var(--color-accent)] border-[var(--color-accent)]/30"
+                    : "bg-[var(--color-surface)] text-[var(--color-text-secondary)] border-[var(--color-border)] hover:border-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+                } ${openMenu === "empty-staff" ? "ring-2 ring-[var(--color-accent)]/20" : ""}`}
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="6" cy="4" r="2" />
+                  <path d="M2 11c0-2 1.8-3.5 4-3.5s4 1.5 4 3.5" />
+                </svg>
+                <span>Empty staff: {chipLabel}</span>
+                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className={`transition-transform ${openMenu === "empty-staff" ? "rotate-180" : ""}`}>
+                  <polyline points="2.5 4 5 6.5 7.5 4" />
+                </svg>
+              </button>
+              {openMenu === "empty-staff" && (
+                <div className="absolute top-full right-0 mt-1.5 w-[300px] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] z-30 overflow-hidden">
+                  <div className="px-3 py-2 border-b border-[var(--color-border)] text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
+                    Staff with no schedule
+                  </div>
+                  {/* Hide toggle */}
+                  <button
+                    type="button"
+                    onClick={() => onEmptyStaffHideChange(!emptyStaffHide)}
+                    className={`w-full flex items-start gap-2.5 px-3 py-2.5 text-left transition-colors border-b border-[var(--color-border)] ${emptyStaffHide ? "bg-[var(--color-accent-muted)]" : "hover:bg-[var(--color-surface-hover)]"}`}
+                  >
+                    <span className={`mt-0.5 w-3.5 h-3.5 rounded border-2 flex-shrink-0 flex items-center justify-center ${emptyStaffHide ? "bg-[var(--color-accent)] border-[var(--color-accent)]" : "border-[var(--color-border)]"}`}>
+                      {emptyStaffHide && (
+                        <svg width="8" height="8" viewBox="0 0 8 8" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="1.5 4.5 3.5 6.5 6.5 1.5" /></svg>
+                      )}
+                    </span>
+                    <div className="min-w-0">
+                      <div className={`text-[13px] font-semibold ${emptyStaffHide ? "text-[var(--color-accent)]" : "text-[var(--color-text)]"}`}>Hide them entirely</div>
+                      <div className="text-[11px] text-[var(--color-text-muted)] mt-0.5 leading-snug">Don&apos;t show staff with no schedule</div>
+                    </div>
+                  </button>
+                  {/* Sort group */}
+                  <div className={`px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wider ${emptyStaffHide ? "text-[var(--color-text-muted)]/40" : "text-[var(--color-text-muted)]"}`}>
+                    Sort {emptyStaffHide && <span className="normal-case font-normal">— disabled while hidden</span>}
+                  </div>
+                  <div className="py-1">
+                    {EMPTY_SORT_OPTIONS.map((opt) => {
+                      const selected = emptyStaffSort === opt.id;
+                      const dim = !!emptyStaffHide;
+                      return (
+                        <button
+                          key={opt.id}
+                          type="button"
+                          disabled={dim}
+                          onClick={() => {
+                            onEmptyStaffSortChange(opt.id);
+                            setOpenMenu(null);
+                          }}
+                          className={`w-full flex items-start gap-2.5 px-3 py-2 text-left transition-colors ${dim ? "opacity-40 cursor-not-allowed" : selected ? "bg-[var(--color-accent-muted)]" : "hover:bg-[var(--color-surface-hover)]"}`}
+                        >
+                          <span className={`mt-0.5 w-3.5 h-3.5 rounded-full border-2 flex-shrink-0 flex items-center justify-center ${selected ? "border-[var(--color-accent)]" : "border-[var(--color-border)]"}`}>
+                            {selected && <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-accent)]" />}
+                          </span>
+                          <div className="min-w-0">
+                            <div className={`text-[13px] font-semibold ${selected && !dim ? "text-[var(--color-accent)]" : "text-[var(--color-text)]"}`}>{opt.label}</div>
+                            <div className="text-[11px] text-[var(--color-text-muted)] mt-0.5 leading-snug">{opt.description}</div>
+                          </div>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          );
+        })()}
+
+        {rightSlot && (
+          <div className={emptyStaffSort || totalActive > 0 ? "" : "ml-auto"}>{rightSlot}</div>
         )}
       </div>
 
