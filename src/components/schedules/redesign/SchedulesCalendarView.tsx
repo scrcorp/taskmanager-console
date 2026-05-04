@@ -29,7 +29,7 @@ import { SwapModal } from "./SwapModal";
 import { ChangeStaffModal } from "./ChangeStaffModal";
 import { ScheduleEditModal, type ScheduleEditPayload } from "./ScheduleEditModal";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { FilterBar, type FilterState } from "./FilterBar";
+import { FilterBar, type FilterState, type EmptyStaffSort } from "./FilterBar";
 import { LegendModal } from "./LegendModal";
 import { MonthlyGrid } from "./MonthlyGrid";
 import { useShifts } from "@/hooks/useShifts";
@@ -302,17 +302,30 @@ export default function SchedulesCalendarView() {
   const [switchOpen, setSwitchOpen] = useState(false);
   const [switchSourceId, setSwitchSourceId] = useState<string | null>(null);
   const [switchError, setSwitchError] = useState<string | null>(null);
-  type EmptyStaffMode = "down" | "hide" | "show";
-  const [emptyStaffMode, setEmptyStaffMode] = useState<EmptyStaffMode>(() => {
-    if (typeof window === "undefined") return "down";
-    const v = localStorage.getItem("schedule.emptyStaffMode");
-    return v === "hide" || v === "show" || v === "down" ? (v as EmptyStaffMode) : "down";
+  const [emptyStaffSort, setEmptyStaffSort] = useState<EmptyStaffSort>(() => {
+    if (typeof window === "undefined") return "bottom";
+    const v = localStorage.getItem("schedule.emptyStaffSort");
+    if (v === "bottom" || v === "top" || v === "in-order") return v;
+    // legacy 마이그레이션 (구버전 emptyStaffMode 키)
+    const legacy = localStorage.getItem("schedule.emptyStaffMode");
+    if (legacy === "show") return "in-order";
+    if (legacy === "down") return "bottom";
+    return "bottom";
+  });
+  const [emptyStaffHide, setEmptyStaffHide] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    const v = localStorage.getItem("schedule.emptyStaffHide");
+    if (v === "1") return true;
+    if (v === "0") return false;
+    // legacy 마이그레이션
+    return localStorage.getItem("schedule.emptyStaffMode") === "hide";
   });
   useEffect(() => {
     if (typeof window !== "undefined") {
-      localStorage.setItem("schedule.emptyStaffMode", emptyStaffMode);
+      localStorage.setItem("schedule.emptyStaffSort", emptyStaffSort);
+      localStorage.setItem("schedule.emptyStaffHide", emptyStaffHide ? "1" : "0");
     }
-  }, [emptyStaffMode]);
+  }, [emptyStaffSort, emptyStaffHide]);
   const [changeStaffOpen, setChangeStaffOpen] = useState(false);
   const [changeStaffSourceId, setChangeStaffSourceId] = useState<string | null>(null);
   const [editModal, setEditModal] = useState<{ open: boolean; mode: "add" | "edit"; blockId?: string; staffId?: string; date?: string; startTime?: string }>({ open: false, mode: "add" });
@@ -740,18 +753,18 @@ export default function SchedulesCalendarView() {
   }, [schedules, view, monthDateFrom, monthDateTo, selectedDay, weekDates, selectedStores, isAllStores]);
 
   const displayUsers = useMemo(() => {
-    if (emptyStaffMode === "show") return sortedUsers;
-    if (emptyStaffMode === "hide") {
+    if (emptyStaffHide) {
       return sortedUsers.filter((u) => userHasScheduleInView.has(u.id));
     }
+    if (emptyStaffSort === "in-order") return sortedUsers;
     const withSched: User[] = [];
     const without: User[] = [];
     for (const u of sortedUsers) {
       if (userHasScheduleInView.has(u.id)) withSched.push(u);
       else without.push(u);
     }
-    return [...withSched, ...without];
-  }, [sortedUsers, emptyStaffMode, userHasScheduleInView]);
+    return emptyStaffSort === "top" ? [...without, ...withSched] : [...withSched, ...without];
+  }, [sortedUsers, emptyStaffSort, emptyStaffHide, userHasScheduleInView]);
 
   // ─── Columns + totals ─────────────────────────────────
 
@@ -1366,17 +1379,6 @@ export default function SchedulesCalendarView() {
                 </button>
               ))}
             </div>
-            {/* Empty staff display mode */}
-            <select
-              value={emptyStaffMode}
-              onChange={(e) => setEmptyStaffMode(e.target.value as EmptyStaffMode)}
-              className="hidden md:block px-2.5 py-1.5 rounded-lg text-[12px] sm:text-[13px] font-medium text-[var(--color-text-secondary)] bg-[var(--color-bg)] border border-[var(--color-border)] hover:text-[var(--color-text)] focus:outline-none focus:border-[var(--color-accent)] cursor-pointer shrink-0"
-              title="Where to place staff without any schedules in this range"
-            >
-              <option value="down">Empty: Down</option>
-              <option value="hide">Empty: Hide</option>
-              <option value="show">Empty: Show</option>
-            </select>
             {/* Nav */}
             <div className="flex items-center gap-1 sm:gap-2 shrink-0">
               <button
@@ -1477,6 +1479,10 @@ export default function SchedulesCalendarView() {
           users={users}
           schedules={schedules}
           selectedStoreId={selectedStore}
+          emptyStaffSort={emptyStaffSort}
+          onEmptyStaffSortChange={setEmptyStaffSort}
+          emptyStaffHide={emptyStaffHide}
+          onEmptyStaffHideChange={setEmptyStaffHide}
         />
 
         {/* Monthly Grid */}
