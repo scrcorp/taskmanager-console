@@ -6,6 +6,7 @@
 import { useQuery, useMutation, useQueryClient, type UseQueryResult, type UseMutationResult } from "@tanstack/react-query";
 import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
+import { useMutationResult } from "@/lib/mutationResult";
 
 // ─── Types ─────────────────────────────────────────────────
 
@@ -67,12 +68,17 @@ export const useSettingsRegistry = (
 
 export const useUpsertRegistryEntry = (): UseMutationResult<SettingsRegistryEntry, Error, Omit<SettingsRegistryEntry, "created_at" | "updated_at">> => {
   const qc = useQueryClient();
-  return useMutation({
+  const { success, error } = useMutationResult();
+  return useMutation<SettingsRegistryEntry, Error, Omit<SettingsRegistryEntry, "created_at" | "updated_at">>({
     mutationFn: async (data) => {
       const res: AxiosResponse<SettingsRegistryEntry> = await api.put("/admin/settings/registry", data);
       return res.data;
     },
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ["settings", "registry"] }); },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["settings", "registry"] });
+      success("Registry entry saved.");
+    },
+    onError: error("Couldn't save registry entry"),
   });
 };
 
@@ -90,7 +96,8 @@ export const useOrgSettings = (): UseQueryResult<OrgSettingEntry[], Error> => {
 
 export const useUpsertOrgSetting = (): UseMutationResult<OrgSettingEntry, Error, { key: string; value: unknown; force_locked?: boolean }> => {
   const qc = useQueryClient();
-  return useMutation({
+  const { success, error } = useMutationResult();
+  return useMutation<OrgSettingEntry, Error, { key: string; value: unknown; force_locked?: boolean }>({
     mutationFn: async (data) => {
       const res: AxiosResponse<OrgSettingEntry> = await api.put("/admin/settings/org", {
         key: data.key,
@@ -102,18 +109,23 @@ export const useUpsertOrgSetting = (): UseMutationResult<OrgSettingEntry, Error,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["settings", "org"] });
       qc.invalidateQueries({ queryKey: ["settings", "resolve"] });
+      success("Org setting saved.");
     },
+    onError: error("Couldn't save org setting"),
   });
 };
 
 export const useDeleteOrgSetting = (): UseMutationResult<void, Error, string> => {
   const qc = useQueryClient();
-  return useMutation({
+  const { success, error } = useMutationResult();
+  return useMutation<void, Error, string>({
     mutationFn: async (key) => { await api.delete(`/admin/settings/org/${key}`); },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["settings", "org"] });
       qc.invalidateQueries({ queryKey: ["settings", "resolve"] });
+      success("Org setting deleted.");
     },
+    onError: error("Couldn't delete org setting"),
   });
 };
 
@@ -132,7 +144,8 @@ export const useStoreSettings = (storeId: string | undefined): UseQueryResult<St
 
 export const useUpsertStoreSetting = (storeId: string): UseMutationResult<StoreSettingEntry, Error, { key: string; value: unknown }> => {
   const qc = useQueryClient();
-  return useMutation({
+  const { success, error } = useMutationResult();
+  return useMutation<StoreSettingEntry, Error, { key: string; value: unknown }>({
     mutationFn: async (data) => {
       const res: AxiosResponse<StoreSettingEntry> = await api.put(`/admin/settings/stores/${storeId}`, data);
       return res.data;
@@ -140,18 +153,23 @@ export const useUpsertStoreSetting = (storeId: string): UseMutationResult<StoreS
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["settings", "store", storeId] });
       qc.invalidateQueries({ queryKey: ["settings", "resolve"] });
+      success("Store setting saved.");
     },
+    onError: error("Couldn't save store setting"),
   });
 };
 
 export const useDeleteStoreSetting = (storeId: string): UseMutationResult<void, Error, string> => {
   const qc = useQueryClient();
-  return useMutation({
+  const { success, error } = useMutationResult();
+  return useMutation<void, Error, string>({
     mutationFn: async (key) => { await api.delete(`/admin/settings/stores/${storeId}/${key}`); },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["settings", "store", storeId] });
       qc.invalidateQueries({ queryKey: ["settings", "resolve"] });
+      success("Store setting deleted.");
     },
+    onError: error("Couldn't delete store setting"),
   });
 };
 

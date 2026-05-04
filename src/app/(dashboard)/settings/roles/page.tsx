@@ -13,7 +13,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { ROLE_PRIORITY, PERMISSIONS } from "@/lib/permissions";
 import { Button } from "@/components/ui/Button";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
-import { useToast } from "@/components/ui/Toast";
+import { useResultModal } from "@/components/ui/ResultModal";
 import { parseApiError } from "@/lib/utils";
 import type { PermissionItem } from "@/hooks/usePermissionAdmin";
 
@@ -82,7 +82,7 @@ export default function RolesPermissionsPage(): React.ReactElement {
 }
 
 function RolesPermissionsContent(): React.ReactElement {
-  const { toast } = useToast();
+  const { showSuccess, showError } = useResultModal();
   const { priority: myPriority } = usePermissions();
   const rolesQ = useRoles();
   const permissionsQ = useAllPermissions();
@@ -176,9 +176,9 @@ function RolesPermissionsContent(): React.ReactElement {
         permissionCodes: Array.from(checkedCodes),
       });
       setIsDirty(false);
-      toast({ type: "success", message: "Permissions updated." });
+      showSuccess("Permissions updated.");
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to update permissions.") });
+      showError(parseApiError(err, "Failed to update permissions."));
     }
   };
 

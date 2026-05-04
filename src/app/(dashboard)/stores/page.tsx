@@ -37,7 +37,7 @@ import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Table, Badge, Modal, ConfirmDialog } from "@/components/ui";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
-import { useToast } from "@/components/ui/Toast";
+import { useResultModal } from "@/components/ui/ResultModal";
 import { formatDate, parseApiError } from "@/lib/utils";
 import { useTimezone } from "@/hooks/useTimezone";
 import { TIMEZONE_OPTIONS } from "@/lib/timezones";
@@ -134,7 +134,7 @@ function DraggableStringRow({
 
 export default function StoresPage(): React.ReactElement {
   const router = useRouter();
-  const { toast } = useToast();
+  const { showSuccess, showError } = useResultModal();
 
   /** 권한 훅 / Permission hook */
   const { hasPermission } = usePermissions();
@@ -284,17 +284,17 @@ export default function StoresPage(): React.ReactElement {
         );
       }
 
-      toast({ type: "success", message: "Store created successfully!" });
+      showSuccess("Store created successfully!");
       setIsCreateOpen(false);
       setCreateForm(INITIAL_FORM);
       setNewShiftName("");
       setNewPositionName("");
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to create store.") });
+      showError(parseApiError(err, "Failed to create store."));
     } finally {
       setIsCreating(false);
     }
-  }, [createForm, createStore, createShift, createPosition, toast]);
+  }, [createForm, createStore, createShift, createPosition, showSuccess, showError]);
 
   /** 수정 모달 열기 / Open edit modal */
   const handleOpenEdit = useCallback(
@@ -317,14 +317,14 @@ export default function StoresPage(): React.ReactElement {
         address: editForm.address.trim() || undefined,
         timezone: editForm.timezone || null,
       });
-      toast({ type: "success", message: "Store updated successfully!" });
+      showSuccess("Store updated successfully!");
       setIsEditOpen(false);
       setEditingStoreId(null);
       setEditForm(INITIAL_FORM);
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to update store.") });
+      showError(parseApiError(err, "Failed to update store."));
     }
-  }, [editingStoreId, editForm, updateStore, toast]);
+  }, [editingStoreId, editForm, updateStore, showSuccess, showError]);
 
   /** 삭제 확인 열기 / Open delete confirmation */
   const handleOpenDelete = useCallback(
@@ -342,14 +342,14 @@ export default function StoresPage(): React.ReactElement {
     if (!deletingStoreId) return;
     try {
       await deleteStore.mutateAsync(deletingStoreId);
-      toast({ type: "success", message: "Store deleted successfully!" });
+      showSuccess("Store deleted successfully!");
       setIsDeleteOpen(false);
       setDeletingStoreId(null);
       setDeletingStoreName("");
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to delete store.") });
+      showError(parseApiError(err, "Failed to delete store."));
     }
-  }, [deletingStoreId, deleteStore, toast]);
+  }, [deletingStoreId, deleteStore, showSuccess, showError]);
 
   /** 행 클릭으로 상세 페이지 이동 / Navigate to detail on row click */
   const handleRowClick = useCallback(

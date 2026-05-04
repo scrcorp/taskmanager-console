@@ -21,7 +21,7 @@
 
 import { useState, useMemo, useRef, useEffect } from "react";
 import { useStores } from "@/hooks/useStores";
-import { useToast } from "@/components/ui/Toast";
+import { useResultModal } from "@/components/ui/ResultModal";
 import { ConfirmDialog } from "@/components/schedules/redesign/ConfirmDialog";
 import {
   useSettingsRegistry,
@@ -60,7 +60,7 @@ export function ScheduleSettings({ onBack }: Props) {
   const [activeTab, setActiveTab] = useState<"org" | string>("org");
   const [draft, setDraft] = useState<DraftState>(EMPTY_DRAFT);
   const [pendingTab, setPendingTab] = useState<"org" | string | null>(null);
-  const { toast } = useToast();
+  const { showSuccess, showError } = useResultModal();
 
   // 탭 변경 시 draft 폐기 (혼동 방지)
   function handleTabChange(tab: "org" | string) {
@@ -219,10 +219,9 @@ export function ScheduleSettings({ onBack }: Props) {
       for (const [key, entry] of Object.entries(rangeValue)) {
         if (entry && typeof entry === "object" && "start" in entry && "end" in entry) {
           if (toMinutes(entry.start) >= toMinutes(entry.end)) {
-            toast({
-              type: "error",
-              message: `Schedule Range: Start must be before End (${key === "all" ? "all days" : key}).`,
-            });
+            showError(
+              `Schedule Range: Start must be before End (${key === "all" ? "all days" : key}).`,
+            );
             return;
           }
         }
@@ -246,12 +245,12 @@ export function ScheduleSettings({ onBack }: Props) {
       }
 
       setDraft(EMPTY_DRAFT);
-      toast({ type: "success", message: "Settings saved" });
+      showSuccess("Settings saved");
     } catch (e) {
-      toast({
-        type: "error",
-        message: "Save failed: " + (e instanceof Error ? e.message : String(e)),
-      });
+      showError(
+        "Save failed: " + (e instanceof Error ? e.message : String(e)),
+        { title: "Couldn't save settings" },
+      );
     }
   }
 

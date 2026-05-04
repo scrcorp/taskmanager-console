@@ -66,6 +66,7 @@ import {
 import { SortableList } from "@/components/ui/SortableList";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useToast } from "@/components/ui/Toast";
+import { useResultModal } from "@/components/ui/ResultModal";
 import { cn, parseApiError } from "@/lib/utils";
 import { TIMEZONE_OPTIONS } from "@/lib/timezones";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -182,6 +183,7 @@ export default function StoreDetailPage(): React.ReactElement {
   const params = useParams();
   const storeId: string = params.id as string;
   const { toast } = useToast();
+  const { show, showSuccess, showError } = useResultModal();
   const queryClient = useQueryClient();
   const { hasPermission } = usePermissions();
   const canManageStoreConfig = hasPermission(PERMISSIONS.STORES_UPDATE);
@@ -437,13 +439,13 @@ export default function StoreDetailPage(): React.ReactElement {
         name: shiftCreateForm.name.trim(),
         sort_order: nextOrder,
       });
-      toast({ type: "success", message: "Shift created successfully!" });
+      showSuccess("Shift created successfully!");
       setIsShiftCreateOpen(false);
       setShiftCreateForm(INITIAL_SHIFT_FORM);
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to create shift.") });
+      showError(parseApiError(err, "Failed to create shift."));
     }
-  }, [shiftCreateForm, createShift, storeId, toast, shiftList]);
+  }, [shiftCreateForm, createShift, storeId, showSuccess, showError, shiftList]);
 
   const handleOpenShiftEdit = useCallback(
     (shift: Shift, e: React.MouseEvent): void => {
@@ -463,14 +465,14 @@ export default function StoreDetailPage(): React.ReactElement {
         id: editingShiftId,
         name: shiftEditForm.name.trim(),
       });
-      toast({ type: "success", message: "Shift updated successfully!" });
+      showSuccess("Shift updated successfully!");
       setIsShiftEditOpen(false);
       setEditingShiftId(null);
       setShiftEditForm(INITIAL_SHIFT_FORM);
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to update shift.") });
+      showError(parseApiError(err, "Failed to update shift."));
     }
-  }, [editingShiftId, shiftEditForm, updateShift, storeId, toast]);
+  }, [editingShiftId, shiftEditForm, updateShift, storeId, showSuccess, showError]);
 
   /** 시프트 드래그앤드롭 정렬 / Shift drag-and-drop reorder */
   const handleReorderShifts = useCallback(
@@ -508,14 +510,14 @@ export default function StoreDetailPage(): React.ReactElement {
     if (!deletingShiftId) return;
     try {
       await deleteShift.mutateAsync({ storeId: storeId, id: deletingShiftId });
-      toast({ type: "success", message: "Shift deleted successfully!" });
+      showSuccess("Shift deleted successfully!");
       setIsShiftDeleteOpen(false);
       setDeletingShiftId(null);
       setDeletingShiftName("");
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to delete shift.") });
+      showError(parseApiError(err, "Failed to delete shift."));
     }
-  }, [deletingShiftId, deleteShift, storeId, toast]);
+  }, [deletingShiftId, deleteShift, storeId, showSuccess, showError]);
 
   /* ======================================================================== */
   /*  Position Handlers                                                       */
@@ -533,13 +535,13 @@ export default function StoreDetailPage(): React.ReactElement {
         name: posCreateForm.name.trim(),
         sort_order: nextOrder,
       });
-      toast({ type: "success", message: "Position created successfully!" });
+      showSuccess("Position created successfully!");
       setIsPosCreateOpen(false);
       setPosCreateForm(INITIAL_SHIFT_FORM);
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to create position.") });
+      showError(parseApiError(err, "Failed to create position."));
     }
-  }, [posCreateForm, createPosition, storeId, toast, positionList]);
+  }, [posCreateForm, createPosition, storeId, showSuccess, showError, positionList]);
 
   const handleOpenPosEdit = useCallback(
     (position: Position, e: React.MouseEvent): void => {
@@ -559,14 +561,14 @@ export default function StoreDetailPage(): React.ReactElement {
         id: editingPosId,
         name: posEditForm.name.trim(),
       });
-      toast({ type: "success", message: "Position updated successfully!" });
+      showSuccess("Position updated successfully!");
       setIsPosEditOpen(false);
       setEditingPosId(null);
       setPosEditForm(INITIAL_SHIFT_FORM);
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to update position.") });
+      showError(parseApiError(err, "Failed to update position."));
     }
-  }, [editingPosId, posEditForm, updatePosition, storeId, toast]);
+  }, [editingPosId, posEditForm, updatePosition, storeId, showSuccess, showError]);
 
   /** 포지션 드래그앤드롭 정렬 / Position drag-and-drop reorder */
   const handleReorderPositions = useCallback(
@@ -604,14 +606,14 @@ export default function StoreDetailPage(): React.ReactElement {
     if (!deletingPosId) return;
     try {
       await deletePosition.mutateAsync({ storeId: storeId, id: deletingPosId });
-      toast({ type: "success", message: "Position deleted successfully!" });
+      showSuccess("Position deleted successfully!");
       setIsPosDeleteOpen(false);
       setDeletingPosId(null);
       setDeletingPosName("");
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to delete position.") });
+      showError(parseApiError(err, "Failed to delete position."));
     }
-  }, [deletingPosId, deletePosition, storeId, toast]);
+  }, [deletingPosId, deletePosition, storeId, showSuccess, showError]);
 
   /* ======================================================================== */
   /*  Checklist Template Handlers                                             */
@@ -631,13 +633,13 @@ export default function StoreDetailPage(): React.ReactElement {
         shift_id: templateCreateForm.shift_id,
         position_id: templateCreateForm.position_id,
       });
-      toast({ type: "success", message: "Checklist template created!" });
+      showSuccess("Checklist template created!");
       setIsTemplateCreateOpen(false);
       setTemplateCreateForm(INITIAL_TEMPLATE_FORM);
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to create checklist template.") });
+      showError(parseApiError(err, "Failed to create checklist template."));
     }
-  }, [templateCreateForm, createTemplate, storeId, toast]);
+  }, [templateCreateForm, createTemplate, storeId, showSuccess, showError]);
 
   const handleOpenTemplateEdit = useCallback(
     (template: ChecklistTemplate, e: React.MouseEvent): void => {
@@ -662,14 +664,14 @@ export default function StoreDetailPage(): React.ReactElement {
         shift_id: templateEditForm.shift_id,
         position_id: templateEditForm.position_id,
       });
-      toast({ type: "success", message: "Checklist template updated!" });
+      showSuccess("Checklist template updated!");
       setIsTemplateEditOpen(false);
       setEditingTemplateId(null);
       setTemplateEditForm(INITIAL_TEMPLATE_FORM);
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to update checklist template.") });
+      showError(parseApiError(err, "Failed to update checklist template."));
     }
-  }, [editingTemplateId, templateEditForm, updateTemplate, toast]);
+  }, [editingTemplateId, templateEditForm, updateTemplate, showSuccess, showError]);
 
   const handleOpenTemplateDelete = useCallback(
     (template: ChecklistTemplate, e: React.MouseEvent): void => {
@@ -685,7 +687,7 @@ export default function StoreDetailPage(): React.ReactElement {
     if (!deletingTemplateId) return;
     try {
       await deleteTemplate.mutateAsync(deletingTemplateId);
-      toast({ type: "success", message: "Checklist template deleted!" });
+      showSuccess("Checklist template deleted!");
       setIsTemplateDeleteOpen(false);
       setDeletingTemplateId(null);
       setDeletingTemplateName("");
@@ -693,9 +695,9 @@ export default function StoreDetailPage(): React.ReactElement {
         setExpandedTemplateId(null);
       }
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to delete checklist template.") });
+      showError(parseApiError(err, "Failed to delete checklist template."));
     }
-  }, [deletingTemplateId, deleteTemplate, expandedTemplateId, toast]);
+  }, [deletingTemplateId, deleteTemplate, expandedTemplateId, showSuccess, showError]);
 
   /** 템플릿 펼치기/접기 토글 / Toggle template expansion */
   const toggleTemplateExpand = useCallback(
@@ -725,13 +727,13 @@ export default function StoreDetailPage(): React.ReactElement {
         verification_type: itemCreateForm.verification_type,
         sort_order: nextOrder,
       });
-      toast({ type: "success", message: "Checklist item created!" });
+      showSuccess("Checklist item created!");
       setIsItemCreateOpen(false);
       setItemCreateForm(INITIAL_ITEM_FORM);
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to create checklist item.") });
+      showError(parseApiError(err, "Failed to create checklist item."));
     }
-  }, [expandedTemplateId, itemCreateForm, createItem, toast, itemList]);
+  }, [expandedTemplateId, itemCreateForm, createItem, showSuccess, showError, itemList]);
 
   const handleOpenItemEdit = useCallback(
     (item: ChecklistItem, e: React.MouseEvent): void => {
@@ -757,14 +759,14 @@ export default function StoreDetailPage(): React.ReactElement {
         description: itemEditForm.description.trim() || undefined,
         verification_type: itemEditForm.verification_type,
       });
-      toast({ type: "success", message: "Checklist item updated!" });
+      showSuccess("Checklist item updated!");
       setIsItemEditOpen(false);
       setEditingItemId(null);
       setItemEditForm(INITIAL_ITEM_FORM);
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to update checklist item.") });
+      showError(parseApiError(err, "Failed to update checklist item."));
     }
-  }, [editingItemId, itemEditForm, updateItem, expandedTemplateId, toast]);
+  }, [editingItemId, itemEditForm, updateItem, expandedTemplateId, showSuccess, showError]);
 
   const handleOpenItemDelete = useCallback(
     (item: ChecklistItem, e: React.MouseEvent): void => {
@@ -780,14 +782,14 @@ export default function StoreDetailPage(): React.ReactElement {
     if (!deletingItemId) return;
     try {
       await deleteItem.mutateAsync({ id: deletingItemId, templateId: expandedTemplateId || "" });
-      toast({ type: "success", message: "Checklist item deleted!" });
+      showSuccess("Checklist item deleted!");
       setIsItemDeleteOpen(false);
       setDeletingItemId(null);
       setDeletingItemTitle("");
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to delete checklist item.") });
+      showError(parseApiError(err, "Failed to delete checklist item."));
     }
-  }, [deletingItemId, deleteItem, expandedTemplateId, toast]);
+  }, [deletingItemId, deleteItem, expandedTemplateId, showSuccess, showError]);
 
   /** 체크리스트 아이템 드래그앤드롭 정렬 / Checklist item drag-and-drop reorder */
   const handleReorderItems = useCallback(
@@ -880,42 +882,42 @@ export default function StoreDetailPage(): React.ReactElement {
   const handleSaveMaxWorkHours = useCallback(async (): Promise<void> => {
     const val = maxWorkHoursWeekly.trim() === "" ? null : Number(maxWorkHoursWeekly);
     if (val !== null && (isNaN(val) || val <= 0)) {
-      toast({ type: "error", message: "Please enter a valid number." });
+      showError("Please enter a valid number.");
       return;
     }
     try {
       await updateStore.mutateAsync({ id: storeId, max_work_hours_weekly: val });
-      toast({ type: "success", message: "Max work hours updated!" });
+      showSuccess("Max work hours updated!");
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to update max work hours.") });
+      showError(parseApiError(err, "Failed to update max work hours."));
     }
-  }, [maxWorkHoursWeekly, updateStore, storeId, toast]);
+  }, [maxWorkHoursWeekly, updateStore, storeId, showSuccess, showError]);
 
   /** 매장 타임존 저장 / Save store timezone */
   const handleSaveTimezone = useCallback(async (): Promise<void> => {
     try {
       await updateStore.mutateAsync({ id: storeId, timezone: storeTimezone || null });
-      toast({ type: "success", message: "Timezone updated!" });
+      showSuccess("Timezone updated!");
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to update timezone.") });
+      showError(parseApiError(err, "Failed to update timezone."));
     }
-  }, [storeTimezone, updateStore, storeId, toast]);
+  }, [storeTimezone, updateStore, storeId, showSuccess, showError]);
 
   /** 매장 기본 시급 저장 / Save store default hourly rate */
   const handleSaveDefaultHourlyRate = useCallback(async (): Promise<void> => {
     const rateStr = storeDefaultHourlyRate.trim();
     const val = rateStr === "" ? null : Number(rateStr);
     if (val !== null && (isNaN(val) || val < 0)) {
-      toast({ type: "error", message: "Please enter a valid hourly rate." });
+      showError("Please enter a valid hourly rate.");
       return;
     }
     try {
       await updateStore.mutateAsync({ id: storeId, default_hourly_rate: val });
-      toast({ type: "success", message: "Default hourly rate updated!" });
+      showSuccess("Default hourly rate updated!");
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to update hourly rate.") });
+      showError(parseApiError(err, "Failed to update hourly rate."));
     }
-  }, [storeDefaultHourlyRate, updateStore, storeId, toast]);
+  }, [storeDefaultHourlyRate, updateStore, storeId, showSuccess, showError]);
 
   /** 영업일 경계 시각 저장 / Save day start time */
   const handleSaveDayStartTime = useCallback(async (): Promise<void> => {
@@ -923,11 +925,11 @@ export default function StoreDetailPage(): React.ReactElement {
       dayStartMode === "all" ? { all: dayStartAll } : { ...dayStartPerDay };
     try {
       await updateStore.mutateAsync({ id: storeId, day_start_time: payload });
-      toast({ type: "success", message: "Day start time updated!" });
+      showSuccess("Day start time updated!");
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to update day start time.") });
+      showError(parseApiError(err, "Failed to update day start time."));
     }
-  }, [dayStartMode, dayStartAll, dayStartPerDay, updateStore, storeId, toast]);
+  }, [dayStartMode, dayStartAll, dayStartPerDay, updateStore, storeId, showSuccess, showError]);
 
   /** 시프트 프리셋 생성 / Create shift preset */
   const handleCreatePreset = useCallback(async (): Promise<void> => {
@@ -940,13 +942,13 @@ export default function StoreDetailPage(): React.ReactElement {
         start_time: presetCreateForm.start_time,
         end_time: presetCreateForm.end_time,
       });
-      toast({ type: "success", message: "Shift preset created!" });
+      showSuccess("Shift preset created!");
       setIsPresetCreateOpen(false);
       setPresetCreateForm(INITIAL_PRESET_FORM);
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to create shift preset.") });
+      showError(parseApiError(err, "Failed to create shift preset."));
     }
-  }, [presetCreateForm, createPreset, storeId, toast]);
+  }, [presetCreateForm, createPreset, storeId, showSuccess, showError]);
 
   /** 시프트 프리셋 활성/비활성 토글 / Toggle shift preset active status */
   const handleTogglePresetActive = useCallback(
@@ -957,12 +959,12 @@ export default function StoreDetailPage(): React.ReactElement {
           storeId,
           is_active: !preset.is_active,
         });
-        toast({ type: "success", message: `Preset ${preset.is_active ? "deactivated" : "activated"}!` });
+        showSuccess(`Preset ${preset.is_active ? "deactivated" : "activated"}!`);
       } catch (err) {
-        toast({ type: "error", message: parseApiError(err, "Failed to update preset.") });
+        showError(parseApiError(err, "Failed to update preset."));
       }
     },
-    [updatePreset, storeId, toast],
+    [updatePreset, storeId, showSuccess, showError],
   );
 
   /** 시프트 프리셋 삭제 확인 열기 / Open preset delete confirmation */
@@ -980,14 +982,14 @@ export default function StoreDetailPage(): React.ReactElement {
     if (!deletingPresetId) return;
     try {
       await deletePreset.mutateAsync({ id: deletingPresetId, storeId });
-      toast({ type: "success", message: "Shift preset deleted!" });
+      showSuccess("Shift preset deleted!");
       setIsPresetDeleteOpen(false);
       setDeletingPresetId(null);
       setDeletingPresetName("");
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to delete shift preset.") });
+      showError(parseApiError(err, "Failed to delete shift preset."));
     }
-  }, [deletingPresetId, deletePreset, storeId, toast]);
+  }, [deletingPresetId, deletePreset, storeId, showSuccess, showError]);
 
   /** 노동법 설정 저장 / Save labor law settings */
   const handleSaveLaborLaw = useCallback(async (): Promise<void> => {
@@ -999,11 +1001,11 @@ export default function StoreDetailPage(): React.ReactElement {
         store_max_weekly: laborForm.store_max_weekly ? Number(laborForm.store_max_weekly) : null,
         overtime_threshold_daily: laborForm.overtime_threshold_daily ? Number(laborForm.overtime_threshold_daily) : null,
       });
-      toast({ type: "success", message: "Labor law settings saved!" });
+      showSuccess("Labor law settings saved!");
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to save labor law settings.") });
+      showError(parseApiError(err, "Failed to save labor law settings."));
     }
-  }, [laborForm, upsertLaborLaw, storeId, toast]);
+  }, [laborForm, upsertLaborLaw, storeId, showSuccess, showError]);
 
   /* ======================================================================== */
   /*  Loading State                                                           */
@@ -1102,7 +1104,7 @@ export default function StoreDetailPage(): React.ReactElement {
                   size="sm"
                   onClick={() => {
                     if (!canCreateStoreConfig) {
-                      toast({ type: "info", message: "Only the Owner can create shifts. Please contact your Owner." });
+                      show({ type: "info", title: "Permission required", message: "Only the Owner can create shifts. Please contact your Owner." });
                       return;
                     }
                     setIsShiftCreateOpen(true);
@@ -1134,7 +1136,7 @@ export default function StoreDetailPage(): React.ReactElement {
                   size="sm"
                   onClick={() => {
                     if (!canCreateStoreConfig) {
-                      toast({ type: "info", message: "Only the Owner can create positions. Please contact your Owner." });
+                      show({ type: "info", title: "Permission required", message: "Only the Owner can create positions. Please contact your Owner." });
                       return;
                     }
                     setIsPosCreateOpen(true);

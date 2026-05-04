@@ -9,6 +9,7 @@ import {
 } from "@tanstack/react-query";
 import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
+import { useMutationResult } from "@/lib/mutationResult";
 
 export interface HiringCoverPhoto {
   id: string;
@@ -39,6 +40,7 @@ export const useUploadCoverPhoto = (
   storeId: string,
 ): UseMutationResult<HiringCoverPhoto, Error, { file: File; setAsPrimary?: boolean }> => {
   const qc = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<HiringCoverPhoto, Error, { file: File; setAsPrimary?: boolean }>({
     mutationFn: async ({ file, setAsPrimary }) => {
       const fd = new FormData();
@@ -53,7 +55,9 @@ export const useUploadCoverPhoto = (
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["hiring", "photos", storeId] });
+      success("Photo uploaded.");
     },
+    onError: error("Couldn't upload photo"),
   });
 };
 
@@ -62,13 +66,16 @@ export const useSetPrimaryPhoto = (
   storeId: string,
 ): UseMutationResult<void, Error, string> => {
   const qc = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<void, Error, string>({
     mutationFn: async (photoId) => {
       await api.patch(`/admin/stores/${storeId}/cover-photos/${photoId}/primary`);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["hiring", "photos", storeId] });
+      success("Primary photo set.");
     },
+    onError: error("Couldn't set primary photo"),
   });
 };
 
@@ -77,13 +84,16 @@ export const useDeleteCoverPhoto = (
   storeId: string,
 ): UseMutationResult<void, Error, string> => {
   const qc = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<void, Error, string>({
     mutationFn: async (photoId) => {
       await api.delete(`/admin/stores/${storeId}/cover-photos/${photoId}`);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["hiring", "photos", storeId] });
+      success("Photo deleted.");
     },
+    onError: error("Couldn't delete photo"),
   });
 };
 
@@ -92,6 +102,7 @@ export const useSetAcceptingSignups = (
   storeId: string,
 ): UseMutationResult<{ accepting_signups: boolean }, Error, boolean> => {
   const qc = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<{ accepting_signups: boolean }, Error, boolean>({
     mutationFn: async (accepting) => {
       const res: AxiosResponse<{ accepting_signups: boolean }> = await api.patch(
@@ -100,10 +111,12 @@ export const useSetAcceptingSignups = (
       );
       return res.data;
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       qc.invalidateQueries({ queryKey: ["stores"] });
       qc.invalidateQueries({ queryKey: ["stores", storeId] });
+      success(data.accepting_signups ? "Signups enabled." : "Signups disabled.");
     },
+    onError: error("Couldn't update signup setting"),
   });
 };
 
@@ -184,14 +197,21 @@ export const useSaveHiringFormDraft = (
   HiringFormConfig
 > => {
   const qc = useQueryClient();
-  return useMutation({
+  const { success, error } = useMutationResult();
+  return useMutation<
+    { id: string; config: HiringFormConfig; updated_at: string },
+    Error,
+    HiringFormConfig
+  >({
     mutationFn: async (config: HiringFormConfig) => {
       const res = await api.put(`/admin/hiring/stores/${storeId}/form`, { config });
       return res.data;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["hiring", "form", storeId] });
+      success("Draft saved.");
     },
+    onError: error("Couldn't save draft"),
   });
 };
 
@@ -204,14 +224,21 @@ export const usePublishHiringForm = (
   void
 > => {
   const qc = useQueryClient();
-  return useMutation({
+  const { success, error } = useMutationResult();
+  return useMutation<
+    { id: string; version: number; config: HiringFormConfig; updated_at: string },
+    Error,
+    void
+  >({
     mutationFn: async () => {
       const res = await api.post(`/admin/hiring/stores/${storeId}/form/publish`);
       return res.data;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["hiring", "form", storeId] });
+      success("Form published.");
     },
+    onError: error("Couldn't publish form"),
   });
 };
 
@@ -220,14 +247,17 @@ export const useDiscardHiringFormDraft = (
   storeId: string,
 ): UseMutationResult<{ discarded: boolean }, Error, void> => {
   const qc = useQueryClient();
-  return useMutation({
+  const { success, error } = useMutationResult();
+  return useMutation<{ discarded: boolean }, Error, void>({
     mutationFn: async () => {
       const res = await api.delete(`/admin/hiring/stores/${storeId}/form/draft`);
       return res.data;
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["hiring", "form", storeId] });
+      success("Draft discarded.");
     },
+    onError: error("Couldn't discard draft"),
   });
 };
 
@@ -343,7 +373,12 @@ export const useUpsertMyReview = (
   { score?: number | null; comment?: string | null }
 > => {
   const qc = useQueryClient();
-  return useMutation({
+  const { success, error } = useMutationResult();
+  return useMutation<
+    ApplicationReview,
+    Error,
+    { score?: number | null; comment?: string | null }
+  >({
     mutationFn: async (body) => {
       const res = await api.put(
         `/admin/hiring/applications/${applicationId}/reviews/me`,
@@ -354,7 +389,9 @@ export const useUpsertMyReview = (
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["hiring", "application", applicationId] });
       qc.invalidateQueries({ queryKey: ["hiring", "applications"] });
+      success("Review saved.");
     },
+    onError: error("Couldn't save review"),
   });
 };
 
@@ -362,7 +399,8 @@ export const useDeleteMyReview = (
   applicationId: string,
 ): UseMutationResult<void, Error, void> => {
   const qc = useQueryClient();
-  return useMutation({
+  const { success, error } = useMutationResult();
+  return useMutation<void, Error, void>({
     mutationFn: async () => {
       await api.delete(
         `/admin/hiring/applications/${applicationId}/reviews/me`,
@@ -371,7 +409,9 @@ export const useDeleteMyReview = (
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["hiring", "application", applicationId] });
       qc.invalidateQueries({ queryKey: ["hiring", "applications"] });
+      success("Review deleted.");
     },
+    onError: error("Couldn't delete review"),
   });
 };
 
@@ -396,7 +436,12 @@ export const usePatchApplication = (
   { applicationId: string; patch: Partial<{ stage: ApplicationStage; score: number; notes: string; interview_at: string }> }
 > => {
   const qc = useQueryClient();
-  return useMutation({
+  const { success, error } = useMutationResult();
+  return useMutation<
+    ApplicationListItem,
+    Error,
+    { applicationId: string; patch: Partial<{ stage: ApplicationStage; score: number; notes: string; interview_at: string }> }
+  >({
     mutationFn: async ({ applicationId, patch }) => {
       const res = await api.patch(
         `/admin/hiring/applications/${applicationId}`,
@@ -407,7 +452,9 @@ export const usePatchApplication = (
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["hiring", "applications", storeId] });
       qc.invalidateQueries({ queryKey: ["hiring", "application", vars.applicationId] });
+      success("Application updated.");
     },
+    onError: error("Couldn't update application"),
   });
 };
 
@@ -419,7 +466,12 @@ export const useHireApplication = (
   { applicationId: string; usernameOverride?: string; userId?: string; clockinPin?: string }
 > => {
   const qc = useQueryClient();
-  return useMutation({
+  const { success, error } = useMutationResult();
+  return useMutation<
+    { user_id: string; username: string; application_id: string; stage: string },
+    Error,
+    { applicationId: string; usernameOverride?: string; userId?: string; clockinPin?: string }
+  >({
     mutationFn: async ({ applicationId, usernameOverride, userId, clockinPin }) => {
       const res = await api.post(
         `/admin/hiring/applications/${applicationId}/hire`,
@@ -431,7 +483,9 @@ export const useHireApplication = (
       qc.invalidateQueries({ queryKey: ["hiring", "applications", storeId] });
       qc.invalidateQueries({ queryKey: ["hiring", "application", vars.applicationId] });
       qc.invalidateQueries({ queryKey: ["users"] });
+      success("Applicant hired.");
     },
+    onError: error("Couldn't hire applicant"),
   });
 };
 
@@ -443,7 +497,12 @@ export const useUnhireApplication = (
   string
 > => {
   const qc = useQueryClient();
-  return useMutation({
+  const { success, error } = useMutationResult();
+  return useMutation<
+    { application_id: string; stage: string; user_id: string | null; removed_user_store: boolean },
+    Error,
+    string
+  >({
     mutationFn: async (applicationId) => {
       const res = await api.post(
         `/admin/hiring/applications/${applicationId}/unhire`,
@@ -454,7 +513,9 @@ export const useUnhireApplication = (
       qc.invalidateQueries({ queryKey: ["hiring", "applications", storeId] });
       qc.invalidateQueries({ queryKey: ["hiring", "application", applicationId] });
       qc.invalidateQueries({ queryKey: ["users"] });
+      success("Hire reverted.");
     },
+    onError: error("Couldn't revert hire"),
   });
 };
 
@@ -466,7 +527,12 @@ export const useBlockApplication = (
   { applicationId: string; reason?: string }
 > => {
   const qc = useQueryClient();
-  return useMutation({
+  const { success, error } = useMutationResult();
+  return useMutation<
+    { blocked: boolean; reason?: string | null },
+    Error,
+    { applicationId: string; reason?: string }
+  >({
     mutationFn: async ({ applicationId, reason }) => {
       const res = await api.post(
         `/admin/hiring/applications/${applicationId}/block`,
@@ -477,7 +543,9 @@ export const useBlockApplication = (
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["hiring", "application", vars.applicationId] });
       qc.invalidateQueries({ queryKey: ["hiring", "applications", storeId] });
+      success("Applicant blocked.");
     },
+    onError: error("Couldn't block applicant"),
   });
 };
 
@@ -485,7 +553,8 @@ export const useUnblockApplication = (
   storeId: string,
 ): UseMutationResult<{ blocked: boolean }, Error, string> => {
   const qc = useQueryClient();
-  return useMutation({
+  const { success, error } = useMutationResult();
+  return useMutation<{ blocked: boolean }, Error, string>({
     mutationFn: async (applicationId) => {
       const res = await api.delete(
         `/admin/hiring/applications/${applicationId}/block`,
@@ -495,6 +564,8 @@ export const useUnblockApplication = (
     onSuccess: (_data, applicationId) => {
       qc.invalidateQueries({ queryKey: ["hiring", "application", applicationId] });
       qc.invalidateQueries({ queryKey: ["hiring", "applications", storeId] });
+      success("Applicant unblocked.");
     },
+    onError: error("Couldn't unblock applicant"),
   });
 };

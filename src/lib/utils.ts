@@ -279,13 +279,17 @@ export function parseApiError(error: unknown, fallback: string): string {
   if (error && typeof error === "object" && "response" in error) {
     const resp = (error as { response?: { data?: unknown; status?: number } }).response;
     const data = resp?.data;
+    const status = resp?.status;
+
     if (data && typeof data === "object") {
       const obj = data as Record<string, unknown>;
 
-      // FastAPI HTTPException → {detail: string | [{loc, msg}]}
+      // FastAPI HTTPException → {detail: string | [{loc, msg}] | object}
       if ("detail" in obj) {
         const detail = obj.detail;
-        if (typeof detail === "string" && detail !== "Internal Server Error") return detail;
+        if (typeof detail === "string" && detail.trim() && detail !== "Internal Server Error") {
+          return detail;
+        }
         if (Array.isArray(detail) && detail.length > 0) {
           return detail
             .map((d: { loc?: string[]; msg?: string }) => {
@@ -294,6 +298,11 @@ export function parseApiError(error: unknown, fallback: string): string {
               return loc ? `${loc}: ${msg}` : msg;
             })
             .join(", ");
+        }
+        // Object detail — extract message field if present
+        if (detail && typeof detail === "object") {
+          const m = (detail as Record<string, unknown>).message;
+          if (typeof m === "string" && m.trim()) return m;
         }
       }
 
@@ -313,22 +322,35 @@ export function parseApiError(error: unknown, fallback: string): string {
       if ("message" in obj && typeof obj.message === "string") return obj.message;
     }
 
-    // Response received but body unparseable — surface the status so we don't
-    // mislabel a server error as "no internet".
-    if (resp?.status) return `Server error (HTTP ${resp.status}).`;
+    // No usable body — fall back to status-specific friendly message.
+    if (status) {
+      if (status === 401) return "Your session has expired. Please log in again.";
+      if (status === 403) return "You don't have permission for this action.";
+      if (status === 404) return "The requested item was not found. It may have been deleted.";
+      if (status === 408) return "Request timed out. Please try again.";
+      if (status === 409) return "Conflict — this action couldn't be applied to the current state.";
+      if (status === 413) return "Upload is too large. Please reduce the file size and retry.";
+      if (status === 422) return "Some fields are invalid. Please review your input.";
+      if (status === 429) return "Too many requests. Please wait a moment and try again.";
+      if (status >= 500) return "Server error. Please try again in a moment.";
+      return `Request failed (HTTP ${status}). ${fallback}`;
+    }
   }
 
   if (error && typeof error === "object" && "code" in error) {
     const code = (error as { code?: string }).code;
     if (code === "ECONNABORTED") return "Server not responding. Please try again.";
     if (code === "ERR_NETWORK") {
-      // ERR_NETWORK 는 실제 offline 외에도 CORS preflight 실패, DNS, SSL,
-      // 서버 다운 등에서 동일하게 발생함. navigator.onLine 으로 진짜 offline
-      // 인지 구분해서 오해의 소지를 줄인다.
+      // ERR_NETWORK 는 offline / CORS / DNS / SSL / 서버 다운 등에서 모두 발생.
+      // 잘못된 "인터넷 연결 안됨" 단정으로 사용자를 오해시키지 않도록,
+      // navigator.onLine 으로 진짜 offline 인 경우만 그렇게 표시.
       if (typeof navigator !== "undefined" && navigator.onLine === false) {
-        return "No internet connection.";
+        return "Your device appears to be offline. Reconnect and try again.";
       }
-      return "Cannot reach server. Check your connection or contact admin.";
+      return "Cannot reach the server. The service may be temporarily unavailable — please try again shortly.";
+    }
+    if (code === "ECONNREFUSED") {
+      return "The server refused the connection. The service may be down — please try again shortly.";
     }
   }
   return fallback;

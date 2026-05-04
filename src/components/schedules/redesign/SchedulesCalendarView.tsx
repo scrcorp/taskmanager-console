@@ -29,14 +29,14 @@ import { SwapModal } from "./SwapModal";
 import { ChangeStaffModal } from "./ChangeStaffModal";
 import { ScheduleEditModal, type ScheduleEditPayload } from "./ScheduleEditModal";
 import { ConfirmDialog } from "./ConfirmDialog";
-import { FilterBar, type FilterState } from "./FilterBar";
+import { FilterBar, type FilterState, type EmptyStaffSort } from "./FilterBar";
 import { LegendModal } from "./LegendModal";
 import { MonthlyGrid } from "./MonthlyGrid";
 import { useShifts } from "@/hooks/useShifts";
 import { useWorkRoles } from "@/hooks/useWorkRoles";
 import { useBulkCreateSchedules, useBulkUpdateSchedules, useBulkDeleteSchedules } from "@/hooks/useSchedules";
 import BulkScheduleView, { type SavePayload } from "./BulkScheduleView";
-import { useToast } from "@/components/ui/Toast";
+import { useResultModal } from "@/components/ui/ResultModal";
 
 type ViewMode = "weekly" | "daily" | "monthly";
 type SortState = "none" | "confirmed" | "requested";
@@ -301,6 +301,31 @@ export default function SchedulesCalendarView() {
   const [historyScheduleId, setHistoryScheduleId] = useState<string | undefined>(undefined);
   const [switchOpen, setSwitchOpen] = useState(false);
   const [switchSourceId, setSwitchSourceId] = useState<string | null>(null);
+  const [switchError, setSwitchError] = useState<string | null>(null);
+  const [emptyStaffSort, setEmptyStaffSort] = useState<EmptyStaffSort>(() => {
+    if (typeof window === "undefined") return "bottom";
+    const v = localStorage.getItem("schedule.emptyStaffSort");
+    if (v === "bottom" || v === "top" || v === "in-order") return v;
+    // legacy 마이그레이션 (구버전 emptyStaffMode 키)
+    const legacy = localStorage.getItem("schedule.emptyStaffMode");
+    if (legacy === "show") return "in-order";
+    if (legacy === "down") return "bottom";
+    return "bottom";
+  });
+  const [emptyStaffHide, setEmptyStaffHide] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    const v = localStorage.getItem("schedule.emptyStaffHide");
+    if (v === "1") return true;
+    if (v === "0") return false;
+    // legacy 마이그레이션
+    return localStorage.getItem("schedule.emptyStaffMode") === "hide";
+  });
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("schedule.emptyStaffSort", emptyStaffSort);
+      localStorage.setItem("schedule.emptyStaffHide", emptyStaffHide ? "1" : "0");
+    }
+  }, [emptyStaffSort, emptyStaffHide]);
   const [changeStaffOpen, setChangeStaffOpen] = useState(false);
   const [changeStaffSourceId, setChangeStaffSourceId] = useState<string | null>(null);
   const [editModal, setEditModal] = useState<{ open: boolean; mode: "add" | "edit"; blockId?: string; staffId?: string; date?: string; startTime?: string }>({ open: false, mode: "add" });
@@ -314,7 +339,7 @@ export default function SchedulesCalendarView() {
 
   // ─── Bulk mode ─────────────────────────────────────
   const [bulkMode, setBulkMode] = useState(false);
-  const { toast } = useToast();
+  const { showSuccess } = useResultModal();
   const bulkCreateMutation = useBulkCreateSchedules();
   const bulkUpdateMutation = useBulkUpdateSchedules();
   const bulkDeleteMutation = useBulkDeleteSchedules();
@@ -363,7 +388,7 @@ export default function SchedulesCalendarView() {
         await bulkDeleteMutation.mutateAsync({ ids: payload.deletes });
         deleted = payload.deletes.length;
       }
-      toast({ type: "success", message: `Saved: ${created} created, ${updated} updated, ${deleted} deleted` });
+      showSuccess(`Saved: ${created} created, ${updated} updated, ${deleted} deleted`);
       setBulkMode(false);
     } catch (err) {
       // 부분 실패 가능 — 어디서 멈췄는지 + 에러 메시지를 모달로 명확히 표시
@@ -710,6 +735,36 @@ export default function SchedulesCalendarView() {
     });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sortCol, sortState, view, selectedStores, isAllStores, selectedDay, filteredUsers, schedules, weekDates, openHour]);
+
+  const userHasScheduleInView = useMemo(() => {
+    let from: string;
+    let to: string;
+    if (view === "monthly") { from = monthDateFrom; to = monthDateTo; }
+    else if (view === "daily") { from = selectedDay; to = selectedDay; }
+    else { from = weekDates[0]?.date ?? ""; to = weekDates[6]?.date ?? ""; }
+    const set = new Set<string>();
+    if (!from || !to) return set;
+    for (const s of schedules) {
+      if (!matchesStoreFilter(s.store_id)) continue;
+      if (s.work_date >= from && s.work_date <= to) set.add(s.user_id);
+    }
+    return set;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schedules, view, monthDateFrom, monthDateTo, selectedDay, weekDates, selectedStores, isAllStores]);
+
+  const displayUsers = useMemo(() => {
+    if (emptyStaffHide) {
+      return sortedUsers.filter((u) => userHasScheduleInView.has(u.id));
+    }
+    if (emptyStaffSort === "in-order") return sortedUsers;
+    const withSched: User[] = [];
+    const without: User[] = [];
+    for (const u of sortedUsers) {
+      if (userHasScheduleInView.has(u.id)) withSched.push(u);
+      else without.push(u);
+    }
+    return emptyStaffSort === "top" ? [...without, ...withSched] : [...withSched, ...without];
+  }, [sortedUsers, emptyStaffSort, emptyStaffHide, userHasScheduleInView]);
 
   // ─── Columns + totals ─────────────────────────────────
 
@@ -1090,16 +1145,20 @@ export default function SchedulesCalendarView() {
         return (
           <SwapModal
             open={switchOpen}
-            onClose={() => { setSwitchOpen(false); setSwitchSourceId(null); }}
+            onClose={() => { setSwitchOpen(false); setSwitchSourceId(null); setSwitchError(null); }}
             fromSchedule={fromSchedule ?? null}
             fromUser={fromUser ?? null}
             candidateSchedules={storeFiltered}
             users={users}
             isSubmitting={switchMutation.isPending}
+            errorMessage={switchError}
+            onClearError={() => setSwitchError(null)}
             onSwap={(otherId, reason) => {
               if (!switchSourceId) return;
+              setSwitchError(null);
               switchMutation.mutate({ id: switchSourceId, other_schedule_id: otherId, reason }, {
-                onSuccess: () => { setSwitchOpen(false); setSwitchSourceId(null); },
+                onSuccess: () => { setSwitchOpen(false); setSwitchSourceId(null); setSwitchError(null); },
+                onError: (err) => { setSwitchError(parseApiError(err, "Switch failed")); },
               });
             }}
           />
@@ -1420,6 +1479,10 @@ export default function SchedulesCalendarView() {
           users={users}
           schedules={schedules}
           selectedStoreId={selectedStore}
+          emptyStaffSort={emptyStaffSort}
+          onEmptyStaffSortChange={setEmptyStaffSort}
+          emptyStaffHide={emptyStaffHide}
+          onEmptyStaffHideChange={setEmptyStaffHide}
         />
 
         {/* Monthly Grid */}
@@ -1478,7 +1541,7 @@ export default function SchedulesCalendarView() {
               />
 
               <tbody>
-                {sortedUsers.map((u: User) => {
+                {displayUsers.map((u: User) => {
                   // 신규 스케줄 생성 시 default로 박힐 rate (user → store → org cascade).
                   // 기존 스케줄의 stored rate와는 무관 — 표시 라벨에만 사용.
                   const userEffective = effectiveRate(u, currentStore, orgDefaultRate);

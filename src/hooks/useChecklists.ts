@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query";
 import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
+import { useMutationResult } from "@/lib/mutationResult";
 import type { ChecklistTemplate, ChecklistItem, ExcelImportResponse } from "@/types";
 
 /** 체크리스트 템플릿 필터 타입 (Checklist template filter type) */
@@ -125,6 +126,7 @@ export const useCreateChecklistTemplate = (): UseMutationResult<
   CreateChecklistTemplateData
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<ChecklistTemplate, Error, CreateChecklistTemplateData>({
     mutationFn: async ({
       storeId,
@@ -146,7 +148,9 @@ export const useCreateChecklistTemplate = (): UseMutationResult<
       queryClient.invalidateQueries({
         queryKey: ["all-checklist-templates"],
       });
+      success("Checklist template created.");
     },
+    onError: error("Couldn't create checklist template"),
   });
 };
 
@@ -171,6 +175,7 @@ export const useUpdateChecklistTemplate = (): UseMutationResult<
   UpdateChecklistTemplateData
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<ChecklistTemplate, Error, UpdateChecklistTemplateData>({
     mutationFn: async ({
       id,
@@ -192,7 +197,9 @@ export const useUpdateChecklistTemplate = (): UseMutationResult<
       queryClient.invalidateQueries({
         queryKey: ["all-checklist-templates"],
       });
+      success("Checklist template updated.");
     },
+    onError: error("Couldn't update checklist template"),
   });
 };
 
@@ -209,6 +216,7 @@ export const useDeleteChecklistTemplate = (): UseMutationResult<
   string
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<void, Error, string>({
     mutationFn: async (id: string): Promise<void> => {
       await api.delete(`/admin/checklist-templates/${id}`);
@@ -220,7 +228,9 @@ export const useDeleteChecklistTemplate = (): UseMutationResult<
       queryClient.invalidateQueries({
         queryKey: ["all-checklist-templates"],
       });
+      success("Checklist template deleted.");
     },
+    onError: error("Couldn't delete checklist template"),
   });
 };
 
@@ -272,6 +282,7 @@ export const useCreateChecklistItem = (): UseMutationResult<
   CreateChecklistItemData
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<ChecklistItem, Error, CreateChecklistItemData>({
     mutationFn: async ({
       templateId,
@@ -302,7 +313,9 @@ export const useCreateChecklistItem = (): UseMutationResult<
           );
         },
       );
+      success("Checklist item created.");
     },
+    onError: error("Couldn't create checklist item"),
   });
 };
 
@@ -332,6 +345,7 @@ export const useBulkCreateChecklistItems = (): UseMutationResult<
   BulkCreateChecklistItemData
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<ChecklistItem[], Error, BulkCreateChecklistItemData>({
     mutationFn: async ({
       templateId,
@@ -362,7 +376,10 @@ export const useBulkCreateChecklistItems = (): UseMutationResult<
           );
         },
       );
+      const count = newItems?.length ?? 0;
+      success(`${count} item${count === 1 ? "" : "s"} created.`);
     },
+    onError: error("Couldn't create checklist items"),
   });
 };
 
@@ -392,6 +409,7 @@ export const useUpdateChecklistItem = (): UseMutationResult<
   UpdateChecklistItemData
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<ChecklistItem, Error, UpdateChecklistItemData>({
     mutationFn: async ({
       id,
@@ -412,7 +430,9 @@ export const useUpdateChecklistItem = (): UseMutationResult<
         ["checklist-items", variables.templateId],
         (old) => old?.map((item) => (item.id === variables.id ? updated : item)),
       );
+      success("Checklist item updated.");
     },
+    onError: error("Couldn't update checklist item"),
   });
 };
 
@@ -435,6 +455,7 @@ export const useDeleteChecklistItem = (): UseMutationResult<
   DeleteChecklistItemData
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<void, Error, DeleteChecklistItemData>({
     mutationFn: async ({ id }: DeleteChecklistItemData): Promise<void> => {
       await api.delete(`/admin/checklist-template-items/${id}`);
@@ -455,7 +476,9 @@ export const useDeleteChecklistItem = (): UseMutationResult<
           );
         },
       );
+      success("Checklist item deleted.");
     },
+    onError: error("Couldn't delete checklist item"),
   });
 };
 
@@ -480,6 +503,7 @@ export const useImportChecklistTemplates = (): UseMutationResult<
   ImportChecklistData
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<ExcelImportResponse, Error, ImportChecklistData>({
     mutationFn: async ({
       file,
@@ -502,7 +526,9 @@ export const useImportChecklistTemplates = (): UseMutationResult<
       queryClient.invalidateQueries({
         queryKey: ["all-checklist-templates"],
       });
+      success("Import complete.");
     },
+    onError: error("Couldn't import checklist templates"),
   });
 };
 

@@ -33,7 +33,7 @@ import {
   Pagination,
   ConfirmDialog,
 } from "@/components/ui";
-import { useToast } from "@/components/ui/Toast";
+import { useResultModal } from "@/components/ui/ResultModal";
 import { parseApiError } from "@/lib/utils";
 import { ProductForm, type ProductFormData } from "@/components/inventory/ProductForm";
 import { ImportProductsModal } from "@/components/inventory/ImportProductsModal";
@@ -55,7 +55,7 @@ function truncate(text: string | null, max: number): string {
 
 export default function InventoryPage(): React.ReactElement {
   const router = useRouter();
-  const { toast } = useToast();
+  const { showSuccess, showError } = useResultModal();
   const { hasPermission } = usePermissions();
   const canCreate = hasPermission(PERMISSIONS.INVENTORY_CREATE);
   const canDelete = hasPermission(PERMISSIONS.INVENTORY_DELETE);
@@ -349,7 +349,7 @@ export default function InventoryPage(): React.ReactElement {
 
   const handleCreateSubmit = useCallback(() => {
     if (!formData || !formData.name.trim()) {
-      toast({ type: "error", message: "Product name is required." });
+      showError("Product name is required.");
       return;
     }
 
@@ -369,47 +369,47 @@ export default function InventoryPage(): React.ReactElement {
 
     createProduct.mutate(payload, {
       onSuccess: () => {
-        toast({ type: "success", message: "Product created successfully." });
+        showSuccess("Product created successfully.");
         setIsCreateOpen(false);
       },
       onError: (err) => {
-        toast({ type: "error", message: parseApiError(err, "Failed to create product.") });
+        showError(parseApiError(err, "Failed to create product."));
       },
     });
-  }, [formData, createProduct, toast]);
+  }, [formData, createProduct, showSuccess, showError]);
 
   const handleDeactivate = useCallback(() => {
     if (!deactivateId) return;
     deactivateProduct.mutate(deactivateId, {
       onSuccess: () => {
-        toast({ type: "success", message: "Product deactivated." });
+        showSuccess("Product deactivated.");
         setDeactivateId(null);
       },
       onError: (err) => {
-        toast({ type: "error", message: parseApiError(err, "Failed to deactivate product.") });
+        showError(parseApiError(err, "Failed to deactivate product."));
       },
     });
-  }, [deactivateId, deactivateProduct, toast]);
+  }, [deactivateId, deactivateProduct, showSuccess, showError]);
 
   const handleActivate = useCallback((id: string) => {
     activateProduct.mutate(id, {
-      onSuccess: () => toast({ type: "success", message: "Product activated." }),
-      onError: (err) => toast({ type: "error", message: parseApiError(err, "Failed to activate.") }),
+      onSuccess: () => showSuccess("Product activated."),
+      onError: (err) => showError(parseApiError(err, "Failed to activate.")),
     });
-  }, [activateProduct, toast]);
+  }, [activateProduct, showSuccess, showError]);
 
   const handleDelete = useCallback(() => {
     if (!deleteId) return;
     deleteProduct.mutate(deleteId, {
       onSuccess: () => {
-        toast({ type: "success", message: "Product permanently deleted." });
+        showSuccess("Product permanently deleted.");
         setDeleteId(null);
       },
       onError: (err) => {
-        toast({ type: "error", message: parseApiError(err, "Failed to delete product.") });
+        showError(parseApiError(err, "Failed to delete product."));
       },
     });
-  }, [deleteId, deleteProduct, toast]);
+  }, [deleteId, deleteProduct, showSuccess, showError]);
 
   const [bulkLoading, setBulkLoading] = useState(false);
   const handleBulkAction = useCallback(async () => {
@@ -436,11 +436,11 @@ export default function InventoryPage(): React.ReactElement {
     clearSelection();
     const actionLabel = bulkAction === "delete" ? "deleted" : bulkAction === "deactivate" ? "deactivated" : "activated";
     if (errorCount === 0) {
-      toast({ type: "success", message: `${successCount} product(s) ${actionLabel}.` });
+      showSuccess(`${successCount} product(s) ${actionLabel}.`);
     } else {
-      toast({ type: "error", message: `${successCount} succeeded, ${errorCount} failed.` });
+      showError(`${successCount} succeeded, ${errorCount} failed.`);
     }
-  }, [bulkAction, selectedIds, deleteProduct, deactivateProduct, activateProduct, toast]);
+  }, [bulkAction, selectedIds, deleteProduct, deactivateProduct, activateProduct, showSuccess, showError]);
 
   return (
     <div>

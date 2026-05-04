@@ -14,7 +14,7 @@ import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
 import { ImageUpload } from "@/components/ui/ImageUpload";
-import { useToast } from "@/components/ui/Toast";
+import { useResultModal } from "@/components/ui/ResultModal";
 import { useCategories, useProducts, useCreateCategory, useGenerateProductCode, useSubUnits, useCreateSubUnit } from "@/hooks/useInventory";
 import { parseApiError } from "@/lib/utils";
 import type { InventoryCategory, InventoryProduct } from "@/types";
@@ -118,7 +118,7 @@ export function ProductForm({
   const [addingCategory, setAddingCategory] = useState(false);
   const [addingSubcategory, setAddingSubcategory] = useState(false);
 
-  const { toast } = useToast();
+  const { showError } = useResultModal();
   const { data: categoriesRaw, refetch: refetchCategories } = useCategories();
   const { data: subUnitsData, refetch: refetchSubUnits } = useSubUnits();
   const createCategory = useCreateCategory();
@@ -198,12 +198,12 @@ export function ProductForm({
           },
           onError: (err) => {
             const msg = parseApiError(err, "Failed to create category");
-            toast({ type: "error", message: msg });
+            showError(msg);
           },
         },
       );
     },
-    [createCategory, refetchCategories, toast],
+    [createCategory, refetchCategories, showError],
   );
 
   const handleAddSubcategory = useCallback(
@@ -218,12 +218,12 @@ export function ProductForm({
           },
           onError: (err) => {
             const msg = parseApiError(err, "Failed to create subcategory");
-            toast({ type: "error", message: msg });
+            showError(msg);
           },
         },
       );
     },
-    [createCategory, refetchCategories, categoryId, toast],
+    [createCategory, refetchCategories, categoryId, showError],
   );
 
   return (
@@ -395,7 +395,7 @@ export function ProductForm({
                 const code = newName.toLowerCase().replace(/\s+/g, "_");
                 // Check duplicate by code
                 if ((subUnitsData ?? []).some((u) => u.code === code)) {
-                  toast({ type: "error", message: `"${newName}" already exists` });
+                  showError(`"${newName}" already exists`);
                   return;
                 }
                 createSubUnit.mutate(
@@ -407,7 +407,7 @@ export function ProductForm({
                       setAddingSubUnit(false);
                     },
                     onError: (err) => {
-                      toast({ type: "error", message: parseApiError(err, "Failed to create sub unit.") });
+                      showError(parseApiError(err, "Failed to create sub unit."));
                     },
                   },
                 );

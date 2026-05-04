@@ -7,6 +7,7 @@
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
+import { useMutationResult } from "@/lib/mutationResult";
 import type { ShiftPreset } from "@/types";
 
 /** 매장별 근무 프리셋 목록 조회 */
@@ -21,8 +22,13 @@ export function useShiftPresets(storeId: string) {
 /** 근무 프리셋 생성 — 근무시간대에 이름, 시작/종료 시간 설정 */
 export function useCreateShiftPreset() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (data: { storeId: string; shift_id: string; name: string; start_time: string; end_time: string; sort_order?: number }) =>
+  const { success, error } = useMutationResult();
+  return useMutation<
+    ShiftPreset,
+    Error,
+    { storeId: string; shift_id: string; name: string; start_time: string; end_time: string; sort_order?: number }
+  >({
+    mutationFn: (data) =>
       api.post(`/admin/stores/${data.storeId}/shift-presets`, {
         shift_id: data.shift_id,
         name: data.name,
@@ -30,15 +36,24 @@ export function useCreateShiftPreset() {
         end_time: data.end_time,
         sort_order: data.sort_order ?? 0,
       }).then((r) => r.data),
-    onSuccess: (_d, v) => { qc.invalidateQueries({ queryKey: ["shiftPresets", v.storeId] }); },
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ["shiftPresets", v.storeId] });
+      success("Shift preset created.");
+    },
+    onError: error("Couldn't create shift preset"),
   });
 }
 
 /** 근무 프리셋 수정 */
 export function useUpdateShiftPreset() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (data: { id: string; storeId: string; name?: string; start_time?: string; end_time?: string; is_active?: boolean; sort_order?: number }) =>
+  const { success, error } = useMutationResult();
+  return useMutation<
+    ShiftPreset,
+    Error,
+    { id: string; storeId: string; name?: string; start_time?: string; end_time?: string; is_active?: boolean; sort_order?: number }
+  >({
+    mutationFn: (data) =>
       api.put(`/admin/shift-presets/${data.id}`, {
         name: data.name,
         start_time: data.start_time,
@@ -46,16 +61,25 @@ export function useUpdateShiftPreset() {
         is_active: data.is_active,
         sort_order: data.sort_order,
       }).then((r) => r.data),
-    onSuccess: (_d, v) => { qc.invalidateQueries({ queryKey: ["shiftPresets", v.storeId] }); },
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ["shiftPresets", v.storeId] });
+      success("Shift preset updated.");
+    },
+    onError: error("Couldn't update shift preset"),
   });
 }
 
 /** 근무 프리셋 삭제 */
 export function useDeleteShiftPreset() {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: (data: { id: string; storeId: string }) =>
+  const { success, error } = useMutationResult();
+  return useMutation<unknown, Error, { id: string; storeId: string }>({
+    mutationFn: (data) =>
       api.delete(`/admin/shift-presets/${data.id}`),
-    onSuccess: (_d, v) => { qc.invalidateQueries({ queryKey: ["shiftPresets", v.storeId] }); },
+    onSuccess: (_d, v) => {
+      qc.invalidateQueries({ queryKey: ["shiftPresets", v.storeId] });
+      success("Shift preset deleted.");
+    },
+    onError: error("Couldn't delete shift preset"),
   });
 }

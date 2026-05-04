@@ -16,6 +16,42 @@ interface Props {
   users: User[];
   onSwap?: (otherScheduleId: string, reason?: string) => void;
   isSubmitting?: boolean;
+  errorMessage?: string | null;
+  onClearError?: () => void;
+}
+
+function parseSwitchError(raw: string): { title: string; details: string[] } {
+  const conflictPrefix = "Switch would cause conflicts:";
+  if (raw.startsWith(conflictPrefix)) {
+    const tail = raw.slice(conflictPrefix.length).trim();
+    const details = tail.split(";").map((s) => s.trim()).filter(Boolean);
+    return { title: "Switch would cause schedule conflicts", details };
+  }
+  if (raw.includes("checklists are in_progress or completed")) {
+    return {
+      title: "Active checklists detected",
+      details: [
+        "One or both schedules have checklists already in progress or completed.",
+        "Resetting them is not yet supported in this UI. Please review the checklists first.",
+      ],
+    };
+  }
+  if (raw === "Both schedules must be confirmed to switch") {
+    return {
+      title: "Both schedules must be confirmed",
+      details: ["Only confirmed schedules can be switched. Confirm both schedules first."],
+    };
+  }
+  if (raw === "Cannot switch a schedule with itself") {
+    return { title: "Cannot switch a schedule with itself", details: [] };
+  }
+  if (raw === "Schedule not found") {
+    return {
+      title: "Schedule not found",
+      details: ["One of the schedules may have been deleted or modified. Refresh and try again."],
+    };
+  }
+  return { title: "Switch failed", details: [raw] };
 }
 
 function fmt(t: string | null): string {
@@ -29,7 +65,7 @@ function fmt(t: string | null): string {
 
 type Step = "staff" | "schedule" | "confirm";
 
-export function SwapModal({ open, onClose, fromSchedule, fromUser, candidateSchedules, users, onSwap, isSubmitting }: Props) {
+export function SwapModal({ open, onClose, fromSchedule, fromUser, candidateSchedules, users, onSwap, isSubmitting, errorMessage, onClearError }: Props) {
   const [step, setStep] = useState<Step>("staff");
   const [search, setSearch] = useState("");
   const [targetUserId, setTargetUserId] = useState("");
@@ -80,7 +116,9 @@ export function SwapModal({ open, onClose, fromSchedule, fromUser, candidateSche
   const toTime = targetSchedule ? `${fmt(targetSchedule.start_time)}–${fmt(targetSchedule.end_time)}` : "";
 
   function reset() { setStep("staff"); setSearch(""); setTargetUserId(""); setTargetScheduleId(""); setReason(""); }
-  function handleClose() { reset(); onClose(); }
+  function handleClose() { reset(); onClearError?.(); onClose(); }
+
+  const parsedError = errorMessage ? parseSwitchError(errorMessage) : null;
 
   return (
     <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/40">
@@ -240,6 +278,27 @@ export function SwapModal({ open, onClose, fromSchedule, fromUser, candidateSche
                 <div>{toName} → Schedule A ({fromSchedule.work_date} {fromTime})</div>
                 <div className="text-[11px] text-[var(--color-text-muted)] mt-1">Hourly rates will be recalculated.</div>
               </div>
+
+              {/* Error message */}
+              {parsedError && (
+                <div role="alert" className="rounded-lg p-3 border border-[var(--color-danger)]/40 bg-[var(--color-danger-muted)] space-y-1.5">
+                  <div className="flex items-start gap-2">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="text-[var(--color-danger)] mt-0.5 shrink-0">
+                      <circle cx="12" cy="12" r="10" />
+                      <line x1="12" y1="8" x2="12" y2="12" />
+                      <line x1="12" y1="16" x2="12.01" y2="16" />
+                    </svg>
+                    <div className="text-[12px] font-semibold text-[var(--color-danger)] leading-snug">{parsedError.title}</div>
+                  </div>
+                  {parsedError.details.length > 0 && (
+                    <ul className="list-disc list-inside text-[11.5px] text-[var(--color-text-secondary)] space-y-0.5 pl-1">
+                      {parsedError.details.map((d, i) => (
+                        <li key={i} className="leading-snug">{d}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              )}
             </div>
             <div className="px-6 py-4 border-t border-[var(--color-border)] flex justify-between">
               <button type="button" onClick={() => setStep("schedule")} className="px-4 py-2 rounded-lg text-[13px] font-medium text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]">Back</button>

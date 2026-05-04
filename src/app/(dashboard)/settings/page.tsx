@@ -8,23 +8,31 @@
  */
 
 import React, { useState, useEffect } from "react";
-import { Building2, Lock } from "lucide-react";
+import { Building2, Lock, Languages } from "lucide-react";
 import { useOrganization, useUpdateOrganization } from "@/hooks";
 import { useAuthStore } from "@/stores/authStore";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
-import { useToast } from "@/components/ui/Toast";
+import { useResultModal } from "@/components/ui/ResultModal";
 import { parseApiError, formatDate } from "@/lib/utils";
 import { TIMEZONE_OPTIONS } from "@/lib/timezones";
 import { ChangePasswordModal } from "@/components/auth/ChangePasswordModal";
 import { useTimezone } from "@/hooks";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@/lib/permissions";
+import { useUpdatePreferredLanguage } from "@/hooks/useProfile";
+import type { PreferredLanguage } from "@/types";
+
+const LANGUAGE_OPTIONS = [
+  { value: "en", label: "English" },
+  { value: "es", label: "Español" },
+  { value: "ko", label: "한국어" },
+];
 
 export default function SettingsPage(): React.ReactElement {
-  const { toast } = useToast();
+  const { showSuccess, showError } = useResultModal();
   const { data: org, isLoading } = useOrganization();
   const updateOrg = useUpdateOrganization();
   const user = useAuthStore((s) => s.user);
@@ -35,6 +43,11 @@ export default function SettingsPage(): React.ReactElement {
 
   const [timezone, setTimezone] = useState<string>("");
   const [defaultHourlyRate, setDefaultHourlyRate] = useState<string>("");
+  const updateLanguage = useUpdatePreferredLanguage();
+  const [language, setLanguage] = useState<PreferredLanguage>(user?.preferred_language ?? "en");
+  useEffect(() => {
+    if (user?.preferred_language) setLanguage(user.preferred_language);
+  }, [user?.preferred_language]);
 
   useEffect(() => {
     if (org) {
@@ -45,20 +58,20 @@ export default function SettingsPage(): React.ReactElement {
 
   const handleSave = async (): Promise<void> => {
     if (!timezone) {
-      toast({ type: "error", message: "Please select a timezone." });
+      showError("Please select a timezone.");
       return;
     }
     const rateStr = defaultHourlyRate.trim();
     const rateVal = rateStr === "" ? null : Number(rateStr);
     if (rateVal !== null && (isNaN(rateVal) || rateVal < 0)) {
-      toast({ type: "error", message: "Default hourly rate must be a positive number." });
+      showError("Default hourly rate must be a positive number.");
       return;
     }
     try {
       await updateOrg.mutateAsync({ timezone, default_hourly_rate: rateVal });
-      toast({ type: "success", message: "Organization settings updated!" });
+      showSuccess("Organization settings updated!");
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to update settings.") });
+      showError(parseApiError(err, "Failed to update settings."));
     }
   };
 
@@ -144,6 +157,45 @@ export default function SettingsPage(): React.ReactElement {
               </div>
             </>
           )}
+        </div>
+      </div>
+
+      {/* Personal Preferences 섹션 */}
+      <div className="bg-card border border-border rounded-xl p-6 max-w-lg mb-4">
+        <div className="flex items-center gap-2 mb-1">
+          <Languages className="h-5 w-5 text-accent" />
+          <h2 className="text-lg font-bold text-text">Personal Preferences</h2>
+        </div>
+        <p className="text-sm text-text-secondary mb-5">
+          We use this to personalize content. UI translation is coming later.
+        </p>
+        <div className="flex items-end gap-3">
+          <div className="flex-1">
+            <Select
+              label="Preferred Language"
+              value={language}
+              onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+                setLanguage(e.target.value as PreferredLanguage)
+              }
+              options={LANGUAGE_OPTIONS}
+            />
+          </div>
+          <Button
+            variant="primary"
+            size="sm"
+            isLoading={updateLanguage.isPending}
+            disabled={!user || language === user.preferred_language}
+            onClick={async () => {
+              try {
+                await updateLanguage.mutateAsync(language);
+                showSuccess("Language preference saved.");
+              } catch (err) {
+                showError(parseApiError(err, "Failed to update language."));
+              }
+            }}
+          >
+            Save
+          </Button>
         </div>
       </div>
 

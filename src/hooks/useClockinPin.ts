@@ -14,6 +14,7 @@ import {
 } from "@tanstack/react-query";
 import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
+import { useMutationResult } from "@/lib/mutationResult";
 import type { ClockinPin } from "@/types";
 
 /**
@@ -50,6 +51,7 @@ export const useRegenerateClockinPin = (): UseMutationResult<
   string
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<ClockinPin, Error, string>({
     mutationFn: async (userId: string): Promise<ClockinPin> => {
       const response: AxiosResponse<ClockinPin> = await api.post(
@@ -62,6 +64,8 @@ export const useRegenerateClockinPin = (): UseMutationResult<
         ["clockin-pin", newPin.user_id],
         newPin,
       );
+      success("Regenerated.");
     },
+    onError: error("Couldn't regenerate PIN"),
   });
 };

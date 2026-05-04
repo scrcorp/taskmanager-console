@@ -14,6 +14,7 @@ import {
 } from "@tanstack/react-query";
 import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
+import { useMutationResult } from "@/lib/mutationResult";
 import type {
   EvalTemplate,
   EvalTemplateCreate,
@@ -65,7 +66,8 @@ export const useCreateEvalTemplate = (): UseMutationResult<
   EvalTemplateCreate
 > => {
   const qc = useQueryClient();
-  return useMutation({
+  const { success, error } = useMutationResult();
+  return useMutation<EvalTemplate, Error, EvalTemplateCreate>({
     mutationFn: async (data: EvalTemplateCreate) => {
       const res: AxiosResponse<EvalTemplate> = await api.post(
         "/admin/evaluations/templates",
@@ -75,7 +77,9 @@ export const useCreateEvalTemplate = (): UseMutationResult<
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["eval-templates"] });
+      success("Evaluation template created.");
     },
+    onError: error("Couldn't create evaluation template"),
   });
 };
 
@@ -86,13 +90,16 @@ export const useDeleteEvalTemplate = (): UseMutationResult<
   string
 > => {
   const qc = useQueryClient();
-  return useMutation({
+  const { success, error } = useMutationResult();
+  return useMutation<void, Error, string>({
     mutationFn: async (templateId: string) => {
       await api.delete(`/admin/evaluations/templates/${templateId}`);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["eval-templates"] });
+      success("Evaluation template deleted.");
     },
+    onError: error("Couldn't delete evaluation template"),
   });
 };
 
@@ -137,7 +144,8 @@ export const useCreateEvaluation = (): UseMutationResult<
   EvaluationCreate
 > => {
   const qc = useQueryClient();
-  return useMutation({
+  const { success, error } = useMutationResult();
+  return useMutation<Evaluation, Error, EvaluationCreate>({
     mutationFn: async (data: EvaluationCreate) => {
       const res: AxiosResponse<Evaluation> = await api.post(
         "/admin/evaluations",
@@ -147,7 +155,9 @@ export const useCreateEvaluation = (): UseMutationResult<
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["evaluations"] });
+      success("Evaluation created.");
     },
+    onError: error("Couldn't create evaluation"),
   });
 };
 
@@ -158,7 +168,8 @@ export const useSubmitEvaluation = (): UseMutationResult<
   string
 > => {
   const qc = useQueryClient();
-  return useMutation({
+  const { success, error } = useMutationResult();
+  return useMutation<Evaluation, Error, string>({
     mutationFn: async (evaluationId: string) => {
       const res: AxiosResponse<Evaluation> = await api.post(
         `/admin/evaluations/${evaluationId}/submit`
@@ -167,6 +178,8 @@ export const useSubmitEvaluation = (): UseMutationResult<
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["evaluations"] });
+      success("Submitted.");
     },
+    onError: error("Couldn't submit evaluation"),
   });
 };

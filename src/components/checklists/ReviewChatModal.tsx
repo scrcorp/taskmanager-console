@@ -14,7 +14,7 @@ import React, { useState, useRef, useEffect, useMemo } from "react";
 import { Send, Paperclip, Loader2, Trash2, RotateCcw, CheckCircle } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Modal, Lightbox } from "@/components/ui";
-import { useToast } from "@/components/ui/Toast";
+import { useResultModal } from "@/components/ui/ResultModal";
 import {
   useAddReviewContent,
   useDeleteReviewContent,
@@ -110,7 +110,7 @@ export function ReviewChatModal({
   item,
   onReviewChange,
 }: ReviewChatModalProps): React.ReactElement {
-  const { toast } = useToast();
+  const { showError } = useResultModal();
   const user = useAuthStore((s) => s.user);
   const queryClient = useQueryClient();
   const addContent = useAddReviewContent();
@@ -209,7 +209,7 @@ export function ReviewChatModal({
       await addContent.mutateAsync({ instanceId, itemIndex, type: "text", content: trimmed });
       setText("");
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to send.") });
+      showError(parseApiError(err, "Failed to send."));
     } finally {
       setIsSending(false);
     }
@@ -233,7 +233,7 @@ export function ReviewChatModal({
       const type = file.type.startsWith("video/") ? "video" : "photo";
       await addContent.mutateAsync({ instanceId, itemIndex, type, content: file_url });
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to upload.") });
+      showError(parseApiError(err, "Failed to upload."));
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -244,7 +244,7 @@ export function ReviewChatModal({
     try {
       await deleteContent.mutateAsync({ instanceId, itemIndex, contentId });
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to delete.") });
+      showError(parseApiError(err, "Failed to delete."));
     }
   };
 
@@ -261,7 +261,7 @@ export function ReviewChatModal({
       queryClient.invalidateQueries({ queryKey: ["checklist-instances"] });
       onReviewChange?.();
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to update review.") });
+      showError(parseApiError(err, "Failed to update review."));
     } finally {
       setIsActing(false);
     }

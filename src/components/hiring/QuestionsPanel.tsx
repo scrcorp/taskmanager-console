@@ -33,7 +33,7 @@ import { FormPreview } from "./FormPreview";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
-import { useToast } from "@/components/ui/Toast";
+import { useResultModal } from "@/components/ui/ResultModal";
 
 interface Props {
   storeId: string;
@@ -83,7 +83,7 @@ export function QuestionsPanel({ storeId }: Props) {
   const discardDraft = useDiscardHiringFormDraft(storeId);
   const { data: store } = useStore(storeId);
   const [previewMode, setPreviewMode] = useState<"now" | "saved">("now");
-  const { toast } = useToast();
+  const { show, showSuccess, showError } = useResultModal();
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
   );
@@ -335,52 +335,43 @@ export function QuestionsPanel({ storeId }: Props) {
   const handleSaveDraft = async () => {
     const err = validateForSave();
     if (err) {
-      toast({ type: "error", message: err });
+      showError(err);
       return;
     }
     try {
       await saveDraft.mutateAsync(draft);
       setSavedAt(Date.now());
-      toast({ type: "success", message: "Saved as draft" });
+      showSuccess("Saved as draft");
       setTimeout(() => setSavedAt(null), 2000);
     } catch (e) {
       const err = e as { response?: { data?: { detail?: { message?: string } } } };
-      toast({
-        type: "error",
-        message: `Save failed: ${err.response?.data?.detail?.message ?? "unknown"}`,
-      });
+      showError(`Save failed: ${err.response?.data?.detail?.message ?? "unknown"}`);
     }
   };
 
   const handlePublish = async () => {
     const err = validateForSave();
     if (err) {
-      toast({ type: "error", message: err });
+      showError(err);
       return;
     }
     try {
       if (isDirty) await saveDraft.mutateAsync(draft);
       await publish.mutateAsync();
-      toast({ type: "success", message: "Form published — applicants now see it" });
+      showSuccess("Form published — applicants now see it");
     } catch (e) {
       const err = e as { response?: { data?: { detail?: { message?: string } } } };
-      toast({
-        type: "error",
-        message: `Publish failed: ${err.response?.data?.detail?.message ?? "unknown"}`,
-      });
+      showError(`Publish failed: ${err.response?.data?.detail?.message ?? "unknown"}`);
     }
   };
 
   const handleDiscardDraft = async () => {
     try {
       await discardDraft.mutateAsync();
-      toast({ type: "info", message: "Draft discarded" });
+      show({ type: "info", title: "Draft discarded", message: "Draft discarded" });
     } catch (e) {
       const err = e as { response?: { data?: { detail?: { message?: string } } } };
-      toast({
-        type: "error",
-        message: `Discard failed: ${err.response?.data?.detail?.message ?? "unknown"}`,
-      });
+      showError(`Discard failed: ${err.response?.data?.detail?.message ?? "unknown"}`);
     }
   };
 

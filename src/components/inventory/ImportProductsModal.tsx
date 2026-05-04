@@ -10,7 +10,7 @@
 import React, { useCallback, useRef, useState } from "react";
 import { Download, Upload, FileSpreadsheet, X, AlertTriangle } from "lucide-react";
 import { Modal, Button, Badge } from "@/components/ui";
-import { useToast } from "@/components/ui/Toast";
+import { useResultModal } from "@/components/ui/ResultModal";
 import { useDownloadProductTemplate, usePreviewImport, useImportProducts } from "@/hooks/useInventory";
 import { parseApiError, cn } from "@/lib/utils";
 import type { ImportPreviewItem, ProductImportResult } from "@/hooks/useInventory";
@@ -21,7 +21,7 @@ interface ImportProductsModalProps {
 }
 
 export function ImportProductsModal({ isOpen, onClose }: ImportProductsModalProps): React.ReactElement {
-  const { toast } = useToast();
+  const { showSuccess, showError } = useResultModal();
   const downloadTemplate = useDownloadProductTemplate();
   const previewImport = usePreviewImport();
   const importProducts = useImportProducts();
@@ -49,9 +49,9 @@ export function ImportProductsModal({ isOpen, onClose }: ImportProductsModalProp
   const handleDownloadTemplate = async () => {
     try {
       await downloadTemplate();
-      toast({ type: "success", message: "Template downloaded." });
+      showSuccess("Template downloaded.");
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to download template.") });
+      showError(parseApiError(err, "Failed to download template."));
     }
   };
 
@@ -62,7 +62,7 @@ export function ImportProductsModal({ isOpen, onClose }: ImportProductsModalProp
       file.name.endsWith(".xlsx") ||
       file.name.endsWith(".xls");
     if (!isExcel) {
-      toast({ type: "error", message: "Please upload an Excel file (.xlsx or .xls)." });
+      showError("Please upload an Excel file (.xlsx or .xls).");
       return;
     }
     setSelectedFile(file);
@@ -93,7 +93,7 @@ export function ImportProductsModal({ isOpen, onClose }: ImportProductsModalProp
     previewImport.mutate(formData, {
       onSuccess: (data) => {
         if (data.error) {
-          toast({ type: "error", message: data.error });
+          showError(data.error);
           return;
         }
         const items = data.items ?? [];
@@ -102,15 +102,15 @@ export function ImportProductsModal({ isOpen, onClose }: ImportProductsModalProp
         setPreviewRowErrors(rowErrors);
         setSelectedRows(new Set(items.map((_, i) => i)));
         if (rowErrors.length > 0) {
-          toast({
-            type: "error",
-            message: `${rowErrors.length} row(s) have invalid values. Fix them before importing.`,
-          });
+          showError(
+            `${rowErrors.length} row(s) have invalid values. Fix them before importing.`,
+            { details: rowErrors.slice(0, 10) },
+          );
         }
         setStep(2);
       },
       onError: (err) => {
-        toast({ type: "error", message: parseApiError(err, "Preview failed.") });
+        showError(parseApiError(err, "Preview failed."));
       },
     });
   };
@@ -144,10 +144,10 @@ export function ImportProductsModal({ isOpen, onClose }: ImportProductsModalProp
     importProducts.mutate(formData, {
       onSuccess: (data) => {
         setResult(data);
-        toast({ type: "success", message: `Import complete: ${data.created} created, ${data.linked} linked.` });
+        showSuccess(`Import complete: ${data.created} created, ${data.linked} linked.`);
       },
       onError: (err) => {
-        toast({ type: "error", message: parseApiError(err, "Import failed.") });
+        showError(parseApiError(err, "Import failed."));
       },
     });
   };

@@ -35,7 +35,8 @@ export function ConfirmDialog({
   if (!open) return null
 
   const isDanger = confirmVariant === 'danger'
-  const reasonValid = !requiresReason || reason.trim().length > 0
+  // reason 입력 칸이 보여도 mandatory 가 아니면 빈 값으로 진행 가능 (label 의 OPTIONAL 과 일치)
+  const reasonValid = !requiresReason || !reasonMandatory || reason.trim().length > 0
 
   return (
     <div className="fixed inset-0 z-[400] flex items-center justify-center p-4">
