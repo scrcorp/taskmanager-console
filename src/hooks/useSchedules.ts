@@ -231,7 +231,6 @@ export const useCancelSchedule = (): UseMutationResult<Schedule, Error, { id: st
 
 export const useSwitchSchedule = (): UseMutationResult<{ a: Schedule; b: Schedule }, Error, { id: string; other_schedule_id: string; reason?: string }> => {
   const qc = useQueryClient();
-  const onErr = useErrorToast();
   return useMutation<{ a: Schedule; b: Schedule }, Error, { id: string; other_schedule_id: string; reason?: string }>({
     mutationFn: async ({ id, other_schedule_id, reason }) => {
       const res: AxiosResponse<{ a: Schedule; b: Schedule }> = await api.post(
@@ -246,7 +245,7 @@ export const useSwitchSchedule = (): UseMutationResult<{ a: Schedule; b: Schedul
       qc.invalidateQueries({ queryKey: ["schedules", other_schedule_id, "audit"] });
       qc.invalidateQueries({ queryKey: ["schedule-history"] });
     },
-    onError: onErr("Failed to switch schedules"),
+    // Errors are surfaced inline in SwapModal via callsite onError. No default toast.
   });
 };
 

@@ -301,6 +301,18 @@ export default function SchedulesCalendarView() {
   const [historyScheduleId, setHistoryScheduleId] = useState<string | undefined>(undefined);
   const [switchOpen, setSwitchOpen] = useState(false);
   const [switchSourceId, setSwitchSourceId] = useState<string | null>(null);
+  const [switchError, setSwitchError] = useState<string | null>(null);
+  type EmptyStaffMode = "down" | "hide" | "show";
+  const [emptyStaffMode, setEmptyStaffMode] = useState<EmptyStaffMode>(() => {
+    if (typeof window === "undefined") return "down";
+    const v = localStorage.getItem("schedule.emptyStaffMode");
+    return v === "hide" || v === "show" || v === "down" ? (v as EmptyStaffMode) : "down";
+  });
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      localStorage.setItem("schedule.emptyStaffMode", emptyStaffMode);
+    }
+  }, [emptyStaffMode]);
   const [changeStaffOpen, setChangeStaffOpen] = useState(false);
   const [changeStaffSourceId, setChangeStaffSourceId] = useState<string | null>(null);
   const [editModal, setEditModal] = useState<{ open: boolean; mode: "add" | "edit"; blockId?: string; staffId?: string; date?: string; startTime?: string }>({ open: false, mode: "add" });
@@ -711,6 +723,36 @@ export default function SchedulesCalendarView() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sortCol, sortState, view, selectedStores, isAllStores, selectedDay, filteredUsers, schedules, weekDates, openHour]);
 
+  const userHasScheduleInView = useMemo(() => {
+    let from: string;
+    let to: string;
+    if (view === "monthly") { from = monthDateFrom; to = monthDateTo; }
+    else if (view === "daily") { from = selectedDay; to = selectedDay; }
+    else { from = weekDates[0]?.date ?? ""; to = weekDates[6]?.date ?? ""; }
+    const set = new Set<string>();
+    if (!from || !to) return set;
+    for (const s of schedules) {
+      if (!matchesStoreFilter(s.store_id)) continue;
+      if (s.work_date >= from && s.work_date <= to) set.add(s.user_id);
+    }
+    return set;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schedules, view, monthDateFrom, monthDateTo, selectedDay, weekDates, selectedStores, isAllStores]);
+
+  const displayUsers = useMemo(() => {
+    if (emptyStaffMode === "show") return sortedUsers;
+    if (emptyStaffMode === "hide") {
+      return sortedUsers.filter((u) => userHasScheduleInView.has(u.id));
+    }
+    const withSched: User[] = [];
+    const without: User[] = [];
+    for (const u of sortedUsers) {
+      if (userHasScheduleInView.has(u.id)) withSched.push(u);
+      else without.push(u);
+    }
+    return [...withSched, ...without];
+  }, [sortedUsers, emptyStaffMode, userHasScheduleInView]);
+
   // ─── Columns + totals ─────────────────────────────────
 
   const weeklyColumns = useMemo(() => weekDates.map((day) => {
@@ -1090,16 +1132,20 @@ export default function SchedulesCalendarView() {
         return (
           <SwapModal
             open={switchOpen}
-            onClose={() => { setSwitchOpen(false); setSwitchSourceId(null); }}
+            onClose={() => { setSwitchOpen(false); setSwitchSourceId(null); setSwitchError(null); }}
             fromSchedule={fromSchedule ?? null}
             fromUser={fromUser ?? null}
             candidateSchedules={storeFiltered}
             users={users}
             isSubmitting={switchMutation.isPending}
+            errorMessage={switchError}
+            onClearError={() => setSwitchError(null)}
             onSwap={(otherId, reason) => {
               if (!switchSourceId) return;
+              setSwitchError(null);
               switchMutation.mutate({ id: switchSourceId, other_schedule_id: otherId, reason }, {
-                onSuccess: () => { setSwitchOpen(false); setSwitchSourceId(null); },
+                onSuccess: () => { setSwitchOpen(false); setSwitchSourceId(null); setSwitchError(null); },
+                onError: (err) => { setSwitchError(parseApiError(err, "Switch failed")); },
               });
             }}
           />
@@ -1320,6 +1366,17 @@ export default function SchedulesCalendarView() {
                 </button>
               ))}
             </div>
+            {/* Empty staff display mode */}
+            <select
+              value={emptyStaffMode}
+              onChange={(e) => setEmptyStaffMode(e.target.value as EmptyStaffMode)}
+              className="hidden md:block px-2.5 py-1.5 rounded-lg text-[12px] sm:text-[13px] font-medium text-[var(--color-text-secondary)] bg-[var(--color-bg)] border border-[var(--color-border)] hover:text-[var(--color-text)] focus:outline-none focus:border-[var(--color-accent)] cursor-pointer shrink-0"
+              title="Where to place staff without any schedules in this range"
+            >
+              <option value="down">Empty: Down</option>
+              <option value="hide">Empty: Hide</option>
+              <option value="show">Empty: Show</option>
+            </select>
             {/* Nav */}
             <div className="flex items-center gap-1 sm:gap-2 shrink-0">
               <button
@@ -1478,7 +1535,7 @@ export default function SchedulesCalendarView() {
               />
 
               <tbody>
-                {sortedUsers.map((u: User) => {
+                {displayUsers.map((u: User) => {
                   // 신규 스케줄 생성 시 default로 박힐 rate (user → store → org cascade).
                   // 기존 스케줄의 stored rate와는 무관 — 표시 라벨에만 사용.
                   const userEffective = effectiveRate(u, currentStore, orgDefaultRate);

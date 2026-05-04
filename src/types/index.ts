@@ -10,6 +10,8 @@ export interface TokenResponse {
   token_type: string;
 }
 
+export type PreferredLanguage = "en" | "es" | "ko";
+
 export interface UserMe {
   id: string;
   username: string;
@@ -27,6 +29,7 @@ export interface UserMe {
   permissions: string[];
   password_changed_at: string | null;
   must_change_password: boolean;
+  preferred_language: PreferredLanguage;
 }
 
 // Organization
