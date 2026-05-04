@@ -206,6 +206,26 @@ export function AccountScreen({ form, onChange, onBack, onContinue, hasForm }: P
           </div>
         </Field>
 
+        <Field
+          label="Preferred language"
+          hint="We'll use this to personalize content."
+        >
+          <select
+            value={form.preferredLanguage}
+            onChange={(e) =>
+              update(
+                "preferredLanguage",
+                e.target.value as AccountFormState["preferredLanguage"],
+              )
+            }
+            className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-[14px] text-slate-900 outline-none transition-colors focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+          >
+            <option value="en">English</option>
+            <option value="es">Español</option>
+            <option value="ko">한국어</option>
+          </select>
+        </Field>
+
         <div className="flex items-center gap-2 pt-1 text-[11px] text-slate-400">
           <svg
             className="h-3.5 w-3.5 flex-shrink-0"

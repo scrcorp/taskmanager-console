@@ -29,7 +29,7 @@ import {
   ConfirmDialog,
   LoadingSpinner,
 } from "@/components/ui";
-import { useToast } from "@/components/ui/Toast";
+import { useResultModal } from "@/components/ui/ResultModal";
 import { parseApiError } from "@/lib/utils";
 import type {
   DailyReportTemplate,
@@ -58,7 +58,7 @@ function createEmptySection(sort_order: number): SectionFormItem {
 
 export default function DailyReportTemplatesPage(): React.ReactElement {
   const router = useRouter();
-  const { toast } = useToast();
+  const { showSuccess, showError } = useResultModal();
 
   // Data hooks
   const { data: templates, isLoading } = useTemplates();
@@ -125,12 +125,12 @@ export default function DailyReportTemplatesPage(): React.ReactElement {
 
   const handleSave = useCallback(async () => {
     if (!formName.trim()) {
-      toast({ type: "error", message: "Template name is required" });
+      showError("Template name is required");
       return;
     }
     const validSections = formSections.filter((s) => s.title.trim());
     if (validSections.length === 0) {
-      toast({ type: "error", message: "At least one section with a title is required" });
+      showError("At least one section with a title is required");
       return;
     }
     const sections = validSections.map((s, i) => ({
@@ -148,7 +148,7 @@ export default function DailyReportTemplatesPage(): React.ReactElement {
           sections,
         };
         await updateTemplate.mutateAsync({ id: editingId, data });
-        toast({ type: "success", message: "Template updated" });
+        showSuccess("Template updated");
       } else {
         const data: DailyReportTemplateCreate = {
           name: formName.trim(),
@@ -157,29 +157,29 @@ export default function DailyReportTemplatesPage(): React.ReactElement {
           sections,
         };
         await createTemplate.mutateAsync(data);
-        toast({ type: "success", message: "Template created" });
+        showSuccess("Template created");
       }
       setIsFormOpen(false);
       resetForm();
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to save template") });
+      showError(parseApiError(err, "Failed to save template"));
     }
-  }, [formName, formStoreId, formIsDefault, formSections, editingId, createTemplate, updateTemplate, toast, resetForm]);
+  }, [formName, formStoreId, formIsDefault, formSections, editingId, createTemplate, updateTemplate, showSuccess, showError, resetForm]);
 
   const handleDelete = useCallback(async () => {
     if (!deleteId) return;
     try {
       await deleteTemplate.mutateAsync(deleteId);
-      toast({ type: "success", message: "Template deleted" });
+      showSuccess("Template deleted");
       setDeleteId(null);
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to delete template") });
+      showError(parseApiError(err, "Failed to delete template"));
     }
-  }, [deleteId, deleteTemplate, toast]);
+  }, [deleteId, deleteTemplate, showSuccess, showError]);
 
   const handleExcelUpload = useCallback(async () => {
     if (!excelFile || !excelName.trim()) {
-      toast({ type: "error", message: "File and template name are required" });
+      showError("File and template name are required");
       return;
     }
     try {
@@ -188,23 +188,23 @@ export default function DailyReportTemplatesPage(): React.ReactElement {
         name: excelName.trim(),
         store_id: excelStoreId || undefined,
       });
-      toast({ type: "success", message: "Template created from Excel" });
+      showSuccess("Template created from Excel");
       setIsExcelOpen(false);
       setExcelFile(null);
       setExcelName("");
       setExcelStoreId("");
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to upload Excel") });
+      showError(parseApiError(err, "Failed to upload Excel"));
     }
-  }, [excelFile, excelName, excelStoreId, uploadExcel, toast]);
+  }, [excelFile, excelName, excelStoreId, uploadExcel, showSuccess, showError]);
 
   const handleDownloadSample = useCallback(async () => {
     try {
       await downloadSampleExcel();
     } catch {
-      toast({ type: "error", message: "Failed to download sample file" });
+      showError("Failed to download sample file");
     }
-  }, [toast]);
+  }, [showError]);
 
   const addSection = useCallback(() => {
     setFormSections((prev) => [...prev, createEmptySection(prev.length + 1)]);

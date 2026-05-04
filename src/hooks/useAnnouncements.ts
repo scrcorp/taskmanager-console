@@ -8,6 +8,8 @@ import {
 } from "@tanstack/react-query";
 import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
+import { useResultModal } from "@/components/ui/ResultModal";
+import { parseApiError } from "@/lib/utils";
 import type { Announcement, PaginatedResponse } from "@/types";
 
 /**
@@ -78,6 +80,7 @@ export const useCreateAnnouncement = (): UseMutationResult<
   CreateAnnouncementData
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { showSuccess, showError } = useResultModal();
   return useMutation<Announcement, Error, CreateAnnouncementData>({
     mutationFn: async (
       data: CreateAnnouncementData,
@@ -96,6 +99,10 @@ export const useCreateAnnouncement = (): UseMutationResult<
           return { ...old, items: [newAnn, ...old.items], total: old.total + 1 };
         },
       );
+      showSuccess("Notice posted.");
+    },
+    onError: (err) => {
+      showError(parseApiError(err, "Unexpected error"), { title: "Couldn't post notice" });
     },
   });
 };
@@ -121,6 +128,7 @@ export const useUpdateAnnouncement = (): UseMutationResult<
   UpdateAnnouncementData
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { showSuccess, showError } = useResultModal();
   return useMutation<Announcement, Error, UpdateAnnouncementData>({
     mutationFn: async ({
       id,
@@ -141,6 +149,10 @@ export const useUpdateAnnouncement = (): UseMutationResult<
         },
       );
       queryClient.setQueryData<Announcement>(["announcements", variables.id], updated);
+      showSuccess("Notice updated.");
+    },
+    onError: (err) => {
+      showError(parseApiError(err, "Unexpected error"), { title: "Couldn't update notice" });
     },
   });
 };
@@ -158,6 +170,7 @@ export const useDeleteAnnouncement = (): UseMutationResult<
   string
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { showSuccess, showError } = useResultModal();
   return useMutation<void, Error, string>({
     mutationFn: async (id: string): Promise<void> => {
       await api.delete(`/admin/announcements/${id}`);
@@ -170,6 +183,10 @@ export const useDeleteAnnouncement = (): UseMutationResult<
           return { ...old, items: old.items.filter((a) => a.id !== id), total: old.total - 1 };
         },
       );
+      showSuccess("Notice deleted.");
+    },
+    onError: (err) => {
+      showError(parseApiError(err, "Unexpected error"), { title: "Couldn't delete notice" });
     },
   });
 };

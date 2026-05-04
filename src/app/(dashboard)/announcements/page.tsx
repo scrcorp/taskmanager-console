@@ -30,7 +30,7 @@ import {
   ConfirmDialog,
   LoadingSpinner,
 } from "@/components/ui";
-import { useToast } from "@/components/ui/Toast";
+import { useResultModal } from "@/components/ui/ResultModal";
 import { formatDate, parseApiError } from "@/lib/utils";
 import { useTimezone } from "@/hooks/useTimezone";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -41,7 +41,7 @@ const PER_PAGE: number = 20;
 
 export default function AnnouncementsPage(): React.ReactElement {
   const router = useRouter();
-  const { toast } = useToast();
+  const { showSuccess, showError } = useResultModal();
   const { hasPermission } = usePermissions();
   const tz = useTimezone();
   const canManageAnnouncements = hasPermission(PERMISSIONS.ANNOUNCEMENTS_CREATE);
@@ -171,7 +171,7 @@ export default function AnnouncementsPage(): React.ReactElement {
 
   const handleFormSubmit: () => void = useCallback((): void => {
     if (!formTitle.trim() || !formContent.trim()) {
-      toast({ type: "error", message: "Title and content are required." });
+      showError("Title and content are required.");
       return;
     }
 
@@ -186,39 +186,39 @@ export default function AnnouncementsPage(): React.ReactElement {
         { id: editingId, ...payload },
         {
           onSuccess: (): void => {
-            toast({ type: "success", message: "Notice updated successfully." });
+            showSuccess("Notice updated successfully.");
             setIsFormOpen(false);
           },
           onError: (err): void => {
-            toast({ type: "error", message: parseApiError(err, "Failed to update notice.") });
+            showError(parseApiError(err, "Failed to update notice."));
           },
         },
       );
     } else {
       createAnnouncement.mutate(payload, {
         onSuccess: (): void => {
-          toast({ type: "success", message: "Notice created successfully." });
+          showSuccess("Notice created successfully.");
           setIsFormOpen(false);
         },
         onError: (err): void => {
-          toast({ type: "error", message: parseApiError(err, "Failed to create notice.") });
+          showError(parseApiError(err, "Failed to create notice."));
         },
       });
     }
-  }, [formTitle, formContent, formStoreId, editingId, createAnnouncement, updateAnnouncement, toast]);
+  }, [formTitle, formContent, formStoreId, editingId, createAnnouncement, updateAnnouncement, showSuccess, showError]);
 
   const handleDelete: () => void = useCallback((): void => {
     if (!deleteId) return;
     deleteAnnouncement.mutate(deleteId, {
       onSuccess: (): void => {
-        toast({ type: "success", message: "Notice deleted successfully." });
+        showSuccess("Notice deleted successfully.");
         setDeleteId(null);
       },
       onError: (err): void => {
-        toast({ type: "error", message: parseApiError(err, "Failed to delete notice.") });
+        showError(parseApiError(err, "Failed to delete notice."));
       },
     });
-  }, [deleteId, deleteAnnouncement, toast]);
+  }, [deleteId, deleteAnnouncement, showSuccess, showError]);
 
   const isSubmitting: boolean = createAnnouncement.isPending || updateAnnouncement.isPending;
 

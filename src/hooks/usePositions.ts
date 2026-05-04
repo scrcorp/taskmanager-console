@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query";
 import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
+import { useMutationResult } from "@/lib/mutationResult";
 import type { Position, StoreDetail } from "@/types";
 
 /**
@@ -53,6 +54,7 @@ export const useCreatePosition = (): UseMutationResult<
   CreatePositionData
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<Position, Error, CreatePositionData>({
     mutationFn: async ({
       storeId,
@@ -74,7 +76,9 @@ export const useCreatePosition = (): UseMutationResult<
         (old) =>
           old ? { ...old, positions: [...old.positions, newPos] } : undefined,
       );
+      success("Position created.");
     },
+    onError: error("Couldn't create position"),
   });
 };
 
@@ -99,6 +103,7 @@ export const useUpdatePosition = (): UseMutationResult<
   UpdatePositionData
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<Position, Error, UpdatePositionData>({
     mutationFn: async ({
       storeId,
@@ -128,7 +133,9 @@ export const useUpdatePosition = (): UseMutationResult<
               }
             : undefined,
       );
+      success("Position updated.");
     },
+    onError: error("Couldn't update position"),
   });
 };
 
@@ -151,6 +158,7 @@ export const useDeletePosition = (): UseMutationResult<
   DeletePositionData
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<void, Error, DeletePositionData>({
     mutationFn: async ({
       storeId,
@@ -173,6 +181,8 @@ export const useDeletePosition = (): UseMutationResult<
               }
             : undefined,
       );
+      success("Position deleted.");
     },
+    onError: error("Couldn't delete position"),
   });
 };

@@ -6,13 +6,13 @@ import { ArrowLeft } from "lucide-react";
 import { useBreakRule, useUpsertBreakRule } from "@/hooks/useBreakRules";
 import { useStore } from "@/hooks/useStores";
 import { Button, Card, Input, Select } from "@/components/ui";
-import { useToast } from "@/components/ui/Toast";
+import { useResultModal } from "@/components/ui/ResultModal";
 import { parseApiError } from "@/lib/utils";
 
 export default function BreakRulesPage(): React.ReactElement {
   const params = useParams();
   const router = useRouter();
-  const { toast } = useToast();
+  const { showSuccess, showError } = useResultModal();
   const storeId = params.id as string;
 
   const { data: store } = useStore(storeId);
@@ -44,9 +44,9 @@ export default function BreakRulesPage(): React.ReactElement {
           work_hour_calc_basis: calcBasis,
         },
       });
-      toast({ type: "success", message: "Break rules saved" });
+      showSuccess("Break rules saved");
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to save break rules") });
+      showError(parseApiError(err, "Failed to save break rules"));
     }
   };
 

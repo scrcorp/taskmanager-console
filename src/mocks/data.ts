@@ -52,6 +52,7 @@ export const mockMe: UserMe = {
   is_active: true,
   password_changed_at: null,
   must_change_password: false,
+  preferred_language: "en",
   permissions: [
     "announcements:create", "announcements:delete", "announcements:read", "announcements:update",
     "audit_log:read", "checklists:create", "checklists:delete", "checklists:read", "checklists:update",

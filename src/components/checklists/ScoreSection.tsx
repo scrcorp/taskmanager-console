@@ -9,7 +9,7 @@
 import React, { useState, useEffect } from "react";
 import { AlertTriangle, Send } from "lucide-react";
 import { Card, Button } from "@/components/ui";
-import { useToast } from "@/components/ui/Toast";
+import { useResultModal } from "@/components/ui/ResultModal";
 import { useUpdateScore, useSendReport } from "@/hooks/useChecklistInstances";
 import { parseApiError } from "@/lib/utils";
 import type { ChecklistInstance } from "@/types";
@@ -19,7 +19,7 @@ interface ScoreSectionProps {
 }
 
 export function ScoreSection({ instance }: ScoreSectionProps): React.ReactElement {
-  const { toast } = useToast();
+  const { showSuccess, showError } = useResultModal();
   const updateScore = useUpdateScore();
   const sendReport = useSendReport();
 
@@ -39,7 +39,7 @@ export function ScoreSection({ instance }: ScoreSectionProps): React.ReactElemen
 
   const handleSaveScore = async () => {
     if (!isValidScore) {
-      toast({ type: "error", message: "Score must be between 0 and 100." });
+      showError("Score must be between 0 and 100.");
       return;
     }
     try {
@@ -48,18 +48,18 @@ export function ScoreSection({ instance }: ScoreSectionProps): React.ReactElemen
         score: parsedScore,
         score_note: noteInput || undefined,
       });
-      toast({ type: "success", message: "Score saved." });
+      showSuccess("Score saved.");
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to save score.") });
+      showError(parseApiError(err, "Failed to save score."));
     }
   };
 
   const handleSendReport = async () => {
     try {
       await sendReport.mutateAsync({ instanceId: instance.id });
-      toast({ type: "success", message: "Report sent." });
+      showSuccess("Report sent.");
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to send report.") });
+      showError(parseApiError(err, "Failed to send report."));
     }
   };
 

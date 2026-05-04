@@ -28,7 +28,7 @@ import {
   ConfirmDialog,
   LoadingSpinner,
 } from "@/components/ui";
-import { useToast } from "@/components/ui/Toast";
+import { useResultModal } from "@/components/ui/ResultModal";
 import { formatDate, parseApiError } from "@/lib/utils";
 import { useTimezone } from "@/hooks/useTimezone";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -38,7 +38,7 @@ import type { EvalTemplate, Evaluation as EvalType } from "@/types";
 const PER_PAGE: number = 20;
 
 export default function EvaluationsPage(): React.ReactElement {
-  const { toast } = useToast();
+  const { showSuccess, showError } = useResultModal();
   const { hasPermission } = usePermissions();
   const tz = useTimezone();
   const isGMOrAbove = hasPermission(PERMISSIONS.EVALUATIONS_CREATE);
@@ -74,35 +74,35 @@ export default function EvaluationsPage(): React.ReactElement {
         target_role: templateTargetRole || null,
         eval_type: templateEvalType,
       });
-      toast({ type: "success", message: "Template created" });
+      showSuccess("Template created");
       setIsTemplateFormOpen(false);
       setTemplateName("");
       setTemplateTargetRole("");
       setTemplateEvalType("adhoc");
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to create template") });
+      showError(parseApiError(err, "Failed to create template"));
     }
-  }, [templateName, templateTargetRole, templateEvalType, createTemplate, toast]);
+  }, [templateName, templateTargetRole, templateEvalType, createTemplate, showSuccess, showError]);
 
   const handleDeleteTemplate = useCallback(async () => {
     if (!deleteTemplateId) return;
     try {
       await deleteTemplate.mutateAsync(deleteTemplateId);
-      toast({ type: "success", message: "Template deleted" });
+      showSuccess("Template deleted");
       setDeleteTemplateId(null);
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to delete template") });
+      showError(parseApiError(err, "Failed to delete template"));
     }
-  }, [deleteTemplateId, deleteTemplate, toast]);
+  }, [deleteTemplateId, deleteTemplate, showSuccess, showError]);
 
   const handleSubmitEval = useCallback(async (evalId: string) => {
     try {
       await submitEvaluation.mutateAsync(evalId);
-      toast({ type: "success", message: "Evaluation submitted" });
+      showSuccess("Evaluation submitted");
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to submit evaluation") });
+      showError(parseApiError(err, "Failed to submit evaluation"));
     }
-  }, [submitEvaluation, toast]);
+  }, [submitEvaluation, showSuccess, showError]);
 
   const isLoading = activeTab === "templates" ? templatesLoading : evalsLoading;
 

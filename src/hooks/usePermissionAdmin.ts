@@ -13,6 +13,7 @@ import {
   type UseMutationResult,
 } from "@tanstack/react-query";
 import api from "@/lib/api";
+import { useMutationResult } from "@/lib/mutationResult";
 
 /** 서버에서 반환하는 Permission 객체 */
 export interface PermissionItem {
@@ -56,7 +57,12 @@ export const useUpdateRolePermissions = (): UseMutationResult<
   { roleId: string; permissionCodes: string[] }
 > => {
   const queryClient = useQueryClient();
-  return useMutation({
+  const { success, error } = useMutationResult();
+  return useMutation<
+    PermissionItem[],
+    Error,
+    { roleId: string; permissionCodes: string[] }
+  >({
     mutationFn: async ({ roleId, permissionCodes }) => {
       const res = await api.put(`/admin/permissions/roles/${roleId}`, {
         permission_codes: permissionCodes,
@@ -65,6 +71,8 @@ export const useUpdateRolePermissions = (): UseMutationResult<
     },
     onSuccess: (_data, { roleId }) => {
       queryClient.invalidateQueries({ queryKey: ["permissions", "role", roleId] });
+      success("Permissions updated.");
     },
+    onError: error("Couldn't update permissions"),
   });
 };

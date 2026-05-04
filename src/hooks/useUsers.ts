@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query";
 import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
+import { useMutationToast } from "@/lib/mutationToast";
 import type { User, Store, UserStoreAssignment } from "@/types";
 
 /** 사용자 목록 필터 타입 (User list filter type) */
@@ -100,6 +101,7 @@ export const useCreateUser = (): UseMutationResult<
   CreateUserData
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationToast();
   return useMutation<User, Error, CreateUserData>({
     mutationFn: async (data: CreateUserData): Promise<User> => {
       const { store_assignments, ...body } = data;
@@ -118,7 +120,9 @@ export const useCreateUser = (): UseMutationResult<
           return [...old, newUser];
         },
       );
+      success("Staff added.");
     },
+    onError: error("Failed to add staff"),
   });
 };
 
@@ -147,6 +151,7 @@ export const useUpdateUser = (): UseMutationResult<
   UpdateUserData
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationToast();
   return useMutation<User, Error, UpdateUserData>({
     mutationFn: async ({ id, ...data }: UpdateUserData): Promise<User> => {
       const response: AxiosResponse<User> = await api.put(
@@ -164,7 +169,9 @@ export const useUpdateUser = (): UseMutationResult<
         },
       );
       queryClient.setQueryData<User>(["users", variables.id], updated);
+      success("Staff updated.");
     },
+    onError: error("Failed to update staff"),
   });
 };
 
@@ -187,6 +194,7 @@ export const useToggleUserActive = (): UseMutationResult<
   ToggleUserActiveData
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationToast();
   return useMutation<void, Error, ToggleUserActiveData>({
     mutationFn: async ({
       id,
@@ -207,7 +215,9 @@ export const useToggleUserActive = (): UseMutationResult<
       queryClient.setQueryData<User>(["users", variables.id], (old) =>
         old ? { ...old, is_active: variables.is_active } : undefined,
       );
+      success(variables.is_active ? "Staff activated." : "Staff deactivated.");
     },
+    onError: error("Failed to update active status"),
   });
 };
 
@@ -220,6 +230,7 @@ export const useToggleUserActive = (): UseMutationResult<
  */
 export const useDeleteUser = (): UseMutationResult<void, Error, string> => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationToast();
   return useMutation<void, Error, string>({
     mutationFn: async (id: string): Promise<void> => {
       await api.delete(`/admin/users/${id}`);
@@ -232,7 +243,9 @@ export const useDeleteUser = (): UseMutationResult<void, Error, string> => {
           return old.filter((u) => u.id !== id);
         },
       );
+      success("Staff deleted.");
     },
+    onError: error("Failed to delete staff"),
   });
 };
 

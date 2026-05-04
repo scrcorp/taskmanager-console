@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query";
 import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
+import { useMutationResult } from "@/lib/mutationResult";
 import type { Shift, StoreDetail } from "@/types";
 
 /**
@@ -53,6 +54,7 @@ export const useCreateShift = (): UseMutationResult<
   CreateShiftData
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<Shift, Error, CreateShiftData>({
     mutationFn: async ({
       storeId,
@@ -74,7 +76,9 @@ export const useCreateShift = (): UseMutationResult<
         (old) =>
           old ? { ...old, shifts: [...old.shifts, newShift] } : undefined,
       );
+      success("Shift created.");
     },
+    onError: error("Couldn't create shift"),
   });
 };
 
@@ -99,6 +103,7 @@ export const useUpdateShift = (): UseMutationResult<
   UpdateShiftData
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<Shift, Error, UpdateShiftData>({
     mutationFn: async ({
       storeId,
@@ -128,7 +133,9 @@ export const useUpdateShift = (): UseMutationResult<
               }
             : undefined,
       );
+      success("Shift updated.");
     },
+    onError: error("Couldn't update shift"),
   });
 };
 
@@ -151,6 +158,7 @@ export const useDeleteShift = (): UseMutationResult<
   DeleteShiftData
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<void, Error, DeleteShiftData>({
     mutationFn: async ({ storeId, id }: DeleteShiftData): Promise<void> => {
       await api.delete(`/admin/stores/${storeId}/shifts/${id}`);
@@ -167,6 +175,8 @@ export const useDeleteShift = (): UseMutationResult<
             ? { ...old, shifts: old.shifts.filter((s) => s.id !== variables.id) }
             : undefined,
       );
+      success("Shift deleted.");
     },
+    onError: error("Couldn't delete shift"),
   });
 };

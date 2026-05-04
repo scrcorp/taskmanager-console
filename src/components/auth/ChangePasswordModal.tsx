@@ -5,7 +5,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useChangePassword } from "@/hooks/usePassword";
 import { setTokens } from "@/lib/auth";
-import { useToast } from "@/components/ui/Toast";
+import { useResultModal } from "@/components/ui/ResultModal";
 import { parseApiError } from "@/lib/utils";
 
 /**
@@ -26,7 +26,7 @@ export function ChangePasswordModal({
   isOpen,
   onClose,
 }: ChangePasswordModalProps): React.ReactElement | null {
-  const { toast } = useToast();
+  const { showError } = useResultModal();
   const changePassword = useChangePassword();
 
   const [currentPassword, setCurrentPassword] = useState("");
@@ -49,12 +49,12 @@ export function ChangePasswordModal({
     setCurrentPasswordError("");
 
     if (newPassword !== confirmPassword) {
-      toast({ type: "error", message: "New passwords do not match." });
+      showError("New passwords do not match.");
       return;
     }
 
     if (newPassword.length < 1) {
-      toast({ type: "error", message: "New password is required." });
+      showError("New password is required.");
       return;
     }
 
@@ -71,7 +71,7 @@ export function ChangePasswordModal({
       if (msg.toLowerCase().includes("incorrect") || msg.toLowerCase().includes("wrong")) {
         setCurrentPasswordError("Current password is incorrect.");
       } else {
-        toast({ type: "error", message: msg });
+        showError(msg);
       }
     }
   };

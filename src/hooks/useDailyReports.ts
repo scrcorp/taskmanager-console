@@ -12,6 +12,7 @@ import {
 } from "@tanstack/react-query";
 import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
+import { useMutationToast } from "@/lib/mutationToast";
 import type {
   DailyReport,
   DailyReportComment,
@@ -62,13 +63,16 @@ export const useDailyReport = (
 /** 일일 보고서 삭제 */
 export const useDeleteDailyReport = (): UseMutationResult<void, Error, string> => {
   const qc = useQueryClient();
-  return useMutation({
+  const { success, error } = useMutationToast();
+  return useMutation<void, Error, string>({
     mutationFn: async (reportId: string) => {
       await api.delete(`/admin/daily-reports/${reportId}`);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["daily-reports"] });
+      success("Report deleted.");
     },
+    onError: error("Failed to delete report"),
   });
 };
 
@@ -79,8 +83,9 @@ export const useAddDailyReportComment = (): UseMutationResult<
   { reportId: string; content: string }
 > => {
   const qc = useQueryClient();
-  return useMutation({
-    mutationFn: async ({ reportId, content }: { reportId: string; content: string }) => {
+  const { success, error } = useMutationToast();
+  return useMutation<DailyReportComment, Error, { reportId: string; content: string }>({
+    mutationFn: async ({ reportId, content }) => {
       const res: AxiosResponse<DailyReportComment> = await api.post(
         `/admin/daily-reports/${reportId}/comments`,
         { content },
@@ -89,6 +94,8 @@ export const useAddDailyReportComment = (): UseMutationResult<
     },
     onSuccess: (_data, variables) => {
       qc.invalidateQueries({ queryKey: ["daily-report", variables.reportId] });
+      success("Comment posted.");
     },
+    onError: error("Failed to post comment"),
   });
 };

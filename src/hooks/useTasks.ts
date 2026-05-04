@@ -8,6 +8,8 @@ import {
 } from "@tanstack/react-query";
 import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
+import { useResultModal } from "@/components/ui/ResultModal";
+import { parseApiError } from "@/lib/utils";
 import type { AdditionalTask, PaginatedResponse, TaskEvidence } from "@/types";
 
 /** 추가 작업 목록 필터 타입 (Task list filter type) */
@@ -93,6 +95,7 @@ export const useCreateTask = (): UseMutationResult<
   CreateTaskData
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { showSuccess, showError } = useResultModal();
   return useMutation<AdditionalTask, Error, CreateTaskData>({
     mutationFn: async (data: CreateTaskData): Promise<AdditionalTask> => {
       const response: AxiosResponse<AdditionalTask> = await api.post(
@@ -109,9 +112,15 @@ export const useCreateTask = (): UseMutationResult<
           return { ...old, items: [newTask, ...old.items], total: old.total + 1 };
         },
       );
+      showSuccess("Task created.");
+    },
+    onError: (err) => {
+      showError(parseApiError(err, "Unexpected error"), { title: "Couldn't create task" });
     },
   });
 };
+
+
 
 /** 추가 작업 수정 요청 데이터 타입 (Task update request data type) */
 interface UpdateTaskData {
@@ -138,6 +147,7 @@ export const useUpdateTask = (): UseMutationResult<
   UpdateTaskData
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { showSuccess, showError } = useResultModal();
   return useMutation<AdditionalTask, Error, UpdateTaskData>({
     mutationFn: async ({
       id,
@@ -158,6 +168,10 @@ export const useUpdateTask = (): UseMutationResult<
         },
       );
       queryClient.setQueryData<AdditionalTask>(["tasks", variables.id], updated);
+      showSuccess("Task updated.");
+    },
+    onError: (err) => {
+      showError(parseApiError(err, "Unexpected error"), { title: "Couldn't update task" });
     },
   });
 };
@@ -171,6 +185,7 @@ export const useUpdateTask = (): UseMutationResult<
  */
 export const useDeleteTask = (): UseMutationResult<void, Error, string> => {
   const queryClient: QueryClient = useQueryClient();
+  const { showSuccess, showError } = useResultModal();
   return useMutation<void, Error, string>({
     mutationFn: async (id: string): Promise<void> => {
       await api.delete(`/admin/additional-tasks/${id}`);
@@ -183,6 +198,10 @@ export const useDeleteTask = (): UseMutationResult<void, Error, string> => {
           return { ...old, items: old.items.filter((t) => t.id !== id), total: old.total - 1 };
         },
       );
+      showSuccess("Task deleted.");
+    },
+    onError: (err) => {
+      showError(parseApiError(err, "Unexpected error"), { title: "Couldn't delete task" });
     },
   });
 };

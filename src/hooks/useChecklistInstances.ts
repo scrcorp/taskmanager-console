@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-query";
 import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
+import { useMutationToast } from "@/lib/mutationToast";
 import type {
   ChecklistInstance,
   ChecklistInstanceFilters,
@@ -166,7 +167,18 @@ export function useUpsertItemReview(): UseMutationResult<
   }
 > {
   const queryClient = useQueryClient();
-  return useMutation({
+  const { error } = useMutationToast();
+  return useMutation<
+    { review_result: "pass" | "fail" | "pending_re_review" | null; reviewer_id: string | null; reviewer_name: string | null; reviewed_at: string | null },
+    Error,
+    {
+      instanceId: string;
+      itemIndex: number;
+      result: string;
+      comment_text?: string;
+      comment_photo_url?: string;
+    }
+  >({
     mutationFn: async ({
       instanceId,
       itemIndex,
@@ -184,7 +196,7 @@ export function useUpsertItemReview(): UseMutationResult<
       return response.data;
     },
     onSuccess: (data, variables) => {
-      // Optimistic patch for instant O/X feedback — no refetch needed
+      // Optimistic patch — review buttons에 즉시 O/X 반영 (별도 toast 없이 시각 피드백으로 충분)
       queryClient.setQueryData<ChecklistInstance>(
         ["checklist-instances", variables.instanceId],
         (prev) => {
@@ -203,6 +215,7 @@ export function useUpsertItemReview(): UseMutationResult<
         },
       );
     },
+    onError: error("Failed to save review"),
   });
 }
 
@@ -217,6 +230,7 @@ export function useDeleteItemReview(): UseMutationResult<
   { instanceId: string; itemIndex: number }
 > {
   const queryClient = useQueryClient();
+  const { success, error } = useMutationToast();
   return useMutation<
     void,
     Error,
@@ -228,7 +242,6 @@ export function useDeleteItemReview(): UseMutationResult<
       );
     },
     onSuccess: (_data, variables) => {
-      // Optimistic patch for instant O/X feedback — no refetch needed
       queryClient.setQueryData<ChecklistInstance>(
         ["checklist-instances", variables.instanceId],
         (prev) => {
@@ -240,7 +253,9 @@ export function useDeleteItemReview(): UseMutationResult<
           return { ...prev, items: newItems };
         },
       );
+      success("Review removed.");
     },
+    onError: error("Failed to remove review"),
   });
 }
 
@@ -255,6 +270,7 @@ export function useAddReviewContent(): UseMutationResult<
   { instanceId: string; itemIndex: number; type: string; content: string }
 > {
   const queryClient = useQueryClient();
+  const { error } = useMutationToast();
   return useMutation<
     ChecklistItemMessage,
     Error,
@@ -272,11 +288,13 @@ export function useAddReviewContent(): UseMutationResult<
       );
       return response.data;
     },
-    onSuccess: (_data, variables) => {
+    onSuccess: () => {
+      // 채팅 모달이 메시지 즉시 렌더링하므로 별도 toast 없음 (시각 피드백 충분)
       queryClient.invalidateQueries({
         queryKey: ["checklist-instances"],
       });
     },
+    onError: error("Failed to send message"),
   });
 }
 
@@ -291,6 +309,7 @@ export function useDeleteReviewContent(): UseMutationResult<
   { instanceId: string; itemIndex: number; contentId: string }
 > {
   const queryClient = useQueryClient();
+  const { success, error } = useMutationToast();
   return useMutation<
     void,
     Error,
@@ -301,11 +320,13 @@ export function useDeleteReviewContent(): UseMutationResult<
         `/admin/checklist-instances/${instanceId}/items/${itemIndex}/review/contents/${contentId}`,
       );
     },
-    onSuccess: (_data, variables) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["checklist-instances"],
       });
+      success("Message deleted.");
     },
+    onError: error("Failed to delete message"),
   });
 }
 
@@ -344,6 +365,7 @@ export function useUpdateScore(): UseMutationResult<
   { instanceId: string; score: number | null; score_note?: string }
 > {
   const queryClient = useQueryClient();
+  const { success, error } = useMutationToast();
   return useMutation<
     ChecklistInstance,
     Error,
@@ -356,11 +378,13 @@ export function useUpdateScore(): UseMutationResult<
       );
       return response.data;
     },
-    onSuccess: (_data, variables) => {
+    onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: ["checklist-instances"],
       });
+      success("Score saved.");
     },
+    onError: error("Failed to save score"),
   });
 }
 
@@ -375,6 +399,7 @@ export function useBulkReview(): UseMutationResult<
   { instanceId: string; item_indexes: number[]; result: string }
 > {
   const queryClient = useQueryClient();
+  const { success, error } = useMutationToast();
   return useMutation<
     { updated: number },
     Error,
@@ -387,8 +412,7 @@ export function useBulkReview(): UseMutationResult<
       );
       return response.data;
     },
-    onSuccess: (_data, variables) => {
-      // Instant feedback via setQueryData — no refetch needed
+    onSuccess: (data, variables) => {
       queryClient.setQueryData<ChecklistInstance>(
         ["checklist-instances", variables.instanceId],
         (prev) => {
@@ -402,7 +426,9 @@ export function useBulkReview(): UseMutationResult<
           return { ...prev, items: newItems };
         },
       );
+      success(`${data.updated} item${data.updated === 1 ? "" : "s"} reviewed.`);
     },
+    onError: error("Failed to bulk-review"),
   });
 }
 
@@ -416,9 +442,12 @@ export function useSendReport(): UseMutationResult<
   Error,
   { instanceId: string }
 > {
+  const { success, error } = useMutationToast();
   return useMutation<void, Error, { instanceId: string }>({
     mutationFn: async ({ instanceId }): Promise<void> => {
       await api.post(`/admin/checklist-instances/${instanceId}/report`);
     },
+    onSuccess: () => success("Report sent."),
+    onError: error("Failed to send report"),
   });
 }

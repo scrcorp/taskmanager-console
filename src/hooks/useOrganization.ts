@@ -8,6 +8,7 @@ import {
 } from "@tanstack/react-query";
 import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
+import { useMutationResult } from "@/lib/mutationResult";
 import type { Organization } from "@/types";
 
 /** 현재 조직 조회 훅 — GET /admin/organizations/me */
@@ -36,6 +37,7 @@ export const useUpdateOrganization = (): UseMutationResult<
   UpdateOrganizationData
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<Organization, Error, UpdateOrganizationData>({
     mutationFn: async (data: UpdateOrganizationData): Promise<Organization> => {
       const response: AxiosResponse<Organization> = await api.put(
@@ -49,6 +51,8 @@ export const useUpdateOrganization = (): UseMutationResult<
       // default_hourly_rate 변경 시 server가 stores/users에 cascade하므로 캐시 무효화
       queryClient.invalidateQueries({ queryKey: ["users"] });
       queryClient.invalidateQueries({ queryKey: ["stores"] });
+      success("Organization updated.");
     },
+    onError: error("Couldn't update organization"),
   });
 };

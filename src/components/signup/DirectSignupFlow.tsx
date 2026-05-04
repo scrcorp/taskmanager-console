@@ -46,6 +46,7 @@ export function DirectSignupFlow({ encoded }: Props) {
     email: "",
     showPassword: false,
     showConfirmPassword: false,
+    preferredLanguage: "en",
   });
   const [emailForm, setEmailForm] = useState<EmailFormState>({
     email: "",
@@ -123,6 +124,7 @@ export function DirectSignupFlow({ encoded }: Props) {
         full_name: account.fullName,
         email: account.email,
         verification_token: verificationToken,
+        preferred_language: account.preferredLanguage,
       });
       setEmailForm((p) => ({ ...p, verified: true }));
       setStep("complete");
@@ -220,6 +222,7 @@ export function DirectSignupFlow({ encoded }: Props) {
               email: "",
               showPassword: false,
               showConfirmPassword: false,
+              preferredLanguage: "en",
             });
             setEmailForm({
               email: "",

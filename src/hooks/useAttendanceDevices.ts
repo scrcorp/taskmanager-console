@@ -15,6 +15,7 @@ import {
 } from "@tanstack/react-query";
 import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
+import { useMutationResult } from "@/lib/mutationResult";
 import type { AttendanceDevice, AccessCode } from "@/types";
 
 // ─── Attendance Devices ─────────────────────────────────────────────────────
@@ -55,6 +56,7 @@ export const useUpdateAttendanceDevice = (): UseMutationResult<
   UpdateDeviceData
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<AttendanceDevice, Error, UpdateDeviceData>({
     mutationFn: async ({
       id,
@@ -68,7 +70,9 @@ export const useUpdateAttendanceDevice = (): UseMutationResult<
     },
     onSuccess: (): void => {
       queryClient.invalidateQueries({ queryKey: ["attendance-devices"] });
+      success("Device updated.");
     },
+    onError: error("Couldn't update device"),
   });
 };
 
@@ -81,13 +85,16 @@ export const useRevokeAttendanceDevice = (): UseMutationResult<
   string
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<void, Error, string>({
     mutationFn: async (id: string): Promise<void> => {
       await api.delete(`/admin/attendance-devices/${id}`);
     },
     onSuccess: (): void => {
       queryClient.invalidateQueries({ queryKey: ["attendance-devices"] });
+      success("Device revoked.");
     },
+    onError: error("Couldn't revoke device"),
   });
 };
 
@@ -122,6 +129,7 @@ export const useRotateAccessCode = (): UseMutationResult<
   string
 > => {
   const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
   return useMutation<AccessCode, Error, string>({
     mutationFn: async (serviceKey: string): Promise<AccessCode> => {
       const response: AxiosResponse<AccessCode> = await api.post(
@@ -134,6 +142,8 @@ export const useRotateAccessCode = (): UseMutationResult<
         ["access-codes", newCode.service_key],
         newCode,
       );
+      success("Regenerated.");
     },
+    onError: error("Couldn't rotate access code"),
   });
 };

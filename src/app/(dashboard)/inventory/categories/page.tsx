@@ -23,7 +23,7 @@ import {
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@/lib/permissions";
 import { Button, Card, Modal, Input, ConfirmDialog } from "@/components/ui";
-import { useToast } from "@/components/ui/Toast";
+import { useResultModal } from "@/components/ui/ResultModal";
 import { parseApiError } from "@/lib/utils";
 import type { InventoryCategory, InventorySubUnit } from "@/types";
 
@@ -40,7 +40,7 @@ interface EditingCategory {
 }
 
 function CategoriesTab({ canManage }: { canManage: boolean }): React.ReactElement {
-  const { toast } = useToast();
+  const { showSuccess, showError } = useResultModal();
   const { data: categoriesRaw, isLoading } = useCategories();
   const createCategory = useCreateCategory();
   const updateCategory = useUpdateCategory();
@@ -83,23 +83,23 @@ function CategoriesTab({ canManage }: { canManage: boolean }): React.ReactElemen
 
   const handleAddSubmit = useCallback(() => {
     if (!addName.trim()) {
-      toast({ type: "error", message: "Category name is required." });
+      showError("Category name is required.");
       return;
     }
     createCategory.mutate(
       { name: addName.trim(), parent_id: addParentId },
       {
         onSuccess: () => {
-          toast({ type: "success", message: "Category created." });
+          showSuccess("Category created.");
           setIsAddOpen(false);
           if (addParentId) setExpanded((prev) => new Set([...prev, addParentId]));
         },
         onError: (err) => {
-          toast({ type: "error", message: parseApiError(err, "Failed to create category.") });
+          showError(parseApiError(err, "Failed to create category."));
         },
       },
     );
-  }, [addName, addParentId, createCategory, toast]);
+  }, [addName, addParentId, createCategory, showSuccess, showError]);
 
   const handleOpenEdit = (category: InventoryCategory) => {
     setEditTarget({ id: category.id, name: category.name, parent_id: category.parent_id });
@@ -112,28 +112,28 @@ function CategoriesTab({ canManage }: { canManage: boolean }): React.ReactElemen
       { id: editTarget.id, name: editName.trim() },
       {
         onSuccess: () => {
-          toast({ type: "success", message: "Category updated." });
+          showSuccess("Category updated.");
           setEditTarget(null);
         },
         onError: (err) => {
-          toast({ type: "error", message: parseApiError(err, "Failed to update category.") });
+          showError(parseApiError(err, "Failed to update category."));
         },
       },
     );
-  }, [editTarget, editName, updateCategory, toast]);
+  }, [editTarget, editName, updateCategory, showSuccess, showError]);
 
   const handleDeleteConfirm = useCallback(() => {
     if (!deleteTarget) return;
     deleteCategory.mutate(deleteTarget.id, {
       onSuccess: () => {
-        toast({ type: "success", message: "Category deleted." });
+        showSuccess("Category deleted.");
         setDeleteTarget(null);
       },
       onError: (err) => {
-        toast({ type: "error", message: parseApiError(err, "Failed to delete category.") });
+        showError(parseApiError(err, "Failed to delete category."));
       },
     });
-  }, [deleteTarget, deleteCategory, toast]);
+  }, [deleteTarget, deleteCategory, showSuccess, showError]);
 
   return (
     <>
@@ -381,7 +381,7 @@ function CategoriesTab({ canManage }: { canManage: boolean }): React.ReactElemen
 // ─── Sub Units section ────────────────────────────────────────────────────────
 
 function SubUnitsTab({ canManage }: { canManage: boolean }): React.ReactElement {
-  const { toast } = useToast();
+  const { showSuccess, showError } = useResultModal();
   const { data: subUnits, isLoading } = useSubUnits();
   const createSubUnit = useCreateSubUnit();
   const updateSubUnit = useUpdateSubUnit();
@@ -395,23 +395,23 @@ function SubUnitsTab({ canManage }: { canManage: boolean }): React.ReactElement 
 
   const handleAddSubmit = useCallback(() => {
     if (!addName.trim()) {
-      toast({ type: "error", message: "Sub unit name is required." });
+      showError("Sub unit name is required.");
       return;
     }
     createSubUnit.mutate(
       { name: addName.trim(), code: addName.trim().toLowerCase().replace(/\s+/g, "_") },
       {
         onSuccess: () => {
-          toast({ type: "success", message: "Sub unit created." });
+          showSuccess("Sub unit created.");
           setIsAddOpen(false);
           setAddName("");
         },
         onError: (err) => {
-          toast({ type: "error", message: parseApiError(err, "Failed to create sub unit.") });
+          showError(parseApiError(err, "Failed to create sub unit."));
         },
       },
     );
-  }, [addName, createSubUnit, toast]);
+  }, [addName, createSubUnit, showSuccess, showError]);
 
   const handleOpenEdit = (unit: InventorySubUnit) => {
     setEditTarget(unit);
@@ -424,28 +424,28 @@ function SubUnitsTab({ canManage }: { canManage: boolean }): React.ReactElement 
       { id: editTarget.id, name: editName.trim() },
       {
         onSuccess: () => {
-          toast({ type: "success", message: "Sub unit updated." });
+          showSuccess("Sub unit updated.");
           setEditTarget(null);
         },
         onError: (err) => {
-          toast({ type: "error", message: parseApiError(err, "Failed to update sub unit.") });
+          showError(parseApiError(err, "Failed to update sub unit."));
         },
       },
     );
-  }, [editTarget, editName, updateSubUnit, toast]);
+  }, [editTarget, editName, updateSubUnit, showSuccess, showError]);
 
   const handleDeleteConfirm = useCallback(() => {
     if (!deleteTarget) return;
     deleteSubUnit.mutate(deleteTarget.id, {
       onSuccess: () => {
-        toast({ type: "success", message: "Sub unit deleted." });
+        showSuccess("Sub unit deleted.");
         setDeleteTarget(null);
       },
       onError: (err) => {
-        toast({ type: "error", message: parseApiError(err, "Failed to delete sub unit. It may still be in use by products.") });
+        showError(parseApiError(err, "Failed to delete sub unit. It may still be in use by products."));
       },
     });
-  }, [deleteTarget, deleteSubUnit, toast]);
+  }, [deleteTarget, deleteSubUnit, showSuccess, showError]);
 
   const items: InventorySubUnit[] = subUnits ?? [];
 

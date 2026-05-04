@@ -48,6 +48,7 @@ import { useStore } from "@/hooks/useStores";
 import { useChecklistTemplates, useChecklistItems } from "@/hooks/useChecklists";
 import { Modal, Select, Badge, ConfirmDialog } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
+import { useResultModal } from "@/components/ui/ResultModal";
 import { parseApiError } from "@/lib/utils";
 import type { WorkRole, WorkRoleUpdate, ChecklistItem } from "@/types";
 
@@ -204,6 +205,7 @@ interface WorkRolesPanelProps {
 
 export function WorkRolesPanel({ storeId }: WorkRolesPanelProps): React.ReactElement {
   const { toast } = useToast();
+  const { showSuccess, showError } = useResultModal();
 
   const { data: store } = useStore(storeId);
   const { data: workRoles, isLoading } = useWorkRoles(storeId);
@@ -342,9 +344,9 @@ export function WorkRolesPanel({ storeId }: WorkRolesPanelProps): React.ReactEle
           sort_order: maxOrder + 1,
         },
       });
-      toast({ type: "success", message: "Work role registered" });
+      showSuccess("Work role registered");
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to register work role") });
+      showError(parseApiError(err, "Failed to register work role"));
     }
   };
 
@@ -389,10 +391,10 @@ export function WorkRolesPanel({ storeId }: WorkRolesPanelProps): React.ReactEle
         is_active: isActive,
       };
       await updateMut.mutateAsync({ id: editingRole.id, data, storeId });
-      toast({ type: "success", message: "Work role updated" });
+      showSuccess("Work role updated");
       setModalOpen(false);
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to save work role") });
+      showError(parseApiError(err, "Failed to save work role"));
     }
   };
 
@@ -400,10 +402,10 @@ export function WorkRolesPanel({ storeId }: WorkRolesPanelProps): React.ReactEle
     if (!deleteTarget) return;
     try {
       await deleteMut.mutateAsync({ id: deleteTarget.id, storeId });
-      toast({ type: "success", message: "Work role deleted" });
+      showSuccess("Work role deleted");
       setDeleteTarget(null);
     } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to delete work role") });
+      showError(parseApiError(err, "Failed to delete work role"));
     }
   };
 
