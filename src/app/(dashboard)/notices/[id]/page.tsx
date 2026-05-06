@@ -3,18 +3,18 @@
 /**
  * 공지사항 상세 페이지 -- 공지사항 전체 내용을 표시하고 편집/삭제 기능을 제공합니다.
  *
- * Announcement detail page showing full content with edit and delete actions.
+ * Notice detail page showing full content with edit and delete actions.
  */
 
 import React, { useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ChevronLeft, Edit, Trash2 } from "lucide-react";
 import {
-  useAnnouncement,
-  useAnnouncementReads,
-  useUpdateAnnouncement,
-  useDeleteAnnouncement,
-} from "@/hooks/useAnnouncements";
+  useNotice,
+  useNoticeReads,
+  useUpdateNotice,
+  useDeleteNotice,
+} from "@/hooks/useNotices";
 import { useStores } from "@/hooks/useStores";
 import {
   Button,
@@ -31,20 +31,20 @@ import {
 import { useResultModal } from "@/components/ui/ResultModal";
 import { formatDate, parseApiError } from "@/lib/utils";
 import { useTimezone } from "@/hooks/useTimezone";
-import type { Announcement, Store } from "@/types";
+import type { Notice, Store } from "@/types";
 
-export default function AnnouncementDetailPage(): React.ReactElement {
+export default function NoticeDetailPage(): React.ReactElement {
   const params = useParams();
   const router = useRouter();
   const { showSuccess, showError } = useResultModal();
   const tz = useTimezone();
 
-  const announcementId: string = params.id as string;
-  const { data: announcement, isLoading } = useAnnouncement(announcementId);
-  const { data: reads } = useAnnouncementReads(announcementId);
+  const noticeId: string = params.id as string;
+  const { data: notice, isLoading } = useNotice(noticeId);
+  const { data: reads } = useNoticeReads(noticeId);
   const { data: stores } = useStores();
-  const updateAnnouncement = useUpdateAnnouncement();
-  const deleteAnnouncement = useDeleteAnnouncement();
+  const updateNotice = useUpdateNotice();
+  const deleteNotice = useDeleteNotice();
 
   // -- Edit modal state --
   const [isEditOpen, setIsEditOpen] = useState<boolean>(false);
@@ -61,12 +61,12 @@ export default function AnnouncementDetailPage(): React.ReactElement {
   ];
 
   const handleOpenEdit: () => void = useCallback((): void => {
-    if (!announcement) return;
-    setFormTitle(announcement.title);
-    setFormContent(announcement.content);
-    setFormStoreId(announcement.store_id ?? "");
+    if (!notice) return;
+    setFormTitle(notice.title);
+    setFormContent(notice.content);
+    setFormStoreId(notice.store_id ?? "");
     setIsEditOpen(true);
-  }, [announcement]);
+  }, [notice]);
 
   const handleEditSubmit: () => void = useCallback((): void => {
     if (!formTitle.trim() || !formContent.trim()) {
@@ -74,9 +74,9 @@ export default function AnnouncementDetailPage(): React.ReactElement {
       return;
     }
 
-    updateAnnouncement.mutate(
+    updateNotice.mutate(
       {
-        id: announcementId,
+        id: noticeId,
         title: formTitle.trim(),
         content: formContent.trim(),
         store_id: formStoreId || null,
@@ -91,19 +91,19 @@ export default function AnnouncementDetailPage(): React.ReactElement {
         },
       },
     );
-  }, [announcementId, formTitle, formContent, formStoreId, updateAnnouncement, showSuccess, showError]);
+  }, [noticeId, formTitle, formContent, formStoreId, updateNotice, showSuccess, showError]);
 
   const handleDelete: () => void = useCallback((): void => {
-    deleteAnnouncement.mutate(announcementId, {
+    deleteNotice.mutate(noticeId, {
       onSuccess: (): void => {
         showSuccess("Notice deleted successfully.");
-        router.push("/announcements");
+        router.push("/notices");
       },
       onError: (err): void => {
         showError(parseApiError(err, "Failed to delete notice."));
       },
     });
-  }, [announcementId, deleteAnnouncement, showSuccess, showError, router]);
+  }, [noticeId, deleteNotice, showSuccess, showError, router]);
 
   if (isLoading) {
     return (
@@ -113,10 +113,10 @@ export default function AnnouncementDetailPage(): React.ReactElement {
     );
   }
 
-  if (!announcement) {
+  if (!notice) {
     return (
       <div>
-        <Button variant="ghost" size="sm" onClick={() => router.push("/announcements")}>
+        <Button variant="ghost" size="sm" onClick={() => router.push("/notices")}>
           <ChevronLeft size={16} />
           Back to Notices
         </Button>
@@ -132,7 +132,7 @@ export default function AnnouncementDetailPage(): React.ReactElement {
         variant="ghost"
         size="sm"
         className="mb-4"
-        onClick={() => router.push("/announcements")}
+        onClick={() => router.push("/notices")}
       >
         <ChevronLeft size={16} />
         Back to Notices
@@ -144,17 +144,17 @@ export default function AnnouncementDetailPage(): React.ReactElement {
         <div className="flex flex-col md:flex-row md:items-start justify-between gap-3 mb-6">
           <div className="flex-1 min-w-0">
             <h1 className="text-lg md:text-xl font-bold text-text mb-2">
-              {announcement.title}
+              {notice.title}
             </h1>
             <div className="flex items-center gap-3 flex-wrap">
               <span className="text-sm text-text-secondary">
-                {announcement.created_by_name ?? "Unknown"}
+                {notice.created_by_name ?? "Unknown"}
               </span>
               <span className="text-xs text-text-muted">
-                {formatDate(announcement.created_at, tz)}
+                {formatDate(notice.created_at, tz)}
               </span>
-              <Badge variant={announcement.store_name ? "accent" : "default"}>
-                {announcement.store_name ?? "All Stores"}
+              <Badge variant={notice.store_name ? "accent" : "default"}>
+                {notice.store_name ?? "All Stores"}
               </Badge>
             </div>
           </div>
@@ -173,7 +173,7 @@ export default function AnnouncementDetailPage(): React.ReactElement {
         {/* Content */}
         <div className="border-t border-border pt-6">
           <div className="prose prose-invert max-w-none">
-            {announcement.content.split("\n").map((paragraph: string, index: number) => (
+            {notice.content.split("\n").map((paragraph: string, index: number) => (
               <p key={index} className="text-sm text-text leading-relaxed mb-3">
                 {paragraph}
               </p>
@@ -244,7 +244,7 @@ export default function AnnouncementDetailPage(): React.ReactElement {
               variant="primary"
               size="sm"
               onClick={handleEditSubmit}
-              isLoading={updateAnnouncement.isPending}
+              isLoading={updateNotice.isPending}
             >
               Update
             </Button>
@@ -260,7 +260,7 @@ export default function AnnouncementDetailPage(): React.ReactElement {
         title="Delete Notice"
         message="Are you sure you want to delete this notice? This action cannot be undone."
         confirmLabel="Delete"
-        isLoading={deleteAnnouncement.isPending}
+        isLoading={deleteNotice.isPending}
       />
     </div>
   );

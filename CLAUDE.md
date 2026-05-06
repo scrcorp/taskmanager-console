@@ -153,7 +153,7 @@ const colors = {
 ### Navigation (Sidebar)
 
 ```
-[● TaskManager]
+[● HTM]
 [Admin Console]
 ─────────────
 Dashboard

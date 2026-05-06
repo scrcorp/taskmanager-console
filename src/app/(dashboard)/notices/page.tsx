@@ -3,7 +3,7 @@
 /**
  * 공지사항 목록 페이지 -- 공지사항을 관리하고 새 공지를 생성/편집/삭제합니다.
  *
- * Announcements list page with table view, pagination, create/edit modal, and delete confirmation.
+ * Notices list page with table view, pagination, create/edit modal, and delete confirmation.
  */
 
 import React, { useState, useCallback } from "react";
@@ -11,11 +11,11 @@ import { useRouter } from "next/navigation";
 import { useUrlParams } from "@/hooks/useUrlParams";
 import { Plus, Edit, Trash2 } from "lucide-react";
 import {
-  useAnnouncements,
-  useCreateAnnouncement,
-  useUpdateAnnouncement,
-  useDeleteAnnouncement,
-} from "@/hooks/useAnnouncements";
+  useNotices,
+  useCreateNotice,
+  useUpdateNotice,
+  useDeleteNotice,
+} from "@/hooks/useNotices";
 import { useStores } from "@/hooks/useStores";
 import {
   Button,
@@ -35,16 +35,16 @@ import { formatDate, parseApiError } from "@/lib/utils";
 import { useTimezone } from "@/hooks/useTimezone";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@/lib/permissions";
-import type { Announcement, Store } from "@/types";
+import type { Notice, Store } from "@/types";
 
 const PER_PAGE: number = 20;
 
-export default function AnnouncementsPage(): React.ReactElement {
+export default function NoticesPage(): React.ReactElement {
   const router = useRouter();
   const { showSuccess, showError } = useResultModal();
   const { hasPermission } = usePermissions();
   const tz = useTimezone();
-  const canManageAnnouncements = hasPermission(PERMISSIONS.ANNOUNCEMENTS_CREATE);
+  const canManageNotices = hasPermission(PERMISSIONS.ANNOUNCEMENTS_CREATE);
 
   // -- Pagination state (URL-persisted) --
   const [urlParams, setUrlParams] = useUrlParams({ page: "1" });
@@ -61,15 +61,15 @@ export default function AnnouncementsPage(): React.ReactElement {
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   // -- Data hooks --
-  const { data: announcementsData, isLoading } = useAnnouncements(page, PER_PAGE);
+  const { data: noticesData, isLoading } = useNotices(page, PER_PAGE);
   const { data: stores } = useStores();
-  const createAnnouncement = useCreateAnnouncement();
-  const updateAnnouncement = useUpdateAnnouncement();
-  const deleteAnnouncement = useDeleteAnnouncement();
+  const createNotice = useCreateNotice();
+  const updateNotice = useUpdateNotice();
+  const deleteNotice = useDeleteNotice();
 
-  const announcements: Announcement[] = announcementsData?.items ?? [];
-  const totalPages: number = announcementsData
-    ? Math.ceil(announcementsData.total / announcementsData.per_page)
+  const notices: Notice[] = noticesData?.items ?? [];
+  const totalPages: number = noticesData
+    ? Math.ceil(noticesData.total / noticesData.per_page)
     : 1;
 
   const storeOptions: { value: string; label: string }[] = [
@@ -81,7 +81,7 @@ export default function AnnouncementsPage(): React.ReactElement {
   const columns: {
     key: string;
     header: string;
-    render?: (item: Announcement) => React.ReactNode;
+    render?: (item: Notice) => React.ReactNode;
     className?: string;
   }[] = [
     {
@@ -92,7 +92,7 @@ export default function AnnouncementsPage(): React.ReactElement {
     {
       key: "store_name",
       header: "Store",
-      render: (item: Announcement): React.ReactNode => (
+      render: (item: Notice): React.ReactNode => (
         <Badge variant={item.store_name ? "accent" : "default"}>
           {item.store_name ?? "All"}
         </Badge>
@@ -105,14 +105,14 @@ export default function AnnouncementsPage(): React.ReactElement {
     {
       key: "created_at",
       header: "Created",
-      render: (item: Announcement): React.ReactNode => formatDate(item.created_at, tz),
+      render: (item: Notice): React.ReactNode => formatDate(item.created_at, tz),
     },
-    ...(canManageAnnouncements
+    ...(canManageNotices
       ? [
           {
             key: "actions",
             header: "Actions",
-            render: (item: Announcement): React.ReactNode => (
+            render: (item: Notice): React.ReactNode => (
               <div className="flex items-center gap-1">
                 <button
                   type="button"
@@ -143,9 +143,9 @@ export default function AnnouncementsPage(): React.ReactElement {
       : []),
   ];
 
-  const handleRowClick: (item: Announcement) => void = useCallback(
-    (item: Announcement): void => {
-      router.push(`/announcements/${item.id}`);
+  const handleRowClick: (item: Notice) => void = useCallback(
+    (item: Notice): void => {
+      router.push(`/notices/${item.id}`);
     },
     [router],
   );
@@ -158,8 +158,8 @@ export default function AnnouncementsPage(): React.ReactElement {
     setIsFormOpen(true);
   }, []);
 
-  const handleOpenEdit: (item: Announcement) => void = useCallback(
-    (item: Announcement): void => {
+  const handleOpenEdit: (item: Notice) => void = useCallback(
+    (item: Notice): void => {
       setEditingId(item.id);
       setFormTitle(item.title);
       setFormContent(item.content);
@@ -182,7 +182,7 @@ export default function AnnouncementsPage(): React.ReactElement {
     };
 
     if (editingId) {
-      updateAnnouncement.mutate(
+      updateNotice.mutate(
         { id: editingId, ...payload },
         {
           onSuccess: (): void => {
@@ -195,7 +195,7 @@ export default function AnnouncementsPage(): React.ReactElement {
         },
       );
     } else {
-      createAnnouncement.mutate(payload, {
+      createNotice.mutate(payload, {
         onSuccess: (): void => {
           showSuccess("Notice created successfully.");
           setIsFormOpen(false);
@@ -205,11 +205,11 @@ export default function AnnouncementsPage(): React.ReactElement {
         },
       });
     }
-  }, [formTitle, formContent, formStoreId, editingId, createAnnouncement, updateAnnouncement, showSuccess, showError]);
+  }, [formTitle, formContent, formStoreId, editingId, createNotice, updateNotice, showSuccess, showError]);
 
   const handleDelete: () => void = useCallback((): void => {
     if (!deleteId) return;
-    deleteAnnouncement.mutate(deleteId, {
+    deleteNotice.mutate(deleteId, {
       onSuccess: (): void => {
         showSuccess("Notice deleted successfully.");
         setDeleteId(null);
@@ -218,16 +218,16 @@ export default function AnnouncementsPage(): React.ReactElement {
         showError(parseApiError(err, "Failed to delete notice."));
       },
     });
-  }, [deleteId, deleteAnnouncement, showSuccess, showError]);
+  }, [deleteId, deleteNotice, showSuccess, showError]);
 
-  const isSubmitting: boolean = createAnnouncement.isPending || updateAnnouncement.isPending;
+  const isSubmitting: boolean = createNotice.isPending || updateNotice.isPending;
 
   return (
     <div>
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-extrabold text-text">Notices</h1>
-        {canManageAnnouncements && (
+        {canManageNotices && (
           <Button variant="primary" size="md" onClick={handleOpenCreate}>
             <Plus size={16} />
             New Notice
@@ -237,9 +237,9 @@ export default function AnnouncementsPage(): React.ReactElement {
 
       {/* Table */}
       <Card padding="p-0">
-        <Table<Announcement>
+        <Table<Notice>
           columns={columns}
-          data={announcements}
+          data={notices}
           isLoading={isLoading}
           onRowClick={handleRowClick}
           emptyMessage="No notices found."
@@ -309,7 +309,7 @@ export default function AnnouncementsPage(): React.ReactElement {
         title="Delete Notice"
         message="Are you sure you want to delete this notice? This action cannot be undone."
         confirmLabel="Delete"
-        isLoading={deleteAnnouncement.isPending}
+        isLoading={deleteNotice.isPending}
       />
     </div>
   );

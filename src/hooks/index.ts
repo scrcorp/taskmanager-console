@@ -49,13 +49,13 @@ export {
 } from "./useChecklists";
 
 export {
-  useAnnouncements,
-  useAnnouncement,
-  useAnnouncementReads,
-  useCreateAnnouncement,
-  useUpdateAnnouncement,
-  useDeleteAnnouncement,
-} from "./useAnnouncements";
+  useNotices,
+  useNotice,
+  useNoticeReads,
+  useCreateNotice,
+  useUpdateNotice,
+  useDeleteNotice,
+} from "./useNotices";
 
 export {
   useTasks,
@@ -67,11 +67,22 @@ export {
 } from "./useTasks";
 
 export {
-  useNotifications,
+  useAlerts,
   useUnreadCount,
   useMarkRead,
   useMarkAllRead,
-} from "./useNotifications";
+} from "./useAlerts";
+
+export {
+  useAlertPreferences,
+  useUpdateAlertPreferences,
+} from "./useAlertPreferences";
+export type {
+  AlertCategoryMeta,
+  AlertCategoryChannel,
+  AlertPreferencesResponse,
+  AlertPreferencesUpdate,
+} from "./useAlertPreferences";
 
 export { usePermissions } from "./usePermissions";
 export { useAllPermissions, useRolePermissions, useUpdateRolePermissions } from "./usePermissionAdmin";

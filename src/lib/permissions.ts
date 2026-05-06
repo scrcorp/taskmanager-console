@@ -42,11 +42,11 @@ export const PERMISSIONS = {
   // ── Schedule Settings ──
   SCHEDULE_SETTINGS_MANAGE: "schedule_settings:manage",
 
-  // ── Announcements ──
-  ANNOUNCEMENTS_READ: "announcements:read",
-  ANNOUNCEMENTS_CREATE: "announcements:create",
-  ANNOUNCEMENTS_UPDATE: "announcements:update",
-  ANNOUNCEMENTS_DELETE: "announcements:delete",
+  // ── Notices ──
+  ANNOUNCEMENTS_READ: "notices:read",
+  ANNOUNCEMENTS_CREATE: "notices:create",
+  ANNOUNCEMENTS_UPDATE: "notices:update",
+  ANNOUNCEMENTS_DELETE: "notices:delete",
 
   // ── Checklists ──
   CHECKLISTS_READ: "checklists:read",
@@ -130,7 +130,7 @@ export const PAGE_PERMISSIONS: Record<string, string> = {
   "/checklists/progress": PERMISSIONS.CHECKLISTS_READ,
   "/checklists/log": PERMISSIONS.CHECKLIST_LOG_READ,
   "/tasks": PERMISSIONS.TASKS_READ,
-  "/announcements": PERMISSIONS.ANNOUNCEMENTS_READ,
+  "/notices": PERMISSIONS.ANNOUNCEMENTS_READ,
   "/evaluations": PERMISSIONS.EVALUATIONS_READ,
   "/daily-reports": PERMISSIONS.DAILY_REPORTS_READ,
   "/inventory": PERMISSIONS.INVENTORY_READ,
@@ -153,7 +153,7 @@ export const MENU_PERMISSIONS: Record<string, string> = {
   "/schedules": PERMISSIONS.SCHEDULES_READ,
   "/checklists/progress": PERMISSIONS.CHECKLISTS_READ,
   "/tasks": PERMISSIONS.TASKS_READ,
-  "/announcements": PERMISSIONS.ANNOUNCEMENTS_READ,
+  "/notices": PERMISSIONS.ANNOUNCEMENTS_READ,
   "/evaluations": PERMISSIONS.EVALUATIONS_READ,
   "/daily-reports": PERMISSIONS.DAILY_REPORTS_READ,
   "/inventory": PERMISSIONS.INVENTORY_READ,

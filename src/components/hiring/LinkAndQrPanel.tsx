@@ -126,7 +126,7 @@ export function LinkAndQrPanel({ storeId }: Props) {
     <div class="qr-wrap"><img class="qr" src="${dataUrl}" alt="Signup QR code" /></div>
     <div class="scan-hint">Scan with your phone camera</div>
     <div class="url">${escapedUrl}</div>
-    <div class="footer">hermesops · powered by TaskManager</div>
+    <div class="footer">hermesops · powered by HTM</div>
   </div>
   <script>
     (function () {

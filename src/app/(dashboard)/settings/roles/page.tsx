@@ -30,7 +30,7 @@ const RESOURCE_LABELS: Record<string, string> = {
   schedules: "Schedules",
   schedule_history: "Schedule History",
   schedule_settings: "Schedule Settings",
-  announcements: "Notices",
+  notices: "Notices",
   checklists: "Checklists",
   checklist_review: "Checklist Review",
   checklist_log: "Checklist Log",
@@ -47,7 +47,7 @@ const RESOURCE_ORDER = [
   "dashboard", "stores", "users", "roles",
   "schedules", "schedule_history", "schedule_settings",
   "checklists", "checklist_review", "checklist_log",
-  "tasks", "announcements", "evaluations", "daily_reports",
+  "tasks", "notices", "evaluations", "daily_reports",
   "inventory", "cost", "org",
 ];
 

@@ -18,9 +18,9 @@ import {
   mockUserStores,
   mockTemplates,
   mockChecklistItems,
-  mockAnnouncements,
+  mockNotices,
   mockTasks,
-  mockNotifications,
+  mockAlerts,
 } from "./data";
 import type { PaginatedResponse } from "@/types";
 
@@ -315,15 +315,15 @@ export async function handleMockRequest(
     }
   }
 
-  // ─── Announcements ─────────────────────────────
+  // ─── Notices ─────────────────────────────
 
-  if (url.endsWith("/admin/announcements") && method === "get") {
+  if (url.endsWith("/admin/notices") && method === "get") {
     const page: number = parseInt(params.page ?? "1", 10);
     const perPage: number = parseInt(params.per_page ?? "20", 10);
-    return mockResponse(paginate(mockAnnouncements, page, perPage), config);
+    return mockResponse(paginate(mockNotices, page, perPage), config);
   }
 
-  if (url.endsWith("/admin/announcements") && method === "post") {
+  if (url.endsWith("/admin/notices") && method === "post") {
     const body = JSON.parse(config.data as string);
     return mockResponse(
       { id: newId(), ...body, store_name: null, created_by_name: "Admin User", created_at: new Date().toISOString() },
@@ -331,15 +331,15 @@ export async function handleMockRequest(
     );
   }
 
-  const annMatch: RegExpMatchArray | null = url.match(/\/admin\/announcements\/([^/]+)$/);
+  const annMatch: RegExpMatchArray | null = url.match(/\/admin\/notices\/([^/]+)$/);
   if (annMatch) {
     const annId: string = annMatch[1];
     if (method === "get") {
-      return mockResponse(mockAnnouncements.find((a) => a.id === annId) ?? mockAnnouncements[0], config);
+      return mockResponse(mockNotices.find((a) => a.id === annId) ?? mockNotices[0], config);
     }
     if (method === "put") {
       const body = JSON.parse(config.data as string);
-      const existing = mockAnnouncements.find((a) => a.id === annId);
+      const existing = mockNotices.find((a) => a.id === annId);
       return mockResponse({ ...existing, ...body }, config);
     }
     if (method === "delete") {
@@ -382,24 +382,24 @@ export async function handleMockRequest(
     }
   }
 
-  // ─── Notifications ─────────────────────────────
+  // ─── Alerts ─────────────────────────────
 
-  if (url.endsWith("/admin/notifications/unread-count") && method === "get") {
-    const unreadCount: number = mockNotifications.filter((n) => !n.is_read).length;
+  if (url.endsWith("/admin/alerts/unread-count") && method === "get") {
+    const unreadCount: number = mockAlerts.filter((n) => !n.is_read).length;
     return mockResponse({ unread_count: unreadCount }, config);
   }
 
-  if (url.endsWith("/admin/notifications/read-all") && method === "patch") {
+  if (url.endsWith("/admin/alerts/read-all") && method === "patch") {
     return mockResponse(null, config);
   }
 
-  if (url.endsWith("/admin/notifications") && method === "get") {
+  if (url.endsWith("/admin/alerts") && method === "get") {
     const page: number = parseInt(params.page ?? "1", 10);
     const perPage: number = parseInt(params.per_page ?? "20", 10);
-    return mockResponse(paginate(mockNotifications, page, perPage), config);
+    return mockResponse(paginate(mockAlerts, page, perPage), config);
   }
 
-  const notifReadMatch: RegExpMatchArray | null = url.match(/\/admin\/notifications\/([^/]+)\/read$/);
+  const notifReadMatch: RegExpMatchArray | null = url.match(/\/admin\/alerts\/([^/]+)\/read$/);
   if (notifReadMatch && method === "patch") {
     return mockResponse(null, config);
   }

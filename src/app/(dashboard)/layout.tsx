@@ -96,7 +96,7 @@ export default function DashboardLayout({
           </button>
           <div className="text-lg font-extrabold text-text">
             <img src="/taskmanager_icon.png" alt="" className="inline-block w-6 h-6 mr-1.5 align-middle" />
-            TaskManager
+            HTM
           </div>
         </div>
 

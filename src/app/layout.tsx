@@ -17,7 +17,7 @@ const envPrefix = env === 'production' ? ''
 
 /** SEO 메타데이터 — 브라우저 탭 제목 + 파비콘 설정 */
 export const metadata: Metadata = {
-  title: `${envPrefix}TaskManager Admin`,
+  title: `${envPrefix}HTM Admin`,
   description: "Employee Management Admin Console",
   icons: {
     icon: "/favicon.ico",

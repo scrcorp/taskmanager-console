@@ -191,8 +191,8 @@ export interface ChecklistItem {
   sort_order: number;
 }
 
-// Announcement
-export interface Announcement {
+// Notice
+export interface Notice {
   id: string;
   title: string;
   content: string;
@@ -231,8 +231,8 @@ export interface TaskEvidence {
   created_at: string;
 }
 
-// Notification
-export interface Notification {
+// Alert
+export interface Alert {
   id: string;
   type: string;
   message: string;
@@ -361,16 +361,16 @@ export interface ChecklistItemUpdate {
 }
 
 /** 공지사항 생성 요청 타입.
- * Announcement creation request payload. */
-export interface AnnouncementCreate {
+ * Notice creation request payload. */
+export interface NoticeCreate {
   title: string;
   content: string;
   store_id?: string | null;
 }
 
 /** 공지사항 수정 요청 타입.
- * Announcement update request payload (partial). */
-export interface AnnouncementUpdate {
+ * Notice update request payload (partial). */
+export interface NoticeUpdate {
   title?: string;
   content?: string;
 }
