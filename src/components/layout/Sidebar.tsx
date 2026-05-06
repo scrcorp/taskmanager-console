@@ -81,7 +81,7 @@ const navItems: NavItem[] = [
     ],
   },
   { href: "/tasks", label: "Tasks", icon: Zap },
-  { href: "/announcements", label: "Notices", icon: Megaphone },
+  { href: "/notices", label: "Notices", icon: Megaphone },
   { href: "/evaluations", label: "Evaluations", icon: Star },
   {
     href: "/daily-reports",
@@ -103,7 +103,7 @@ const navItems: NavItem[] = [
       { href: "/inventory/audits", label: "Audits", icon: ClipboardCheck },
     ],
   },
-  { href: "/notifications", label: "Alerts", icon: Bell },
+  { href: "/alerts", label: "Alerts", icon: Bell },
   {
     href: "/settings",
     label: "Settings",
@@ -119,7 +119,7 @@ const navItems: NavItem[] = [
 /** 사이드바 레이아웃 컴포넌트 — 내비게이션 + 사용자 프로필 + 로그아웃.
  *
  * Sidebar layout component — navigation links, user profile, and logout.
- * Displays dynamic unread notification count badge from server.
+ * Displays dynamic unread alert count badge from server.
  */
 export function Sidebar({ onNavClick }: { onNavClick?: () => void }) {
   const pathname: string = usePathname();
@@ -285,7 +285,7 @@ export function Sidebar({ onNavClick }: { onNavClick?: () => void }) {
                   <Icon size={18} />
                   <span>{item.label}</span>
                 </Link>
-                {item.href === "/notifications" && badgeCount > 0 && (
+                {item.href === "/alerts" && badgeCount > 0 && (
                   <span className="ml-auto bg-danger text-white text-[10px] font-bold rounded-full px-1.5 py-0.5 min-w-[18px] text-center">
                     {badgeCount > 99 ? "99+" : badgeCount}
                   </span>

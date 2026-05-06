@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Bell, Check, CheckCheck, ExternalLink, Mail, MailOpen } from "lucide-react";
 import {
-  useNotifications,
+  useAlerts,
   useUnreadCount,
   useMarkRead,
   useMarkAllRead,
@@ -19,20 +19,37 @@ import {
 } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
 import { timeAgo, parseApiError } from "@/lib/utils";
-import type { Notification } from "@/types";
+import type { Alert } from "@/types";
 
-/** reference_type → admin 경로 매핑 */
-function getNotificationHref(referenceType: string | null, referenceId: string | null): string | null {
+/** reference_type → admin 경로 매핑.
+ *
+ * 서버가 보내는 reference_type 값:
+ * - additional_task          → /tasks/{id}
+ * - notice             → /notices/{id}
+ * - schedule                 → /schedules/{id}
+ * - attendance               → /attendances/{id}
+ * - cl_instances             → /checklists/instances/{id}
+ * - cl_instance_items        → /checklists/instances/{id} (item 단위 라우트 없음, 인스턴스로)
+ * - checklist_review         → /checklists/instances/{id} (reply 알림: instance id 들어옴)
+ * - daily_report             → /daily-reports/{id}
+ */
+function getAlertHref(referenceType: string | null, referenceId: string | null): string | null {
   if (!referenceType || !referenceId) return null;
   switch (referenceType) {
     case "additional_task":
       return `/tasks/${referenceId}`;
-    case "announcement":
-      return `/announcements/${referenceId}`;
+    case "notice":
+      return `/notices/${referenceId}`;
     case "schedule":
-      return `/schedules/manage/${referenceId}`;
+      return `/schedules/${referenceId}`;
     case "attendance":
       return `/attendances/${referenceId}`;
+    case "cl_instances":
+    case "cl_instance_items":
+    case "checklist_review":
+      return `/checklists/instances/${referenceId}`;
+    case "daily_report":
+      return `/daily-reports/${referenceId}`;
     default:
       return null;
   }
@@ -40,34 +57,34 @@ function getNotificationHref(referenceType: string | null, referenceId: string |
 
 /** 알림 페이지 — 알림 목록 조회, 읽음 처리, 전체 읽음 처리.
  *
- * Notifications page — list, mark read, and mark all read.
+ * Alerts page — list, mark read, and mark all read.
  */
-export default function NotificationsPage() {
+export default function AlertsPage() {
   const router = useRouter();
   const { toast } = useToast();
   const [page, setPage] = useState<number>(1);
   const perPage: number = 20;
 
-  const { data, isLoading } = useNotifications(page, perPage);
+  const { data, isLoading } = useAlerts(page, perPage);
   const { data: unreadData } = useUnreadCount();
   const markRead = useMarkRead();
   const markAllRead = useMarkAllRead();
 
-  const notifications: Notification[] = data?.items ?? [];
+  const alerts: Alert[] = data?.items ?? [];
   const total: number = data?.total ?? 0;
   const totalPages: number = Math.max(1, Math.ceil(total / perPage));
   const unreadCount: number = unreadData ?? 0;
 
   /** 단일 알림을 읽음 처리합니다.
-   *  Mark a single notification as read. */
-  const handleMarkRead = (notificationId: string): void => {
-    markRead.mutate(notificationId, {
+   *  Mark a single alert as read. */
+  const handleMarkRead = (alertId: string): void => {
+    markRead.mutate(alertId, {
       onError: (err) => toast({ type: "error", message: parseApiError(err, "읽음 처리 실패 (Mark read failed)") }),
     });
   };
 
   /** 모든 읽지 않은 알림을 읽음 처리합니다.
-   *  Mark all unread notifications as read. */
+   *  Mark all unread alerts as read. */
   const handleMarkAllRead = (): void => {
     markAllRead.mutate(undefined, {
       onSuccess: () =>
@@ -77,14 +94,14 @@ export default function NotificationsPage() {
   };
 
   /** 알림 타입에 따른 배지를 반환합니다.
-   *  Return badge variant based on notification type. */
+   *  Return badge variant based on alert type. */
   const typeBadge = (type: string): { variant: "accent" | "warning" | "success" | "default"; label: string } => {
     switch (type) {
       case "schedule":
         return { variant: "accent", label: "Schedule" };
       case "task":
         return { variant: "warning", label: "Task" };
-      case "announcement":
+      case "notice":
         return { variant: "success", label: "Notice" };
       default:
         return { variant: "default", label: type };
@@ -114,16 +131,16 @@ export default function NotificationsPage() {
         )}
       </div>
 
-      {/* ── 알림 목록 (Notification list) ── */}
+      {/* ── 알림 목록 (Alert list) ── */}
       {isLoading ? (
         <LoadingSpinner size="lg" className="mt-20" />
-      ) : notifications.length === 0 ? (
-        <EmptyState icon={<Bell className="h-10 w-10" />} message="No notifications yet" />
+      ) : alerts.length === 0 ? (
+        <EmptyState icon={<Bell className="h-10 w-10" />} message="No alerts yet" />
       ) : (
         <div className="space-y-2">
-          {notifications.map((n: Notification) => {
+          {alerts.map((n: Alert) => {
             const badge = typeBadge(n.type);
-            const href = getNotificationHref(n.reference_type, n.reference_id);
+            const href = getAlertHref(n.reference_type, n.reference_id);
 
             const handleClick = () => {
               if (!n.is_read) markRead.mutate(n.id);
