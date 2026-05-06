@@ -40,13 +40,13 @@ export const mockMe: UserMe = {
   id: USER_IDS[0],
   username: "admin",
   full_name: "Admin User",
-  email: "admin@taskmanager.io",
+  email: "admin@htm.io",
   email_verified: true,
   phone: "010-1234-5678",
   role_name: "Super Admin",
   role_priority: 10,
   organization_id: ORG_ID,
-  organization_name: "TaskManager Demo Org",
+  organization_name: "HTM Demo Org",
   organization_timezone: "America/New_York",
   company_code: "DEMO",
   is_active: true,
@@ -122,11 +122,11 @@ export const mockStoreDetails: Record<string, StoreDetail> = {
 // ─── Users ────────────────────────────────────────────
 
 export const mockUsers: User[] = [
-  { id: USER_IDS[0], username: "admin", full_name: "Admin User", email: "admin@taskmanager.io", email_verified: true, phone: "010-1234-5678", role_name: "Owner", role_priority: 10, is_active: true, hourly_rate: null, created_at: "2025-01-01T00:00:00Z" },
-  { id: USER_IDS[1], username: "manager01", full_name: "Kim Manager", email: "kim@taskmanager.io", email_verified: true, phone: "010-2345-6789", role_name: "GM", role_priority: 20, is_active: true, hourly_rate: null, created_at: "2025-03-15T09:00:00Z" },
-  { id: USER_IDS[2], username: "staff01", full_name: "Lee Staff", email: "lee@taskmanager.io", email_verified: true, phone: "010-3456-7890", role_name: "Staff", role_priority: 40, is_active: true, hourly_rate: null, created_at: "2025-04-01T09:00:00Z" },
+  { id: USER_IDS[0], username: "admin", full_name: "Admin User", email: "admin@htm.io", email_verified: true, phone: "010-1234-5678", role_name: "Owner", role_priority: 10, is_active: true, hourly_rate: null, created_at: "2025-01-01T00:00:00Z" },
+  { id: USER_IDS[1], username: "manager01", full_name: "Kim Manager", email: "kim@htm.io", email_verified: true, phone: "010-2345-6789", role_name: "GM", role_priority: 20, is_active: true, hourly_rate: null, created_at: "2025-03-15T09:00:00Z" },
+  { id: USER_IDS[2], username: "staff01", full_name: "Lee Staff", email: "lee@htm.io", email_verified: true, phone: "010-3456-7890", role_name: "Staff", role_priority: 40, is_active: true, hourly_rate: null, created_at: "2025-04-01T09:00:00Z" },
   { id: USER_IDS[3], username: "staff02", full_name: "Park Worker", email: null, email_verified: false, phone: "010-4567-8901", role_name: "Staff", role_priority: 40, is_active: true, hourly_rate: null, created_at: "2025-05-10T09:00:00Z" },
-  { id: USER_IDS[4], username: "inactive01", full_name: "Choi Former", email: "choi@taskmanager.io", email_verified: false, phone: null, role_name: "Staff", role_priority: 40, is_active: false, hourly_rate: null, created_at: "2025-02-20T09:00:00Z" },
+  { id: USER_IDS[4], username: "inactive01", full_name: "Choi Former", email: "choi@htm.io", email_verified: false, phone: null, role_name: "Staff", role_priority: 40, is_active: false, hourly_rate: null, created_at: "2025-02-20T09:00:00Z" },
 ];
 
 /** 사용자별 소속 매장 (User store memberships) */

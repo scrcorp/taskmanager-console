@@ -129,7 +129,7 @@ export default function VerifyEmailPage() {
             </h1>
             <p className="text-text-secondary text-sm mb-8">
               Your email has been verified successfully.<br />
-              You can now use all features of TaskManager.
+              You can now use all features of HTM.
             </p>
             <button
               onClick={() => router.push("/")}
@@ -161,7 +161,7 @@ export default function VerifyEmailPage() {
             Verify Your Email
           </h1>
           <p className="text-text-secondary text-sm text-center mb-8">
-            To continue using TaskManager Admin,
+            To continue using HTM Admin,
             <br />
             please verify your email address.
           </p>

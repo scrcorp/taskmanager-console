@@ -246,7 +246,7 @@ export function Sidebar({ onNavClick }: { onNavClick?: () => void }) {
       {/* 로고 (Logo) */}
       <div className="px-6 pt-6 pb-2">
         <div className="text-xl font-extrabold text-text">
-          <img src="/taskmanager_icon.png" alt="TaskManager" className="inline-block w-8 h-8 mr-2 align-middle" /> TaskManager
+          <img src="/taskmanager_icon.png" alt="HTM" className="inline-block w-8 h-8 mr-2 align-middle" /> HTM
         </div>
         {user?.organization_name && (
           <div className="text-text-muted text-xs mt-1 flex items-center gap-1 truncate">
@@ -353,7 +353,7 @@ export function Sidebar({ onNavClick }: { onNavClick?: () => void }) {
             {user?.full_name || "Admin"}
           </div>
           <div className="text-xs text-text-muted truncate">
-            {user?.email || "admin@taskmanager.app"}
+            {user?.email || "admin@htm.app"}
           </div>
         </div>
         <ThemeToggle />

@@ -88,7 +88,7 @@ function LoginContent() {
       <div className="w-full max-w-[400px] mx-4 bg-card border border-border rounded-2xl p-6 md:p-10">
         <div className="text-center mb-9">
           <div className="text-3xl font-extrabold text-text">
-            <img src="/taskmanager_icon.png" alt="TaskManager" className="inline-block w-12 h-12 mr-2 align-middle" /> TaskManager
+            <img src="/taskmanager_icon.png" alt="HTM" className="inline-block w-12 h-12 mr-2 align-middle" /> HTM
           </div>
           <div className="text-text-muted text-sm mt-2">Admin Console</div>
           {companyCode && (
