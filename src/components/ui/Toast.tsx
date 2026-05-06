@@ -7,7 +7,7 @@ import { X, CheckCircle, AlertCircle, Info } from "lucide-react";
 /**
  * 토스트 알림 시스템 -- 자동 사라지는 하단 우측 알림 메시지를 제공합니다.
  *
- * Toast notification system with auto-dismiss, fixed bottom-right positioning.
+ * Toast alert system with auto-dismiss, fixed bottom-right positioning.
  * Provides ToastProvider context and useToast hook.
  *
  * @example

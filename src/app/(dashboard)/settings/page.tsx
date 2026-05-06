@@ -19,6 +19,7 @@ import { useResultModal } from "@/components/ui/ResultModal";
 import { parseApiError, formatDate } from "@/lib/utils";
 import { TIMEZONE_OPTIONS } from "@/lib/timezones";
 import { ChangePasswordModal } from "@/components/auth/ChangePasswordModal";
+import { AlertPreferencesSection } from "@/components/settings/AlertPreferencesSection";
 import { useTimezone } from "@/hooks";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@/lib/permissions";
@@ -198,6 +199,9 @@ export default function SettingsPage(): React.ReactElement {
           </Button>
         </div>
       </div>
+
+      {/* Alert Preferences 섹션 */}
+      <AlertPreferencesSection />
 
       {/* Account Security 섹션 */}
       <div className="bg-card border border-border rounded-xl p-6 max-w-lg">

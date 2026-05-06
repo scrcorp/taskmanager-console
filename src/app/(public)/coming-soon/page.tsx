@@ -31,7 +31,7 @@ export default function ComingSoonPage() {
         the direct URL.
       </p>
       <p className="mt-6 text-[11px] uppercase tracking-[0.18em] text-slate-400">
-        hermesops · TaskManager
+        hermesops · HTM
       </p>
     </div>
   );

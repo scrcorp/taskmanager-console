@@ -6,7 +6,7 @@
  *
  * Dashboard Page -- Main admin dashboard page.
  * Displays stat cards, checklist completion, attendance summary,
- * overtime alerts, evaluation summary, and recent announcements.
+ * overtime alerts, evaluation summary, and recent notices.
  * Connected to 4 dashboard APIs with date/store filters.
  */
 
@@ -29,7 +29,7 @@ import { useAuthStore } from "@/stores/authStore";
 import {
   useStores,
   useUsers,
-  useAnnouncements,
+  useNotices,
   useSchedules,
   useUnreadCount,
   useChecklistCompletion,
@@ -42,7 +42,7 @@ import { useResultModal } from "@/components/ui/ResultModal";
 import api from "@/lib/api";
 import { cn, formatDate, parseApiError, todayInTimezone } from "@/lib/utils";
 import { useTimezone } from "@/hooks/useTimezone";
-import type { Announcement, Store } from "@/types";
+import type { Notice, Store } from "@/types";
 
 // ─── Date Range Helpers ──────────────────────────────────
 
@@ -194,8 +194,8 @@ export default function DashboardPage(): React.ReactElement {
   // ─── Data hooks (top stat cards) ───────────────────
   const { data: stores, isLoading: storesLoading } = useStores();
   const { data: users, isLoading: usersLoading } = useUsers();
-  const { data: announcementsData, isLoading: announcementsLoading } =
-    useAnnouncements();
+  const { data: noticesData, isLoading: noticesLoading } =
+    useNotices();
   const { data: schedulesData, isLoading: schedulesLoading } =
     useSchedules({ date_from: today, date_to: today, per_page: 200 });
   const { data: unreadCount, isLoading: unreadLoading } = useUnreadCount();
@@ -222,7 +222,7 @@ export default function DashboardPage(): React.ReactElement {
   } = useEvaluationSummary();
 
   const isTopLoading: boolean =
-    storesLoading || usersLoading || announcementsLoading || schedulesLoading || unreadLoading;
+    storesLoading || usersLoading || noticesLoading || schedulesLoading || unreadLoading;
 
   // ─── Store options for filter ─────────────────────
   const storeOptions = useMemo(() => {
@@ -278,12 +278,12 @@ export default function DashboardPage(): React.ReactElement {
         href: `/checklists/instances?work_date=${today}&status=completed`,
       },
       {
-        label: "Unread Notifications",
+        label: "Unread Alerts",
         value: notifCount,
         icon: <Bell className="h-5 w-5" />,
         colorClass: "text-danger",
         bgClass: "bg-danger-muted",
-        href: "/notifications",
+        href: "/alerts",
       },
     ];
   }, [stores, users, schedulesData, unreadCount, checklistCompletion]);
@@ -294,12 +294,12 @@ export default function DashboardPage(): React.ReactElement {
     return overtimeSummary.users.filter((u) => u.over_hours > 0);
   }, [overtimeSummary]);
 
-  // ─── Recent announcements ─────────────────────────
-  const recentAnnouncements: Announcement[] = useMemo(() => {
-    const items = announcementsData?.items;
+  // ─── Recent notices ─────────────────────────
+  const recentNotices: Notice[] = useMemo(() => {
+    const items = noticesData?.items;
     if (!Array.isArray(items)) return [];
     return items.slice(0, 5);
-  }, [announcementsData]);
+  }, [noticesData]);
 
   // ─── Export handler ─────────────────────────────────
   const handleExport = useCallback(async (): Promise<void> => {
@@ -641,33 +641,33 @@ export default function DashboardPage(): React.ReactElement {
         </Card>
       </div>
 
-      {/* Recent Announcements */}
+      {/* Recent Notices */}
       <div className="bg-card border border-border rounded-xl p-6">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-base font-bold text-text">Recent Announcements</h2>
+          <h2 className="text-base font-bold text-text">Recent Notices</h2>
           <button
             type="button"
-            onClick={() => router.push("/announcements")}
+            onClick={() => router.push("/notices")}
             className="text-xs text-accent hover:text-accent-light font-medium flex items-center gap-1 transition-colors"
           >
             View All
             <ChevronRight className="h-3.5 w-3.5" />
           </button>
         </div>
-        {recentAnnouncements.length === 0 ? (
-          <p className="text-sm text-text-muted py-4">No announcements yet.</p>
+        {recentNotices.length === 0 ? (
+          <p className="text-sm text-text-muted py-4">No notices yet.</p>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
-            {recentAnnouncements.map((ann: Announcement) => (
+            {recentNotices.map((ann: Notice) => (
               <div
                 key={ann.id}
                 className="bg-surface border border-border rounded-lg p-4 hover:bg-surface-hover transition-colors cursor-pointer"
-                onClick={() => router.push(`/announcements/${ann.id}`)}
+                onClick={() => router.push(`/notices/${ann.id}`)}
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e: React.KeyboardEvent) => {
                   if (e.key === "Enter" || e.key === " ") {
-                    router.push(`/announcements/${ann.id}`);
+                    router.push(`/notices/${ann.id}`);
                   }
                 }}
               >

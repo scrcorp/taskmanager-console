@@ -14,9 +14,9 @@ import type {
   User,
   ChecklistTemplate,
   ChecklistItem,
-  Announcement,
+  Notice,
   AdditionalTask,
-  Notification,
+  Alert,
 } from "@/types";
 
 // ─── IDs ──────────────────────────────────────────────
@@ -40,13 +40,13 @@ export const mockMe: UserMe = {
   id: USER_IDS[0],
   username: "admin",
   full_name: "Admin User",
-  email: "admin@taskmanager.io",
+  email: "admin@htm.io",
   email_verified: true,
   phone: "010-1234-5678",
   role_name: "Super Admin",
   role_priority: 10,
   organization_id: ORG_ID,
-  organization_name: "TaskManager Demo Org",
+  organization_name: "HTM Demo Org",
   organization_timezone: "America/New_York",
   company_code: "DEMO",
   is_active: true,
@@ -54,7 +54,7 @@ export const mockMe: UserMe = {
   must_change_password: false,
   preferred_language: "en",
   permissions: [
-    "announcements:create", "announcements:delete", "announcements:read", "announcements:update",
+    "notices:create", "notices:delete", "notices:read", "notices:update",
     "audit_log:read", "checklists:create", "checklists:delete", "checklists:read", "checklists:update",
     "dashboard:read", "evaluations:create", "evaluations:delete", "evaluations:read", "evaluations:update",
     "roles:create", "roles:delete", "roles:read", "roles:update",
@@ -122,11 +122,11 @@ export const mockStoreDetails: Record<string, StoreDetail> = {
 // ─── Users ────────────────────────────────────────────
 
 export const mockUsers: User[] = [
-  { id: USER_IDS[0], username: "admin", full_name: "Admin User", email: "admin@taskmanager.io", email_verified: true, phone: "010-1234-5678", role_name: "Owner", role_priority: 10, is_active: true, hourly_rate: null, created_at: "2025-01-01T00:00:00Z" },
-  { id: USER_IDS[1], username: "manager01", full_name: "Kim Manager", email: "kim@taskmanager.io", email_verified: true, phone: "010-2345-6789", role_name: "GM", role_priority: 20, is_active: true, hourly_rate: null, created_at: "2025-03-15T09:00:00Z" },
-  { id: USER_IDS[2], username: "staff01", full_name: "Lee Staff", email: "lee@taskmanager.io", email_verified: true, phone: "010-3456-7890", role_name: "Staff", role_priority: 40, is_active: true, hourly_rate: null, created_at: "2025-04-01T09:00:00Z" },
+  { id: USER_IDS[0], username: "admin", full_name: "Admin User", email: "admin@htm.io", email_verified: true, phone: "010-1234-5678", role_name: "Owner", role_priority: 10, is_active: true, hourly_rate: null, created_at: "2025-01-01T00:00:00Z" },
+  { id: USER_IDS[1], username: "manager01", full_name: "Kim Manager", email: "kim@htm.io", email_verified: true, phone: "010-2345-6789", role_name: "GM", role_priority: 20, is_active: true, hourly_rate: null, created_at: "2025-03-15T09:00:00Z" },
+  { id: USER_IDS[2], username: "staff01", full_name: "Lee Staff", email: "lee@htm.io", email_verified: true, phone: "010-3456-7890", role_name: "Staff", role_priority: 40, is_active: true, hourly_rate: null, created_at: "2025-04-01T09:00:00Z" },
   { id: USER_IDS[3], username: "staff02", full_name: "Park Worker", email: null, email_verified: false, phone: "010-4567-8901", role_name: "Staff", role_priority: 40, is_active: true, hourly_rate: null, created_at: "2025-05-10T09:00:00Z" },
-  { id: USER_IDS[4], username: "inactive01", full_name: "Choi Former", email: "choi@taskmanager.io", email_verified: false, phone: null, role_name: "Staff", role_priority: 40, is_active: false, hourly_rate: null, created_at: "2025-02-20T09:00:00Z" },
+  { id: USER_IDS[4], username: "inactive01", full_name: "Choi Former", email: "choi@htm.io", email_verified: false, phone: null, role_name: "Staff", role_priority: 40, is_active: false, hourly_rate: null, created_at: "2025-02-20T09:00:00Z" },
 ];
 
 /** 사용자별 소속 매장 (User store memberships) */
@@ -169,9 +169,9 @@ export const mockChecklistItems: Record<string, ChecklistItem[]> = {
   ],
 };
 
-// ─── Announcements ────────────────────────────────────
+// ─── Notices ────────────────────────────────────
 
-export const mockAnnouncements: Announcement[] = [
+export const mockNotices: Notice[] = [
   { id: ANN_IDS[0], title: "New Hygiene Policy Effective March 1st", content: "All staff must complete the updated hygiene training by February 28th.\nPlease check the training portal for the new module.\n\nFailure to complete by the deadline may result in schedule reassignment.", store_id: null, store_name: null, created_by_name: "Admin User", created_at: "2026-02-15T09:00:00Z" },
   { id: ANN_IDS[1], title: "Seoul Station Branch Renovation Notice", content: "The Seoul Station branch will undergo renovation from March 5-10.\nAll shifts during this period will be reassigned to Gangnam branch.", store_id: STORE_IDS[0], store_name: "Seoul Station Branch", created_by_name: "Kim Manager", created_at: "2026-02-14T14:30:00Z" },
   { id: ANN_IDS[2], title: "Holiday Schedule Change", content: "Please note the updated holiday schedule for March. Check the calendar for details.", store_id: null, store_name: null, created_by_name: "Admin User", created_at: "2026-02-10T11:00:00Z" },
@@ -186,12 +186,12 @@ export const mockTasks: AdditionalTask[] = [
   { id: TASK_IDS[2], title: "Fix broken display shelf", description: null, store_id: STORE_IDS[0], store_name: "Seoul Station Branch", priority: "urgent", status: "completed", due_date: "2026-02-16", created_by_name: "Kim Manager", assignee_names: ["Park Worker"], created_at: "2026-02-13T14:00:00Z" },
 ];
 
-// ─── Notifications ────────────────────────────────────
+// ─── Alerts ────────────────────────────────────
 
-export const mockNotifications: Notification[] = [
+export const mockAlerts: Alert[] = [
   { id: NOTIF_IDS[0], type: "schedule", message: "New schedule for Seoul Station Branch - Morning shift on Feb 18", reference_type: "schedule", reference_id: "schedule-001", is_read: false, created_at: "2026-02-17T07:00:00Z" },
   { id: NOTIF_IDS[1], type: "task", message: "Task 'Restock cleaning supplies' is now urgent", reference_type: "task", reference_id: TASK_IDS[0], is_read: false, created_at: "2026-02-16T15:00:00Z" },
-  { id: NOTIF_IDS[2], type: "announcement", message: "New announcement: New Hygiene Policy Effective March 1st", reference_type: "announcement", reference_id: ANN_IDS[0], is_read: false, created_at: "2026-02-15T09:00:00Z" },
+  { id: NOTIF_IDS[2], type: "notice", message: "New notice: New Hygiene Policy Effective March 1st", reference_type: "notice", reference_id: ANN_IDS[0], is_read: false, created_at: "2026-02-15T09:00:00Z" },
   { id: NOTIF_IDS[3], type: "schedule", message: "Schedule confirmed for Lee Staff at Seoul Station Morning shift", reference_type: "schedule", reference_id: "schedule-002", is_read: true, created_at: "2026-02-17T08:05:00Z" },
   { id: NOTIF_IDS[4], type: "task", message: "Task 'Fix broken display shelf' marked as completed", reference_type: "task", reference_id: TASK_IDS[2], is_read: true, created_at: "2026-02-16T10:00:00Z" },
 ];
