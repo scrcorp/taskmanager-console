@@ -77,7 +77,7 @@ function StatLine({ label, confirmed, pending, showCost, isTotal }: {
       )}
       <div
         className="flex items-center gap-1 text-[9px] leading-[12px] flex-wrap"
-        title={`Confirmed${hasPending ? " / +Pending" : ""}: ${confirmed.count}${hasPending ? ` / +${pending.count}` : ""} staff · ${confirmed.hours.toFixed(1)}${hasPending ? ` / +${pending.hours.toFixed(1)}` : ""}h${showCost ? ` · $${confirmed.cost.toFixed(0)}${hasPending ? ` / +$${pending.cost.toFixed(0)}` : ""}` : ""}`}
+        title={`Confirmed${hasPending ? " / +Pending" : ""}: ${confirmed.count}${hasPending ? ` / +${pending.count}` : ""} staff · ${confirmed.hours.toFixed(1)}${hasPending ? ` / +${pending.hours.toFixed(1)}` : ""} h${showCost ? ` · $${confirmed.cost.toFixed(0)}${hasPending ? ` / +$${pending.cost.toFixed(0)}` : ""}` : ""}`}
       >
         <IconPeople />
         <span className={hasConfirmed ? "text-[var(--color-success)] font-semibold" : "text-[var(--color-text-muted)]"}>{confirmed.count}</span>

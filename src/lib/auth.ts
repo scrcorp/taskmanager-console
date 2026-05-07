@@ -44,6 +44,9 @@ export function isAuthenticated(): boolean {
 // ── 회사 코드 (Company Code) ──────────────────────────────────────
 // 6자리 영숫자 코드로 조직을 식별합니다.
 // .env 고정값 또는 사용자 입력값을 localStorage에 저장합니다.
+//
+// @deprecated multi-tenant 비활성화 중 (2026-05-07). 서버가 단일 organization을
+// 자동 매칭하므로 호출되지 않음. multi-tenant 복원 시 호출처 다시 wire.
 
 const COMPANY_CODE_KEY = "taskmanager_company_code";
 

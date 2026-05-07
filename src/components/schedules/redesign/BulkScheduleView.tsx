@@ -1054,8 +1054,8 @@ export default function BulkScheduleView({
                               {agg.previewCount > 0 && <span className="text-[var(--color-accent)] font-semibold"> +{agg.previewCount}</span>}
                             </div>
                             <div className="text-[10px]">
-                              <span className="text-[var(--color-success)]">{fH(agg.existingHrs)}h</span>
-                              {agg.previewHrs > 0 && <span className="text-[var(--color-accent)]"> +{fH(agg.previewHrs)}h</span>}
+                              <span className="text-[var(--color-success)]">{fH(agg.existingHrs)} h</span>
+                              {agg.previewHrs > 0 && <span className="text-[var(--color-accent)]"> +{fH(agg.previewHrs)} h</span>}
                             </div>
                             {isGMView && (agg.existingCost > 0 || agg.previewCost > 0) && (
                               <div className="text-[10px]">
@@ -1072,8 +1072,8 @@ export default function BulkScheduleView({
                     <div className="text-[11px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide">Total</div>
                     {headerExpanded && (
                       <div className="mt-1 font-normal">
-                        <div className="text-[10px] text-[var(--color-success)] font-semibold">{Math.round(weeklyAgg.existingHrs * 10) / 10}h</div>
-                        {weeklyAgg.previewHrs > 0 && <div className="text-[10px] text-[var(--color-accent)] font-semibold">+{Math.round(weeklyAgg.previewHrs * 10) / 10}h</div>}
+                        <div className="text-[10px] text-[var(--color-success)] font-semibold">{Math.round(weeklyAgg.existingHrs * 10) / 10} h</div>
+                        {weeklyAgg.previewHrs > 0 && <div className="text-[10px] text-[var(--color-accent)] font-semibold">+{Math.round(weeklyAgg.previewHrs * 10) / 10} h</div>}
                         {isGMView && weeklyAgg.existingCost > 0 && <div className="text-[10px] text-[var(--color-success)]">${weeklyAgg.existingCost.toFixed(0)}</div>}
                         {isGMView && weeklyAgg.previewCost > 0 && <div className="text-[10px] text-[var(--color-accent)]">+${weeklyAgg.previewCost.toFixed(0)}</div>}
                       </div>
@@ -1353,8 +1353,8 @@ export default function BulkScheduleView({
                         const fmtH = (h: number) => { const r = Math.round(h * 10) / 10; return r % 1 === 0 ? String(r) : r.toFixed(1); };
                         return (
                           <div className="flex flex-col items-center">
-                            {existHrs > 0 && <span className="text-[13px] font-bold text-[var(--color-success)]">{fmtH(existHrs)}h</span>}
-                            {pvHrs > 0 && <span className="text-[10px] font-semibold text-[var(--color-accent)]">+{fmtH(pvHrs)}h</span>}
+                            {existHrs > 0 && <span className="text-[13px] font-bold text-[var(--color-success)]">{fmtH(existHrs)} h</span>}
+                            {pvHrs > 0 && <span className="text-[10px] font-semibold text-[var(--color-accent)]">+{fmtH(pvHrs)} h</span>}
                             {isGMView && existCost > 0 && <span className="text-[10px] text-[var(--color-success)]">${existCost.toFixed(0)}</span>}
                             {isGMView && pvCost > 0 && <span className="text-[10px] text-[var(--color-accent)]">+${pvCost.toFixed(0)}</span>}
                             {existHrs === 0 && pvHrs === 0 && <span className="text-[11px] text-[var(--color-text-muted)]">--</span>}
@@ -1388,7 +1388,7 @@ export default function BulkScheduleView({
               <span className="text-[var(--color-danger)] font-semibold">{deletedScheduleIds.size} deleted</span>
             )}
             {weeklyAgg.previewHrs > 0 && (
-              <span className="text-[var(--color-text-secondary)]">+{Math.round(weeklyAgg.previewHrs * 10) / 10}h</span>
+              <span className="text-[var(--color-text-secondary)]">+{Math.round(weeklyAgg.previewHrs * 10) / 10} h</span>
             )}
             {isGMView && weeklyAgg.previewCost > 0 && (
               <span className="text-[var(--color-text-secondary)]">+${weeklyAgg.previewCost.toFixed(0)}</span>
