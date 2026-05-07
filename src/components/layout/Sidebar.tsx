@@ -332,14 +332,6 @@ export function Sidebar({ onNavClick }: { onNavClick?: () => void }) {
         })}
       </nav>
 
-      {/* 회사 코드 (Company Code) */}
-      {user?.company_code && (
-        <div className="mx-4 mb-2 px-3 py-2 rounded-lg bg-accent/5 border border-accent/10">
-          <div className="text-[10px] text-text-muted font-medium uppercase tracking-wider">Company Code</div>
-          <div className="text-sm font-bold text-accent tracking-widest mt-0.5">{user.company_code}</div>
-        </div>
-      )}
-
       {/* 구분선 (Separator) */}
       <div className="mx-5 my-2 h-px bg-border" />
 

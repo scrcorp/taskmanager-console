@@ -896,51 +896,94 @@ function WorkRulesSection(props: SectionCommonProps) {
 
 function AttendanceSettingsSection(props: SectionCommonProps) {
   const LATE_KEY = "attendance.late_buffer_minutes";
-  const EARLY_KEY = "attendance.early_leave_threshold_minutes";
+  const EARLY_LEAVE_KEY = "attendance.early_leave_threshold_minutes";
+  const EARLY_IN_KEY = "attendance.early_clock_in_threshold_minutes";
+  const AUTO_OUT_KEY = "attendance.auto_clock_out_after_minutes";
+  const ALERT_INT_KEY = "attendance.alert_interval_minutes";
 
   const lateBuffer = Number(props.getValue(LATE_KEY) ?? 5);
-  const earlyThresh = Number(props.getValue(EARLY_KEY) ?? 5);
+  const earlyLeave = Number(props.getValue(EARLY_LEAVE_KEY) ?? 5);
+  const earlyClockIn = Number(props.getValue(EARLY_IN_KEY) ?? 5);
+  const autoClockOut = Number(props.getValue(AUTO_OUT_KEY) ?? 30);
+  const alertInterval = Number(props.getValue(ALERT_INT_KEY) ?? 10);
 
-  const locked = props.isLocked(LATE_KEY) || props.isLocked(EARLY_KEY);
-  const inheritState = useSectionInherit(props, [LATE_KEY, EARLY_KEY]);
+  const allKeys = [LATE_KEY, EARLY_LEAVE_KEY, EARLY_IN_KEY, AUTO_OUT_KEY, ALERT_INT_KEY];
+  const locked = allKeys.some((k) => props.isLocked(k));
+  const inheritState = useSectionInherit(props, allKeys);
+
+  const renderField = (
+    key: string,
+    label: string,
+    value: number,
+    suffix: string,
+    max: number,
+    hint?: string,
+  ) => (
+    <ChangedMark changed={props.isChanged(key)}>
+      <div>
+        <label className="text-[12px] font-medium text-[var(--color-text-secondary)] mb-1.5 block">
+          {label}
+        </label>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            value={value}
+            min="0"
+            max={max}
+            disabled={locked}
+            onChange={(e) =>
+              props.queueChange(key, Math.max(0, Math.min(max, Number(e.target.value))))
+            }
+            className="w-20 px-3 py-1.5 border border-[var(--color-border)] rounded-lg text-[13px] text-center disabled:opacity-50"
+          />
+          <span className="text-[13px] text-[var(--color-text-muted)]">{suffix}</span>
+        </div>
+        {hint && (
+          <p className="text-[11px] text-[var(--color-text-muted)] mt-1">{hint}</p>
+        )}
+      </div>
+    </ChangedMark>
+  );
+
+  const subheader = (text: string) => (
+    <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-muted)] mt-1 mb-2">
+      {text}
+    </div>
+  );
 
   return (
-    <Card title="Attendance" subtitle="Late and early-leave detection thresholds" locked={locked} inheritState={inheritState ?? undefined}>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        <ChangedMark changed={props.isChanged(LATE_KEY)}>
-          <div>
-            <label className="text-[12px] font-medium text-[var(--color-text-secondary)] mb-1.5 block">Late buffer</label>
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                value={lateBuffer}
-                min="0"
-                max="120"
-                disabled={locked}
-                onChange={(e) => props.queueChange(LATE_KEY, Math.max(0, Math.min(120, Number(e.target.value))))}
-                className="w-20 px-3 py-1.5 border border-[var(--color-border)] rounded-lg text-[13px] text-center disabled:opacity-50"
-              />
-              <span className="text-[13px] text-[var(--color-text-muted)]">min after start</span>
-            </div>
+    <Card
+      title="Attendance"
+      subtitle="Clock-in/out tolerances, auto-completion, and overdue alerts"
+      locked={locked}
+      inheritState={inheritState ?? undefined}
+    >
+      <div className="space-y-5">
+        <div>
+          {subheader("Clock-in")}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {renderField(EARLY_IN_KEY, "Early clock-in window", earlyClockIn, "min before start", 120,
+              "How early staff are allowed to clock in. Earlier attempts are rejected.")}
+            {renderField(LATE_KEY, "Late buffer", lateBuffer, "min after start", 120,
+              "Grace period before clock-in is marked late.")}
           </div>
-        </ChangedMark>
-        <ChangedMark changed={props.isChanged(EARLY_KEY)}>
-          <div>
-            <label className="text-[12px] font-medium text-[var(--color-text-secondary)] mb-1.5 block">Early-leave threshold</label>
-            <div className="flex items-center gap-2">
-              <input
-                type="number"
-                value={earlyThresh}
-                min="0"
-                max="120"
-                disabled={locked}
-                onChange={(e) => props.queueChange(EARLY_KEY, Math.max(0, Math.min(120, Number(e.target.value))))}
-                className="w-20 px-3 py-1.5 border border-[var(--color-border)] rounded-lg text-[13px] text-center disabled:opacity-50"
-              />
-              <span className="text-[13px] text-[var(--color-text-muted)]">min before end</span>
-            </div>
+        </div>
+        <div>
+          {subheader("Clock-out")}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {renderField(EARLY_LEAVE_KEY, "Early clock-out threshold", earlyLeave, "min before end", 120,
+              "Clock-out earlier than this requires a reason and is flagged as early.")}
+            {renderField(AUTO_OUT_KEY, "Auto clock-out delay", autoClockOut, "min after end", 1440,
+              "Forgot-to-clock-out → auto closed at scheduled end. 0 disables.")}
           </div>
-        </ChangedMark>
+        </div>
+        <div>
+          {subheader("Alerts")}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {renderField(ALERT_INT_KEY, "Manager alert interval", alertInterval, "min", 1440,
+              "How often managers are alerted when a shift is overdue without clock-out. 0 disables.")}
+          </div>
+        </div>
       </div>
     </Card>
   );

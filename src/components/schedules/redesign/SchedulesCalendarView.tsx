@@ -874,6 +874,43 @@ export default function SchedulesCalendarView() {
   }, [schedules, monthDateFrom, monthDateTo, selectedStores, isAllStores]);
 
   const totals = view === "monthly" ? monthlyTotals : view === "weekly" ? weeklyTotals : dailyTotals;
+
+  // 활성 필터 합계: FilterBar로 좁혀진 staff/status/position/shift만 합산.
+  const totalActiveFilters = filters.staffIds.length + filters.roles.length + filters.statuses.length + filters.positions.length + filters.shifts.length;
+  const filteredTotals = useMemo(() => {
+    if (totalActiveFilters === 0) return null;
+    const userIdSet = new Set(filteredUsers.map((u) => u.id));
+    let from: string;
+    let to: string;
+    if (view === "monthly") { from = monthDateFrom; to = monthDateTo; }
+    else if (view === "daily") { from = selectedDay; to = selectedDay; }
+    else { from = weekDates[0]?.date ?? ""; to = weekDates[6]?.date ?? ""; }
+    const filtered = schedules.filter((s) => {
+      if (!matchesStoreFilter(s.store_id)) return false;
+      if (s.work_date < from || s.work_date > to) return false;
+      if (!userIdSet.has(s.user_id)) return false;
+      if (filters.statuses.length > 0 && !filters.statuses.includes(s.status)) return false;
+      if (filters.positions.length > 0 && !(s.position_snapshot && filters.positions.includes(s.position_snapshot))) return false;
+      if (filters.shifts.length > 0) {
+        const name = s.work_role_name_snapshot || s.work_role_name;
+        if (!name || !filters.shifts.includes(name)) return false;
+      }
+      return true;
+    });
+    const conf = filtered.filter((s) => s.status === "confirmed");
+    const pend = filtered.filter((s) => s.status === "requested");
+    const sumHours = (arr: Schedule[]) => arr.reduce((sum, s) => sum + getNetWorkHours(s), 0);
+    const sumCost = (arr: Schedule[]) => arr.reduce((sum, s) => sum + getNetWorkHours(s) * (s.hourly_rate ?? 0), 0);
+    return {
+      staff: filteredUsers.length,
+      hc: sumHours(conf), hp: sumHours(pend),
+      lc: sumCost(conf), lp: sumCost(pend),
+      tc: new Set(conf.map((s) => s.user_id)).size,
+      tp: new Set(pend.map((s) => s.user_id)).size,
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [totalActiveFilters, filteredUsers, filters, schedules, view, monthDateFrom, monthDateTo, selectedDay, weekDates, selectedStores, isAllStores]);
+
   const columns = view === "weekly" ? weeklyColumns : dailyColumns;
   // selectedDay 직접 파싱 — weekDates lookup은 selectedDay가 weekDates 밖이면 undefined가 됨
   const selectedDayLabel = (() => {
@@ -1336,7 +1373,7 @@ export default function SchedulesCalendarView() {
           )}
           {schedulesQ.isLoading && <span className="text-[11px] text-[var(--color-text-muted)]">Loading…</span>}
           <div className="hidden md:flex items-center gap-3 text-[13px] text-[var(--color-text-secondary)]">
-            <span title="Staff with at least one schedule in range">Staff: <strong className="text-[14px] text-[var(--color-text)]">{filteredUsers.length}</strong></span>
+            <span title="Total staff in selected store(s) — does not change with filters">Staff: <strong className="text-[14px] text-[var(--color-text)]">{users.length}</strong></span>
             <span className="w-px h-4 bg-[var(--color-border)]" />
             <span title="Confirmed / approved schedules">Scheduled: <strong className="text-[14px] text-[var(--color-text)]">{totals.tc}</strong></span>
             <span className="w-px h-4 bg-[var(--color-border)]" />
@@ -1484,6 +1521,26 @@ export default function SchedulesCalendarView() {
           emptyStaffHide={emptyStaffHide}
           onEmptyStaffHideChange={setEmptyStaffHide}
         />
+
+        {/* Filtered totals — 활성 필터 적용된 합계만 표시 */}
+        {filteredTotals && (
+          <div className="-mt-3 mb-4 px-4 py-2 bg-[var(--color-accent-muted)] border border-[var(--color-accent)]/30 rounded-xl flex items-center gap-3 text-[13px] text-[var(--color-text-secondary)] flex-wrap">
+            <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-accent)] shrink-0">Filtered</span>
+            <span title="Staff matching active filters">Staff: <strong className="text-[14px] text-[var(--color-text)]">{filteredTotals.staff}</strong></span>
+            <span className="w-px h-4 bg-[var(--color-border)]" />
+            <span title="Confirmed schedules within filtered set">Scheduled: <strong className="text-[14px] text-[var(--color-text)]">{filteredTotals.tc}</strong></span>
+            <span className="w-px h-4 bg-[var(--color-border)]" />
+            <span title="Pending schedules within filtered set">Pending: <strong className="text-[14px] text-[var(--color-warning)]">{filteredTotals.tp}</strong></span>
+            <span className="w-px h-4 bg-[var(--color-border)]" />
+            <span title="Confirmed hours within filtered set">Hours: <strong className="text-[14px] text-[var(--color-success)]">{(Math.round(filteredTotals.hc * 100) / 100)} h</strong>{filteredTotals.hp > 0 && <strong className="text-[14px] text-[var(--color-warning)]" title="Additional pending hours if approved"> +{(Math.round(filteredTotals.hp * 100) / 100)} h</strong>}</span>
+            {isGMView && (
+              <>
+                <span className="w-px h-4 bg-[var(--color-border)]" />
+                <span title="Confirmed cost within filtered set">Cost: <strong className="text-[14px] text-[var(--color-success)]">${filteredTotals.lc.toFixed(2)}</strong>{filteredTotals.lp > 0 && <strong className="text-[14px] text-[var(--color-warning)]" title="Additional pending cost if approved"> +${filteredTotals.lp.toFixed(2)}</strong>}</span>
+              </>
+            )}
+          </div>
+        )}
 
         {/* Monthly Grid */}
         {view === "monthly" && (
@@ -1712,8 +1769,8 @@ export default function SchedulesCalendarView() {
                           const lp = weekDates.reduce((sum, d) => sum + getUserPendingCost(u.id, d.date), 0);
                           const hasMissing = isGMView && userHasNoCost(u.id, weekDates.map((d) => d.date));
                           return <div className="flex flex-col items-center">
-                            <span className="text-[13px] font-bold text-[var(--color-success)]">{fmtH(ch)}h</span>
-                            {ph > 0 && <span className="text-[10px] font-semibold text-[var(--color-warning)]">+{fmtH(ph)}h</span>}
+                            <span className="text-[13px] font-bold text-[var(--color-success)]">{fmtH(ch)} h</span>
+                            {ph > 0 && <span className="text-[10px] font-semibold text-[var(--color-warning)]">+{fmtH(ph)} h</span>}
                             {isGMView && lc > 0 && <span className="text-[10px] text-[var(--color-success)]">${lc.toFixed(2)}</span>}
                             {isGMView && lp > 0 && <span className="text-[10px] text-[var(--color-warning)]">+${lp.toFixed(2)}</span>}
                             {hasMissing && <span className="text-[10px] text-[var(--color-danger)]" title="Some schedules have no stored rate and no inherited rate available">No cost</span>}
@@ -1725,8 +1782,8 @@ export default function SchedulesCalendarView() {
                           const h = blocks.filter((b) => b.status === "confirmed").reduce((sum, b) => sum + getNetWorkHours(b), 0);
                           const ph = blocks.filter((b) => b.status === "requested").reduce((sum, b) => sum + getNetWorkHours(b), 0);
                           return <div className="flex flex-col items-center">
-                            {h > 0 && <span className="text-[13px] font-bold text-[var(--color-success)]">{fmtH(h)}h</span>}
-                            {ph > 0 && <span className="text-[10px] font-semibold text-[var(--color-warning)]">+{fmtH(ph)}h</span>}
+                            {h > 0 && <span className="text-[13px] font-bold text-[var(--color-success)]">{fmtH(h)} h</span>}
+                            {ph > 0 && <span className="text-[10px] font-semibold text-[var(--color-warning)]">+{fmtH(ph)} h</span>}
                             {h === 0 && ph === 0 && <span className="text-[11px] text-[var(--color-text-muted)]">--</span>}
                           </div>;
                         })()
