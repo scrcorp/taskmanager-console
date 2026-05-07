@@ -164,7 +164,7 @@ export function ScheduleBlock({ schedule, showCost, attendance, currentStoreId, 
       >
         <div className="text-[10px] font-semibold truncate mb-0.5">{schedule.store_name ?? "—"}</div>
         <div className="text-[11px] font-semibold leading-tight truncate">{roleName} · {positionName}</div>
-        <div className="text-[10px] mt-0.5">{timeRange} ({fmtH(hours)}h)</div>
+        <div className="text-[10px] mt-0.5">{timeRange} ({fmtH(hours)} h)</div>
       </div>
     );
   }
@@ -223,7 +223,7 @@ export function ScheduleBlock({ schedule, showCost, attendance, currentStoreId, 
         <span className="text-[11px] font-semibold text-[var(--color-text)] truncate flex-1 min-w-0">
           {roleName}{positionName !== "—" ? ` · ${positionName}` : ""}
         </span>
-        <span className={`text-[11px] font-bold tabular-nums shrink-0 ${styles.text}`}>{fmtH(hours)}h</span>
+        <span className={`text-[11px] font-bold tabular-nums shrink-0 ${styles.text}`}>{fmtH(hours)} h</span>
       </div>
 
       {/* Row 2: Time range */}
@@ -233,7 +233,7 @@ export function ScheduleBlock({ schedule, showCost, attendance, currentStoreId, 
 
       {/* Row 2.5: Timeline bar — status색 바. break 있으면 중간에 회색 gap. */}
       {grossHours > 0 && !isRejected && !isCancelled && (
-        <div className="mt-1 h-[5px] rounded-full bg-[var(--color-border)]/30 relative overflow-hidden" title={hasBreak ? `Break ${fmtH(breakHours)}h` : `${fmtH(hours)}h`}>
+        <div className="mt-1 h-[5px] rounded-full bg-[var(--color-border)]/30 relative overflow-hidden" title={hasBreak ? `Break ${fmtH(breakHours)} h` : `${fmtH(hours)} h`}>
           {hasBreak ? (() => {
             const bStart = parseTimeToHours(schedule.break_start_time);
             const seg1Pct = Math.max(0, Math.min(100, ((bStart - startH) / grossHours) * 100));
