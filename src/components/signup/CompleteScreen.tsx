@@ -1,3 +1,6 @@
+"use client";
+
+import { useTranslations } from "next-intl";
 import type { SignupContext } from "@/types/signup";
 
 interface Props {
@@ -9,9 +12,17 @@ interface Props {
 }
 
 export function CompleteScreen({ ctx, fullName, onRestart, mode = "application" }: Props) {
+  const t = useTranslations("signup");
   const firstName = fullName.split(" ")[0];
   const primary = ctx.store.cover_photos.find((p) => p.is_primary)?.url
     ?? ctx.store.cover_photos[0]?.url;
+
+  let title: string;
+  if (mode === "direct") {
+    title = firstName ? t("completeYoureInWithName", { name: firstName }) : t("completeYoureIn");
+  } else {
+    title = firstName ? t("completeThanksWithName", { name: firstName }) : t("completeThanks");
+  }
 
   return (
     <div className="flex min-h-[100dvh] flex-col bg-white">
@@ -34,36 +45,27 @@ export function CompleteScreen({ ctx, fullName, onRestart, mode = "application" 
         </div>
 
         <h1 className="text-[28px] font-semibold leading-tight tracking-tight text-slate-900">
-          {mode === "direct"
-            ? firstName
-              ? `You're in, ${firstName}!`
-              : "You're in!"
-            : firstName
-              ? `Thanks, ${firstName}!`
-              : "Thanks!"}
+          {title}
         </h1>
         <p className="mt-2 max-w-[300px] text-[14px] leading-relaxed text-slate-500">
           {mode === "direct" ? (
             <>
-              You&apos;ve been added to{" "}
+              {t("completeDirectBodyPrefix")}{" "}
               <span className="font-medium text-slate-700">{ctx.store.name}</span>{" "}
-              as staff. Open the app and log in with your username and password
-              to start your first shift.
+              {t("completeDirectBodySuffix")}
             </>
           ) : (
             <>
-              Your application to{" "}
+              {t("completeApplicationBodyPrefix")}{" "}
               <span className="font-medium text-slate-700">{ctx.store.name}</span>{" "}
-              has been submitted. The hiring manager will review it and reach
-              out to you. Once approved, you can log into the staff app with
-              your username and password.
+              {t("completeApplicationBodySuffix")}
             </>
           )}
         </p>
 
         <div className="mt-7 w-full">
           <p className="mb-2 text-[10.5px] font-semibold uppercase tracking-[0.16em] text-slate-400">
-            Your store
+            {t("completeYourStore")}
           </p>
           <div className="overflow-hidden rounded-2xl ring-1 ring-slate-200">
             <div className="relative h-28 w-full overflow-hidden bg-slate-100">
@@ -111,7 +113,7 @@ export function CompleteScreen({ ctx, fullName, onRestart, mode = "application" 
           onClick={onRestart}
           className="w-full rounded-xl bg-blue-600 px-5 py-3.5 text-[14px] font-semibold text-white shadow-sm shadow-blue-500/20 transition-colors hover:bg-blue-700 active:bg-blue-800"
         >
-          Done
+          {t("completeDoneButton")}
         </button>
       </div>
     </div>

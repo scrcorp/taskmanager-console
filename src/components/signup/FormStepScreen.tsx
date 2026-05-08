@@ -1,18 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import { Upload, Check, X, AlertCircle } from "lucide-react";
 import type {
   HiringFormConfig,
   QuestionDef,
   AttachmentSlotDef,
 } from "@/hooks/useHiring";
-
-const ACCEPT_DISPLAY: Record<string, string> = {
-  pdf: "PDF · up to 20MB",
-  image: "JPG, PNG, WebP, HEIC · up to 20MB",
-  pdf_or_image: "PDF, JPG, PNG, WebP, HEIC · up to 20MB",
-};
 
 const ACCEPT_MIMES: Record<string, string> = {
   pdf: "application/pdf",
@@ -55,9 +50,18 @@ export function FormStepScreen({
   onBack,
   onContinue,
 }: Props) {
+  const t = useTranslations("signup");
   const [uploadingSlot, setUploadingSlot] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
+
+  // accept 키 → 표시 텍스트 (i18n)
+  const acceptDisplay = (accept: string): string => {
+    if (accept === "pdf") return t("formAcceptPdf");
+    if (accept === "image") return t("formAcceptImage");
+    if (accept === "pdf_or_image") return t("formAcceptPdfOrImage");
+    return accept;
+  };
 
   const handleSetAnswer = (id: string, value: string | string[] | number) => {
     setAnswers({ ...answers, [id]: value });
@@ -80,14 +84,21 @@ export function FormStepScreen({
         const detail = err?.detail;
         if (detail?.code === "file_too_large") {
           setUploadError(
-            `"${file.name}" is ${detail.actual_mb} MB. Max ${detail.max_mb} MB.`,
+            t("formFileTooLarge", {
+              name: file.name,
+              actual: detail.actual_mb,
+              max: detail.max_mb,
+            }),
           );
         } else if (detail?.code === "invalid_file_type") {
           setUploadError(
-            `"${file.name}" is not allowed for this slot. Accepts: ${ACCEPT_DISPLAY[slot.accept]}.`,
+            t("formInvalidFileType", {
+              name: file.name,
+              accepts: acceptDisplay(slot.accept),
+            }),
           );
         } else {
-          setUploadError(detail?.message ?? "Upload failed.");
+          setUploadError(detail?.message ?? t("formUploadFailedGeneric"));
         }
         return;
       }
@@ -102,7 +113,7 @@ export function FormStepScreen({
         },
       });
     } catch {
-      setUploadError("Upload failed. Try again.");
+      setUploadError(t("formUploadFailed"));
     } finally {
       setUploadingSlot(null);
     }
@@ -118,12 +129,12 @@ export function FormStepScreen({
         v === "" ||
         (Array.isArray(v) && v.length === 0)
       ) {
-        return `Please answer: ${q.label}`;
+        return t("formPleaseAnswer", { label: q.label });
       }
     }
     for (const slot of config.attachments) {
       if (slot.required && !attachments[slot.id]) {
-        return `Please upload: ${slot.label}`;
+        return t("formPleaseUpload", { label: slot.label });
       }
     }
     return null;
@@ -143,7 +154,7 @@ export function FormStepScreen({
     <div className="flex min-h-[100dvh] flex-col bg-white">
       <div className="flex-1 px-5 pt-5">
         <h2 className="text-[22px] font-semibold leading-tight tracking-tight text-slate-900">
-          A few more details
+          {t("formTitle")}
         </h2>
         {config.welcome_message && (
           <p className="mt-1.5 whitespace-pre-line text-[13px] leading-relaxed text-slate-500">
@@ -169,7 +180,7 @@ export function FormStepScreen({
         {config.attachments.length > 0 && (
           <div className="mt-6 space-y-3">
             <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-              File uploads
+              {t("formFileUploads")}
             </p>
             {config.attachments.map((slot) => {
               const file = attachments[slot.id];
@@ -193,7 +204,7 @@ export function FormStepScreen({
                         </p>
                       )}
                       <p className="mt-0.5 text-[11px] text-slate-500">
-                        {ACCEPT_DISPLAY[slot.accept]}
+                        {acceptDisplay(slot.accept)}
                       </p>
                     </div>
                     {file && (
@@ -203,7 +214,7 @@ export function FormStepScreen({
                           setAttachments({ ...attachments, [slot.id]: null })
                         }
                         className="text-slate-400 hover:text-[#EF4444]"
-                        aria-label="Remove file"
+                        aria-label={t("formRemoveFile")}
                       >
                         <X size={16} />
                       </button>
@@ -222,7 +233,7 @@ export function FormStepScreen({
                   ) : (
                     <label className="mt-2 flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed border-slate-300 bg-slate-50 py-3 text-[12px] text-slate-500 hover:bg-slate-100">
                       <Upload size={14} />
-                      {uploadingSlot === slot.id ? "Uploading…" : "Choose file"}
+                      {uploadingSlot === slot.id ? t("formUploading") : t("formChooseFile")}
                       <input
                         type="file"
                         accept={accept}
@@ -256,14 +267,14 @@ export function FormStepScreen({
             onClick={onBack}
             className="flex-1 rounded-xl border border-slate-200 bg-white px-5 py-3 text-[13px] font-semibold text-slate-700 hover:bg-slate-50"
           >
-            Back
+            {t("back")}
           </button>
           <button
             type="button"
             onClick={handleContinue}
             className="flex-[2] rounded-xl bg-blue-600 px-5 py-3 text-[14px] font-semibold text-white shadow-sm hover:bg-blue-700"
           >
-            Continue
+            {t("continue")}
           </button>
         </div>
       </div>

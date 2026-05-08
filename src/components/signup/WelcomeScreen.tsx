@@ -1,4 +1,8 @@
+"use client";
+
+import { useTranslations } from "next-intl";
 import type { SignupContext } from "@/types/signup";
+import { LanguageSwitcher } from "./LanguageSwitcher";
 
 interface Props {
   ctx: SignupContext;
@@ -9,14 +13,21 @@ interface Props {
 const FALLBACK_HERO_BG = "bg-gradient-to-br from-slate-700 via-slate-800 to-slate-900";
 
 export function WelcomeScreen({ ctx, onContinue, hasForm }: Props) {
+  const t = useTranslations("signup");
+
   const previewStages: { label: string; sub: string }[] = [
-    { label: "Sign up", sub: "Name, email, password, verify" },
+    { label: t("stagePreviewSignUpLabel"), sub: t("stagePreviewSignUpSub") },
     ...(hasForm
-      ? [{ label: "Submit application", sub: "Tell the manager about you" }]
+      ? [
+          {
+            label: t("stagePreviewSubmitLabel"),
+            sub: t("stagePreviewSubmitSub"),
+          },
+        ]
       : []),
-    { label: "Manager review", sub: "We look over your application" },
-    { label: "Interview", sub: "Meet the team" },
-    { label: "Hired", sub: "Start your first shift" },
+    { label: t("stagePreviewReviewLabel"), sub: t("stagePreviewReviewSub") },
+    { label: t("stagePreviewInterviewLabel"), sub: t("stagePreviewInterviewSub") },
+    { label: t("stagePreviewHiredLabel"), sub: t("stagePreviewHiredSub") },
   ];
   const photos = ctx.store.cover_photos;
   const primaryPhoto = photos.find((p) => p.is_primary) ?? photos[0];
@@ -36,11 +47,12 @@ export function WelcomeScreen({ ctx, onContinue, hasForm }: Props) {
           />
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-slate-900 via-slate-900/40 to-slate-900/30" />
-        <div className="absolute left-5 right-5 top-12">
+        <div className="absolute left-5 right-5 top-12 flex items-center justify-between gap-2">
           <span className="inline-flex items-center gap-1.5 rounded-full bg-white/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-white backdrop-blur">
             <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-            New hire signup
+            {t("welcomeBadge")}
           </span>
+          <LanguageSwitcher />
         </div>
         <div className="absolute bottom-5 left-5 right-5">
           <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-white/85">
@@ -71,17 +83,16 @@ export function WelcomeScreen({ ctx, onContinue, hasForm }: Props) {
 
       <div className="flex flex-1 flex-col px-5 pt-5">
         <h2 className="text-[22px] font-semibold leading-tight tracking-tight text-slate-900">
-          Welcome aboard
+          {t("welcomeTitle")}
         </h2>
         <p className="mt-1.5 text-[13.5px] leading-relaxed text-slate-500">
-          Set up your account to clock in, view shifts, and complete daily
-          tasks.
+          {t("welcomeSubtitle")}
         </p>
 
         {galleryPhotos.length > 0 && (
           <div className="mt-5">
             <p className="mb-2 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-              More from this store
+              {t("welcomeMoreFromStore")}
             </p>
             <div className="-mx-5 overflow-x-auto px-5 pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
               <div className="flex gap-2">
@@ -105,7 +116,7 @@ export function WelcomeScreen({ ctx, onContinue, hasForm }: Props) {
 
         <div className="mt-5">
           <p className="mb-2 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-            How it works
+            {t("welcomeHowItWorks")}
           </p>
           <ol className="space-y-1.5">
             {previewStages.map((item, idx) => (
@@ -128,7 +139,7 @@ export function WelcomeScreen({ ctx, onContinue, hasForm }: Props) {
             ))}
           </ol>
           <p className="mt-2 text-[11px] text-slate-400">
-            You&apos;ll see your live progress after signing up.
+            {t("welcomeProgressNote")}
           </p>
         </div>
       </div>
@@ -139,7 +150,7 @@ export function WelcomeScreen({ ctx, onContinue, hasForm }: Props) {
           onClick={onContinue}
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-3.5 text-[14px] font-semibold text-white shadow-sm shadow-blue-500/20 transition-colors hover:bg-blue-700 active:bg-blue-800"
         >
-          Continue with sign up
+          {t("welcomeContinueButton")}
           <svg
             className="h-4 w-4"
             viewBox="0 0 24 24"
@@ -154,15 +165,15 @@ export function WelcomeScreen({ ctx, onContinue, hasForm }: Props) {
           </svg>
         </button>
         <p className="mt-2.5 text-center text-[10.5px] leading-relaxed text-slate-400">
-          By continuing, you agree to our{" "}
+          {t("welcomeTermsAgree")}{" "}
           <span className="text-slate-600 underline-offset-2 hover:underline">
-            Terms
+            {t("welcomeTermsLink")}
           </span>{" "}
-          and{" "}
+          {t("welcomeAndPrivacy")}{" "}
           <span className="text-slate-600 underline-offset-2 hover:underline">
-            Privacy Policy
+            {t("welcomePrivacyLink")}
           </span>
-          .
+          {t("welcomeTermsPeriod")}
         </p>
       </div>
     </div>
