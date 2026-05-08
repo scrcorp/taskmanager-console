@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import axios from "axios";
 import type {
   AccountFormState,
@@ -34,6 +35,7 @@ interface Props {
 }
 
 export function SignupFlow({ encoded }: Props) {
+  const t = useTranslations("signup");
   const [loading, setLoading] = useState(true);
   const [linkError, setLinkError] = useState<LinkErrorCode | null>(null);
   const [ctx, setCtx] = useState<SignupContext | null>(null);
@@ -144,7 +146,7 @@ export function SignupFlow({ encoded }: Props) {
           ? detail
           : (detail && typeof detail === "object" && typeof (detail as { message?: string }).message === "string")
             ? (detail as { message: string }).message
-            : "Failed to send code. Try again.";
+            : t("emailVerifyFailedSend");
       // 이미 가입된 이메일 → 모달
       if (status === 409 && /already registered|already.*use/i.test(text)) {
         setShowEmailInUseModal(true);
@@ -152,7 +154,7 @@ export function SignupFlow({ encoded }: Props) {
       }
       // 쿨다운 안내 (60초 안에 재요청한 케이스)
       if (status === 400 && /wait/i.test(text)) {
-        setEmailError("Please wait a moment before requesting another code.");
+        setEmailError(t("emailVerifyCooldown"));
         return;
       }
       setEmailError(text);
@@ -204,21 +206,18 @@ export function SignupFlow({ encoded }: Props) {
         }
       } else {
         // pending 없음 = 이 매장에서 새로 시작해야. 일단은 안내.
-        setLoginError(
-          "No application in progress for this store. Please use 'Continue with sign up' to start a new one.",
-        );
+        setLoginError(t("loginNoApplication"));
       }
     } catch (err) {
       const detail = axios.isAxiosError(err) && err.response?.data?.detail;
-      let msg = "Login failed.";
+      let msg = t("loginFailed");
       if (detail && typeof detail === "object") {
         const code = (detail as { code?: string }).code;
         const m = (detail as { message?: string }).message;
-        if (code === "invalid_credentials") msg = "ID or password incorrect.";
+        if (code === "invalid_credentials") msg = t("loginInvalidCredentials");
         else if (code === "active_application_exists")
-          msg = "You already have an active application for this store.";
-        else if (code === "not_eligible")
-          msg = "You are not eligible to apply to this store.";
+          msg = t("emailVerifyActiveApplication");
+        else if (code === "not_eligible") msg = t("emailVerifyNotEligible");
         else if (typeof m === "string") msg = m;
       }
       setLoginError(msg);
@@ -303,22 +302,20 @@ export function SignupFlow({ encoded }: Props) {
     } catch (err) {
       const detail =
         axios.isAxiosError(err) && err.response?.data?.detail;
-      let msg = "Verification failed. Check the code and try again.";
+      let msg = t("emailVerifyFailed");
       if (detail && typeof detail === "object") {
         const code = (detail as { code?: string }).code;
         const message = (detail as { message?: string }).message;
         if (code === "username_taken") {
-          msg = "This username is already in use. Choose a different one.";
+          msg = t("emailVerifyUsernameTaken");
         } else if (code === "email_taken") {
-          msg =
-            "An account with this email exists. If it's yours, log into the app instead of signing up again.";
+          msg = t("emailVerifyEmailTaken");
         } else if (code === "credential_mismatch") {
-          msg =
-            "An account with this username/email already exists with a different password. Log into the app to apply with your existing account.";
+          msg = t("emailVerifyCredentialMismatch");
         } else if (code === "active_application_exists") {
-          msg = "You already have an active application for this store.";
+          msg = t("emailVerifyActiveApplication");
         } else if (code === "not_eligible") {
-          msg = "You are not eligible to apply to this store.";
+          msg = t("emailVerifyNotEligible");
         } else if (typeof message === "string") {
           msg = message;
         }
@@ -337,7 +334,7 @@ export function SignupFlow({ encoded }: Props) {
       <div className="flex min-h-[100dvh] items-center justify-center bg-white">
         <div className="flex flex-col items-center gap-3 text-slate-400">
           <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-200 border-t-blue-500" />
-          <p className="text-[12px]">Loading…</p>
+          <p className="text-[12px]">{t("loading")}</p>
         </div>
       </div>
     );
@@ -358,24 +355,23 @@ export function SignupFlow({ encoded }: Props) {
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="text-[16px] font-semibold text-slate-900">
-          Log in to continue
+          {t("loginTitle")}
         </h3>
         <p className="mt-1 text-[12.5px] leading-relaxed text-slate-500">
-          Already have an account from a previous application? Log in and
-          we&apos;ll skip the account/email step.
+          {t("loginSubtitle")}
         </p>
         <div className="mt-4 space-y-2">
           <input
             value={loginUsername}
             onChange={(e) => setLoginUsername(e.target.value)}
-            placeholder="ID"
+            placeholder={t("loginIdPlaceholder")}
             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-[13px] outline-none focus:border-blue-500"
           />
           <input
             type="password"
             value={loginPassword}
             onChange={(e) => setLoginPassword(e.target.value)}
-            placeholder="Password"
+            placeholder={t("loginPasswordPlaceholder")}
             className="w-full rounded-lg border border-slate-200 px-3 py-2 text-[13px] outline-none focus:border-blue-500"
           />
         </div>
@@ -389,7 +385,7 @@ export function SignupFlow({ encoded }: Props) {
             disabled={loginLoading}
             className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-[13px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
           >
-            Cancel
+            {t("cancel")}
           </button>
           <button
             type="button"
@@ -397,7 +393,7 @@ export function SignupFlow({ encoded }: Props) {
             disabled={loginLoading || !loginUsername || !loginPassword}
             className="flex-[2] rounded-lg bg-blue-600 px-3 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
           >
-            {loginLoading ? "Logging in…" : "Log in"}
+            {loginLoading ? t("loginButtonLoading") : t("loginButton")}
           </button>
         </div>
       </div>
@@ -416,14 +412,14 @@ export function SignupFlow({ encoded }: Props) {
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="text-[16px] font-semibold text-slate-900">
-          This email is already registered
+          {t("emailInUseTitle")}
         </h3>
         <p className="mt-1.5 text-[13px] leading-relaxed text-slate-500">
-          An account with{" "}
+          {t("emailInUseBodyPrefix")}{" "}
           <span className="font-semibold text-slate-700">
             {emailForm.email || account.email}
-          </span>{" "}
-          already exists. Log in to continue, or use a different email.
+          </span>
+          {t("emailInUseBodySuffix")}
         </p>
         <div className="mt-4 flex flex-col gap-2">
           <button
@@ -437,7 +433,7 @@ export function SignupFlow({ encoded }: Props) {
             }}
             className="w-full rounded-lg bg-blue-600 px-3 py-2.5 text-[13px] font-semibold text-white hover:bg-blue-700"
           >
-            Log in
+            {t("emailInUseLogIn")}
           </button>
           <button
             type="button"
@@ -447,7 +443,7 @@ export function SignupFlow({ encoded }: Props) {
             }}
             className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-[13px] font-medium text-slate-700 hover:bg-slate-50"
           >
-            Use a different email
+            {t("emailInUseUseDifferent")}
           </button>
         </div>
       </div>
@@ -466,13 +462,13 @@ export function SignupFlow({ encoded }: Props) {
             />
             <div className="border-t border-slate-100 bg-white px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-2">
               <p className="text-center text-[12px] text-slate-500">
-                Already applied somewhere?{" "}
+                {t("welcomeAlreadyApplied")}{" "}
                 <button
                   type="button"
                   onClick={() => setShowLogin(true)}
                   className="font-semibold text-blue-600 underline-offset-2 hover:underline"
                 >
-                  Log in
+                  {t("welcomeLogIn")}
                 </button>
               </p>
             </div>
@@ -524,7 +520,7 @@ export function SignupFlow({ encoded }: Props) {
           onBack={() => setStep("status")}
           onContinue={async () => {
             if (!applicationId) {
-              setFinalError("Application not initialized. Please restart.");
+              setFinalError(t("formApplicationNotInitialized"));
               return;
             }
             try {
@@ -534,8 +530,8 @@ export function SignupFlow({ encoded }: Props) {
                 axios.isAxiosError(err) && err.response?.data?.detail;
               const m =
                 (detail && typeof detail === "object" && (detail as { message?: string }).message) ||
-                "Submit failed.";
-              setFinalError(typeof m === "string" ? m : "Submit failed.");
+                t("formSubmitFailed");
+              setFinalError(typeof m === "string" ? m : t("formSubmitFailed"));
             }
           }}
         />

@@ -1,3 +1,6 @@
+"use client";
+
+import { useTranslations } from "next-intl";
 import type { SignupStep, StepDef } from "@/types/signup";
 
 interface Props {
@@ -7,6 +10,7 @@ interface Props {
 
 /** Compact 4-bar progress indicator with "Step N of M · Label" header. */
 export function StepIndicator({ steps, current }: Props) {
+  const t = useTranslations("signup");
   const currentIdx = steps.findIndex((s) => s.key === current);
   const total = steps.length;
   const activeStep = steps[currentIdx];
@@ -15,7 +19,7 @@ export function StepIndicator({ steps, current }: Props) {
     <div className="space-y-1.5">
       <div className="flex items-center justify-between text-[11px]">
         <span className="font-medium text-slate-700">
-          Step {currentIdx + 1} of {total}
+          {t("stepIndicatorOf", { current: currentIdx + 1, total })}
         </span>
         <span className="font-medium text-slate-500">{activeStep?.label}</span>
       </div>

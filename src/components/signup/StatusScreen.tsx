@@ -1,40 +1,44 @@
 "use client";
 
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import type {
   ApplicationStageClient,
   SignupContext,
 } from "@/types/signup";
 
+type StageKey = ApplicationStageClient | "submit";
+
 interface Stage {
-  key: ApplicationStageClient | "submit";
+  key: StageKey;
   label: string;
   sub: string;
 }
 
-function buildTimeline(hasForm: boolean): Stage[] {
+function useTimeline(hasForm: boolean): Stage[] {
+  const t = useTranslations("signup");
   return [
-    { key: "pending_form", label: "Sign up", sub: "Account created" },
+    { key: "pending_form", label: t("statusStageSignUpLabel"), sub: t("statusStageSignUpSub") },
     ...(hasForm
       ? [
           {
             key: "submit" as const,
-            label: "Submit application",
-            sub: "Tell the manager about you",
+            label: t("statusStageSubmitLabel"),
+            sub: t("statusStageSubmitSub"),
           },
         ]
       : []),
-    { key: "reviewing" as const, label: "Manager review", sub: "We look it over" },
-    { key: "interview" as const, label: "Interview", sub: "Meet the team" },
-    { key: "hired" as const, label: "Hired", sub: "Start your first shift" },
+    { key: "reviewing" as const, label: t("statusStageReviewLabel"), sub: t("statusStageReviewSub") },
+    { key: "interview" as const, label: t("statusStageInterviewLabel"), sub: t("statusStageInterviewSub") },
+    { key: "hired" as const, label: t("statusStageHiredLabel"), sub: t("statusStageHiredSub") },
   ];
 }
 
 function stageIndex(
   stage: ApplicationStageClient,
+  stages: Stage[],
   hasForm: boolean,
 ): { active: number; failed: boolean; withdrawn: boolean } {
-  const stages = buildTimeline(hasForm);
   if (stage === "rejected") {
     return { active: -1, failed: true, withdrawn: false };
   }
@@ -106,9 +110,10 @@ export function StatusScreen({
   onGoToApp,
   onRefresh,
 }: Props) {
+  const t = useTranslations("signup");
   const [showWithdrawConfirm, setShowWithdrawConfirm] = useState(false);
-  const stages = buildTimeline(hasForm);
-  const { active, failed, withdrawn } = stageIndex(stage, hasForm);
+  const stages = useTimeline(hasForm);
+  const { active, failed, withdrawn } = stageIndex(stage, stages, hasForm);
 
   const isActiveStage =
     stage === "pending_form" ||
@@ -121,40 +126,46 @@ export function StatusScreen({
   const canWithdraw =
     stage === "new" || stage === "reviewing" || stage === "interview";
 
-  const headlineByStage: Record<ApplicationStageClient, { title: string; sub: string }> = {
-    pending_form: {
-      title: hasForm ? "You're signed up. One last step!" : "You're signed up",
-      sub: hasForm
-        ? "Submit your application to get reviewed."
-        : "The manager will reach out shortly.",
-    },
-    new: {
-      title: "Application submitted",
-      sub: "The manager will review and reach out to you soon.",
-    },
-    reviewing: {
-      title: "Under review",
-      sub: "The manager is reviewing your application.",
-    },
-    interview: {
-      title: "Interview stage",
-      sub: "An interview is being arranged. Watch for an email.",
-    },
-    hired: {
-      title: "Welcome aboard!",
-      sub: "You're hired. Open the staff app to start working.",
-    },
-    rejected: {
-      title: "Not a match this time",
-      sub: "Thanks for applying. You're welcome to apply again later.",
-    },
-    withdrawn: {
-      title: "Application withdrawn",
-      sub: "You withdrew this application. You can apply again later.",
-    },
-  };
-
-  const headline = headlineByStage[stage];
+  // 헤드라인 — stage 별 title/sub 키 매핑
+  let headlineTitle: string;
+  let headlineSub: string;
+  switch (stage) {
+    case "pending_form":
+      headlineTitle = hasForm
+        ? t("statusHeadlinePendingFormWithFormTitle")
+        : t("statusHeadlinePendingFormNoFormTitle");
+      headlineSub = hasForm
+        ? t("statusHeadlinePendingFormWithFormSub")
+        : t("statusHeadlinePendingFormNoFormSub");
+      break;
+    case "new":
+      headlineTitle = t("statusHeadlineNewTitle");
+      headlineSub = t("statusHeadlineNewSub");
+      break;
+    case "reviewing":
+      headlineTitle = t("statusHeadlineReviewingTitle");
+      headlineSub = t("statusHeadlineReviewingSub");
+      break;
+    case "interview":
+      headlineTitle = t("statusHeadlineInterviewTitle");
+      headlineSub = t("statusHeadlineInterviewSub");
+      break;
+    case "hired":
+      headlineTitle = t("statusHeadlineHiredTitle");
+      headlineSub = t("statusHeadlineHiredSub");
+      break;
+    case "rejected":
+      headlineTitle = t("statusHeadlineRejectedTitle");
+      headlineSub = t("statusHeadlineRejectedSub");
+      break;
+    case "withdrawn":
+      headlineTitle = t("statusHeadlineWithdrawnTitle");
+      headlineSub = t("statusHeadlineWithdrawnSub");
+      break;
+    default:
+      headlineTitle = "";
+      headlineSub = "";
+  }
 
   return (
     <div className="flex min-h-[100dvh] flex-col bg-white">
@@ -174,7 +185,7 @@ export function StatusScreen({
                 {fullName || username}
               </p>
               <p className="truncate text-[10.5px] text-slate-500">
-                Signed in · @{username}
+                {t("statusSignedIn")} · @{username}
               </p>
             </div>
           </div>
@@ -183,7 +194,7 @@ export function StatusScreen({
               type="button"
               onClick={onRefresh}
               className="rounded-md p-1.5 text-slate-500 hover:bg-slate-200 hover:text-slate-700"
-              aria-label="Refresh status"
+              aria-label={t("statusRefresh")}
             >
               <svg
                 className="h-4 w-4"
@@ -208,11 +219,11 @@ export function StatusScreen({
           {ctx.organization.name} · {ctx.store.name}
         </p>
         <h1 className="mt-2 text-[24px] font-semibold leading-tight tracking-tight text-slate-900">
-          {headline.title}
+          {headlineTitle}
           {stage === "hired" && " 🎉"}
         </h1>
         <p className="mt-1.5 text-[13.5px] leading-relaxed text-slate-500">
-          {headline.sub}
+          {headlineSub}
         </p>
       </div>
 
@@ -236,10 +247,10 @@ export function StatusScreen({
               </div>
               <div className="min-w-0">
                 <p className="text-[13px] font-semibold text-emerald-900">
-                  You&apos;re officially hired!
+                  {t("statusHiredBannerTitle")}
                 </p>
                 <p className="text-[11.5px] text-emerald-700">
-                  Open the staff app to clock in and view shifts.
+                  {t("statusHiredBannerSub")}
                 </p>
               </div>
             </div>
@@ -250,29 +261,27 @@ export function StatusScreen({
         {failed && (
           <div className="mb-4 rounded-2xl border border-rose-200 bg-rose-50 p-4">
             <p className="text-[13px] font-semibold text-rose-900">
-              Application not accepted
+              {t("statusFailedTitle")}
             </p>
             <p className="mt-1 text-[11.5px] text-rose-700">
-              The manager has decided not to move forward this time. You can
-              re-apply to other stores anytime.
+              {t("statusFailedSub")}
             </p>
           </div>
         )}
         {withdrawn && (
           <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 p-4">
             <p className="text-[13px] font-semibold text-slate-900">
-              Withdrawn by you
+              {t("statusWithdrawnTitle")}
             </p>
             <p className="mt-1 text-[11.5px] text-slate-600">
-              You withdrew this application. You can apply again to a different
-              store any time.
+              {t("statusWithdrawnSub")}
             </p>
           </div>
         )}
 
         {/* Timeline */}
         <p className="mb-2 text-[10.5px] font-semibold uppercase tracking-[0.14em] text-slate-400">
-          Application progress
+          {t("statusApplicationProgress")}
         </p>
         <ol className="space-y-2">
           {stages.map((s, idx) => {
@@ -333,7 +342,7 @@ export function StatusScreen({
                     {s.label}
                     {isActive && (
                       <span className="ml-2 rounded-full bg-blue-600 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-white">
-                        Now
+                        {t("statusNow")}
                       </span>
                     )}
                   </p>
@@ -355,7 +364,7 @@ export function StatusScreen({
             onClick={onContinueForm}
             className="w-full rounded-xl bg-blue-600 px-5 py-3.5 text-[14px] font-semibold text-white shadow-sm shadow-blue-500/20 hover:bg-blue-700"
           >
-            Continue your application
+            {t("statusContinueApplication")}
           </button>
         )}
         {stage === "hired" && onGoToApp && (
@@ -364,7 +373,7 @@ export function StatusScreen({
             onClick={onGoToApp}
             className="w-full rounded-xl bg-emerald-600 px-5 py-3.5 text-[14px] font-semibold text-white shadow-sm shadow-emerald-500/20 hover:bg-emerald-700"
           >
-            Go to staff app
+            {t("statusGoToApp")}
           </button>
         )}
         {canWithdraw && onWithdraw && (
@@ -373,12 +382,12 @@ export function StatusScreen({
             onClick={() => setShowWithdrawConfirm(true)}
             className="w-full rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-[12.5px] font-medium text-slate-600 hover:bg-slate-50"
           >
-            Withdraw application
+            {t("statusWithdrawApplication")}
           </button>
         )}
         {!isActiveStage && stage !== "hired" && (
           <p className="text-center text-[11px] text-slate-400">
-            You can close this page — we&apos;ll email you with updates.
+            {t("statusCloseHint")}
           </p>
         )}
       </div>
@@ -393,11 +402,10 @@ export function StatusScreen({
             onClick={(e) => e.stopPropagation()}
           >
             <h3 className="text-[16px] font-semibold text-slate-900">
-              Withdraw your application?
+              {t("withdrawConfirmTitle")}
             </h3>
             <p className="mt-1 text-[12.5px] leading-relaxed text-slate-500">
-              Your application will be removed from the manager&apos;s queue.
-              You can apply again later.
+              {t("withdrawConfirmBody")}
             </p>
             <div className="mt-4 flex gap-2">
               <button
@@ -405,7 +413,7 @@ export function StatusScreen({
                 onClick={() => setShowWithdrawConfirm(false)}
                 className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-[13px] font-semibold text-slate-700 hover:bg-slate-50"
               >
-                Cancel
+                {t("cancel")}
               </button>
               <button
                 type="button"
@@ -415,7 +423,7 @@ export function StatusScreen({
                 }}
                 className="flex-[2] rounded-lg bg-rose-600 px-3 py-2 text-[13px] font-semibold text-white hover:bg-rose-700"
               >
-                Withdraw
+                {t("withdrawConfirmButton")}
               </button>
             </div>
           </div>

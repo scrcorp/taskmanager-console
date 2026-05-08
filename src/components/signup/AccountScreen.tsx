@@ -1,8 +1,9 @@
 "use client";
 
+import { useTranslations } from "next-intl";
 import type { AccountFormState } from "@/types/signup";
 import { StepIndicator } from "./StepIndicator";
-import { getSignupSteps } from "./steps";
+import { useSignupSteps } from "./steps";
 
 interface Props {
   form: AccountFormState;
@@ -62,6 +63,9 @@ const EyeIcon = ({ open }: { open: boolean }) => (
 );
 
 export function AccountScreen({ form, onChange, onBack, onContinue, hasForm }: Props) {
+  const t = useTranslations("signup");
+  const steps = useSignupSteps(hasForm);
+
   const update = <K extends keyof AccountFormState>(
     key: K,
     value: AccountFormState[K],
@@ -80,7 +84,7 @@ export function AccountScreen({ form, onChange, onBack, onContinue, hasForm }: P
   return (
     <div className="flex min-h-[100dvh] flex-col bg-white">
       <div className="border-b border-slate-100 bg-white px-5 pt-[max(0.75rem,env(safe-area-inset-top))] pb-4">
-        <StepIndicator steps={getSignupSteps(hasForm)} current="account" />
+        <StepIndicator steps={steps} current="account" />
       </div>
       <div className="px-5 pt-3 pb-1">
         <button
@@ -97,34 +101,34 @@ export function AccountScreen({ form, onChange, onBack, onContinue, hasForm }: P
           >
             <polyline points="15 18 9 12 15 6" />
           </svg>
-          Back
+          {t("back")}
         </button>
       </div>
 
       <div className="px-5 pt-2">
         <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-slate-900">
-          Tell us about you
+          {t("accountTitle")}
         </h1>
         <p className="mt-1.5 text-[14px] leading-relaxed text-slate-500">
-          Your manager will see your name and email.
+          {t("accountSubtitle")}
         </p>
       </div>
 
       <div className="space-y-4 px-5 pt-6 pb-4">
-        <Field label="Full name">
+        <Field label={t("accountFullNameLabel")}>
           <input
             type="text"
             autoComplete="name"
             value={form.fullName}
             onChange={(e) => update("fullName", e.target.value)}
-            placeholder="e.g. Sarah Kim"
+            placeholder={t("accountFullNamePlaceholder")}
             className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-[14px] text-slate-900 placeholder-slate-400 outline-none transition-colors focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
           />
         </Field>
 
         <Field
-          label="ID"
-          hint="Used to log in. Lowercase letters and numbers."
+          label={t("accountIdLabel")}
+          hint={t("accountIdHint")}
         >
           <div className="relative">
             <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[14px] text-slate-400">
@@ -135,24 +139,24 @@ export function AccountScreen({ form, onChange, onBack, onContinue, hasForm }: P
               autoComplete="username"
               value={form.username}
               onChange={(e) => update("username", e.target.value.toLowerCase())}
-              placeholder="sarahk"
+              placeholder={t("accountIdPlaceholder")}
               className="w-full rounded-xl border border-slate-200 bg-white py-3 pl-9 pr-4 text-[14px] text-slate-900 placeholder-slate-400 outline-none transition-colors focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             />
           </div>
         </Field>
 
-        <Field label="Email">
+        <Field label={t("accountEmailLabel")}>
           <input
             type="email"
             autoComplete="email"
             value={form.email}
             onChange={(e) => update("email", e.target.value)}
-            placeholder="you@example.com"
+            placeholder={t("accountEmailPlaceholder")}
             className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-[14px] text-slate-900 placeholder-slate-400 outline-none transition-colors focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
           />
         </Field>
 
-        <Field label="Password" hint="At least 6 characters.">
+        <Field label={t("accountPasswordLabel")} hint={t("accountPasswordHint")}>
           <div className="relative">
             <input
               type={form.showPassword ? "text" : "password"}
@@ -164,7 +168,7 @@ export function AccountScreen({ form, onChange, onBack, onContinue, hasForm }: P
             />
             <button
               type="button"
-              aria-label={form.showPassword ? "Hide password" : "Show password"}
+              aria-label={form.showPassword ? t("accountHidePassword") : t("accountShowPassword")}
               onClick={() => update("showPassword", !form.showPassword)}
               className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 transition-colors hover:text-slate-600"
             >
@@ -174,8 +178,8 @@ export function AccountScreen({ form, onChange, onBack, onContinue, hasForm }: P
         </Field>
 
         <Field
-          label="Confirm password"
-          error={passwordMismatch ? "Passwords don't match." : undefined}
+          label={t("accountConfirmPasswordLabel")}
+          error={passwordMismatch ? t("accountPasswordsDontMatch") : undefined}
         >
           <div className="relative">
             <input
@@ -194,7 +198,7 @@ export function AccountScreen({ form, onChange, onBack, onContinue, hasForm }: P
             <button
               type="button"
               aria-label={
-                form.showConfirmPassword ? "Hide password" : "Show password"
+                form.showConfirmPassword ? t("accountHidePassword") : t("accountShowPassword")
               }
               onClick={() =>
                 update("showConfirmPassword", !form.showConfirmPassword)
@@ -207,8 +211,8 @@ export function AccountScreen({ form, onChange, onBack, onContinue, hasForm }: P
         </Field>
 
         <Field
-          label="Preferred language"
-          hint="We'll use this to personalize content."
+          label={t("accountPreferredLanguageLabel")}
+          hint={t("accountPreferredLanguageHint")}
         >
           <select
             value={form.preferredLanguage}
@@ -237,7 +241,7 @@ export function AccountScreen({ form, onChange, onBack, onContinue, hasForm }: P
             <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
             <path d="M7 11V7a5 5 0 0 1 10 0v4" />
           </svg>
-          <span>Encrypted, used only for account verification.</span>
+          <span>{t("accountEncryptedNote")}</span>
         </div>
       </div>
 
@@ -253,7 +257,7 @@ export function AccountScreen({ form, onChange, onBack, onContinue, hasForm }: P
               : "bg-slate-100 text-slate-400",
           ].join(" ")}
         >
-          Continue
+          {t("continue")}
         </button>
       </div>
     </div>
