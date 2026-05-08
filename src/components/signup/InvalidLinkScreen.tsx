@@ -1,26 +1,29 @@
-import type { LinkErrorCode } from "@/types/signup";
+"use client";
 
-const COPY: Record<LinkErrorCode, { title: string; body: string }> = {
-  invalid_link: {
-    title: "This link doesn't look right",
-    body: "It might be malformed or outdated. Ask your manager to share a fresh one.",
-  },
-  store_not_found: {
-    title: "Store not found",
-    body: "The store this link points to is no longer available. Reach out to your manager.",
-  },
-  signups_paused: {
-    title: "Signups are paused",
-    body: "This store isn't accepting new sign-ups right now. Reach out to your manager.",
-  },
-};
+import { useTranslations } from "next-intl";
+import type { LinkErrorCode } from "@/types/signup";
 
 interface Props {
   reason: LinkErrorCode;
 }
 
+const TITLE_KEY: Record<LinkErrorCode, string> = {
+  invalid_link: "invalidLinkTitle",
+  store_not_found: "storeNotFoundTitle",
+  signups_paused: "signupsPausedTitle",
+};
+
+const BODY_KEY: Record<LinkErrorCode, string> = {
+  invalid_link: "invalidLinkBody",
+  store_not_found: "storeNotFoundBody",
+  signups_paused: "signupsPausedBody",
+};
+
 export function InvalidLinkScreen({ reason }: Props) {
-  const { title, body } = COPY[reason];
+  const t = useTranslations("signup");
+  const title = t(TITLE_KEY[reason]);
+  const body = t(BODY_KEY[reason]);
+
   return (
     <div className="flex min-h-[100dvh] flex-col items-center justify-center gap-4 bg-white px-8 pb-10 text-center">
       <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-red-50 text-red-500">
@@ -50,7 +53,7 @@ export function InvalidLinkScreen({ reason }: Props) {
         type="button"
         className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-slate-900 px-5 py-2.5 text-[13px] font-medium text-white transition-colors hover:bg-slate-700"
       >
-        Contact support
+        {t("invalidLinkContactSupport")}
         <svg
           className="h-3.5 w-3.5"
           viewBox="0 0 24 24"

@@ -11,14 +11,36 @@
  * 사용자 정보 없으면 fetchMe()로 자동 조회.
  */
 
-import { Suspense, useEffect } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import { Menu } from "lucide-react";
+import { Menu, ShieldOff } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
 import { useSidebarStore } from "@/stores/sidebarStore";
 import { isAuthenticated } from "@/lib/auth";
 import { Sidebar, MobileSidebar } from "@/components/layout/Sidebar";
 import { PAGE_PERMISSIONS, ROLE_PRIORITY } from "@/lib/permissions";
+
+function ForbiddenScreen(): React.ReactElement {
+  const router = useRouter();
+  return (
+    <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 px-4 text-center">
+      <div className="flex h-16 w-16 items-center justify-center rounded-full bg-danger-muted">
+        <ShieldOff className="h-8 w-8 text-danger" aria-hidden="true" />
+      </div>
+      <h1 className="text-2xl font-bold text-text">Access denied</h1>
+      <p className="max-w-md text-text-secondary">
+        You don't have permission to view this page. Contact your administrator if you think this is a mistake.
+      </p>
+      <button
+        type="button"
+        onClick={() => router.push("/")}
+        className="mt-2 rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-accent-light"
+      >
+        Go to Dashboard
+      </button>
+    </div>
+  );
+}
 
 /** 대시보드 레이아웃 — 사이드바 + 메인 콘텐츠 영역 */
 export default function DashboardLayout({
@@ -30,6 +52,7 @@ export default function DashboardLayout({
   const pathname = usePathname();
   const { user, fetchMe } = useAuthStore();
   const toggle = useSidebarStore((s) => s.toggle);
+  const [forbidden, setForbidden] = useState(false);
 
   // 인증 체크 — 토큰 없으면 로그인으로 (returnUrl 포함), 사용자 정보 없으면 조회
   useEffect(() => {
@@ -49,19 +72,24 @@ export default function DashboardLayout({
     }
   }, [user]);
 
-  // Permission 기반 페이지 접근 제어 (Owner는 전체 bypass)
+  // Permission 기반 페이지 접근 제어 (Owner는 전체 bypass).
+  // 권한 없으면 redirect 대신 ForbiddenScreen으로 main 영역 swap (URL 유지).
   useEffect(() => {
-    if (!user) return;
-    if ((user.role_priority ?? 99) <= ROLE_PRIORITY.OWNER) return;
+    if (!user) {
+      setForbidden(false);
+      return;
+    }
+    if ((user.role_priority ?? 99) <= ROLE_PRIORITY.OWNER) {
+      setForbidden(false);
+      return;
+    }
     const userPerms = new Set(user.permissions ?? []);
     // pathname과 매칭되는 가장 긴 경로 찾기 (e.g. /schedules/settings > /schedules)
     const matchedPaths = Object.keys(PAGE_PERMISSIONS)
       .filter((p) => pathname === p || pathname.startsWith(p + "/"))
       .sort((a, b) => b.length - a.length);
     const requiredPerm = matchedPaths.length > 0 ? PAGE_PERMISSIONS[matchedPaths[0]] : undefined;
-    if (requiredPerm && !userPerms.has(requiredPerm)) {
-      router.replace("/");
-    }
+    setForbidden(!!requiredPerm && !userPerms.has(requiredPerm));
   }, [user, pathname]);
 
   // user 로드 전 또는 이메일 미인증 → 로딩 화면 (대시보드 깜빡임 방지)
@@ -101,7 +129,7 @@ export default function DashboardLayout({
         </div>
 
         <main className="flex-1 overflow-auto p-4 md:p-8">
-          <Suspense>{children}</Suspense>
+          <Suspense>{forbidden ? <ForbiddenScreen /> : children}</Suspense>
         </main>
       </div>
     </div>

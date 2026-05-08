@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { useTranslations } from "next-intl";
 import type { EmailFormState } from "@/types/signup";
 import { StepIndicator } from "./StepIndicator";
-import { getSignupSteps } from "./steps";
+import { useSignupSteps } from "./steps";
 
 interface OtpInputProps {
   value: string;
@@ -96,12 +97,14 @@ export function EmailVerifyScreen({
   error = null,
   hasForm,
 }: Props) {
+  const t = useTranslations("signup");
+  const steps = useSignupSteps(hasForm);
   const [resendCooldown, setResendCooldown] = useState(0);
 
   useEffect(() => {
     if (resendCooldown <= 0) return;
-    const t = setTimeout(() => setResendCooldown((s) => s - 1), 1000);
-    return () => clearTimeout(t);
+    const timer = setTimeout(() => setResendCooldown((s) => s - 1), 1000);
+    return () => clearTimeout(timer);
   }, [resendCooldown]);
 
   const handleSend = async () => {
@@ -112,7 +115,7 @@ export function EmailVerifyScreen({
   return (
     <div className="flex min-h-[100dvh] flex-col bg-white">
       <div className="border-b border-slate-100 bg-white px-5 pt-[max(0.75rem,env(safe-area-inset-top))] pb-4">
-        <StepIndicator steps={getSignupSteps(hasForm)} current="email" />
+        <StepIndicator steps={steps} current="email" />
       </div>
       <div className="px-5 pt-3 pb-1">
         <button
@@ -129,7 +132,7 @@ export function EmailVerifyScreen({
           >
             <polyline points="15 18 9 12 15 6" />
           </svg>
-          Back
+          {t("back")}
         </button>
       </div>
 
@@ -149,12 +152,12 @@ export function EmailVerifyScreen({
           </svg>
         </div>
         <h1 className="text-[26px] font-semibold leading-tight tracking-tight text-slate-900">
-          Verify your email
+          {t("emailVerifyTitle")}
         </h1>
         <p className="mt-1.5 text-[14px] leading-relaxed text-slate-500">
           {form.codeSent
-            ? `We sent a 6-digit code to ${form.email || "your email"}.`
-            : "We'll send a 6-digit code to confirm it's really you."}
+            ? t("emailVerifySubtitleSent", { email: form.email || t("accountEmailLabel") })
+            : t("emailVerifySubtitleNotSent")}
         </p>
       </div>
 
@@ -163,21 +166,21 @@ export function EmailVerifyScreen({
           <>
             <div className="space-y-1.5">
               <label className="block text-[12px] font-medium text-slate-700">
-                Email
+                {t("emailVerifyEmailLabel")}
               </label>
               <input
                 type="email"
                 autoComplete="email"
                 value={form.email}
                 onChange={(e) => onChange({ ...form, email: e.target.value })}
-                placeholder="you@example.com"
+                placeholder={t("accountEmailPlaceholder")}
                 className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-[14px] text-slate-900 placeholder-slate-400 outline-none transition-colors focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
               />
             </div>
 
             <div className="space-y-2.5 rounded-2xl bg-slate-50 p-4">
               <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                Why verify
+                {t("emailVerifyWhyVerify")}
               </p>
               <ul className="space-y-2.5 text-[12.5px] leading-relaxed text-slate-600">
                 <li className="flex items-start gap-2.5">
@@ -191,7 +194,7 @@ export function EmailVerifyScreen({
                     <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
                     <polyline points="22 4 12 14.01 9 11.01" />
                   </svg>
-                  Confirms you actually own this email.
+                  {t("emailVerifyReasonOwn")}
                 </li>
                 <li className="flex items-start gap-2.5">
                   <svg
@@ -203,7 +206,7 @@ export function EmailVerifyScreen({
                   >
                     <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
                   </svg>
-                  Your manager uses it for shift updates.
+                  {t("emailVerifyReasonShifts")}
                 </li>
                 <li className="flex items-start gap-2.5">
                   <svg
@@ -216,7 +219,7 @@ export function EmailVerifyScreen({
                     <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
                     <path d="M7 11V7a5 5 0 0 1 10 0v4" />
                   </svg>
-                  Used to recover your password later.
+                  {t("emailVerifyReasonRecover")}
                 </li>
               </ul>
             </div>
@@ -224,7 +227,7 @@ export function EmailVerifyScreen({
         ) : (
           <div className="space-y-2.5">
             <label className="block text-[12px] font-medium text-slate-700">
-              Enter the 6-digit code
+              {t("emailVerifyEnterCode")}
             </label>
             <OtpInput
               value={form.code}
@@ -232,7 +235,7 @@ export function EmailVerifyScreen({
             />
             <div className="flex items-center justify-between pt-0.5 text-[12px]">
               <span className="text-slate-500">
-                Didn&apos;t get it? Check spam.
+                {t("emailVerifyDidntGet")}
               </span>
               <button
                 type="button"
@@ -241,8 +244,8 @@ export function EmailVerifyScreen({
                 className="font-medium text-blue-600 transition-colors enabled:hover:text-blue-700 disabled:text-slate-400"
               >
                 {resendCooldown > 0
-                  ? `Resend in ${resendCooldown}s`
-                  : "Resend code"}
+                  ? t("emailVerifyResendIn", { seconds: resendCooldown })
+                  : t("emailVerifyResend")}
               </button>
             </div>
             {error && (
@@ -265,7 +268,7 @@ export function EmailVerifyScreen({
                 : "bg-slate-100 text-slate-400",
             ].join(" ")}
           >
-            {loading ? "Sending…" : "Send verification code"}
+            {loading ? t("emailVerifySending") : t("emailVerifySendButton")}
           </button>
         ) : (
           <button
@@ -279,7 +282,7 @@ export function EmailVerifyScreen({
                 : "bg-slate-100 text-slate-400",
             ].join(" ")}
           >
-            {loading ? "Verifying…" : "Verify & continue"}
+            {loading ? t("emailVerifyVerifying") : t("emailVerifyVerifyButton")}
           </button>
         )}
       </div>

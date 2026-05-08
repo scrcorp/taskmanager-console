@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useTranslations } from "next-intl";
 import axios from "axios";
 import type {
   AccountFormState,
@@ -33,6 +34,7 @@ interface Props {
  * 폼/지원자 단계 없이 즉시 staff 등록. `/direct/{encoded}`에서 사용.
  */
 export function DirectSignupFlow({ encoded }: Props) {
+  const t = useTranslations("signup");
   const [loading, setLoading] = useState(true);
   const [linkError, setLinkError] = useState<LinkErrorCode | null>(null);
   const [ctx, setCtx] = useState<SignupContext | null>(null);
@@ -99,8 +101,8 @@ export function DirectSignupFlow({ encoded }: Props) {
     } catch (err) {
       const msg =
         (axios.isAxiosError(err) && err.response?.data?.detail) ||
-        "Failed to send code. Try again.";
-      setEmailError(typeof msg === "string" ? msg : "Failed to send code.");
+        t("emailVerifyFailedSend");
+      setEmailError(typeof msg === "string" ? msg : t("emailVerifyFailedSend"));
     } finally {
       setEmailLoading(false);
     }
@@ -130,7 +132,7 @@ export function DirectSignupFlow({ encoded }: Props) {
       setStep("complete");
     } catch (err) {
       const detail = axios.isAxiosError(err) && err.response?.data?.detail;
-      let msg = "Verification failed.";
+      let msg = t("emailVerifyFailed");
       if (detail && typeof detail === "object") {
         const m = (detail as { message?: string }).message;
         if (typeof m === "string") msg = m;
@@ -149,7 +151,7 @@ export function DirectSignupFlow({ encoded }: Props) {
       <div className="flex min-h-[100dvh] items-center justify-center bg-white">
         <div className="flex flex-col items-center gap-3 text-slate-400">
           <div className="h-6 w-6 animate-spin rounded-full border-2 border-slate-200 border-t-blue-500" />
-          <p className="text-[12px]">Loading…</p>
+          <p className="text-[12px]">{t("loading")}</p>
         </div>
       </div>
     );
@@ -172,10 +174,10 @@ export function DirectSignupFlow({ encoded }: Props) {
           <div className="flex items-start gap-2">
             <ShieldCheck className="mt-0.5 flex-shrink-0 text-emerald-600" size={16} />
             <p className="text-[11.5px] leading-relaxed text-emerald-800">
-              <strong>Direct staff signup.</strong> This link skips the
-              applicant review step. You&apos;ll be added to{" "}
-              <span className="font-semibold">{ctx.store.name}</span> as a staff
-              member immediately after verifying your email.
+              <strong>{t("directBannerTitlePrefix")}</strong>{" "}
+              {t("directBannerBodyPrefix")}{" "}
+              <span className="font-semibold">{ctx.store.name}</span>{" "}
+              {t("directBannerBodySuffix")}
             </p>
           </div>
         </div>
