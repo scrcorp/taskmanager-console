@@ -118,7 +118,11 @@ export {
   useRotateAccessCode,
 } from "./useAttendanceDevices";
 
-export { useClockinPin, useRegenerateClockinPin } from "./useClockinPin";
+export {
+  useClockinPin,
+  useRegenerateClockinPin,
+  useUpdateClockinPin,
+} from "./useClockinPin";
 
 export {
   useShiftPresets,

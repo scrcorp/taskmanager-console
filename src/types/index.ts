@@ -532,7 +532,7 @@ export interface AttendanceBreakItem {
   id: string;
   started_at: string;
   ended_at: string | null;
-  break_type: "paid_short" | "unpaid_long" | string;
+  break_type: "paid_10min" | "unpaid_meal" | "paid_short" | "unpaid_long" | string;
   duration_minutes: number | null;
   /** store tz 기준 "HH:MM" 포매팅 (서버 pre-format). */
   started_at_display?: string | null;
@@ -634,18 +634,18 @@ export interface AttendanceCorrectionRequest {
   reason?: string | null;
 }
 
-/** Break session 추가 요청 타입. */
+/** Break session 추가 요청 타입. 모든 새 쓰기는 paid_10min/unpaid_meal 사용. */
 export interface BreakSessionCreateRequest {
   started_at: string; // ISO
   ended_at?: string | null;
-  break_type: "paid_short" | "unpaid_long";
+  break_type: "paid_10min" | "unpaid_meal";
 }
 
 /** Break session 수정 요청 타입. None 인 필드는 변경하지 않음. */
 export interface BreakSessionUpdateRequest {
   started_at?: string | null;
   ended_at?: string | null;
-  break_type?: "paid_short" | "unpaid_long" | null;
+  break_type?: "paid_10min" | "unpaid_meal" | null;
   clear_ended_at?: boolean;
 }
 
@@ -1498,7 +1498,6 @@ export interface AttendanceDevice {
   fingerprint: string;
   registered_at: string;
   last_seen_at: string | null;
-  revoked_at: string | null;
 }
 
 /** Access code 응답 — 서비스 키별 6자리 코드.

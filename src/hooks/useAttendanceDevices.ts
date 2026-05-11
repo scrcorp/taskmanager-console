@@ -21,20 +21,17 @@ import type { AttendanceDevice, AccessCode } from "@/types";
 // ─── Attendance Devices ─────────────────────────────────────────────────────
 
 /**
- * 등록된 attendance device 목록 조회.
- *
- * @param includeRevoked - 해제된 기기 포함 여부
- * @returns 기기 목록 쿼리 결과
+ * 등록된 attendance device 목록 조회. revoke 시 즉시 삭제되므로 모든 row 가 활성.
  */
-export const useAttendanceDevices = (
-  includeRevoked: boolean = false,
-): UseQueryResult<AttendanceDevice[], Error> => {
+export const useAttendanceDevices = (): UseQueryResult<
+  AttendanceDevice[],
+  Error
+> => {
   return useQuery<AttendanceDevice[], Error>({
-    queryKey: ["attendance-devices", { includeRevoked }],
+    queryKey: ["attendance-devices"],
     queryFn: async (): Promise<AttendanceDevice[]> => {
       const response: AxiosResponse<AttendanceDevice[]> = await api.get(
         "/console/attendance-devices",
-        { params: { include_revoked: includeRevoked } },
       );
       return response.data;
     },
