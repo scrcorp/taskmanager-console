@@ -27,7 +27,7 @@ export function useChecklistCompletion(dateFrom?: string, dateTo?: string, store
   return useQuery<ChecklistCompletion>({
     queryKey: ["dashboard", "checklist-completion", dateFrom, dateTo, storeId],
     queryFn: () =>
-      api.get(`/admin/dashboard/checklist-completion${buildParams({ date_from: dateFrom, date_to: dateTo, store_id: storeId })}`).then((r) => r.data),
+      api.get(`/console/dashboard/checklist-completion${buildParams({ date_from: dateFrom, date_to: dateTo, store_id: storeId })}`).then((r) => r.data),
   });
 }
 
@@ -36,7 +36,7 @@ export function useAttendanceSummary(dateFrom?: string, dateTo?: string, storeId
   return useQuery<AttendanceSummary>({
     queryKey: ["dashboard", "attendance-summary", dateFrom, dateTo, storeId],
     queryFn: () =>
-      api.get(`/admin/dashboard/attendance-summary${buildParams({ date_from: dateFrom, date_to: dateTo, store_id: storeId })}`).then((r) => r.data),
+      api.get(`/console/dashboard/attendance-summary${buildParams({ date_from: dateFrom, date_to: dateTo, store_id: storeId })}`).then((r) => r.data),
   });
 }
 
@@ -45,7 +45,7 @@ export function useOvertimeSummary(weekDate?: string, storeId?: string) {
   return useQuery<OvertimeSummary>({
     queryKey: ["dashboard", "overtime-summary", weekDate, storeId],
     queryFn: () =>
-      api.get(`/admin/dashboard/overtime-summary${buildParams({ week_date: weekDate, store_id: storeId })}`).then((r) => r.data),
+      api.get(`/console/dashboard/overtime-summary${buildParams({ week_date: weekDate, store_id: storeId })}`).then((r) => r.data),
   });
 }
 
@@ -54,6 +54,6 @@ export function useEvaluationSummary() {
   return useQuery<EvaluationSummary>({
     queryKey: ["dashboard", "evaluation-summary"],
     queryFn: () =>
-      api.get("/admin/dashboard/evaluation-summary").then((r) => r.data),
+      api.get("/console/dashboard/evaluation-summary").then((r) => r.data),
   });
 }

@@ -23,7 +23,7 @@ export interface OvertimeAlert {
 export function useOvertimeAlerts(storeId: string) {
   return useQuery<OvertimeAlert[]>({
     queryKey: ["overtimeAlerts", storeId],
-    queryFn: () => api.get(`/admin/stores/${storeId}/overtime-alerts`).then((r) => r.data),
+    queryFn: () => api.get(`/console/stores/${storeId}/overtime-alerts`).then((r) => r.data),
     enabled: !!storeId,
   });
 }

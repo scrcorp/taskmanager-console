@@ -48,7 +48,7 @@ describe("useRoles hooks", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(result.current.data).toHaveLength(2);
-    expect(api.get).toHaveBeenCalledWith("/admin/roles");
+    expect(api.get).toHaveBeenCalledWith("/console/roles");
   });
 
   it("creates a role", async () => {
@@ -61,7 +61,7 @@ describe("useRoles hooks", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(result.current.data?.name).toBe("Staff");
-    expect(api.post).toHaveBeenCalledWith("/admin/roles", { name: "Staff", priority: 3 });
+    expect(api.post).toHaveBeenCalledWith("/console/roles", { name: "Staff", priority: 3 });
   });
 
   it("updates a role", async () => {
@@ -74,7 +74,7 @@ describe("useRoles hooks", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(result.current.data?.name).toBe("Super Admin");
-    expect(api.put).toHaveBeenCalledWith("/admin/roles/r1", { name: "Super Admin", priority: 0 });
+    expect(api.put).toHaveBeenCalledWith("/console/roles/r1", { name: "Super Admin", priority: 0 });
   });
 
   it("deletes a role", async () => {
@@ -85,6 +85,6 @@ describe("useRoles hooks", () => {
     result.current.mutate("r2");
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(api.delete).toHaveBeenCalledWith("/admin/roles/r2");
+    expect(api.delete).toHaveBeenCalledWith("/console/roles/r2");
   });
 });

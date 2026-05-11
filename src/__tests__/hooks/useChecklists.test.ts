@@ -66,7 +66,7 @@ describe("useChecklistTemplates hooks", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(result.current.data).toHaveLength(1);
-    expect(api.get).toHaveBeenCalledWith("/admin/stores/b1/checklist-templates", { params: {} });
+    expect(api.get).toHaveBeenCalledWith("/console/stores/b1/checklist-templates", { params: {} });
   });
 
   it("fetches templates with filters", async () => {
@@ -79,7 +79,7 @@ describe("useChecklistTemplates hooks", () => {
     );
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(api.get).toHaveBeenCalledWith("/admin/stores/b1/checklist-templates", {
+    expect(api.get).toHaveBeenCalledWith("/console/stores/b1/checklist-templates", {
       params: { shift_id: "s1" },
     });
   });
@@ -92,7 +92,7 @@ describe("useChecklistTemplates hooks", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(result.current.data?.title).toBe("Opening Checklist");
-    expect(api.get).toHaveBeenCalledWith("/admin/checklist-templates/ct1");
+    expect(api.get).toHaveBeenCalledWith("/console/checklist-templates/ct1");
   });
 
   it("creates a template", async () => {
@@ -103,7 +103,7 @@ describe("useChecklistTemplates hooks", () => {
     result.current.mutate({ storeId: "b1", shift_id: "s1", position_id: "p1", title: "Opening Checklist" });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(api.post).toHaveBeenCalledWith("/admin/stores/b1/checklist-templates", {
+    expect(api.post).toHaveBeenCalledWith("/console/stores/b1/checklist-templates", {
       shift_id: "s1", position_id: "p1", title: "Opening Checklist",
     });
   });
@@ -117,7 +117,7 @@ describe("useChecklistTemplates hooks", () => {
     result.current.mutate({ id: "ct1", title: "Updated Checklist" });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(api.put).toHaveBeenCalledWith("/admin/checklist-templates/ct1", { title: "Updated Checklist" });
+    expect(api.put).toHaveBeenCalledWith("/console/checklist-templates/ct1", { title: "Updated Checklist" });
   });
 
   it("deletes a template", async () => {
@@ -128,7 +128,7 @@ describe("useChecklistTemplates hooks", () => {
     result.current.mutate("ct1");
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(api.delete).toHaveBeenCalledWith("/admin/checklist-templates/ct1");
+    expect(api.delete).toHaveBeenCalledWith("/console/checklist-templates/ct1");
   });
 });
 
@@ -143,7 +143,7 @@ describe("useChecklistItems hooks", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(result.current.data).toHaveLength(1);
-    expect(api.get).toHaveBeenCalledWith("/admin/checklist-templates/ct1/items");
+    expect(api.get).toHaveBeenCalledWith("/console/checklist-templates/ct1/items");
   });
 
   it("creates a checklist item", async () => {
@@ -154,7 +154,7 @@ describe("useChecklistItems hooks", () => {
     result.current.mutate({ templateId: "ct1", title: "Clean tables" });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(api.post).toHaveBeenCalledWith("/admin/checklist-templates/ct1/items", { title: "Clean tables" });
+    expect(api.post).toHaveBeenCalledWith("/console/checklist-templates/ct1/items", { title: "Clean tables" });
   });
 
   it("updates a checklist item", async () => {
@@ -166,7 +166,7 @@ describe("useChecklistItems hooks", () => {
     result.current.mutate({ id: "ci1", templateId: "ct1", title: "Wipe tables" });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(api.put).toHaveBeenCalledWith("/admin/checklist-template-items/ci1", { title: "Wipe tables" });
+    expect(api.put).toHaveBeenCalledWith("/console/checklist-template-items/ci1", { title: "Wipe tables" });
   });
 
   it("deletes a checklist item", async () => {
@@ -177,6 +177,6 @@ describe("useChecklistItems hooks", () => {
     result.current.mutate({ id: "ci1", templateId: "ct1" });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(api.delete).toHaveBeenCalledWith("/admin/checklist-template-items/ci1");
+    expect(api.delete).toHaveBeenCalledWith("/console/checklist-template-items/ci1");
   });
 });

@@ -27,7 +27,7 @@ export const useSchedule = (
   return useQuery<Schedule, Error>({
     queryKey: ["schedules", id],
     queryFn: async () => {
-      const res: AxiosResponse<Schedule> = await api.get(`/admin/schedules/${id}`);
+      const res: AxiosResponse<Schedule> = await api.get(`/console/schedules/${id}`);
       return res.data;
     },
     enabled: !!id,
@@ -49,7 +49,7 @@ export const useSchedules = (
   return useQuery<PaginatedResponse<Schedule>, Error>({
     queryKey: ["schedules", params],
     queryFn: async () => {
-      const res: AxiosResponse<PaginatedResponse<Schedule>> = await api.get("/admin/schedules", { params });
+      const res: AxiosResponse<PaginatedResponse<Schedule>> = await api.get("/console/schedules", { params });
       return res.data;
     },
     enabled: !filters.user_ids || filters.user_ids.length > 0, // user_ids 비어있으면 fetch 막음 (잘못된 전체 조회 방지)
@@ -59,7 +59,7 @@ export const useSchedules = (
 export const useValidateSchedule = (): UseMutationResult<ScheduleValidation, Error, ScheduleCreate> => {
   return useMutation<ScheduleValidation, Error, ScheduleCreate>({
     mutationFn: async (data) => {
-      const res: AxiosResponse<ScheduleValidation> = await api.post("/admin/schedules/validate", data);
+      const res: AxiosResponse<ScheduleValidation> = await api.post("/console/schedules/validate", data);
       return res.data;
     },
   });
@@ -71,7 +71,7 @@ export const useCreateSchedule = (): UseMutationResult<Schedule, Error, Schedule
   const onOk = useSuccessToast();
   return useMutation<Schedule, Error, ScheduleCreate>({
     mutationFn: async (data) => {
-      const res: AxiosResponse<Schedule> = await api.post("/admin/schedules", data);
+      const res: AxiosResponse<Schedule> = await api.post("/console/schedules", data);
       return res.data;
     },
     onSuccess: () => {
@@ -88,7 +88,7 @@ export const useBulkCreateSchedules = (): UseMutationResult<ScheduleBulkResult, 
   const onOk = useSuccessToast();
   return useMutation<ScheduleBulkResult, Error, ScheduleBulkCreate>({
     mutationFn: async (data) => {
-      const res: AxiosResponse<ScheduleBulkResult> = await api.post("/admin/schedules/bulk", data);
+      const res: AxiosResponse<ScheduleBulkResult> = await api.post("/console/schedules/bulk", data);
       return res.data;
     },
     onSuccess: (result) => {
@@ -106,7 +106,7 @@ export const useUpdateSchedule = (): UseMutationResult<Schedule, Error, { id: st
   const onOk = useSuccessToast();
   return useMutation<Schedule, Error, { id: string; data: ScheduleUpdate }>({
     mutationFn: async ({ id, data }) => {
-      const res: AxiosResponse<Schedule> = await api.patch(`/admin/schedules/${id}`, data);
+      const res: AxiosResponse<Schedule> = await api.patch(`/console/schedules/${id}`, data);
       return res.data;
     },
     onSuccess: (updated, variables) => {
@@ -125,7 +125,7 @@ export const useDeleteSchedule = (): UseMutationResult<void, Error, string> => {
   const onErr = useErrorToast();
   const onOk = useSuccessToast();
   return useMutation<void, Error, string>({
-    mutationFn: async (id) => { await api.delete(`/admin/schedules/${id}`); },
+    mutationFn: async (id) => { await api.delete(`/console/schedules/${id}`); },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["schedules"] });
       qc.invalidateQueries({ queryKey: ["schedule-history"] });
@@ -141,7 +141,7 @@ export const useGenerateFromRequests = (): UseMutationResult<Schedule[], Error, 
   const onOk = useSuccessToast();
   return useMutation<Schedule[], Error, string>({
     mutationFn: async (periodId) => {
-      const res: AxiosResponse<Schedule[]> = await api.post(`/admin/schedules/generate-from-requests?period_id=${periodId}`);
+      const res: AxiosResponse<Schedule[]> = await api.post(`/console/schedules/generate-from-requests?period_id=${periodId}`);
       return res.data;
     },
     onSuccess: (created) => {
@@ -158,7 +158,7 @@ export const useConfirmSchedule = (): UseMutationResult<Schedule, Error, string>
   const onOk = useSuccessToast();
   return useMutation<Schedule, Error, string>({
     mutationFn: async (id) => {
-      const res: AxiosResponse<Schedule> = await api.post(`/admin/schedules/${id}/confirm`);
+      const res: AxiosResponse<Schedule> = await api.post(`/console/schedules/${id}/confirm`);
       return res.data;
     },
     onSuccess: (_, id) => {
@@ -177,7 +177,7 @@ export const useRejectSchedule = (): UseMutationResult<Schedule, Error, { id: st
   const onOk = useSuccessToast();
   return useMutation<Schedule, Error, { id: string; rejection_reason?: string }>({
     mutationFn: async ({ id, rejection_reason }) => {
-      const res: AxiosResponse<Schedule> = await api.post(`/admin/schedules/${id}/reject`, { rejection_reason: rejection_reason ?? null });
+      const res: AxiosResponse<Schedule> = await api.post(`/console/schedules/${id}/reject`, { rejection_reason: rejection_reason ?? null });
       return res.data;
     },
     onSuccess: (_, { id }) => {
@@ -198,7 +198,7 @@ export const useSubmitSchedule = (): UseMutationResult<Schedule, Error, string> 
   const onOk = useSuccessToast();
   return useMutation<Schedule, Error, string>({
     mutationFn: async (id) => {
-      const res: AxiosResponse<Schedule> = await api.post(`/admin/schedules/${id}/submit`);
+      const res: AxiosResponse<Schedule> = await api.post(`/console/schedules/${id}/submit`);
       return res.data;
     },
     onSuccess: (_, id) => {
@@ -217,7 +217,7 @@ export const useRevertSchedule = (): UseMutationResult<Schedule, Error, string> 
   const onOk = useSuccessToast();
   return useMutation<Schedule, Error, string>({
     mutationFn: async (id) => {
-      const res: AxiosResponse<Schedule> = await api.post(`/admin/schedules/${id}/revert`);
+      const res: AxiosResponse<Schedule> = await api.post(`/console/schedules/${id}/revert`);
       return res.data;
     },
     onSuccess: (_, id) => {
@@ -236,7 +236,7 @@ export const useCancelSchedule = (): UseMutationResult<Schedule, Error, { id: st
   const onOk = useSuccessToast();
   return useMutation<Schedule, Error, { id: string; cancellation_reason?: string }>({
     mutationFn: async ({ id, cancellation_reason }) => {
-      const res: AxiosResponse<Schedule> = await api.post(`/admin/schedules/${id}/cancel`, { cancellation_reason: cancellation_reason ?? null });
+      const res: AxiosResponse<Schedule> = await api.post(`/console/schedules/${id}/cancel`, { cancellation_reason: cancellation_reason ?? null });
       return res.data;
     },
     onSuccess: (_, { id }) => {
@@ -254,7 +254,7 @@ export const useSwitchSchedule = (): UseMutationResult<{ a: Schedule; b: Schedul
   return useMutation<{ a: Schedule; b: Schedule }, Error, { id: string; other_schedule_id: string; reason?: string }>({
     mutationFn: async ({ id, other_schedule_id, reason }) => {
       const res: AxiosResponse<{ a: Schedule; b: Schedule }> = await api.post(
-        `/admin/schedules/${id}/switch`,
+        `/console/schedules/${id}/switch`,
         { other_schedule_id, reason: reason ?? null },
       );
       return res.data;
@@ -290,7 +290,7 @@ export const useScheduleAuditLog = (
   return useQuery<ScheduleAuditLogEntry[], Error>({
     queryKey: ["schedules", id, "audit"],
     queryFn: async () => {
-      const res: AxiosResponse<ScheduleAuditLogEntry[]> = await api.get(`/admin/schedules/${id}/audit`);
+      const res: AxiosResponse<ScheduleAuditLogEntry[]> = await api.get(`/console/schedules/${id}/audit`);
       return res.data;
     },
     enabled: !!id,
@@ -338,7 +338,7 @@ export const useDeleteScheduleHistoryEntry = (): UseMutationResult<void, Error, 
   const onErr = useErrorToast();
   const onOk = useSuccessToast();
   return useMutation<void, Error, string>({
-    mutationFn: async (logId) => { await api.delete(`/admin/schedules/history/${logId}`); },
+    mutationFn: async (logId) => { await api.delete(`/console/schedules/history/${logId}`); },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["schedule-history"] });
       qc.invalidateQueries({ queryKey: ["schedules"] });
@@ -364,7 +364,7 @@ export const useScheduleHistory = (
     queryKey: ["schedule-history", params],
     queryFn: async () => {
       const res: AxiosResponse<{ items: ScheduleHistoryItem[]; total: number; page: number; per_page: number }> =
-        await api.get("/admin/schedules/history", { params });
+        await api.get("/console/schedules/history", { params });
       return res.data;
     },
     // 페이지 재진입 시 항상 최신 history 가져오기 (변경이 자주 일어나는 데이터)
@@ -376,7 +376,7 @@ export const useBulkPreviewSchedules = (): UseMutationResult<BulkPreviewResponse
   const onErr = useErrorToast();
   return useMutation<BulkPreviewResponse, Error, { entries: BulkPreviewEntry[] }>({
     mutationFn: async (data) => {
-      const res: AxiosResponse<BulkPreviewResponse> = await api.post("/admin/schedules/bulk/preview", data);
+      const res: AxiosResponse<BulkPreviewResponse> = await api.post("/console/schedules/bulk/preview", data);
       return res.data;
     },
     onError: onErr("Preview failed"),
@@ -389,7 +389,7 @@ export const useBulkUpdateSchedules = (): UseMutationResult<BulkUpdateResult, Er
   const onOk = useSuccessToast();
   return useMutation<BulkUpdateResult, Error, BulkUpdateRequest>({
     mutationFn: async (data) => {
-      const res: AxiosResponse<BulkUpdateResult> = await api.patch("/admin/schedules/bulk", data);
+      const res: AxiosResponse<BulkUpdateResult> = await api.patch("/console/schedules/bulk", data);
       return res.data;
     },
     onSuccess: (result) => {
@@ -407,7 +407,7 @@ export const useBulkDeleteSchedules = (): UseMutationResult<BulkDeleteResult, Er
   const onOk = useSuccessToast();
   return useMutation<BulkDeleteResult, Error, BulkDeleteRequest>({
     mutationFn: async (data) => {
-      const res: AxiosResponse<BulkDeleteResult> = await api.delete("/admin/schedules/bulk", { data });
+      const res: AxiosResponse<BulkDeleteResult> = await api.delete("/console/schedules/bulk", { data });
       return res.data;
     },
     onSuccess: (result) => {
@@ -425,7 +425,7 @@ export const useBulkConfirmSchedules = (): UseMutationResult<{ confirmed: number
   const onErr = useErrorToast();
   return useMutation<{ confirmed: number; errors: string[] }, Error, { store_id: string; date_from: string; date_to: string }>({
     mutationFn: async (params) => {
-      const res: AxiosResponse<{ confirmed: number; errors: string[] }> = await api.post("/admin/schedules/bulk-confirm", params);
+      const res: AxiosResponse<{ confirmed: number; errors: string[] }> = await api.post("/console/schedules/bulk-confirm", params);
       return res.data;
     },
     onSuccess: (result) => {

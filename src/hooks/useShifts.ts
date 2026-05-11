@@ -26,7 +26,7 @@ export const useShifts = (
     queryKey: ["shifts", storeId],
     queryFn: async (): Promise<Shift[]> => {
       const response: AxiosResponse<Shift[]> = await api.get(
-        `/admin/stores/${storeId}/shifts`,
+        `/console/stores/${storeId}/shifts`,
       );
       return response.data;
     },
@@ -61,7 +61,7 @@ export const useCreateShift = (): UseMutationResult<
       ...data
     }: CreateShiftData): Promise<Shift> => {
       const response: AxiosResponse<Shift> = await api.post(
-        `/admin/stores/${storeId}/shifts`,
+        `/console/stores/${storeId}/shifts`,
         data,
       );
       return response.data;
@@ -111,7 +111,7 @@ export const useUpdateShift = (): UseMutationResult<
       ...data
     }: UpdateShiftData): Promise<Shift> => {
       const response: AxiosResponse<Shift> = await api.put(
-        `/admin/stores/${storeId}/shifts/${id}`,
+        `/console/stores/${storeId}/shifts/${id}`,
         data,
       );
       return response.data;
@@ -161,7 +161,7 @@ export const useDeleteShift = (): UseMutationResult<
   const { success, error } = useMutationResult();
   return useMutation<void, Error, DeleteShiftData>({
     mutationFn: async ({ storeId, id }: DeleteShiftData): Promise<void> => {
-      await api.delete(`/admin/stores/${storeId}/shifts/${id}`);
+      await api.delete(`/console/stores/${storeId}/shifts/${id}`);
     },
     onSuccess: (_: void, variables: DeleteShiftData): void => {
       queryClient.setQueryData<Shift[]>(

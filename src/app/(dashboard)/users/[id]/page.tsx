@@ -18,6 +18,9 @@ import {
   ShieldAlert,
   Eye,
   EyeOff,
+  Check,
+  X as XIcon,
+  Pencil,
 } from "lucide-react";
 import {
   useUser,
@@ -38,7 +41,7 @@ import { useTimezone } from "@/hooks/useTimezone";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS, ROLE_PRIORITY } from "@/lib/permissions";
 import { useAdminResetPassword } from "@/hooks/usePassword";
-import { useClockinPin } from "@/hooks/useClockinPin";
+import { useClockinPin, useUpdateClockinPin } from "@/hooks/useClockinPin";
 import { ResetPasswordResultModal } from "@/components/auth/ResetPasswordResultModal";
 import type { User, Store, Role, UserStoreAssignment } from "@/types";
 
@@ -1171,38 +1174,109 @@ interface ProfilePinRowProps {
 }
 
 /**
- * 프로필 카드 내부의 6자리 PIN 조회 행 (read-only).
+ * 프로필 카드 내부의 6자리 PIN 행.
  *
- * 권한: `clockin_pin:read` — 기본 masked, 눈 아이콘 클릭 시 reveal/hide 토글.
- * 이 화면에서는 regenerate 불가 (별도 관리 화면에서만).
+ * 권한: `clockin_pin:read` — 기본 masked, 눈 아이콘으로 reveal/hide 토글.
+ * 권한: `clockin_pin:update` — 연필 아이콘으로 인라인 편집 모드 진입.
  */
 function ProfilePinRow({ userId }: ProfilePinRowProps): React.ReactElement {
   const { data: pinData } = useClockinPin(userId);
+  const { hasPermission } = usePermissions();
+  const updatePin = useUpdateClockinPin();
   const [revealed, setRevealed] = useState<boolean>(false);
+  const [editing, setEditing] = useState<boolean>(false);
+  const [draft, setDraft] = useState<string>("");
+  const canEdit = hasPermission(PERMISSIONS.CLOCKIN_PIN_UPDATE);
 
   const maskedPin = "••••••";
   const pinValue = pinData?.clockin_pin ?? "";
   const displayPin = pinData ? (revealed ? pinValue : maskedPin) : "—";
 
+  const startEdit = (): void => {
+    setDraft(pinValue);
+    setEditing(true);
+  };
+  const cancelEdit = (): void => {
+    setEditing(false);
+    setDraft("");
+  };
+  const saveEdit = (): void => {
+    if (!/^\d{6}$/.test(draft)) return;
+    updatePin.mutate(
+      { userId, clockinPin: draft },
+      { onSuccess: () => setEditing(false) },
+    );
+  };
+
   return (
     <div>
       <span className="text-xs text-text-muted block">PIN</span>
       <span className="text-sm text-text-secondary flex items-center gap-2">
-        <span className="tabular-nums tracking-[0.2em]">{displayPin}</span>
-        {pinData && (
-          <button
-            type="button"
-            onClick={() => setRevealed((v) => !v)}
-            className="text-text-muted hover:text-accent transition-colors"
-            title={revealed ? "Hide PIN" : "Reveal PIN"}
-            aria-label={revealed ? "Hide PIN" : "Reveal PIN"}
-          >
-            {revealed ? (
-              <EyeOff className="h-4 w-4" />
-            ) : (
-              <Eye className="h-4 w-4" />
+        {editing ? (
+          <>
+            <input
+              type="text"
+              inputMode="numeric"
+              pattern="\d{6}"
+              maxLength={6}
+              value={draft}
+              onChange={(e) =>
+                setDraft(e.target.value.replace(/\D/g, "").slice(0, 6))
+              }
+              className="w-24 px-2 py-0.5 rounded bg-surface border border-border text-sm text-text tabular-nums tracking-[0.2em] focus:outline-none focus:border-accent"
+              autoFocus
+            />
+            <button
+              type="button"
+              onClick={saveEdit}
+              disabled={!/^\d{6}$/.test(draft) || updatePin.isPending}
+              className="text-success hover:opacity-80 disabled:opacity-30 transition"
+              title="Save"
+              aria-label="Save"
+            >
+              <Check className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={cancelEdit}
+              disabled={updatePin.isPending}
+              className="text-text-muted hover:text-text transition"
+              title="Cancel"
+              aria-label="Cancel"
+            >
+              <XIcon className="h-4 w-4" />
+            </button>
+          </>
+        ) : (
+          <>
+            <span className="tabular-nums tracking-[0.2em]">{displayPin}</span>
+            {pinData && (
+              <button
+                type="button"
+                onClick={() => setRevealed((v) => !v)}
+                className="text-text-muted hover:text-accent transition-colors"
+                title={revealed ? "Hide PIN" : "Reveal PIN"}
+                aria-label={revealed ? "Hide PIN" : "Reveal PIN"}
+              >
+                {revealed ? (
+                  <EyeOff className="h-4 w-4" />
+                ) : (
+                  <Eye className="h-4 w-4" />
+                )}
+              </button>
             )}
-          </button>
+            {pinData && canEdit && (
+              <button
+                type="button"
+                onClick={startEdit}
+                className="text-text-muted hover:text-accent transition-colors"
+                title="Edit PIN"
+                aria-label="Edit PIN"
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
+            )}
+          </>
         )}
       </span>
     </div>

@@ -37,7 +37,7 @@ export const useChecklistInstances = (
     queryKey: ["checklist-instances", params],
     queryFn: async (): Promise<PaginatedResponse<ChecklistInstance>> => {
       const response: AxiosResponse<PaginatedResponse<ChecklistInstance>> =
-        await api.get("/admin/checklist-instances", { params });
+        await api.get("/console/checklist-instances", { params });
       return response.data;
     },
   });
@@ -65,7 +65,7 @@ export const useReviewSummary = (
   return useQuery<ReviewSummary, Error>({
     queryKey: ["review-summary", params],
     queryFn: async () => {
-      const res: AxiosResponse<ReviewSummary> = await api.get("/admin/checklist-instances/review-summary", { params });
+      const res: AxiosResponse<ReviewSummary> = await api.get("/console/checklist-instances/review-summary", { params });
       return res.data;
     },
   });
@@ -86,7 +86,7 @@ export const useChecklistInstance = (
     queryKey: ["checklist-instances", id],
     queryFn: async (): Promise<ChecklistInstance> => {
       const response: AxiosResponse<ChecklistInstance> = await api.get(
-        `/admin/checklist-instances/${id}`,
+        `/console/checklist-instances/${id}`,
       );
       return response.data;
     },
@@ -117,7 +117,7 @@ export const useScheduleChecklistMap = (
       const params: Record<string, string | number> = { per_page: 500 };
       if (storeId) params.store_id = storeId;
       const response: AxiosResponse<PaginatedResponse<ChecklistInstance>> =
-        await api.get("/admin/checklist-instances", { params });
+        await api.get("/console/checklist-instances", { params });
       const map = new Map<string, ChecklistInstance>();
       for (const inst of response.data.items) {
         // Client-side date range filter
@@ -142,7 +142,7 @@ export const useChecklistInstanceBySchedule = (
     queryKey: ["checklist-instances", "by-schedule", scheduleId],
     queryFn: async (): Promise<ChecklistInstance> => {
       const response: AxiosResponse<ChecklistInstance> = await api.get(
-        `/admin/checklist-instances/by-schedule/${scheduleId}`,
+        `/console/checklist-instances/by-schedule/${scheduleId}`,
       );
       return response.data;
     },
@@ -190,7 +190,7 @@ export function useUpsertItemReview(): UseMutationResult<
       if (comment_text) body.comment_text = comment_text;
       if (comment_photo_url) body.comment_photo_url = comment_photo_url;
       const response: AxiosResponse<{ review_result: "pass" | "fail" | "pending_re_review" | null; reviewer_id: string | null; reviewer_name: string | null; reviewed_at: string | null }> = await api.put(
-        `/admin/checklist-instances/${instanceId}/items/${itemIndex}/review`,
+        `/console/checklist-instances/${instanceId}/items/${itemIndex}/review`,
         body,
       );
       return response.data;
@@ -238,7 +238,7 @@ export function useDeleteItemReview(): UseMutationResult<
   >({
     mutationFn: async ({ instanceId, itemIndex }): Promise<void> => {
       await api.delete(
-        `/admin/checklist-instances/${instanceId}/items/${itemIndex}/review`,
+        `/console/checklist-instances/${instanceId}/items/${itemIndex}/review`,
       );
     },
     onSuccess: (_data, variables) => {
@@ -283,7 +283,7 @@ export function useAddReviewContent(): UseMutationResult<
       content,
     }): Promise<ChecklistItemMessage> => {
       const response: AxiosResponse<ChecklistItemMessage> = await api.post(
-        `/admin/checklist-instances/${instanceId}/items/${itemIndex}/review/contents`,
+        `/console/checklist-instances/${instanceId}/items/${itemIndex}/review/contents`,
         { type, content },
       );
       return response.data;
@@ -317,7 +317,7 @@ export function useDeleteReviewContent(): UseMutationResult<
   >({
     mutationFn: async ({ instanceId, itemIndex, contentId }): Promise<void> => {
       await api.delete(
-        `/admin/checklist-instances/${instanceId}/items/${itemIndex}/review/contents/${contentId}`,
+        `/console/checklist-instances/${instanceId}/items/${itemIndex}/review/contents/${contentId}`,
       );
     },
     onSuccess: () => {
@@ -345,7 +345,7 @@ export function usePresignedUrl(): UseMutationResult<
       filename,
       content_type,
     }): Promise<{ upload_url: string; file_url: string; key: string }> => {
-      const response = await api.post("/admin/storage/presigned-url", {
+      const response = await api.post("/console/storage/presigned-url", {
         filename,
         content_type,
       });
@@ -373,7 +373,7 @@ export function useUpdateScore(): UseMutationResult<
   >({
     mutationFn: async ({ instanceId, score, score_note }): Promise<ChecklistInstance> => {
       const response: AxiosResponse<ChecklistInstance> = await api.patch(
-        `/admin/checklist-instances/${instanceId}/score`,
+        `/console/checklist-instances/${instanceId}/score`,
         { score, score_note },
       );
       return response.data;
@@ -407,7 +407,7 @@ export function useBulkReview(): UseMutationResult<
   >({
     mutationFn: async ({ instanceId, item_indexes, result }): Promise<{ updated: number }> => {
       const response: AxiosResponse<{ updated: number }> = await api.post(
-        `/admin/checklist-instances/${instanceId}/items/bulk-review`,
+        `/console/checklist-instances/${instanceId}/items/bulk-review`,
         { item_indexes, result },
       );
       return response.data;
@@ -445,7 +445,7 @@ export function useSendReport(): UseMutationResult<
   const { success, error } = useMutationToast();
   return useMutation<void, Error, { instanceId: string }>({
     mutationFn: async ({ instanceId }): Promise<void> => {
-      await api.post(`/admin/checklist-instances/${instanceId}/report`);
+      await api.post(`/console/checklist-instances/${instanceId}/report`);
     },
     onSuccess: () => success("Report sent."),
     onError: error("Failed to send report"),

@@ -30,7 +30,7 @@ export const useAllPermissions = (): UseQueryResult<PermissionItem[], Error> => 
   return useQuery<PermissionItem[], Error>({
     queryKey: ["permissions"],
     queryFn: async () => {
-      const res = await api.get("/admin/permissions");
+      const res = await api.get("/console/permissions");
       return res.data;
     },
   });
@@ -43,7 +43,7 @@ export const useRolePermissions = (
   return useQuery<PermissionItem[], Error>({
     queryKey: ["permissions", "role", roleId],
     queryFn: async () => {
-      const res = await api.get(`/admin/permissions/roles/${roleId}`);
+      const res = await api.get(`/console/permissions/roles/${roleId}`);
       return res.data;
     },
     enabled: !!roleId,
@@ -64,7 +64,7 @@ export const useUpdateRolePermissions = (): UseMutationResult<
     { roleId: string; permissionCodes: string[] }
   >({
     mutationFn: async ({ roleId, permissionCodes }) => {
-      const res = await api.put(`/admin/permissions/roles/${roleId}`, {
+      const res = await api.put(`/console/permissions/roles/${roleId}`, {
         permission_codes: permissionCodes,
       });
       return res.data;

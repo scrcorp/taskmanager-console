@@ -21,20 +21,17 @@ import type { AttendanceDevice, AccessCode } from "@/types";
 // ─── Attendance Devices ─────────────────────────────────────────────────────
 
 /**
- * 등록된 attendance device 목록 조회.
- *
- * @param includeRevoked - 해제된 기기 포함 여부
- * @returns 기기 목록 쿼리 결과
+ * 등록된 attendance device 목록 조회. revoke 시 즉시 삭제되므로 모든 row 가 활성.
  */
-export const useAttendanceDevices = (
-  includeRevoked: boolean = false,
-): UseQueryResult<AttendanceDevice[], Error> => {
+export const useAttendanceDevices = (): UseQueryResult<
+  AttendanceDevice[],
+  Error
+> => {
   return useQuery<AttendanceDevice[], Error>({
-    queryKey: ["attendance-devices", { includeRevoked }],
+    queryKey: ["attendance-devices"],
     queryFn: async (): Promise<AttendanceDevice[]> => {
       const response: AxiosResponse<AttendanceDevice[]> = await api.get(
-        "/admin/attendance-devices",
-        { params: { include_revoked: includeRevoked } },
+        "/console/attendance-devices",
       );
       return response.data;
     },
@@ -63,7 +60,7 @@ export const useUpdateAttendanceDevice = (): UseMutationResult<
       device_name,
     }: UpdateDeviceData): Promise<AttendanceDevice> => {
       const response: AxiosResponse<AttendanceDevice> = await api.patch(
-        `/admin/attendance-devices/${id}`,
+        `/console/attendance-devices/${id}`,
         { device_name },
       );
       return response.data;
@@ -88,7 +85,7 @@ export const useRevokeAttendanceDevice = (): UseMutationResult<
   const { success, error } = useMutationResult();
   return useMutation<void, Error, string>({
     mutationFn: async (id: string): Promise<void> => {
-      await api.delete(`/admin/attendance-devices/${id}`);
+      await api.delete(`/console/attendance-devices/${id}`);
     },
     onSuccess: (): void => {
       queryClient.invalidateQueries({ queryKey: ["attendance-devices"] });
@@ -112,7 +109,7 @@ export const useAccessCode = (
     queryKey: ["access-codes", serviceKey],
     queryFn: async (): Promise<AccessCode> => {
       const response: AxiosResponse<AccessCode> = await api.get(
-        `/admin/access-codes/${serviceKey}`,
+        `/console/access-codes/${serviceKey}`,
       );
       return response.data;
     },
@@ -133,7 +130,7 @@ export const useRotateAccessCode = (): UseMutationResult<
   return useMutation<AccessCode, Error, string>({
     mutationFn: async (serviceKey: string): Promise<AccessCode> => {
       const response: AxiosResponse<AccessCode> = await api.post(
-        `/admin/access-codes/${serviceKey}/rotate`,
+        `/console/access-codes/${serviceKey}/rotate`,
       );
       return response.data;
     },

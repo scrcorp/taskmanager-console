@@ -29,7 +29,7 @@ export const useTemplates = (
       const params: Record<string, string> = {};
       if (storeId) params.store_id = storeId;
       const res: AxiosResponse<DailyReportTemplate[]> = await api.get(
-        "/admin/daily-report-templates",
+        "/console/daily-report-templates",
         { params },
       );
       return res.data;
@@ -45,7 +45,7 @@ export const useTemplate = (
     queryKey: ["daily-report-template", templateId],
     queryFn: async () => {
       const res: AxiosResponse<DailyReportTemplate> = await api.get(
-        `/admin/daily-report-templates/${templateId}`,
+        `/console/daily-report-templates/${templateId}`,
       );
       return res.data;
     },
@@ -64,7 +64,7 @@ export const useCreateTemplate = (): UseMutationResult<
   return useMutation<DailyReportTemplate, Error, DailyReportTemplateCreate>({
     mutationFn: async (data: DailyReportTemplateCreate) => {
       const res: AxiosResponse<DailyReportTemplate> = await api.post(
-        "/admin/daily-report-templates",
+        "/console/daily-report-templates",
         data,
       );
       return res.data;
@@ -88,7 +88,7 @@ export const useUpdateTemplate = (): UseMutationResult<
   return useMutation<DailyReportTemplate, Error, { id: string; data: DailyReportTemplateUpdate }>({
     mutationFn: async ({ id, data }: { id: string; data: DailyReportTemplateUpdate }) => {
       const res: AxiosResponse<DailyReportTemplate> = await api.put(
-        `/admin/daily-report-templates/${id}`,
+        `/console/daily-report-templates/${id}`,
         data,
       );
       return res.data;
@@ -107,7 +107,7 @@ export const useDeleteTemplate = (): UseMutationResult<void, Error, string> => {
   const { success, error } = useMutationResult();
   return useMutation<void, Error, string>({
     mutationFn: async (id: string) => {
-      await api.delete(`/admin/daily-report-templates/${id}`);
+      await api.delete(`/console/daily-report-templates/${id}`);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["daily-report-templates"] });
@@ -136,7 +136,7 @@ export const useUploadTemplateExcel = (): UseMutationResult<
       formData.append("name", name);
       if (store_id) formData.append("store_id", store_id);
       const res: AxiosResponse<DailyReportTemplate> = await api.post(
-        "/admin/daily-report-templates/upload-excel",
+        "/console/daily-report-templates/upload-excel",
         formData,
         { headers: { "Content-Type": "multipart/form-data" } },
       );
@@ -152,7 +152,7 @@ export const useUploadTemplateExcel = (): UseMutationResult<
 
 /** 샘플 Excel 파일 다운로드 */
 export const downloadSampleExcel = async (): Promise<void> => {
-  const res = await api.get("/admin/daily-report-templates/excel/sample", {
+  const res = await api.get("/console/daily-report-templates/excel/sample", {
     responseType: "blob",
   });
   const url = window.URL.createObjectURL(new Blob([res.data]));

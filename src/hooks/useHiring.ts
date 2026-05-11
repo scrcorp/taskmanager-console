@@ -27,7 +27,7 @@ export const useCoverPhotos = (
     queryKey: ["hiring", "photos", storeId],
     queryFn: async () => {
       const res: AxiosResponse<HiringCoverPhoto[]> = await api.get(
-        `/admin/stores/${storeId}/cover-photos`,
+        `/console/stores/${storeId}/cover-photos`,
       );
       return res.data;
     },
@@ -47,7 +47,7 @@ export const useUploadCoverPhoto = (
       fd.append("file", file);
       if (setAsPrimary) fd.append("set_as_primary", "true");
       const res: AxiosResponse<HiringCoverPhoto> = await api.post(
-        `/admin/stores/${storeId}/cover-photos`,
+        `/console/stores/${storeId}/cover-photos`,
         fd,
         { headers: { "Content-Type": "multipart/form-data" } },
       );
@@ -69,7 +69,7 @@ export const useSetPrimaryPhoto = (
   const { success, error } = useMutationResult();
   return useMutation<void, Error, string>({
     mutationFn: async (photoId) => {
-      await api.patch(`/admin/stores/${storeId}/cover-photos/${photoId}/primary`);
+      await api.patch(`/console/stores/${storeId}/cover-photos/${photoId}/primary`);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["hiring", "photos", storeId] });
@@ -87,7 +87,7 @@ export const useDeleteCoverPhoto = (
   const { success, error } = useMutationResult();
   return useMutation<void, Error, string>({
     mutationFn: async (photoId) => {
-      await api.delete(`/admin/stores/${storeId}/cover-photos/${photoId}`);
+      await api.delete(`/console/stores/${storeId}/cover-photos/${photoId}`);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["hiring", "photos", storeId] });
@@ -106,7 +106,7 @@ export const useSetAcceptingSignups = (
   return useMutation<{ accepting_signups: boolean }, Error, boolean>({
     mutationFn: async (accepting) => {
       const res: AxiosResponse<{ accepting_signups: boolean }> = await api.patch(
-        `/admin/stores/${storeId}/accepting-signups`,
+        `/console/stores/${storeId}/accepting-signups`,
         { accepting_signups: accepting },
       );
       return res.data;
@@ -181,7 +181,7 @@ export const useHiringForm = (
   return useQuery<HiringFormResponse, Error>({
     queryKey: ["hiring", "form", storeId],
     queryFn: async () => {
-      const res = await api.get(`/admin/hiring/stores/${storeId}/form`);
+      const res = await api.get(`/console/hiring/stores/${storeId}/form`);
       return res.data;
     },
     enabled: !!storeId,
@@ -204,7 +204,7 @@ export const useSaveHiringFormDraft = (
     HiringFormConfig
   >({
     mutationFn: async (config: HiringFormConfig) => {
-      const res = await api.put(`/admin/hiring/stores/${storeId}/form`, { config });
+      const res = await api.put(`/console/hiring/stores/${storeId}/form`, { config });
       return res.data;
     },
     onSuccess: () => {
@@ -231,7 +231,7 @@ export const usePublishHiringForm = (
     void
   >({
     mutationFn: async () => {
-      const res = await api.post(`/admin/hiring/stores/${storeId}/form/publish`);
+      const res = await api.post(`/console/hiring/stores/${storeId}/form/publish`);
       return res.data;
     },
     onSuccess: () => {
@@ -250,7 +250,7 @@ export const useDiscardHiringFormDraft = (
   const { success, error } = useMutationResult();
   return useMutation<{ discarded: boolean }, Error, void>({
     mutationFn: async () => {
-      const res = await api.delete(`/admin/hiring/stores/${storeId}/form/draft`);
+      const res = await api.delete(`/console/hiring/stores/${storeId}/form/draft`);
       return res.data;
     },
     onSuccess: () => {
@@ -322,7 +322,7 @@ export const useApplications = (
     queryKey: ["hiring", "applications", storeId, stage ?? "all"],
     queryFn: async () => {
       const res = await api.get(
-        `/admin/hiring/stores/${storeId}/applications`,
+        `/console/hiring/stores/${storeId}/applications`,
         { params: stage ? { stage } : undefined },
       );
       return res.data;
@@ -381,7 +381,7 @@ export const useUpsertMyReview = (
   >({
     mutationFn: async (body) => {
       const res = await api.put(
-        `/admin/hiring/applications/${applicationId}/reviews/me`,
+        `/console/hiring/applications/${applicationId}/reviews/me`,
         body,
       );
       return res.data;
@@ -403,7 +403,7 @@ export const useDeleteMyReview = (
   return useMutation<void, Error, void>({
     mutationFn: async () => {
       await api.delete(
-        `/admin/hiring/applications/${applicationId}/reviews/me`,
+        `/console/hiring/applications/${applicationId}/reviews/me`,
       );
     },
     onSuccess: () => {
@@ -421,7 +421,7 @@ export const useApplicationDetail = (
   return useQuery({
     queryKey: ["hiring", "application", applicationId],
     queryFn: async () => {
-      const res = await api.get(`/admin/hiring/applications/${applicationId}`);
+      const res = await api.get(`/console/hiring/applications/${applicationId}`);
       return res.data;
     },
     enabled: !!applicationId,
@@ -444,7 +444,7 @@ export const usePatchApplication = (
   >({
     mutationFn: async ({ applicationId, patch }) => {
       const res = await api.patch(
-        `/admin/hiring/applications/${applicationId}`,
+        `/console/hiring/applications/${applicationId}`,
         patch,
       );
       return res.data;
@@ -474,7 +474,7 @@ export const useHireApplication = (
   >({
     mutationFn: async ({ applicationId, usernameOverride, userId, clockinPin }) => {
       const res = await api.post(
-        `/admin/hiring/applications/${applicationId}/hire`,
+        `/console/hiring/applications/${applicationId}/hire`,
         { username_override: usernameOverride, user_id: userId, clockin_pin: clockinPin },
       );
       return res.data;
@@ -505,7 +505,7 @@ export const useUnhireApplication = (
   >({
     mutationFn: async (applicationId) => {
       const res = await api.post(
-        `/admin/hiring/applications/${applicationId}/unhire`,
+        `/console/hiring/applications/${applicationId}/unhire`,
       );
       return res.data;
     },
@@ -535,7 +535,7 @@ export const useBlockApplication = (
   >({
     mutationFn: async ({ applicationId, reason }) => {
       const res = await api.post(
-        `/admin/hiring/applications/${applicationId}/block`,
+        `/console/hiring/applications/${applicationId}/block`,
         { reason },
       );
       return res.data;
@@ -557,7 +557,7 @@ export const useUnblockApplication = (
   return useMutation<{ blocked: boolean }, Error, string>({
     mutationFn: async (applicationId) => {
       const res = await api.delete(
-        `/admin/hiring/applications/${applicationId}/block`,
+        `/console/hiring/applications/${applicationId}/block`,
       );
       return res.data;
     },

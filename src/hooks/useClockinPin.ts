@@ -32,7 +32,7 @@ export const useClockinPin = (
     queryKey: ["clockin-pin", userId],
     queryFn: async (): Promise<ClockinPin> => {
       const response: AxiosResponse<ClockinPin> = await api.get(
-        `/admin/users/${userId}/clockin-pin`,
+        `/console/users/${userId}/clockin-pin`,
       );
       return response.data;
     },
@@ -55,7 +55,7 @@ export const useRegenerateClockinPin = (): UseMutationResult<
   return useMutation<ClockinPin, Error, string>({
     mutationFn: async (userId: string): Promise<ClockinPin> => {
       const response: AxiosResponse<ClockinPin> = await api.post(
-        `/admin/users/${userId}/clockin-pin/regenerate`,
+        `/console/users/${userId}/clockin-pin/regenerate`,
       );
       return response.data;
     },
@@ -67,5 +67,44 @@ export const useRegenerateClockinPin = (): UseMutationResult<
       success("Regenerated.");
     },
     onError: error("Couldn't regenerate PIN"),
+  });
+};
+
+interface UpdateClockinPinVars {
+  userId: string;
+  clockinPin: string;
+}
+
+/**
+ * 직원 개인 PIN 직접 변경 뮤테이션 (관리자가 값 지정).
+ *
+ * 권한: clockin_pin:update. 6자리 숫자만 허용.
+ */
+export const useUpdateClockinPin = (): UseMutationResult<
+  ClockinPin,
+  Error,
+  UpdateClockinPinVars
+> => {
+  const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
+  return useMutation<ClockinPin, Error, UpdateClockinPinVars>({
+    mutationFn: async ({
+      userId,
+      clockinPin,
+    }: UpdateClockinPinVars): Promise<ClockinPin> => {
+      const response: AxiosResponse<ClockinPin> = await api.put(
+        `/console/users/${userId}/clockin-pin`,
+        { clockin_pin: clockinPin },
+      );
+      return response.data;
+    },
+    onSuccess: (newPin: ClockinPin): void => {
+      queryClient.setQueryData<ClockinPin>(
+        ["clockin-pin", newPin.user_id],
+        newPin,
+      );
+      success("PIN updated.");
+    },
+    onError: error("Couldn't update PIN"),
   });
 };

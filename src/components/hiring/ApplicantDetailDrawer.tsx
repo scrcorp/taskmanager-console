@@ -88,7 +88,7 @@ export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPag
     setShowHireDialog(true);
     // PIN preview fetch
     try {
-      const res = await api.get(`/admin/hiring/stores/${storeId}/preview-pin`);
+      const res = await api.get(`/console/hiring/stores/${storeId}/preview-pin`);
       setPendingPin(res.data?.clockin_pin ?? "");
     } catch {
       setPendingPin("");
@@ -140,7 +140,7 @@ export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPag
     try {
       // 가장 단순 — file_key를 그대로 url로 노출하는 storage endpoint가 있다면 사용.
       // 없으면 서버에 인증된 download endpoint 추가가 필요. 일단 file_key를 보여주는 것으로 충분.
-      const res = await api.get(`/admin/storage/sign-download`, {
+      const res = await api.get(`/console/storage/sign-download`, {
         params: { key: fileKey },
       });
       const url = res.data?.url ?? res.data?.download_url;
@@ -878,7 +878,7 @@ function AttachmentRow({
 
   const fetchUrl = async (): Promise<string | null> => {
     try {
-      const res = await api.get(`/admin/storage/sign-download`, {
+      const res = await api.get(`/console/storage/sign-download`, {
         params: { key: att.file_key },
       });
       return res.data?.url ?? res.data?.download_url ?? null;

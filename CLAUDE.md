@@ -1,4 +1,4 @@
-# Employee Management Service — Admin (Next.js)
+# Employee Management Service — Console (Next.js)
 
 > **IMPORTANT**: Before implementing any feature, read the parent `../CLAUDE.md` and relevant task docs in `../docs/02_plan/`.
 > Task documents are the Source of Truth for UI features, API integration, and permissions.
@@ -6,7 +6,7 @@
 
 ## Project Overview
 
-Admin management console for multi-brand employee management. Next.js App Router with TypeScript. Dark theme UI.
+Management console for multi-brand employee management. Next.js App Router with TypeScript. Dark theme UI.
 
 ## Tech Stack
 
@@ -21,7 +21,7 @@ Admin management console for multi-brand employee management. Next.js App Router
 ## Project Structure
 
 ```
-admin/
+console/
 ├── CLAUDE.md              ← You are here
 ├── package.json
 ├── next.config.ts
@@ -154,7 +154,7 @@ const colors = {
 
 ```
 [● HTM]
-[Admin Console]
+[Console]
 ─────────────
 Dashboard
 Brands
@@ -164,7 +164,7 @@ Additional Tasks
 Notices
 Alerts (unread badge)
 ─────────────
-[Avatar] Admin email [Logout]
+[Avatar] User email [Logout]
 ```
 
 - Sidebar: 240px fixed left
@@ -186,7 +186,7 @@ Alerts (unread badge)
 8. **Checklist Templates** — Inside brand detail Checklists tab
 9. **Checklist Template Detail** — Item list with drag-drop reorder
 10. **Assignments** — Date navigator + brand/shift/position grouped cards
-11. **Assignment Detail** — Checklist progress (read-only from admin)
+11. **Assignment Detail** — Checklist progress (read-only from console)
 12. **Assign Modal** — Brand → Shift/Position (cascade) → Staff checkboxes
 
 ### Phase 3 (8 screens)
@@ -207,9 +207,9 @@ NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
 ```
 
 ### Auth Flow
-1. Login → POST `/admin/auth/login` → store tokens
+1. Login → POST `/console/auth/login` → store tokens
 2. Axios interceptor: attach `Authorization: Bearer {token}`
-3. 401 response → try refresh → POST `/admin/auth/refresh`
+3. 401 response → try refresh → POST `/console/auth/refresh`
 4. Refresh fails → redirect to `/login`
 
 ### Data Fetching Pattern (React Query)
@@ -218,14 +218,14 @@ NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
 export function useBrands() {
   return useQuery({
     queryKey: ["brands"],
-    queryFn: () => api.get("/admin/brands").then(r => r.data),
+    queryFn: () => api.get("/console/brands").then(r => r.data),
   });
 }
 
 export function useCreateBrand() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (data: BrandCreate) => api.post("/admin/brands", data),
+    mutationFn: (data: BrandCreate) => api.post("/console/brands", data),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["brands"] }),
   });
 }
