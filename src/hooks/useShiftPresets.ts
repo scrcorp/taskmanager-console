@@ -14,7 +14,7 @@ import type { ShiftPreset } from "@/types";
 export function useShiftPresets(storeId: string) {
   return useQuery<ShiftPreset[]>({
     queryKey: ["shiftPresets", storeId],
-    queryFn: () => api.get(`/admin/stores/${storeId}/shift-presets`).then((r) => r.data),
+    queryFn: () => api.get(`/console/stores/${storeId}/shift-presets`).then((r) => r.data),
     enabled: !!storeId,
   });
 }
@@ -29,7 +29,7 @@ export function useCreateShiftPreset() {
     { storeId: string; shift_id: string; name: string; start_time: string; end_time: string; sort_order?: number }
   >({
     mutationFn: (data) =>
-      api.post(`/admin/stores/${data.storeId}/shift-presets`, {
+      api.post(`/console/stores/${data.storeId}/shift-presets`, {
         shift_id: data.shift_id,
         name: data.name,
         start_time: data.start_time,
@@ -54,7 +54,7 @@ export function useUpdateShiftPreset() {
     { id: string; storeId: string; name?: string; start_time?: string; end_time?: string; is_active?: boolean; sort_order?: number }
   >({
     mutationFn: (data) =>
-      api.put(`/admin/shift-presets/${data.id}`, {
+      api.put(`/console/shift-presets/${data.id}`, {
         name: data.name,
         start_time: data.start_time,
         end_time: data.end_time,
@@ -75,7 +75,7 @@ export function useDeleteShiftPreset() {
   const { success, error } = useMutationResult();
   return useMutation<unknown, Error, { id: string; storeId: string }>({
     mutationFn: (data) =>
-      api.delete(`/admin/shift-presets/${data.id}`),
+      api.delete(`/console/shift-presets/${data.id}`),
     onSuccess: (_d, v) => {
       qc.invalidateQueries({ queryKey: ["shiftPresets", v.storeId] });
       success("Shift preset deleted.");

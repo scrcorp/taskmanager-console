@@ -43,7 +43,7 @@ export const useUsers = (
       if (filters?.is_active !== undefined)
         params.is_active = filters.is_active;
 
-      const response: AxiosResponse<User[]> = await api.get("/admin/users", {
+      const response: AxiosResponse<User[]> = await api.get("/console/users", {
         params,
       });
       return response.data;
@@ -66,7 +66,7 @@ export const useUser = (
     queryKey: ["users", id],
     queryFn: async (): Promise<User> => {
       const response: AxiosResponse<User> = await api.get(
-        `/admin/users/${id}`,
+        `/console/users/${id}`,
       );
       return response.data;
     },
@@ -105,10 +105,10 @@ export const useCreateUser = (): UseMutationResult<
   return useMutation<User, Error, CreateUserData>({
     mutationFn: async (data: CreateUserData): Promise<User> => {
       const { store_assignments, ...body } = data;
-      const response: AxiosResponse<User> = await api.post("/admin/users", body);
+      const response: AxiosResponse<User> = await api.post("/console/users", body);
       const user = response.data;
       if (store_assignments && store_assignments.length > 0) {
-        await api.put(`/admin/users/${user.id}/stores`, { assignments: store_assignments });
+        await api.put(`/console/users/${user.id}/stores`, { assignments: store_assignments });
       }
       return user;
     },
@@ -155,7 +155,7 @@ export const useUpdateUser = (): UseMutationResult<
   return useMutation<User, Error, UpdateUserData>({
     mutationFn: async ({ id, ...data }: UpdateUserData): Promise<User> => {
       const response: AxiosResponse<User> = await api.put(
-        `/admin/users/${id}`,
+        `/console/users/${id}`,
         data,
       );
       return response.data;
@@ -200,7 +200,7 @@ export const useToggleUserActive = (): UseMutationResult<
       id,
       is_active,
     }: ToggleUserActiveData): Promise<void> => {
-      await api.patch(`/admin/users/${id}/active`, { is_active });
+      await api.patch(`/console/users/${id}/active`, { is_active });
     },
     onSuccess: (_: void, variables: ToggleUserActiveData): void => {
       queryClient.setQueriesData<User[]>(
@@ -233,7 +233,7 @@ export const useDeleteUser = (): UseMutationResult<void, Error, string> => {
   const { success, error } = useMutationToast();
   return useMutation<void, Error, string>({
     mutationFn: async (id: string): Promise<void> => {
-      await api.delete(`/admin/users/${id}`);
+      await api.delete(`/console/users/${id}`);
     },
     onSuccess: (_: void, id: string): void => {
       queryClient.setQueriesData<User[]>(
@@ -264,7 +264,7 @@ export const useUserStores = (
     queryKey: ["users", userId, "stores"],
     queryFn: async (): Promise<UserStoreAssignment[]> => {
       const response: AxiosResponse<UserStoreAssignment[]> = await api.get(
-        `/admin/users/${userId}/stores`,
+        `/console/users/${userId}/stores`,
       );
       return response.data;
     },
@@ -296,7 +296,7 @@ export const useAddUserStore = (): UseMutationResult<
       userId,
       storeId,
     }: AddUserStoreData): Promise<void> => {
-      await api.post(`/admin/users/${userId}/stores/${storeId}`);
+      await api.post(`/console/users/${userId}/stores/${storeId}`);
     },
     onSuccess: (_: void, variables: AddUserStoreData): void => {
       const stores = queryClient.getQueryData<Store[]>(["stores"]);
@@ -335,7 +335,7 @@ export const useRemoveUserStore = (): UseMutationResult<
       userId,
       storeId,
     }: RemoveUserStoreData): Promise<void> => {
-      await api.delete(`/admin/users/${userId}/stores/${storeId}`);
+      await api.delete(`/console/users/${userId}/stores/${storeId}`);
     },
     onSuccess: (_: void, variables: RemoveUserStoreData): void => {
       queryClient.setQueryData<UserStoreAssignment[]>(
@@ -365,7 +365,7 @@ export const useSyncUserStores = (): UseMutationResult<
       assignments,
     }: SyncUserStoresData): Promise<UserStoreAssignment[]> => {
       const response: AxiosResponse<UserStoreAssignment[]> = await api.put(
-        `/admin/users/${userId}/stores`,
+        `/console/users/${userId}/stores`,
         { assignments },
       );
       return response.data;

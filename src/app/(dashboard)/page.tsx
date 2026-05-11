@@ -305,7 +305,7 @@ export default function DashboardPage(): React.ReactElement {
   const handleExport = useCallback(async (): Promise<void> => {
     setIsExporting(true);
     try {
-      const response = await api.get("/admin/dashboard/export", {
+      const response = await api.get("/console/dashboard/export", {
         responseType: "blob",
       });
       const exportDate = todayInTimezone(tz);

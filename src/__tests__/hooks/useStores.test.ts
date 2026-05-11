@@ -78,7 +78,7 @@ describe("useStores hooks", () => {
 
       expect(result.current.data).toHaveLength(2);
       expect(result.current.data![0].name).toBe("Test Store");
-      expect(api.get).toHaveBeenCalledWith("/admin/stores");
+      expect(api.get).toHaveBeenCalledWith("/console/stores");
     });
 
     it("handles fetch error", async () => {
@@ -117,7 +117,7 @@ describe("useStores hooks", () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
       expect(result.current.data?.name).toBe("New Store");
-      expect(api.post).toHaveBeenCalledWith("/admin/stores", {
+      expect(api.post).toHaveBeenCalledWith("/console/stores", {
         name: "New Store",
         address: "456 New St",
       });
@@ -136,7 +136,7 @@ describe("useStores hooks", () => {
       result.current.mutate("b1");
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(api.delete).toHaveBeenCalledWith("/admin/stores/b1");
+      expect(api.delete).toHaveBeenCalledWith("/console/stores/b1");
     });
   });
 });

@@ -65,9 +65,6 @@ function AttendanceDevicesContent(): React.ReactElement {
   const tz = useTimezone();
   const canUpdate = hasPermission(PERMISSIONS.ATTENDANCE_DEVICES_UPDATE);
 
-  /* ---- Include-revoked toggle ------------------------------------------- */
-  const [includeRevoked, setIncludeRevoked] = useState<boolean>(false);
-
   /* ---- Access code ------------------------------------------------------- */
   const { data: accessCode, isLoading: codeLoading } = useAccessCode(
     ATTENDANCE_SERVICE_KEY,
@@ -78,8 +75,7 @@ function AttendanceDevicesContent(): React.ReactElement {
   const [codeCopied, setCodeCopied] = useState<boolean>(false);
 
   /* ---- Devices ----------------------------------------------------------- */
-  const { data: devices, isLoading: devicesLoading } =
-    useAttendanceDevices(includeRevoked);
+  const { data: devices, isLoading: devicesLoading } = useAttendanceDevices();
   const updateDevice = useUpdateAttendanceDevice();
   const revokeDevice = useRevokeAttendanceDevice();
 
@@ -255,20 +251,9 @@ function AttendanceDevicesContent(): React.ReactElement {
 
       {/* Devices Card */}
       <div className="bg-card border border-border rounded-xl p-6">
-        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
-          <div className="flex items-center gap-2">
-            <Tablet className="h-5 w-5 text-accent" />
-            <h2 className="text-lg font-bold text-text">Registered Devices</h2>
-          </div>
-          <label className="flex items-center gap-2 text-sm text-text-secondary cursor-pointer">
-            <input
-              type="checkbox"
-              checked={includeRevoked}
-              onChange={(e) => setIncludeRevoked(e.target.checked)}
-              className="h-4 w-4 rounded border-border text-accent focus:ring-accent cursor-pointer"
-            />
-            Include revoked
-          </label>
+        <div className="flex items-center gap-2 mb-4">
+          <Tablet className="h-5 w-5 text-accent" />
+          <h2 className="text-lg font-bold text-text">Registered Devices</h2>
         </div>
 
         {devicesLoading ? (
@@ -299,9 +284,6 @@ function AttendanceDevicesContent(): React.ReactElement {
                   <th className="text-left py-2 px-3 font-medium text-text-secondary">
                     Last Seen
                   </th>
-                  <th className="text-left py-2 px-3 font-medium text-text-secondary">
-                    Status
-                  </th>
                   {canUpdate && (
                     <th className="text-right py-2 px-3 font-medium text-text-secondary w-36">
                       Actions
@@ -312,7 +294,6 @@ function AttendanceDevicesContent(): React.ReactElement {
               <tbody>
                 {deviceList.map((device) => {
                   const isRenaming = renamingId === device.id;
-                  const isRevoked = device.revoked_at != null;
                   return (
                     <tr
                       key={device.id}
@@ -357,13 +338,6 @@ function AttendanceDevicesContent(): React.ReactElement {
                           ? formatDateTimeSeconds(device.last_seen_at, tz)
                           : "—"}
                       </td>
-                      <td className="py-3 px-3">
-                        {isRevoked ? (
-                          <Badge variant="danger">Revoked</Badge>
-                        ) : (
-                          <Badge variant="success">Active</Badge>
-                        )}
-                      </td>
                       {canUpdate && (
                         <td className="py-3 px-3">
                           <div className="flex justify-end items-center gap-2">
@@ -393,8 +367,7 @@ function AttendanceDevicesContent(): React.ReactElement {
                                 <button
                                   type="button"
                                   onClick={() => handleStartRename(device)}
-                                  disabled={isRevoked}
-                                  className="p-1.5 rounded text-text-secondary hover:text-accent hover:bg-surface transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                  className="p-1.5 rounded text-text-secondary hover:text-accent hover:bg-surface transition-colors"
                                   title="Rename"
                                 >
                                   <Edit className="h-4 w-4" />
@@ -402,8 +375,7 @@ function AttendanceDevicesContent(): React.ReactElement {
                                 <button
                                   type="button"
                                   onClick={() => setRevokeTarget(device)}
-                                  disabled={isRevoked}
-                                  className="p-1.5 rounded text-text-secondary hover:text-danger hover:bg-danger-muted transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                                  className="p-1.5 rounded text-text-secondary hover:text-danger hover:bg-danger-muted transition-colors"
                                   title="Revoke"
                                 >
                                   <Trash2 className="h-4 w-4" />

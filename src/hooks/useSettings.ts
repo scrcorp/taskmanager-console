@@ -1,6 +1,6 @@
 /**
  * useSettings — Settings Registry / Org / Store / Resolve hooks.
- * server endpoints: /api/v1/admin/settings/...
+ * server endpoints: /api/v1/console/settings/...
  */
 
 import { useQuery, useMutation, useQueryClient, type UseQueryResult, type UseMutationResult } from "@tanstack/react-query";
@@ -58,7 +58,7 @@ export const useSettingsRegistry = (
     queryKey: ["settings", "registry", category ?? null],
     queryFn: async () => {
       const res: AxiosResponse<SettingsRegistryEntry[]> = await api.get(
-        "/admin/settings/registry",
+        "/console/settings/registry",
         { params: category ? { category } : undefined },
       );
       return res.data;
@@ -71,7 +71,7 @@ export const useUpsertRegistryEntry = (): UseMutationResult<SettingsRegistryEntr
   const { success, error } = useMutationResult();
   return useMutation<SettingsRegistryEntry, Error, Omit<SettingsRegistryEntry, "created_at" | "updated_at">>({
     mutationFn: async (data) => {
-      const res: AxiosResponse<SettingsRegistryEntry> = await api.put("/admin/settings/registry", data);
+      const res: AxiosResponse<SettingsRegistryEntry> = await api.put("/console/settings/registry", data);
       return res.data;
     },
     onSuccess: () => {
@@ -88,7 +88,7 @@ export const useOrgSettings = (): UseQueryResult<OrgSettingEntry[], Error> => {
   return useQuery<OrgSettingEntry[], Error>({
     queryKey: ["settings", "org"],
     queryFn: async () => {
-      const res: AxiosResponse<OrgSettingEntry[]> = await api.get("/admin/settings/org");
+      const res: AxiosResponse<OrgSettingEntry[]> = await api.get("/console/settings/org");
       return res.data;
     },
   });
@@ -99,7 +99,7 @@ export const useUpsertOrgSetting = (): UseMutationResult<OrgSettingEntry, Error,
   const { success, error } = useMutationResult();
   return useMutation<OrgSettingEntry, Error, { key: string; value: unknown; force_locked?: boolean }>({
     mutationFn: async (data) => {
-      const res: AxiosResponse<OrgSettingEntry> = await api.put("/admin/settings/org", {
+      const res: AxiosResponse<OrgSettingEntry> = await api.put("/console/settings/org", {
         key: data.key,
         value: data.value,
         force_locked: data.force_locked ?? false,
@@ -119,7 +119,7 @@ export const useDeleteOrgSetting = (): UseMutationResult<void, Error, string> =>
   const qc = useQueryClient();
   const { success, error } = useMutationResult();
   return useMutation<void, Error, string>({
-    mutationFn: async (key) => { await api.delete(`/admin/settings/org/${key}`); },
+    mutationFn: async (key) => { await api.delete(`/console/settings/org/${key}`); },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["settings", "org"] });
       qc.invalidateQueries({ queryKey: ["settings", "resolve"] });
@@ -135,7 +135,7 @@ export const useStoreSettings = (storeId: string | undefined): UseQueryResult<St
   return useQuery<StoreSettingEntry[], Error>({
     queryKey: ["settings", "store", storeId],
     queryFn: async () => {
-      const res: AxiosResponse<StoreSettingEntry[]> = await api.get(`/admin/settings/stores/${storeId}`);
+      const res: AxiosResponse<StoreSettingEntry[]> = await api.get(`/console/settings/stores/${storeId}`);
       return res.data;
     },
     enabled: !!storeId,
@@ -147,7 +147,7 @@ export const useUpsertStoreSetting = (storeId: string): UseMutationResult<StoreS
   const { success, error } = useMutationResult();
   return useMutation<StoreSettingEntry, Error, { key: string; value: unknown }>({
     mutationFn: async (data) => {
-      const res: AxiosResponse<StoreSettingEntry> = await api.put(`/admin/settings/stores/${storeId}`, data);
+      const res: AxiosResponse<StoreSettingEntry> = await api.put(`/console/settings/stores/${storeId}`, data);
       return res.data;
     },
     onSuccess: () => {
@@ -163,7 +163,7 @@ export const useDeleteStoreSetting = (storeId: string): UseMutationResult<void, 
   const qc = useQueryClient();
   const { success, error } = useMutationResult();
   return useMutation<void, Error, string>({
-    mutationFn: async (key) => { await api.delete(`/admin/settings/stores/${storeId}/${key}`); },
+    mutationFn: async (key) => { await api.delete(`/console/settings/stores/${storeId}/${key}`); },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["settings", "store", storeId] });
       qc.invalidateQueries({ queryKey: ["settings", "resolve"] });
@@ -185,7 +185,7 @@ export const useResolveSetting = (
       const params: Record<string, string> = { key };
       if (scope?.store_id) params.store_id = scope.store_id;
       if (scope?.user_id) params.user_id = scope.user_id;
-      const res: AxiosResponse<ResolvedSetting> = await api.get("/admin/settings/resolve", { params });
+      const res: AxiosResponse<ResolvedSetting> = await api.get("/console/settings/resolve", { params });
       return res.data;
     },
     enabled: !!key,

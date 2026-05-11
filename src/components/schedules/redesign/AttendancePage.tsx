@@ -103,15 +103,19 @@ function WorkCell({ netMin, totalMin }: { netMin: number | null; totalMin: numbe
  *  반환: { netMin, totalMin } — 둘 다 null 이면 표시 대상 아님 (아직 clock in 전).
  *  로직:
  *    elapsed_total = now - clock_in
- *    completed_unpaid = Σ (type=unpaid_long AND ended_at) duration
- *    completed_paid   = Σ (type=paid_short AND ended_at) duration
+ *    completed_unpaid = Σ (unpaid_meal/unpaid_long AND ended_at) duration
+ *    completed_paid   = Σ (paid_10min/paid_short AND ended_at) duration
  *    completed_paid_overage = max(0, completed_paid - 10 * paid_sessions)
  *    open break 추가 차감:
- *      - unpaid_long: 전체 elapsed 차감
- *      - paid_short : max(0, elapsed - 10) 차감
+ *      - unpaid_meal/unpaid_long: 전체 elapsed 차감
+ *      - paid_10min/paid_short : max(0, elapsed - 10) 차감
  *    total = elapsed_total
  *    net   = max(0, total - completed_unpaid - completed_paid_overage - open_deduct)
+ *
+ *  레거시 paid_short/unpaid_long 도 dual-read 인식 (NEED_MONITORING.md).
  */
+const PAID_BREAK_VALUES = new Set(['paid_10min', 'paid_short'])
+const UNPAID_BREAK_VALUES = new Set(['unpaid_meal', 'unpaid_long'])
 function computeLiveWorkMinutes(
   clockInIso: string | null,
   breaks: AttendanceBreakItem[],
@@ -133,9 +137,9 @@ function computeLiveWorkMinutes(
       continue
     }
     const dur = b.duration_minutes ?? 0
-    if (b.break_type === 'unpaid_long') {
+    if (UNPAID_BREAK_VALUES.has(b.break_type)) {
       completedUnpaid += dur
-    } else if (b.break_type === 'paid_short') {
+    } else if (PAID_BREAK_VALUES.has(b.break_type)) {
       completedPaid += dur
       paidSessions += 1
     }
@@ -147,9 +151,9 @@ function computeLiveWorkMinutes(
     const startMs = new Date(openBreak.started_at).getTime()
     if (Number.isFinite(startMs)) {
       const openElapsed = Math.max(0, Math.round((nowMs - startMs) / 60000))
-      if (openBreak.break_type === 'unpaid_long') {
+      if (UNPAID_BREAK_VALUES.has(openBreak.break_type)) {
         openDeduct = openElapsed
-      } else if (openBreak.break_type === 'paid_short') {
+      } else if (PAID_BREAK_VALUES.has(openBreak.break_type)) {
         openDeduct = Math.max(0, openElapsed - 10)
       }
     }
@@ -460,8 +464,8 @@ export function AttendancePage() {
               const anomalies = att.anomalies ?? []
               const initials = (att.user_name || '??').split(/\s+/).slice(0, 2).map((s: string) => s[0] ?? '').join('').toUpperCase() || '??'
               const breaks = att.breaks ?? []
-              const paidBreaks = breaks.filter((b) => b.break_type === 'paid_short')
-              const unpaidBreaks = breaks.filter((b) => b.break_type === 'unpaid_long')
+              const paidBreaks = breaks.filter((b) => PAID_BREAK_VALUES.has(b.break_type))
+              const unpaidBreaks = breaks.filter((b) => UNPAID_BREAK_VALUES.has(b.break_type))
               const lateMin = computeLateMinutes(att.clock_in, att.scheduled_start)
 
               // Work 컬럼 — clocked_out 이면 서버 값 사용, 진행 중이면 live 계산.

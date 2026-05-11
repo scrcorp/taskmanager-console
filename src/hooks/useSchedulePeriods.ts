@@ -15,7 +15,7 @@ export const useSchedulePeriods = (
   return useQuery<PaginatedResponse<SchedulePeriod>, Error>({
     queryKey: ["schedule-periods", params],
     queryFn: async () => {
-      const res: AxiosResponse<PaginatedResponse<SchedulePeriod>> = await api.get("/admin/schedule-periods", { params });
+      const res: AxiosResponse<PaginatedResponse<SchedulePeriod>> = await api.get("/console/schedule-periods", { params });
       return res.data;
     },
   });
@@ -26,7 +26,7 @@ export const useCreateSchedulePeriod = (): UseMutationResult<SchedulePeriod, Err
   const { success, error } = useMutationResult();
   return useMutation<SchedulePeriod, Error, SchedulePeriodCreate>({
     mutationFn: async (data) => {
-      const res: AxiosResponse<SchedulePeriod> = await api.post("/admin/schedule-periods", data);
+      const res: AxiosResponse<SchedulePeriod> = await api.post("/console/schedule-periods", data);
       return res.data;
     },
     onSuccess: () => {
@@ -42,7 +42,7 @@ export const useUpdateSchedulePeriod = (): UseMutationResult<SchedulePeriod, Err
   const { success, error } = useMutationResult();
   return useMutation<SchedulePeriod, Error, { id: string; data: SchedulePeriodUpdate }>({
     mutationFn: async ({ id, data }) => {
-      const res: AxiosResponse<SchedulePeriod> = await api.patch(`/admin/schedule-periods/${id}`, data);
+      const res: AxiosResponse<SchedulePeriod> = await api.patch(`/console/schedule-periods/${id}`, data);
       return res.data;
     },
     onSuccess: () => {
@@ -58,7 +58,7 @@ export const useTransitionPeriod = (): UseMutationResult<SchedulePeriod, Error, 
   const { success, error } = useMutationResult();
   return useMutation<SchedulePeriod, Error, { id: string; action: string }>({
     mutationFn: async ({ id, action }) => {
-      const res: AxiosResponse<SchedulePeriod> = await api.post(`/admin/schedule-periods/${id}/${action}`);
+      const res: AxiosResponse<SchedulePeriod> = await api.post(`/console/schedule-periods/${id}/${action}`);
       return res.data;
     },
     onSuccess: () => {

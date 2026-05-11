@@ -82,7 +82,7 @@ export async function handleMockRequest(
 
   // ─── Auth ──────────────────────────────────────
 
-  if (url.endsWith("/admin/auth/login") && method === "post") {
+  if (url.endsWith("/console/auth/login") && method === "post") {
     return mockResponse(
       { access_token: "mock-access-token", refresh_token: "mock-refresh-token", token_type: "bearer" },
       config,
@@ -102,11 +102,11 @@ export async function handleMockRequest(
 
   // ─── Roles ─────────────────────────────────────
 
-  if (url.endsWith("/admin/roles") && method === "get") {
+  if (url.endsWith("/console/roles") && method === "get") {
     return mockResponse(mockRoles, config);
   }
 
-  if (url.endsWith("/admin/roles") && method === "post") {
+  if (url.endsWith("/console/roles") && method === "post") {
     const body = JSON.parse(config.data as string);
     return mockResponse({ id: newId(), ...body, created_at: new Date().toISOString() }, config);
   }
@@ -126,11 +126,11 @@ export async function handleMockRequest(
 
   // ─── Stores ────────────────────────────────────
 
-  if (url.endsWith("/admin/stores") && method === "get") {
+  if (url.endsWith("/console/stores") && method === "get") {
     return mockResponse(mockStores, config);
   }
 
-  if (url.endsWith("/admin/stores") && method === "post") {
+  if (url.endsWith("/console/stores") && method === "post") {
     const body = JSON.parse(config.data as string);
     return mockResponse(
       { id: newId(), organization_id: "org-001", is_active: true, created_at: new Date().toISOString(), ...body },
@@ -207,7 +207,7 @@ export async function handleMockRequest(
 
   // ─── All Checklist Templates (cross-store) ─────
 
-  if (url.endsWith("/admin/checklist-templates") && method === "get") {
+  if (url.endsWith("/console/checklist-templates") && method === "get") {
     let allTemplates = Object.values(mockTemplates).flat();
     if (params.store_id) allTemplates = allTemplates.filter((t) => t.store_id === params.store_id);
     if (params.shift_id) allTemplates = allTemplates.filter((t) => t.shift_id === params.shift_id);
@@ -271,11 +271,11 @@ export async function handleMockRequest(
 
   // ─── Users ─────────────────────────────────────
 
-  if (url.endsWith("/admin/users") && method === "get") {
+  if (url.endsWith("/console/users") && method === "get") {
     return mockResponse(mockUsers, config);
   }
 
-  if (url.endsWith("/admin/users") && method === "post") {
+  if (url.endsWith("/console/users") && method === "post") {
     const body = JSON.parse(config.data as string);
     return mockResponse(
       { id: newId(), role_name: "Staff", role_priority: 40, is_active: true, created_at: new Date().toISOString(), ...body },
@@ -317,13 +317,13 @@ export async function handleMockRequest(
 
   // ─── Notices ─────────────────────────────
 
-  if (url.endsWith("/admin/notices") && method === "get") {
+  if (url.endsWith("/console/notices") && method === "get") {
     const page: number = parseInt(params.page ?? "1", 10);
     const perPage: number = parseInt(params.per_page ?? "20", 10);
     return mockResponse(paginate(mockNotices, page, perPage), config);
   }
 
-  if (url.endsWith("/admin/notices") && method === "post") {
+  if (url.endsWith("/console/notices") && method === "post") {
     const body = JSON.parse(config.data as string);
     return mockResponse(
       { id: newId(), ...body, store_name: null, created_by_name: "Admin User", created_at: new Date().toISOString() },
@@ -349,7 +349,7 @@ export async function handleMockRequest(
 
   // ─── Tasks ─────────────────────────────────────
 
-  if (url.endsWith("/admin/additional-tasks") && method === "get") {
+  if (url.endsWith("/console/additional-tasks") && method === "get") {
     let filtered = [...mockTasks];
     if (params.status) filtered = filtered.filter((t) => t.status === params.status);
     if (params.priority) filtered = filtered.filter((t) => t.priority === params.priority);
@@ -358,7 +358,7 @@ export async function handleMockRequest(
     return mockResponse(paginate(filtered, page, perPage), config);
   }
 
-  if (url.endsWith("/admin/additional-tasks") && method === "post") {
+  if (url.endsWith("/console/additional-tasks") && method === "post") {
     const body = JSON.parse(config.data as string);
     return mockResponse(
       { id: newId(), ...body, store_name: null, created_by_name: "Admin User", assignee_names: [], status: "pending", created_at: new Date().toISOString() },
@@ -384,16 +384,16 @@ export async function handleMockRequest(
 
   // ─── Alerts ─────────────────────────────
 
-  if (url.endsWith("/admin/alerts/unread-count") && method === "get") {
+  if (url.endsWith("/console/alerts/unread-count") && method === "get") {
     const unreadCount: number = mockAlerts.filter((n) => !n.is_read).length;
     return mockResponse({ unread_count: unreadCount }, config);
   }
 
-  if (url.endsWith("/admin/alerts/read-all") && method === "patch") {
+  if (url.endsWith("/console/alerts/read-all") && method === "patch") {
     return mockResponse(null, config);
   }
 
-  if (url.endsWith("/admin/alerts") && method === "get") {
+  if (url.endsWith("/console/alerts") && method === "get") {
     const page: number = parseInt(params.page ?? "1", 10);
     const perPage: number = parseInt(params.per_page ?? "20", 10);
     return mockResponse(paginate(mockAlerts, page, perPage), config);

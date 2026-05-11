@@ -55,7 +55,7 @@ describe("useAlerts hooks", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(result.current.data?.items).toHaveLength(1);
-    expect(api.get).toHaveBeenCalledWith("/admin/alerts", {
+    expect(api.get).toHaveBeenCalledWith("/console/alerts", {
       params: { page: 1, per_page: 20 },
     });
   });
@@ -68,7 +68,7 @@ describe("useAlerts hooks", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(result.current.data).toBe(5);
-    expect(api.get).toHaveBeenCalledWith("/admin/alerts/unread-count");
+    expect(api.get).toHaveBeenCalledWith("/console/alerts/unread-count");
   });
 
   it("marks a alert as read", async () => {
@@ -79,7 +79,7 @@ describe("useAlerts hooks", () => {
     result.current.mutate("n1");
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(api.patch).toHaveBeenCalledWith("/admin/alerts/n1/read");
+    expect(api.patch).toHaveBeenCalledWith("/console/alerts/n1/read");
   });
 
   it("marks all alerts as read", async () => {
@@ -90,6 +90,6 @@ describe("useAlerts hooks", () => {
     result.current.mutate();
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(api.patch).toHaveBeenCalledWith("/admin/alerts/read-all");
+    expect(api.patch).toHaveBeenCalledWith("/console/alerts/read-all");
   });
 });

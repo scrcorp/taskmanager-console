@@ -73,7 +73,7 @@ export const useCategories = (): UseQueryResult<InventoryCategory[], Error> => {
     queryKey: ["inventory", "categories"],
     queryFn: async (): Promise<InventoryCategory[]> => {
       const response: AxiosResponse<InventoryCategory[]> = await api.get(
-        "/admin/inventory/categories",
+        "/console/inventory/categories",
       );
       return flattenCategories(response.data);
     },
@@ -94,7 +94,7 @@ export const useCreateCategory = (): UseMutationResult<
   return useMutation<InventoryCategory, Error, InventoryCategoryCreate>({
     mutationFn: async (data): Promise<InventoryCategory> => {
       const response: AxiosResponse<InventoryCategory> = await api.post(
-        "/admin/inventory/categories",
+        "/console/inventory/categories",
         data,
       );
       return response.data;
@@ -121,7 +121,7 @@ export const useUpdateCategory = (): UseMutationResult<
   return useMutation<InventoryCategory, Error, { id: string } & InventoryCategoryUpdate>({
     mutationFn: async ({ id, ...data }): Promise<InventoryCategory> => {
       const response: AxiosResponse<InventoryCategory> = await api.put(
-        `/admin/inventory/categories/${id}`,
+        `/console/inventory/categories/${id}`,
         data,
       );
       return response.data;
@@ -143,7 +143,7 @@ export const useDeleteCategory = (): UseMutationResult<void, Error, string> => {
   const { success, error } = useMutationResult();
   return useMutation<void, Error, string>({
     mutationFn: async (id: string): Promise<void> => {
-      await api.delete(`/admin/inventory/categories/${id}`);
+      await api.delete(`/console/inventory/categories/${id}`);
     },
     onSuccess: (): void => {
       queryClient.invalidateQueries({ queryKey: ["inventory", "categories"] });
@@ -164,7 +164,7 @@ export const useSubUnits = (): UseQueryResult<InventorySubUnit[], Error> => {
     queryKey: ["inventory", "sub-units"],
     queryFn: async (): Promise<InventorySubUnit[]> => {
       const response: AxiosResponse<InventorySubUnit[]> = await api.get(
-        "/admin/inventory/sub-units",
+        "/console/inventory/sub-units",
       );
       return response.data;
     },
@@ -185,7 +185,7 @@ export const useCreateSubUnit = (): UseMutationResult<
   return useMutation<InventorySubUnit, Error, InventorySubUnitCreate>({
     mutationFn: async (data): Promise<InventorySubUnit> => {
       const response: AxiosResponse<InventorySubUnit> = await api.post(
-        "/admin/inventory/sub-units",
+        "/console/inventory/sub-units",
         data,
       );
       return response.data;
@@ -212,7 +212,7 @@ export const useUpdateSubUnit = (): UseMutationResult<
   return useMutation<InventorySubUnit, Error, { id: string } & InventorySubUnitUpdate>({
     mutationFn: async ({ id, ...data }): Promise<InventorySubUnit> => {
       const response: AxiosResponse<InventorySubUnit> = await api.put(
-        `/admin/inventory/sub-units/${id}`,
+        `/console/inventory/sub-units/${id}`,
         data,
       );
       return response.data;
@@ -234,7 +234,7 @@ export const useDeleteSubUnit = (): UseMutationResult<void, Error, string> => {
   const { success, error } = useMutationResult();
   return useMutation<void, Error, string>({
     mutationFn: async (id: string): Promise<void> => {
-      await api.delete(`/admin/inventory/sub-units/${id}`);
+      await api.delete(`/console/inventory/sub-units/${id}`);
     },
     onSuccess: (): void => {
       queryClient.invalidateQueries({ queryKey: ["inventory", "sub-units"] });
@@ -253,7 +253,7 @@ export const useDeleteSubUnit = (): UseMutationResult<void, Error, string> => {
 export const useDownloadProductTemplate = (): (() => Promise<void>) => {
   return async (): Promise<void> => {
     const response: AxiosResponse<Blob> = await api.get(
-      "/admin/inventory/products/excel-template",
+      "/console/inventory/products/excel-template",
       { responseType: "blob" },
     );
     const url = URL.createObjectURL(response.data);
@@ -290,7 +290,7 @@ export const useImportProducts = (): UseMutationResult<
   return useMutation<ProductImportResult, Error, FormData>({
     mutationFn: async (formData: FormData): Promise<ProductImportResult> => {
       const response: AxiosResponse<ProductImportResult> = await api.post(
-        "/admin/inventory/products/import",
+        "/console/inventory/products/import",
         formData,
         { headers: { "Content-Type": "multipart/form-data" } },
       );
@@ -337,7 +337,7 @@ export const usePreviewImport = (): UseMutationResult<
   return useMutation<ImportPreviewResult, Error, FormData>({
     mutationFn: async (formData: FormData): Promise<ImportPreviewResult> => {
       const response: AxiosResponse<ImportPreviewResult> = await api.post(
-        "/admin/inventory/products/preview-import",
+        "/console/inventory/products/preview-import",
         formData,
         { headers: { "Content-Type": "multipart/form-data" } },
       );
@@ -359,7 +359,7 @@ export const useGenerateProductCode = (enabled = true): UseQueryResult<{ code: s
     queryKey: ["inventory", "products", "generate-code"],
     queryFn: async (): Promise<{ code: string }> => {
       const response: AxiosResponse<{ code: string }> = await api.get(
-        "/admin/inventory/products/generate-code",
+        "/console/inventory/products/generate-code",
       );
       return response.data;
     },
@@ -393,7 +393,7 @@ export const useProducts = (
       if (filters?.sort_dir) params.sort_dir = filters.sort_dir;
 
       const response: AxiosResponse<PaginatedResponse<InventoryProduct>> = await api.get(
-        "/admin/inventory/products",
+        "/console/inventory/products",
         { params },
       );
       return response.data;
@@ -413,7 +413,7 @@ export const useProduct = (
     queryKey: ["inventory", "products", id],
     queryFn: async (): Promise<InventoryProductDetail> => {
       const response: AxiosResponse<InventoryProductDetail> = await api.get(
-        `/admin/inventory/products/${id}`,
+        `/console/inventory/products/${id}`,
       );
       return response.data;
     },
@@ -435,7 +435,7 @@ export const useCreateProduct = (): UseMutationResult<
   return useMutation<InventoryProduct, Error, InventoryProductCreate>({
     mutationFn: async (data): Promise<InventoryProduct> => {
       const response: AxiosResponse<InventoryProduct> = await api.post(
-        "/admin/inventory/products",
+        "/console/inventory/products",
         data,
       );
       return response.data;
@@ -462,7 +462,7 @@ export const useUpdateProduct = (): UseMutationResult<
   return useMutation<InventoryProduct, Error, { id: string } & InventoryProductUpdate>({
     mutationFn: async ({ id, ...data }): Promise<InventoryProduct> => {
       const response: AxiosResponse<InventoryProduct> = await api.put(
-        `/admin/inventory/products/${id}`,
+        `/console/inventory/products/${id}`,
         data,
       );
       return response.data;
@@ -485,7 +485,7 @@ export const useDeactivateProduct = (): UseMutationResult<void, Error, string> =
   const { success, error } = useMutationResult();
   return useMutation<void, Error, string>({
     mutationFn: async (id: string): Promise<void> => {
-      await api.delete(`/admin/inventory/products/${id}`);
+      await api.delete(`/console/inventory/products/${id}`);
     },
     onSuccess: (): void => {
       queryClient.invalidateQueries({ queryKey: ["inventory", "products"] });
@@ -500,7 +500,7 @@ export const useActivateProduct = (): UseMutationResult<InventoryProduct, Error,
   const { success, error } = useMutationResult();
   return useMutation<InventoryProduct, Error, string>({
     mutationFn: async (id: string): Promise<InventoryProduct> => {
-      const response: AxiosResponse<InventoryProduct> = await api.post(`/admin/inventory/products/${id}/activate`);
+      const response: AxiosResponse<InventoryProduct> = await api.post(`/console/inventory/products/${id}/activate`);
       return response.data;
     },
     onSuccess: (): void => {
@@ -516,7 +516,7 @@ export const useDeleteProduct = (): UseMutationResult<void, Error, string> => {
   const { success, error } = useMutationResult();
   return useMutation<void, Error, string>({
     mutationFn: async (id: string): Promise<void> => {
-      await api.post(`/admin/inventory/products/${id}/delete`);
+      await api.post(`/console/inventory/products/${id}/delete`);
     },
     onSuccess: (): void => {
       queryClient.invalidateQueries({ queryKey: ["inventory", "products"] });
@@ -551,7 +551,7 @@ export const useStoreInventory = (
       if (filters?.sort_dir) params.sort_dir = filters.sort_dir;
 
       const response: AxiosResponse<PaginatedResponse<StoreInventoryItem>> = await api.get(
-        `/admin/stores/${storeId}/inventory`,
+        `/console/stores/${storeId}/inventory`,
         { params },
       );
       return response.data;
@@ -572,7 +572,7 @@ export const useStoreInventorySummary = (
     queryKey: ["inventory", "stores", storeId, "summary"],
     queryFn: async (): Promise<StoreInventorySummary> => {
       const response: AxiosResponse<StoreInventorySummary> = await api.get(
-        `/admin/stores/${storeId}/inventory/summary`,
+        `/console/stores/${storeId}/inventory/summary`,
       );
       return response.data;
     },
@@ -616,7 +616,7 @@ export const useAddableProducts = (
       };
       if (search) params.keyword = search;
       const response: AxiosResponse<AddableProductsPage> = await api.get(
-        `/admin/stores/${storeId}/inventory/addable-products`,
+        `/console/stores/${storeId}/inventory/addable-products`,
         { params },
       );
       return response.data;
@@ -643,7 +643,7 @@ export const useBulkAddStoreInventory = (
   return useMutation<StoreInventoryItem[], Error, BulkAddStoreInventoryRequest>({
     mutationFn: async (data): Promise<StoreInventoryItem[]> => {
       const response: AxiosResponse<StoreInventoryItem[]> = await api.post(
-        `/admin/stores/${storeId}/inventory`,
+        `/console/stores/${storeId}/inventory`,
         data,
       );
       return response.data;
@@ -669,7 +669,7 @@ export const useUpdateStoreInventoryItem = (
   return useMutation<StoreInventoryItem, Error, { id: string } & StoreInventoryItemUpdate>({
     mutationFn: async ({ id, ...data }): Promise<StoreInventoryItem> => {
       const response: AxiosResponse<StoreInventoryItem> = await api.put(
-        `/admin/stores/${storeId}/inventory/${id}`,
+        `/console/stores/${storeId}/inventory/${id}`,
         data,
       );
       return response.data;
@@ -689,7 +689,7 @@ export const useRemoveStoreInventoryItem = (
   const { success, error } = useMutationResult();
   return useMutation<void, Error, string>({
     mutationFn: async (itemId: string): Promise<void> => {
-      await api.delete(`/admin/stores/${storeId}/inventory/${itemId}`);
+      await api.delete(`/console/stores/${storeId}/inventory/${itemId}`);
     },
     onSuccess: (): void => {
       queryClient.invalidateQueries({ queryKey: ["inventory", "stores", storeId] });
@@ -721,7 +721,7 @@ export const useStoreTransactions = (
       if (filters?.per_page) params.per_page = String(filters.per_page);
 
       const response: AxiosResponse<PaginatedResponse<InventoryTransaction>> = await api.get(
-        `/admin/stores/${storeId}/inventory/transactions`,
+        `/console/stores/${storeId}/inventory/transactions`,
         { params },
       );
       return response.data;
@@ -743,7 +743,7 @@ export const useCreateTransaction = (
   return useMutation<InventoryTransaction, Error, InventoryTransactionCreate>({
     mutationFn: async (data): Promise<InventoryTransaction> => {
       const response: AxiosResponse<InventoryTransaction> = await api.post(
-        `/admin/stores/${storeId}/inventory/${inventoryItemId}/transactions`,
+        `/console/stores/${storeId}/inventory/${inventoryItemId}/transactions`,
         data,
       );
       return response.data;
@@ -768,7 +768,7 @@ export const useBulkStockIn = (
   return useMutation<InventoryTransaction[], Error, BulkStockInRequest>({
     mutationFn: async (data): Promise<InventoryTransaction[]> => {
       const response: AxiosResponse<InventoryTransaction[]> = await api.post(
-        `/admin/stores/${storeId}/inventory/bulk-stock-in`,
+        `/console/stores/${storeId}/inventory/bulk-stock-in`,
         data,
       );
       return response.data;
@@ -794,7 +794,7 @@ export const useBulkStockOut = (
   return useMutation<InventoryTransaction[], Error, BulkStockOutRequest>({
     mutationFn: async (data): Promise<InventoryTransaction[]> => {
       const response: AxiosResponse<InventoryTransaction[]> = await api.post(
-        `/admin/stores/${storeId}/inventory/bulk-stock-out`,
+        `/console/stores/${storeId}/inventory/bulk-stock-out`,
         data,
       );
       return response.data;
@@ -826,7 +826,7 @@ export const useStoreAudits = (
       if (filters?.per_page) params.per_page = String(filters.per_page);
 
       const response: AxiosResponse<PaginatedResponse<InventoryAudit>> = await api.get(
-        `/admin/stores/${storeId}/inventory/audits`,
+        `/console/stores/${storeId}/inventory/audits`,
         { params },
       );
       return response.data;
@@ -847,7 +847,7 @@ export const useAuditDetail = (
     queryKey: ["inventory", "stores", storeId, "audits", auditId],
     queryFn: async (): Promise<InventoryAuditDetail> => {
       const response: AxiosResponse<InventoryAuditDetail> = await api.get(
-        `/admin/stores/${storeId}/inventory/audits/${auditId}`,
+        `/console/stores/${storeId}/inventory/audits/${auditId}`,
       );
       return response.data;
     },
@@ -866,7 +866,7 @@ export const useAuditSettings = (
     queryKey: ["inventory", "stores", storeId, "audit-settings"],
     queryFn: async (): Promise<AuditSetting> => {
       const response: AxiosResponse<AuditSetting> = await api.get(
-        `/admin/stores/${storeId}/inventory/audit-settings`,
+        `/console/stores/${storeId}/inventory/audit-settings`,
       );
       return response.data;
     },
@@ -886,7 +886,7 @@ export const useUpdateAuditSettings = (
   return useMutation<AuditSetting, Error, AuditSettingUpdate>({
     mutationFn: async (data): Promise<AuditSetting> => {
       const response: AxiosResponse<AuditSetting> = await api.put(
-        `/admin/stores/${storeId}/inventory/audit-settings`,
+        `/console/stores/${storeId}/inventory/audit-settings`,
         data,
       );
       return response.data;

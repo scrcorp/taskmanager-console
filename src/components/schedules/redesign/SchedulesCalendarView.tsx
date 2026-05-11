@@ -568,7 +568,7 @@ export default function SchedulesCalendarView() {
     queries: resolveStoreIds.map((storeId) => ({
       queryKey: ["settings", "resolve", "schedule.range", { store_id: storeId }],
       queryFn: async () => {
-        const res = await api.get("/admin/settings/resolve", { params: { key: "schedule.range", store_id: storeId } });
+        const res = await api.get("/console/settings/resolve", { params: { key: "schedule.range", store_id: storeId } });
         return res.data as { key: string; value: unknown; source: string };
       },
       staleTime: 5 * 60 * 1000,

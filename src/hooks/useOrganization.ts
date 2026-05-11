@@ -11,13 +11,13 @@ import api from "@/lib/api";
 import { useMutationResult } from "@/lib/mutationResult";
 import type { Organization } from "@/types";
 
-/** 현재 조직 조회 훅 — GET /admin/organizations/me */
+/** 현재 조직 조회 훅 — GET /console/organizations/me */
 export const useOrganization = (): UseQueryResult<Organization, Error> => {
   return useQuery<Organization, Error>({
     queryKey: ["organization"],
     queryFn: async (): Promise<Organization> => {
       const response: AxiosResponse<Organization> = await api.get(
-        "/admin/organizations/me",
+        "/console/organizations/me",
       );
       return response.data;
     },
@@ -30,7 +30,7 @@ interface UpdateOrganizationData {
   default_hourly_rate?: number | null;
 }
 
-/** 현재 조직 수정 훅 — PUT /admin/organizations/me */
+/** 현재 조직 수정 훅 — PUT /console/organizations/me */
 export const useUpdateOrganization = (): UseMutationResult<
   Organization,
   Error,
@@ -41,7 +41,7 @@ export const useUpdateOrganization = (): UseMutationResult<
   return useMutation<Organization, Error, UpdateOrganizationData>({
     mutationFn: async (data: UpdateOrganizationData): Promise<Organization> => {
       const response: AxiosResponse<Organization> = await api.put(
-        "/admin/organizations/me",
+        "/console/organizations/me",
         data,
       );
       return response.data;

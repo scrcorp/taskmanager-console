@@ -29,7 +29,7 @@ export const useNotices = (
     queryKey: ["notices", page, perPage],
     queryFn: async (): Promise<PaginatedResponse<Notice>> => {
       const response: AxiosResponse<PaginatedResponse<Notice>> =
-        await api.get("/admin/notices", {
+        await api.get("/console/notices", {
           params: { page, per_page: perPage },
         });
       return response.data;
@@ -52,7 +52,7 @@ export const useNotice = (
     queryKey: ["notices", id],
     queryFn: async (): Promise<Notice> => {
       const response: AxiosResponse<Notice> = await api.get(
-        `/admin/notices/${id}`,
+        `/console/notices/${id}`,
       );
       return response.data;
     },
@@ -86,7 +86,7 @@ export const useCreateNotice = (): UseMutationResult<
       data: CreateNoticeData,
     ): Promise<Notice> => {
       const response: AxiosResponse<Notice> = await api.post(
-        "/admin/notices",
+        "/console/notices",
         data,
       );
       return response.data;
@@ -135,7 +135,7 @@ export const useUpdateNotice = (): UseMutationResult<
       ...data
     }: UpdateNoticeData): Promise<Notice> => {
       const response: AxiosResponse<Notice> = await api.put(
-        `/admin/notices/${id}`,
+        `/console/notices/${id}`,
         data,
       );
       return response.data;
@@ -173,7 +173,7 @@ export const useDeleteNotice = (): UseMutationResult<
   const { showSuccess, showError } = useResultModal();
   return useMutation<void, Error, string>({
     mutationFn: async (id: string): Promise<void> => {
-      await api.delete(`/admin/notices/${id}`);
+      await api.delete(`/console/notices/${id}`);
     },
     onSuccess: (_: void, id: string): void => {
       queryClient.setQueriesData<PaginatedResponse<Notice>>(
@@ -211,7 +211,7 @@ export function useNoticeReads(noticeId: string): UseQueryResult<NoticeRead[], E
     queryKey: ["noticeReads", noticeId],
     queryFn: async (): Promise<NoticeRead[]> => {
       const response: AxiosResponse<NoticeRead[]> = await api.get(
-        `/admin/notices/${noticeId}/reads`,
+        `/console/notices/${noticeId}/reads`,
       );
       return response.data;
     },

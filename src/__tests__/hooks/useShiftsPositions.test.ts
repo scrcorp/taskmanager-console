@@ -47,7 +47,7 @@ describe("useShifts hooks", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(result.current.data).toHaveLength(1);
-    expect(api.get).toHaveBeenCalledWith("/admin/stores/b1/shifts");
+    expect(api.get).toHaveBeenCalledWith("/console/stores/b1/shifts");
   });
 
   it("does not fetch shifts when storeId is undefined", () => {
@@ -64,7 +64,7 @@ describe("useShifts hooks", () => {
     result.current.mutate({ storeId: "b1", name: "Evening", sort_order: 2 });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(api.post).toHaveBeenCalledWith("/admin/stores/b1/shifts", { name: "Evening", sort_order: 2 });
+    expect(api.post).toHaveBeenCalledWith("/console/stores/b1/shifts", { name: "Evening", sort_order: 2 });
   });
 
   it("updates a shift", async () => {
@@ -76,7 +76,7 @@ describe("useShifts hooks", () => {
     result.current.mutate({ storeId: "b1", id: "s1", name: "Morning Updated" });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(api.put).toHaveBeenCalledWith("/admin/stores/b1/shifts/s1", { name: "Morning Updated" });
+    expect(api.put).toHaveBeenCalledWith("/console/stores/b1/shifts/s1", { name: "Morning Updated" });
   });
 
   it("deletes a shift", async () => {
@@ -87,7 +87,7 @@ describe("useShifts hooks", () => {
     result.current.mutate({ storeId: "b1", id: "s1" });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(api.delete).toHaveBeenCalledWith("/admin/stores/b1/shifts/s1");
+    expect(api.delete).toHaveBeenCalledWith("/console/stores/b1/shifts/s1");
   });
 });
 
@@ -105,7 +105,7 @@ describe("usePositions hooks", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(result.current.data).toHaveLength(1);
-    expect(api.get).toHaveBeenCalledWith("/admin/stores/b1/positions");
+    expect(api.get).toHaveBeenCalledWith("/console/stores/b1/positions");
   });
 
   it("creates a position", async () => {
@@ -117,7 +117,7 @@ describe("usePositions hooks", () => {
     result.current.mutate({ storeId: "b1", name: "Server" });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(api.post).toHaveBeenCalledWith("/admin/stores/b1/positions", { name: "Server" });
+    expect(api.post).toHaveBeenCalledWith("/console/stores/b1/positions", { name: "Server" });
   });
 
   it("updates a position", async () => {
@@ -129,7 +129,7 @@ describe("usePositions hooks", () => {
     result.current.mutate({ storeId: "b1", id: "p1", name: "Head Cashier" });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(api.put).toHaveBeenCalledWith("/admin/stores/b1/positions/p1", { name: "Head Cashier" });
+    expect(api.put).toHaveBeenCalledWith("/console/stores/b1/positions/p1", { name: "Head Cashier" });
   });
 
   it("deletes a position", async () => {
@@ -140,6 +140,6 @@ describe("usePositions hooks", () => {
     result.current.mutate({ storeId: "b1", id: "p1" });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(api.delete).toHaveBeenCalledWith("/admin/stores/b1/positions/p1");
+    expect(api.delete).toHaveBeenCalledWith("/console/stores/b1/positions/p1");
   });
 });

@@ -14,7 +14,7 @@ import type { LaborLawSetting } from "@/types";
 export function useLaborLaw(storeId: string) {
   return useQuery<LaborLawSetting | null>({
     queryKey: ["laborLaw", storeId],
-    queryFn: () => api.get(`/admin/stores/${storeId}/labor-law`).then((r) => r.data),
+    queryFn: () => api.get(`/console/stores/${storeId}/labor-law`).then((r) => r.data),
     enabled: !!storeId,
   });
 }
@@ -29,7 +29,7 @@ export function useUpsertLaborLaw() {
     { storeId: string; federal_max_weekly: number; state_max_weekly?: number | null; store_max_weekly?: number | null; overtime_threshold_daily?: number | null }
   >({
     mutationFn: (data) =>
-      api.put(`/admin/stores/${data.storeId}/labor-law`, {
+      api.put(`/console/stores/${data.storeId}/labor-law`, {
         federal_max_weekly: data.federal_max_weekly,
         state_max_weekly: data.state_max_weekly ?? null,
         store_max_weekly: data.store_max_weekly ?? null,

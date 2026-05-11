@@ -44,7 +44,7 @@ export const useAllChecklistTemplates = (
       if (filters?.position_id) params.position_id = filters.position_id;
 
       const response: AxiosResponse<ChecklistTemplate[]> = await api.get(
-        "/admin/checklist-templates",
+        "/console/checklist-templates",
         { params },
       );
       return response.data;
@@ -73,7 +73,7 @@ export const useChecklistTemplates = (
       if (filters?.position_id) params.position_id = filters.position_id;
 
       const response: AxiosResponse<ChecklistTemplate[]> = await api.get(
-        `/admin/stores/${storeId}/checklist-templates`,
+        `/console/stores/${storeId}/checklist-templates`,
         { params },
       );
       return response.data;
@@ -97,7 +97,7 @@ export const useChecklistTemplate = (
     queryKey: ["checklist-templates", "detail", templateId],
     queryFn: async (): Promise<ChecklistTemplate> => {
       const response: AxiosResponse<ChecklistTemplate> = await api.get(
-        `/admin/checklist-templates/${templateId}`,
+        `/console/checklist-templates/${templateId}`,
       );
       return response.data;
     },
@@ -133,7 +133,7 @@ export const useCreateChecklistTemplate = (): UseMutationResult<
       ...data
     }: CreateChecklistTemplateData): Promise<ChecklistTemplate> => {
       const response: AxiosResponse<ChecklistTemplate> = await api.post(
-        `/admin/stores/${storeId}/checklist-templates`,
+        `/console/stores/${storeId}/checklist-templates`,
         data,
       );
       return response.data;
@@ -182,7 +182,7 @@ export const useUpdateChecklistTemplate = (): UseMutationResult<
       ...data
     }: UpdateChecklistTemplateData): Promise<ChecklistTemplate> => {
       const response: AxiosResponse<ChecklistTemplate> = await api.put(
-        `/admin/checklist-templates/${id}`,
+        `/console/checklist-templates/${id}`,
         data,
       );
       return response.data;
@@ -219,7 +219,7 @@ export const useDeleteChecklistTemplate = (): UseMutationResult<
   const { success, error } = useMutationResult();
   return useMutation<void, Error, string>({
     mutationFn: async (id: string): Promise<void> => {
-      await api.delete(`/admin/checklist-templates/${id}`);
+      await api.delete(`/console/checklist-templates/${id}`);
     },
     onSuccess: (): void => {
       queryClient.invalidateQueries({
@@ -249,7 +249,7 @@ export const useChecklistItems = (
     queryKey: ["checklist-items", templateId],
     queryFn: async (): Promise<ChecklistItem[]> => {
       const response: AxiosResponse<ChecklistItem[]> = await api.get(
-        `/admin/checklist-templates/${templateId}/items`,
+        `/console/checklist-templates/${templateId}/items`,
       );
       return response.data;
     },
@@ -289,7 +289,7 @@ export const useCreateChecklistItem = (): UseMutationResult<
       ...data
     }: CreateChecklistItemData): Promise<ChecklistItem> => {
       const response: AxiosResponse<ChecklistItem> = await api.post(
-        `/admin/checklist-templates/${templateId}/items`,
+        `/console/checklist-templates/${templateId}/items`,
         data,
       );
       return response.data;
@@ -352,7 +352,7 @@ export const useBulkCreateChecklistItems = (): UseMutationResult<
       items,
     }: BulkCreateChecklistItemData): Promise<ChecklistItem[]> => {
       const response: AxiosResponse<ChecklistItem[]> = await api.post(
-        `/admin/checklist-templates/${templateId}/items/bulk`,
+        `/console/checklist-templates/${templateId}/items/bulk`,
         { items },
       );
       return response.data;
@@ -417,7 +417,7 @@ export const useUpdateChecklistItem = (): UseMutationResult<
       ...data
     }: UpdateChecklistItemData): Promise<ChecklistItem> => {
       const response: AxiosResponse<ChecklistItem> = await api.put(
-        `/admin/checklist-template-items/${id}`,
+        `/console/checklist-template-items/${id}`,
         data,
       );
       return response.data;
@@ -458,7 +458,7 @@ export const useDeleteChecklistItem = (): UseMutationResult<
   const { success, error } = useMutationResult();
   return useMutation<void, Error, DeleteChecklistItemData>({
     mutationFn: async ({ id }: DeleteChecklistItemData): Promise<void> => {
-      await api.delete(`/admin/checklist-template-items/${id}`);
+      await api.delete(`/console/checklist-template-items/${id}`);
     },
     onSuccess: (_: void, variables: DeleteChecklistItemData): void => {
       queryClient.setQueryData<ChecklistItem[]>(
@@ -513,7 +513,7 @@ export const useImportChecklistTemplates = (): UseMutationResult<
       formData.append("file", file);
 
       const response: AxiosResponse<ExcelImportResponse> = await api.post(
-        `/admin/checklist-templates/import?duplicate_action=${duplicate_action}`,
+        `/console/checklist-templates/import?duplicate_action=${duplicate_action}`,
         formData,
         { headers: { "Content-Type": "multipart/form-data" } },
       );
@@ -539,7 +539,7 @@ export const useImportChecklistTemplates = (): UseMutationResult<
  */
 export const downloadSampleExcel = async (): Promise<void> => {
   const response: AxiosResponse<Blob> = await api.get(
-    "/admin/checklist-templates/import/sample",
+    "/console/checklist-templates/import/sample",
     { responseType: "blob" },
   );
   const url = window.URL.createObjectURL(response.data);

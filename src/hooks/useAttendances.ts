@@ -46,7 +46,7 @@ export const useAttendances = (
     queryKey: ["attendances", params],
     queryFn: async (): Promise<PaginatedResponse<Attendance>> => {
       const response: AxiosResponse<PaginatedResponse<Attendance>> =
-        await api.get("/admin/attendances", { params });
+        await api.get("/console/attendances", { params });
       return response.data;
     },
   });
@@ -67,7 +67,7 @@ export const useAttendance = (
     queryKey: ["attendances", id],
     queryFn: async (): Promise<Attendance> => {
       const response: AxiosResponse<Attendance> = await api.get(
-        `/admin/attendances/${id}`,
+        `/console/attendances/${id}`,
       );
       return response.data;
     },
@@ -102,7 +102,7 @@ export const useCorrectAttendance = (): UseMutationResult<
       data: AttendanceCorrectionRequest;
     }): Promise<AttendanceCorrection> => {
       const response: AxiosResponse<AttendanceCorrection> = await api.patch(
-        `/admin/attendances/${id}/correct`,
+        `/console/attendances/${id}/correct`,
         data,
       );
       return response.data;
@@ -136,7 +136,7 @@ export const useAddBreakSession = (): UseMutationResult<
   >({
     mutationFn: async ({ attendanceId, data }) => {
       const res: AxiosResponse<AttendanceBreakItem> = await api.post(
-        `/admin/attendances/${attendanceId}/breaks`,
+        `/console/attendances/${attendanceId}/breaks`,
         data,
       );
       return res.data;
@@ -170,7 +170,7 @@ export const useUpdateBreakSession = (): UseMutationResult<
   >({
     mutationFn: async ({ attendanceId, breakId, data }) => {
       const res: AxiosResponse<AttendanceBreakItem> = await api.patch(
-        `/admin/attendances/${attendanceId}/breaks/${breakId}`,
+        `/console/attendances/${attendanceId}/breaks/${breakId}`,
         data,
       );
       return res.data;
@@ -199,7 +199,7 @@ export const useDeleteBreakSession = (): UseMutationResult<
   const { success, error } = useMutationResult();
   return useMutation<void, Error, { attendanceId: string; breakId: string }>({
     mutationFn: async ({ attendanceId, breakId }) => {
-      await api.delete(`/admin/attendances/${attendanceId}/breaks/${breakId}`);
+      await api.delete(`/console/attendances/${attendanceId}/breaks/${breakId}`);
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["attendances"] });
@@ -227,7 +227,7 @@ export const useStoreQRCode = (
     queryKey: ["qr-codes", storeId],
     queryFn: async (): Promise<QRCode> => {
       const response: AxiosResponse<QRCode> = await api.get(
-        `/admin/stores/${storeId}/qr-codes`,
+        `/console/stores/${storeId}/qr-codes`,
       );
       return response.data;
     },
@@ -252,7 +252,7 @@ export const useCreateQRCode = (): UseMutationResult<
   return useMutation<QRCode, Error, string>({
     mutationFn: async (storeId: string): Promise<QRCode> => {
       const response: AxiosResponse<QRCode> = await api.post(
-        `/admin/stores/${storeId}/qr-codes`,
+        `/console/stores/${storeId}/qr-codes`,
       );
       return response.data;
     },
@@ -283,7 +283,7 @@ export const useRegenerateQRCode = (): UseMutationResult<
   return useMutation<QRCode, Error, string>({
     mutationFn: async (qrId: string): Promise<QRCode> => {
       const response: AxiosResponse<QRCode> = await api.post(
-        `/admin/qr-codes/${qrId}/regenerate`,
+        `/console/qr-codes/${qrId}/regenerate`,
       );
       return response.data;
     },

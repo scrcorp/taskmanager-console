@@ -43,7 +43,7 @@ export const useTasks = (
     queryKey: ["tasks", params],
     queryFn: async (): Promise<PaginatedResponse<AdditionalTask>> => {
       const response: AxiosResponse<PaginatedResponse<AdditionalTask>> =
-        await api.get("/admin/additional-tasks", { params });
+        await api.get("/console/additional-tasks", { params });
       return response.data;
     },
   });
@@ -64,7 +64,7 @@ export const useTask = (
     queryKey: ["tasks", id],
     queryFn: async (): Promise<AdditionalTask> => {
       const response: AxiosResponse<AdditionalTask> = await api.get(
-        `/admin/additional-tasks/${id}`,
+        `/console/additional-tasks/${id}`,
       );
       return response.data;
     },
@@ -99,7 +99,7 @@ export const useCreateTask = (): UseMutationResult<
   return useMutation<AdditionalTask, Error, CreateTaskData>({
     mutationFn: async (data: CreateTaskData): Promise<AdditionalTask> => {
       const response: AxiosResponse<AdditionalTask> = await api.post(
-        "/admin/additional-tasks",
+        "/console/additional-tasks",
         data,
       );
       return response.data;
@@ -154,7 +154,7 @@ export const useUpdateTask = (): UseMutationResult<
       ...data
     }: UpdateTaskData): Promise<AdditionalTask> => {
       const response: AxiosResponse<AdditionalTask> = await api.put(
-        `/admin/additional-tasks/${id}`,
+        `/console/additional-tasks/${id}`,
         data,
       );
       return response.data;
@@ -188,7 +188,7 @@ export const useDeleteTask = (): UseMutationResult<void, Error, string> => {
   const { showSuccess, showError } = useResultModal();
   return useMutation<void, Error, string>({
     mutationFn: async (id: string): Promise<void> => {
-      await api.delete(`/admin/additional-tasks/${id}`);
+      await api.delete(`/console/additional-tasks/${id}`);
     },
     onSuccess: (_: void, id: string): void => {
       queryClient.setQueriesData<PaginatedResponse<AdditionalTask>>(
@@ -221,7 +221,7 @@ export const useTaskEvidences = (
     queryKey: ["tasks", taskId, "evidences"],
     queryFn: async (): Promise<TaskEvidence[]> => {
       const response: AxiosResponse<TaskEvidence[]> = await api.get(
-        `/admin/additional-tasks/${taskId}/evidences`,
+        `/console/additional-tasks/${taskId}/evidences`,
       );
       return response.data;
     },

@@ -510,10 +510,28 @@ export default function AttendanceDetailPage(): React.ReactElement {
 // 편집 모드: row 별 type/시작/종료 입력 + 삭제 버튼, 하단에 "Add break session"
 // 읽기 모드: 기존 타임라인 그대로.
 
-const breakTypeOptions: Array<{ value: "paid_short" | "unpaid_long"; label: string }> = [
-  { value: "paid_short", label: "Short Break (Paid)" },
-  { value: "unpaid_long", label: "Long Break (Unpaid)" },
+type BreakType = "paid_10min" | "unpaid_meal";
+
+const breakTypeOptions: Array<{ value: BreakType; label: string }> = [
+  { value: "paid_10min", label: "10min Break (Paid)" },
+  { value: "unpaid_meal", label: "Meal Break (Unpaid)" },
 ];
+
+// 레거시 paid_short/unpaid_long 도 dual-read 인식. write 는 항상 신규 값.
+function isPaidBreak(t: string): boolean {
+  return t === "paid_10min" || t === "paid_short";
+}
+function isUnpaidBreak(t: string): boolean {
+  return t === "unpaid_meal" || t === "unpaid_long";
+}
+function breakTypeLabel(t: string): string {
+  if (isPaidBreak(t)) return "10min Break (Paid)";
+  if (isUnpaidBreak(t)) return "Meal Break (Unpaid)";
+  return t;
+}
+function toCanonicalBreakType(t: string): BreakType {
+  return isPaidBreak(t) ? "paid_10min" : "unpaid_meal";
+}
 
 interface BreakSessionsEditorProps {
   attendanceId: string;
@@ -539,13 +557,13 @@ function BreakSessionsEditor({
   const [showAddForm, setShowAddForm] = useState<boolean>(false);
   const [draftStart, setDraftStart] = useState<string>("");
   const [draftEnd, setDraftEnd] = useState<string>("");
-  const [draftType, setDraftType] = useState<"paid_short" | "unpaid_long">("paid_short");
+  const [draftType, setDraftType] = useState<BreakType>("paid_10min");
 
   const resetAddForm = (): void => {
     setShowAddForm(false);
     setDraftStart("");
     setDraftEnd("");
-    setDraftType("paid_short");
+    setDraftType("paid_10min");
   };
 
   const handleAdd = async (): Promise<void> => {
@@ -587,7 +605,7 @@ function BreakSessionsEditor({
 
   const handleSessionUpdate = async (
     breakId: string,
-    patch: { started_at?: string; ended_at?: string | null; break_type?: "paid_short" | "unpaid_long" },
+    patch: { started_at?: string; ended_at?: string | null; break_type?: BreakType },
   ): Promise<void> => {
     try {
       await updateBreak.mutateAsync({
@@ -622,12 +640,8 @@ function BreakSessionsEditor({
       {!editable ? (
         <ul className="space-y-1.5">
           {sessions.map((br) => {
-            const paid = br.break_type === "paid_short";
-            const typeLabel = paid
-              ? "Short Break (Paid)"
-              : br.break_type === "unpaid_long"
-              ? "Long Break (Unpaid)"
-              : br.break_type;
+            const paid = isPaidBreak(br.break_type);
+            const typeLabel = breakTypeLabel(br.break_type);
             const accent = paid
               ? "text-[var(--color-success)]"
               : "text-[var(--color-warning)]";
@@ -667,7 +681,7 @@ function BreakSessionsEditor({
                   label="Type"
                   value={draftType}
                   onChange={(e) =>
-                    setDraftType(e.target.value as "paid_short" | "unpaid_long")
+                    setDraftType(e.target.value as BreakType)
                   }
                   options={breakTypeOptions}
                 />
@@ -729,7 +743,7 @@ interface BreakSessionRowProps {
   onSave: (patch: {
     started_at?: string;
     ended_at?: string | null;
-    break_type?: "paid_short" | "unpaid_long";
+    break_type?: BreakType;
   }) => Promise<void>;
   onDelete: () => Promise<void>;
   busy: boolean;
@@ -743,21 +757,19 @@ function BreakSessionRow({
 }: BreakSessionRowProps): React.ReactElement {
   const [start, setStart] = useState<string>(isoToLocalInput(session.started_at));
   const [end, setEnd] = useState<string>(isoToLocalInput(session.ended_at));
-  const [type, setType] = useState<"paid_short" | "unpaid_long">(
-    (session.break_type === "unpaid_long" ? "unpaid_long" : "paid_short"),
-  );
+  const [type, setType] = useState<BreakType>(toCanonicalBreakType(session.break_type));
 
   // 외부에서 session prop 이 바뀌면 (mutation 후 invalidate) 로컬 state 갱신
   useEffect(() => {
     setStart(isoToLocalInput(session.started_at));
     setEnd(isoToLocalInput(session.ended_at));
-    setType(session.break_type === "unpaid_long" ? "unpaid_long" : "paid_short");
+    setType(toCanonicalBreakType(session.break_type));
   }, [session.started_at, session.ended_at, session.break_type]);
 
   const dirty =
     start !== isoToLocalInput(session.started_at) ||
     end !== isoToLocalInput(session.ended_at) ||
-    type !== session.break_type;
+    type !== toCanonicalBreakType(session.break_type);
 
   const handleSave = async (): Promise<void> => {
     const startIso = start ? localInputToIso(start) : null;
@@ -776,7 +788,7 @@ function BreakSessionRow({
         <Select
           label="Type"
           value={type}
-          onChange={(e) => setType(e.target.value as "paid_short" | "unpaid_long")}
+          onChange={(e) => setType(e.target.value as BreakType)}
           options={breakTypeOptions}
         />
       </div>
