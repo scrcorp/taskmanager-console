@@ -61,7 +61,7 @@ describe("useTasks hooks", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(result.current.data?.items).toHaveLength(1);
-    expect(api.get).toHaveBeenCalledWith("/admin/additional-tasks", { params: {} });
+    expect(api.get).toHaveBeenCalledWith("/console/additional-tasks", { params: {} });
   });
 
   it("fetches tasks with filters", async () => {
@@ -77,7 +77,7 @@ describe("useTasks hooks", () => {
     );
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(api.get).toHaveBeenCalledWith("/admin/additional-tasks", {
+    expect(api.get).toHaveBeenCalledWith("/console/additional-tasks", {
       params: { priority: "urgent", status: "pending" },
     });
   });
@@ -90,7 +90,7 @@ describe("useTasks hooks", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(result.current.data?.title).toBe("Urgent Task");
-    expect(api.get).toHaveBeenCalledWith("/admin/additional-tasks/t1");
+    expect(api.get).toHaveBeenCalledWith("/console/additional-tasks/t1");
   });
 
   it("creates a task", async () => {
@@ -101,7 +101,7 @@ describe("useTasks hooks", () => {
     result.current.mutate({ title: "Urgent Task", priority: "urgent" });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(api.post).toHaveBeenCalledWith("/admin/additional-tasks", {
+    expect(api.post).toHaveBeenCalledWith("/console/additional-tasks", {
       title: "Urgent Task", priority: "urgent",
     });
   });
@@ -115,7 +115,7 @@ describe("useTasks hooks", () => {
     result.current.mutate({ id: "t1", status: "completed" });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(api.put).toHaveBeenCalledWith("/admin/additional-tasks/t1", { status: "completed" });
+    expect(api.put).toHaveBeenCalledWith("/console/additional-tasks/t1", { status: "completed" });
   });
 
   it("deletes a task", async () => {
@@ -126,6 +126,6 @@ describe("useTasks hooks", () => {
     result.current.mutate("t1");
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(api.delete).toHaveBeenCalledWith("/admin/additional-tasks/t1");
+    expect(api.delete).toHaveBeenCalledWith("/console/additional-tasks/t1");
   });
 });

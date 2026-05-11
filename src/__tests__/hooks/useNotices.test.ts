@@ -59,7 +59,7 @@ describe("useNotices hooks", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(result.current.data?.items).toHaveLength(1);
-    expect(api.get).toHaveBeenCalledWith("/admin/notices", {
+    expect(api.get).toHaveBeenCalledWith("/console/notices", {
       params: { page: 1, per_page: 20 },
     });
   });
@@ -72,7 +72,7 @@ describe("useNotices hooks", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(result.current.data?.title).toBe("Notice");
-    expect(api.get).toHaveBeenCalledWith("/admin/notices/ann1");
+    expect(api.get).toHaveBeenCalledWith("/console/notices/ann1");
   });
 
   it("creates an notice", async () => {
@@ -83,7 +83,7 @@ describe("useNotices hooks", () => {
     result.current.mutate({ title: "Notice", content: "Test content" });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(api.post).toHaveBeenCalledWith("/admin/notices", {
+    expect(api.post).toHaveBeenCalledWith("/console/notices", {
       title: "Notice", content: "Test content",
     });
   });
@@ -97,7 +97,7 @@ describe("useNotices hooks", () => {
     result.current.mutate({ id: "ann1", title: "Updated Notice" });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(api.put).toHaveBeenCalledWith("/admin/notices/ann1", { title: "Updated Notice" });
+    expect(api.put).toHaveBeenCalledWith("/console/notices/ann1", { title: "Updated Notice" });
   });
 
   it("deletes an notice", async () => {
@@ -108,6 +108,6 @@ describe("useNotices hooks", () => {
     result.current.mutate("ann1");
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(api.delete).toHaveBeenCalledWith("/admin/notices/ann1");
+    expect(api.delete).toHaveBeenCalledWith("/console/notices/ann1");
   });
 });

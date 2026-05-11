@@ -28,7 +28,7 @@ export const useAlerts = (
     queryKey: ["alerts", page, perPage],
     queryFn: async (): Promise<PaginatedResponse<Alert>> => {
       const response: AxiosResponse<PaginatedResponse<Alert>> =
-        await api.get("/admin/alerts", {
+        await api.get("/console/alerts", {
           params: { page, per_page: perPage },
         });
       return response.data;
@@ -54,7 +54,7 @@ export const useUnreadCount = (): UseQueryResult<number, Error> => {
     queryKey: ["alerts", "unread-count"],
     queryFn: async (): Promise<number> => {
       const response: AxiosResponse<UnreadCountResponse> = await api.get(
-        "/admin/alerts/unread-count",
+        "/console/alerts/unread-count",
       );
       return response.data.unread_count;
     },
@@ -74,7 +74,7 @@ export const useMarkRead = (): UseMutationResult<void, Error, string> => {
   const { success, error } = useMutationResult();
   return useMutation<void, Error, string>({
     mutationFn: async (id: string): Promise<void> => {
-      await api.patch(`/admin/alerts/${id}/read`);
+      await api.patch(`/console/alerts/${id}/read`);
     },
     onSuccess: (_: void, id: string): void => {
       queryClient.setQueriesData<PaginatedResponse<Alert>>(
@@ -111,7 +111,7 @@ export const useMarkAllRead = (): UseMutationResult<void, Error, void> => {
   const { success, error } = useMutationResult();
   return useMutation<void, Error, void>({
     mutationFn: async (): Promise<void> => {
-      await api.patch("/admin/alerts/read-all");
+      await api.patch("/console/alerts/read-all");
     },
     onSuccess: (): void => {
       queryClient.setQueriesData<PaginatedResponse<Alert>>(

@@ -233,7 +233,7 @@ export function useAdminResetPassword(): UseMutationResult<
   return useMutation<AdminResetPasswordResponse, Error, string>({
     mutationFn: async (userId: string) => {
       const res = await api.post<AdminResetPasswordResponse>(
-        `/admin/users/${userId}/reset-password`,
+        `/console/users/${userId}/reset-password`,
       );
       return res.data;
     },

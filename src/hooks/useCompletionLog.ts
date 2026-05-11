@@ -54,6 +54,6 @@ export function useCompletionLog(filters: CompletionLogFilters = {}) {
 
   return useQuery<CompletionLogResponse>({
     queryKey: ["completion-log", params],
-    queryFn: () => api.get("/admin/checklist-instances/completion-log", { params }).then((r) => r.data),
+    queryFn: () => api.get("/console/checklist-instances/completion-log", { params }).then((r) => r.data),
   });
 }

@@ -22,7 +22,7 @@ export const useStores = (): UseQueryResult<Store[], Error> => {
   return useQuery<Store[], Error>({
     queryKey: ["stores"],
     queryFn: async (): Promise<Store[]> => {
-      const response: AxiosResponse<Store[]> = await api.get("/admin/stores");
+      const response: AxiosResponse<Store[]> = await api.get("/console/stores");
       return response.data;
     },
   });
@@ -43,7 +43,7 @@ export const useStore = (
     queryKey: ["stores", id],
     queryFn: async (): Promise<StoreDetail> => {
       const response: AxiosResponse<StoreDetail> = await api.get(
-        `/admin/stores/${id}`,
+        `/console/stores/${id}`,
       );
       return response.data;
     },
@@ -75,7 +75,7 @@ export const useCreateStore = (): UseMutationResult<
   return useMutation<Store, Error, CreateStoreData>({
     mutationFn: async (data: CreateStoreData): Promise<Store> => {
       const response: AxiosResponse<Store> = await api.post(
-        "/admin/stores",
+        "/console/stores",
         data,
       );
       return response.data;
@@ -119,7 +119,7 @@ export const useUpdateStore = (): UseMutationResult<
   return useMutation<Store, Error, UpdateStoreData>({
     mutationFn: async ({ id, ...data }: UpdateStoreData): Promise<Store> => {
       const response: AxiosResponse<Store> = await api.put(
-        `/admin/stores/${id}`,
+        `/console/stores/${id}`,
         data,
       );
       return response.data;
@@ -151,7 +151,7 @@ export const useDeleteStore = (): UseMutationResult<void, Error, string> => {
   const { success, error } = useMutationToast();
   return useMutation<void, Error, string>({
     mutationFn: async (id: string): Promise<void> => {
-      await api.delete(`/admin/stores/${id}`);
+      await api.delete(`/console/stores/${id}`);
     },
     onSuccess: (_: void, id: string): void => {
       queryClient.setQueryData<Store[]>(["stores"], (old) =>

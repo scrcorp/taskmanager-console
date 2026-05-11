@@ -33,7 +33,7 @@ export const useAttendanceDevices = (
     queryKey: ["attendance-devices", { includeRevoked }],
     queryFn: async (): Promise<AttendanceDevice[]> => {
       const response: AxiosResponse<AttendanceDevice[]> = await api.get(
-        "/admin/attendance-devices",
+        "/console/attendance-devices",
         { params: { include_revoked: includeRevoked } },
       );
       return response.data;
@@ -63,7 +63,7 @@ export const useUpdateAttendanceDevice = (): UseMutationResult<
       device_name,
     }: UpdateDeviceData): Promise<AttendanceDevice> => {
       const response: AxiosResponse<AttendanceDevice> = await api.patch(
-        `/admin/attendance-devices/${id}`,
+        `/console/attendance-devices/${id}`,
         { device_name },
       );
       return response.data;
@@ -88,7 +88,7 @@ export const useRevokeAttendanceDevice = (): UseMutationResult<
   const { success, error } = useMutationResult();
   return useMutation<void, Error, string>({
     mutationFn: async (id: string): Promise<void> => {
-      await api.delete(`/admin/attendance-devices/${id}`);
+      await api.delete(`/console/attendance-devices/${id}`);
     },
     onSuccess: (): void => {
       queryClient.invalidateQueries({ queryKey: ["attendance-devices"] });
@@ -112,7 +112,7 @@ export const useAccessCode = (
     queryKey: ["access-codes", serviceKey],
     queryFn: async (): Promise<AccessCode> => {
       const response: AxiosResponse<AccessCode> = await api.get(
-        `/admin/access-codes/${serviceKey}`,
+        `/console/access-codes/${serviceKey}`,
       );
       return response.data;
     },
@@ -133,7 +133,7 @@ export const useRotateAccessCode = (): UseMutationResult<
   return useMutation<AccessCode, Error, string>({
     mutationFn: async (serviceKey: string): Promise<AccessCode> => {
       const response: AxiosResponse<AccessCode> = await api.post(
-        `/admin/access-codes/${serviceKey}/rotate`,
+        `/console/access-codes/${serviceKey}/rotate`,
       );
       return response.data;
     },

@@ -35,7 +35,7 @@ export const useEvalTemplates = (
     queryKey: ["eval-templates", page, perPage],
     queryFn: async () => {
       const res: AxiosResponse<PaginatedResponse<EvalTemplate>> = await api.get(
-        "/admin/evaluations/templates",
+        "/console/evaluations/templates",
         { params: { page, per_page: perPage } }
       );
       return res.data;
@@ -51,7 +51,7 @@ export const useEvalTemplate = (
     queryKey: ["eval-template", templateId],
     queryFn: async () => {
       const res: AxiosResponse<EvalTemplate> = await api.get(
-        `/admin/evaluations/templates/${templateId}`
+        `/console/evaluations/templates/${templateId}`
       );
       return res.data;
     },
@@ -70,7 +70,7 @@ export const useCreateEvalTemplate = (): UseMutationResult<
   return useMutation<EvalTemplate, Error, EvalTemplateCreate>({
     mutationFn: async (data: EvalTemplateCreate) => {
       const res: AxiosResponse<EvalTemplate> = await api.post(
-        "/admin/evaluations/templates",
+        "/console/evaluations/templates",
         data
       );
       return res.data;
@@ -93,7 +93,7 @@ export const useDeleteEvalTemplate = (): UseMutationResult<
   const { success, error } = useMutationResult();
   return useMutation<void, Error, string>({
     mutationFn: async (templateId: string) => {
-      await api.delete(`/admin/evaluations/templates/${templateId}`);
+      await api.delete(`/console/evaluations/templates/${templateId}`);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["eval-templates"] });
@@ -113,7 +113,7 @@ export const useEvaluations = (
     queryKey: ["evaluations", filters],
     queryFn: async () => {
       const res: AxiosResponse<PaginatedResponse<Evaluation>> = await api.get(
-        "/admin/evaluations",
+        "/console/evaluations",
         { params: filters }
       );
       return res.data;
@@ -129,7 +129,7 @@ export const useEvaluation = (
     queryKey: ["evaluation", evaluationId],
     queryFn: async () => {
       const res: AxiosResponse<Evaluation> = await api.get(
-        `/admin/evaluations/${evaluationId}`
+        `/console/evaluations/${evaluationId}`
       );
       return res.data;
     },
@@ -148,7 +148,7 @@ export const useCreateEvaluation = (): UseMutationResult<
   return useMutation<Evaluation, Error, EvaluationCreate>({
     mutationFn: async (data: EvaluationCreate) => {
       const res: AxiosResponse<Evaluation> = await api.post(
-        "/admin/evaluations",
+        "/console/evaluations",
         data
       );
       return res.data;
@@ -172,7 +172,7 @@ export const useSubmitEvaluation = (): UseMutationResult<
   return useMutation<Evaluation, Error, string>({
     mutationFn: async (evaluationId: string) => {
       const res: AxiosResponse<Evaluation> = await api.post(
-        `/admin/evaluations/${evaluationId}/submit`
+        `/console/evaluations/${evaluationId}/submit`
       );
       return res.data;
     },

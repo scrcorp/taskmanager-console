@@ -8,7 +8,7 @@ export const useWorkRoles = (storeId: string | undefined): UseQueryResult<WorkRo
   return useQuery<WorkRole[], Error>({
     queryKey: ["work-roles", storeId],
     queryFn: async (): Promise<WorkRole[]> => {
-      const res: AxiosResponse<WorkRole[]> = await api.get(`/admin/stores/${storeId}/work-roles`);
+      const res: AxiosResponse<WorkRole[]> = await api.get(`/console/stores/${storeId}/work-roles`);
       return res.data;
     },
     enabled: !!storeId,
@@ -20,7 +20,7 @@ export const useCreateWorkRole = (): UseMutationResult<WorkRole, Error, { storeI
   const { success, error } = useMutationResult();
   return useMutation<WorkRole, Error, { storeId: string; data: WorkRoleCreate }>({
     mutationFn: async ({ storeId, data }) => {
-      const res: AxiosResponse<WorkRole> = await api.post(`/admin/stores/${storeId}/work-roles`, data);
+      const res: AxiosResponse<WorkRole> = await api.post(`/console/stores/${storeId}/work-roles`, data);
       return res.data;
     },
     onSuccess: (_, { storeId }) => {
@@ -36,7 +36,7 @@ export const useUpdateWorkRole = (): UseMutationResult<WorkRole, Error, { id: st
   const { success, error } = useMutationResult();
   return useMutation<WorkRole, Error, { id: string; data: WorkRoleUpdate; storeId: string }>({
     mutationFn: async ({ id, data }) => {
-      const res: AxiosResponse<WorkRole> = await api.put(`/admin/work-roles/${id}`, data);
+      const res: AxiosResponse<WorkRole> = await api.put(`/console/work-roles/${id}`, data);
       return res.data;
     },
     onSuccess: (_, { storeId }) => {
@@ -51,7 +51,7 @@ export const useDeleteWorkRole = (): UseMutationResult<void, Error, { id: string
   const qc = useQueryClient();
   const { success, error } = useMutationResult();
   return useMutation<void, Error, { id: string; storeId: string }>({
-    mutationFn: async ({ id }) => { await api.delete(`/admin/work-roles/${id}`); },
+    mutationFn: async ({ id }) => { await api.delete(`/console/work-roles/${id}`); },
     onSuccess: (_, { storeId }) => {
       qc.invalidateQueries({ queryKey: ["work-roles", storeId] });
       success("Work role deleted.");
@@ -65,7 +65,7 @@ export const useReorderWorkRoles = (): UseMutationResult<WorkRole[], Error, { st
   const { success, error } = useMutationResult();
   return useMutation<WorkRole[], Error, { storeId: string; items: { id: string; sort_order: number }[] }>({
     mutationFn: async ({ storeId, items }) => {
-      const res: AxiosResponse<WorkRole[]> = await api.put(`/admin/stores/${storeId}/work-roles/reorder`, { items });
+      const res: AxiosResponse<WorkRole[]> = await api.put(`/console/stores/${storeId}/work-roles/reorder`, { items });
       return res.data;
     },
     onSuccess: (_, { storeId }) => {

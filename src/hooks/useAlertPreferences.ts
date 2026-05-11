@@ -2,8 +2,8 @@
  * 알림 선호 (사용자별 in-app/email 토글) hooks.
  *
  * 서버 응답에 카테고리 메타까지 포함되므로 클라이언트는 그대로 렌더만 한다.
- * - GET /admin/profile/alert-preferences → categories + preferences
- * - PUT /admin/profile/alert-preferences → 부분 업데이트
+ * - GET /console/profile/alert-preferences → categories + preferences
+ * - PUT /console/profile/alert-preferences → 부분 업데이트
  */
 import {
   useQuery,
@@ -44,7 +44,7 @@ export const useAlertPreferences = (): UseQueryResult<
     queryKey: ["alert-preferences"],
     queryFn: async () => {
       const res = await api.get<AlertPreferencesResponse>(
-        "/admin/profile/alert-preferences",
+        "/console/profile/alert-preferences",
       );
       return res.data;
     },
@@ -61,7 +61,7 @@ export const useUpdateAlertPreferences = (): UseMutationResult<
   return useMutation({
     mutationFn: async (data: AlertPreferencesUpdate) => {
       const res = await api.put<AlertPreferencesResponse>(
-        "/admin/profile/alert-preferences",
+        "/console/profile/alert-preferences",
         data,
       );
       return res.data;

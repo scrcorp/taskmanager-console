@@ -8,7 +8,7 @@ export const useBreakRule = (storeId: string | undefined): UseQueryResult<BreakR
   return useQuery<BreakRule | null, Error>({
     queryKey: ["break-rules", storeId],
     queryFn: async (): Promise<BreakRule | null> => {
-      const res: AxiosResponse<BreakRule | null> = await api.get(`/admin/stores/${storeId}/break-rules`);
+      const res: AxiosResponse<BreakRule | null> = await api.get(`/console/stores/${storeId}/break-rules`);
       return res.data;
     },
     enabled: !!storeId,
@@ -20,7 +20,7 @@ export const useUpsertBreakRule = (): UseMutationResult<BreakRule, Error, { stor
   const { success, error } = useMutationResult();
   return useMutation<BreakRule, Error, { storeId: string; data: BreakRuleUpsert }>({
     mutationFn: async ({ storeId, data }) => {
-      const res: AxiosResponse<BreakRule> = await api.put(`/admin/stores/${storeId}/break-rules`, data);
+      const res: AxiosResponse<BreakRule> = await api.put(`/console/stores/${storeId}/break-rules`, data);
       return res.data;
     },
     onSuccess: (_, { storeId }) => {

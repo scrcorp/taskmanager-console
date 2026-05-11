@@ -22,7 +22,7 @@ export const useRoles = (): UseQueryResult<Role[], Error> => {
   return useQuery<Role[], Error>({
     queryKey: ["roles"],
     queryFn: async (): Promise<Role[]> => {
-      const response: AxiosResponse<Role[]> = await api.get("/admin/roles");
+      const response: AxiosResponse<Role[]> = await api.get("/console/roles");
       return response.data;
     },
   });
@@ -51,7 +51,7 @@ export const useCreateRole = (): UseMutationResult<
   return useMutation<Role, Error, CreateRoleData>({
     mutationFn: async (data: CreateRoleData): Promise<Role> => {
       const response: AxiosResponse<Role> = await api.post(
-        "/admin/roles",
+        "/console/roles",
         data,
       );
       return response.data;
@@ -90,7 +90,7 @@ export const useUpdateRole = (): UseMutationResult<
   return useMutation<Role, Error, UpdateRoleData>({
     mutationFn: async ({ id, ...data }: UpdateRoleData): Promise<Role> => {
       const response: AxiosResponse<Role> = await api.put(
-        `/admin/roles/${id}`,
+        `/console/roles/${id}`,
         data,
       );
       return response.data;
@@ -117,7 +117,7 @@ export const useDeleteRole = (): UseMutationResult<void, Error, string> => {
   const { success, error } = useMutationResult();
   return useMutation<void, Error, string>({
     mutationFn: async (id: string): Promise<void> => {
-      await api.delete(`/admin/roles/${id}`);
+      await api.delete(`/console/roles/${id}`);
     },
     onSuccess: (_: void, id: string): void => {
       queryClient.setQueryData<Role[]>(["roles"], (old) =>

@@ -32,7 +32,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   login: async (username, password) => {
     set({ isLoading: true });
     try {
-      const res = await api.post("/admin/auth/login", { username, password });
+      const res = await api.post("/console/auth/login", { username, password });
       setTokens(res.data.access_token, res.data.refresh_token);
       // 토큰 저장 후 사용자 정보 조회
       const me = await api.get("/auth/me");

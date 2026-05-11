@@ -36,7 +36,7 @@ export const useDailyReports = (
       params.page = filters.page ?? 1;
       params.per_page = filters.per_page ?? 20;
       const res: AxiosResponse<PaginatedResponse<DailyReport>> = await api.get(
-        "/admin/daily-reports",
+        "/console/daily-reports",
         { params },
       );
       return res.data;
@@ -52,7 +52,7 @@ export const useDailyReport = (
     queryKey: ["daily-report", reportId],
     queryFn: async () => {
       const res: AxiosResponse<DailyReport> = await api.get(
-        `/admin/daily-reports/${reportId}`,
+        `/console/daily-reports/${reportId}`,
       );
       return res.data;
     },
@@ -66,7 +66,7 @@ export const useDeleteDailyReport = (): UseMutationResult<void, Error, string> =
   const { success, error } = useMutationToast();
   return useMutation<void, Error, string>({
     mutationFn: async (reportId: string) => {
-      await api.delete(`/admin/daily-reports/${reportId}`);
+      await api.delete(`/console/daily-reports/${reportId}`);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["daily-reports"] });
@@ -87,7 +87,7 @@ export const useAddDailyReportComment = (): UseMutationResult<
   return useMutation<DailyReportComment, Error, { reportId: string; content: string }>({
     mutationFn: async ({ reportId, content }) => {
       const res: AxiosResponse<DailyReportComment> = await api.post(
-        `/admin/daily-reports/${reportId}/comments`,
+        `/console/daily-reports/${reportId}/comments`,
         { content },
       );
       return res.data;

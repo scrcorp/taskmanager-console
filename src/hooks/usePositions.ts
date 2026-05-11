@@ -26,7 +26,7 @@ export const usePositions = (
     queryKey: ["positions", storeId],
     queryFn: async (): Promise<Position[]> => {
       const response: AxiosResponse<Position[]> = await api.get(
-        `/admin/stores/${storeId}/positions`,
+        `/console/stores/${storeId}/positions`,
       );
       return response.data;
     },
@@ -61,7 +61,7 @@ export const useCreatePosition = (): UseMutationResult<
       ...data
     }: CreatePositionData): Promise<Position> => {
       const response: AxiosResponse<Position> = await api.post(
-        `/admin/stores/${storeId}/positions`,
+        `/console/stores/${storeId}/positions`,
         data,
       );
       return response.data;
@@ -111,7 +111,7 @@ export const useUpdatePosition = (): UseMutationResult<
       ...data
     }: UpdatePositionData): Promise<Position> => {
       const response: AxiosResponse<Position> = await api.put(
-        `/admin/stores/${storeId}/positions/${id}`,
+        `/console/stores/${storeId}/positions/${id}`,
         data,
       );
       return response.data;
@@ -164,7 +164,7 @@ export const useDeletePosition = (): UseMutationResult<
       storeId,
       id,
     }: DeletePositionData): Promise<void> => {
-      await api.delete(`/admin/stores/${storeId}/positions/${id}`);
+      await api.delete(`/console/stores/${storeId}/positions/${id}`);
     },
     onSuccess: (_: void, variables: DeletePositionData): void => {
       queryClient.setQueryData<Position[]>(

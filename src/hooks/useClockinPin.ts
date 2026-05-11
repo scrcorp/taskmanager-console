@@ -32,7 +32,7 @@ export const useClockinPin = (
     queryKey: ["clockin-pin", userId],
     queryFn: async (): Promise<ClockinPin> => {
       const response: AxiosResponse<ClockinPin> = await api.get(
-        `/admin/users/${userId}/clockin-pin`,
+        `/console/users/${userId}/clockin-pin`,
       );
       return response.data;
     },
@@ -55,7 +55,7 @@ export const useRegenerateClockinPin = (): UseMutationResult<
   return useMutation<ClockinPin, Error, string>({
     mutationFn: async (userId: string): Promise<ClockinPin> => {
       const response: AxiosResponse<ClockinPin> = await api.post(
-        `/admin/users/${userId}/clockin-pin/regenerate`,
+        `/console/users/${userId}/clockin-pin/regenerate`,
       );
       return response.data;
     },

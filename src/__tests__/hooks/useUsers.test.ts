@@ -64,7 +64,7 @@ describe("useUsers hooks", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(result.current.data).toHaveLength(1);
-    expect(api.get).toHaveBeenCalledWith("/admin/users", { params: {} });
+    expect(api.get).toHaveBeenCalledWith("/console/users", { params: {} });
   });
 
   it("fetches users with filters", async () => {
@@ -77,7 +77,7 @@ describe("useUsers hooks", () => {
     );
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(api.get).toHaveBeenCalledWith("/admin/users", {
+    expect(api.get).toHaveBeenCalledWith("/console/users", {
       params: { store_id: "b1", is_active: true },
     });
   });
@@ -90,7 +90,7 @@ describe("useUsers hooks", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(result.current.data?.username).toBe("admin");
-    expect(api.get).toHaveBeenCalledWith("/admin/users/u1");
+    expect(api.get).toHaveBeenCalledWith("/console/users/u1");
   });
 
   it("does not fetch user when id is undefined", () => {
@@ -114,7 +114,7 @@ describe("useUsers hooks", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(result.current.data?.username).toBe("staff1");
-    expect(api.post).toHaveBeenCalledWith("/admin/users", {
+    expect(api.post).toHaveBeenCalledWith("/console/users", {
       username: "staff1", password: "pass", full_name: "Staff One", role_id: "r3",
     });
   });
@@ -128,7 +128,7 @@ describe("useUsers hooks", () => {
     result.current.mutate({ id: "u1", full_name: "Updated Admin" });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(api.put).toHaveBeenCalledWith("/admin/users/u1", { full_name: "Updated Admin" });
+    expect(api.put).toHaveBeenCalledWith("/console/users/u1", { full_name: "Updated Admin" });
   });
 
   it("toggles user active status", async () => {
@@ -139,7 +139,7 @@ describe("useUsers hooks", () => {
     result.current.mutate({ id: "u1", is_active: false });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(api.patch).toHaveBeenCalledWith("/admin/users/u1/active", { is_active: false });
+    expect(api.patch).toHaveBeenCalledWith("/console/users/u1/active", { is_active: false });
   });
 
   it("deletes a user", async () => {
@@ -150,7 +150,7 @@ describe("useUsers hooks", () => {
     result.current.mutate("u1");
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(api.delete).toHaveBeenCalledWith("/admin/users/u1");
+    expect(api.delete).toHaveBeenCalledWith("/console/users/u1");
   });
 
   it("fetches user stores", async () => {
@@ -164,7 +164,7 @@ describe("useUsers hooks", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(result.current.data).toHaveLength(1);
-    expect(api.get).toHaveBeenCalledWith("/admin/users/u1/stores");
+    expect(api.get).toHaveBeenCalledWith("/console/users/u1/stores");
   });
 
   it("adds a store to user", async () => {
@@ -175,7 +175,7 @@ describe("useUsers hooks", () => {
     result.current.mutate({ userId: "u1", storeId: "b1" });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(api.post).toHaveBeenCalledWith("/admin/users/u1/stores/b1");
+    expect(api.post).toHaveBeenCalledWith("/console/users/u1/stores/b1");
   });
 
   it("removes a store from user", async () => {
@@ -186,6 +186,6 @@ describe("useUsers hooks", () => {
     result.current.mutate({ userId: "u1", storeId: "b1" });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
-    expect(api.delete).toHaveBeenCalledWith("/admin/users/u1/stores/b1");
+    expect(api.delete).toHaveBeenCalledWith("/console/users/u1/stores/b1");
   });
 });

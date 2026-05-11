@@ -24,7 +24,7 @@ export const useScheduleRequests = (
   return useQuery<PaginatedResponse<ScheduleRequestItem>, Error>({
     queryKey: ["schedule-requests", params],
     queryFn: async () => {
-      const res: AxiosResponse<PaginatedResponse<ScheduleRequestItem>> = await api.get("/admin/schedule-requests", { params });
+      const res: AxiosResponse<PaginatedResponse<ScheduleRequestItem>> = await api.get("/console/schedule-requests", { params });
       return res.data;
     },
   });
@@ -35,7 +35,7 @@ export const useAdminCreateRequest = (): UseMutationResult<ScheduleRequestItem, 
   const { success, error } = useMutationResult();
   return useMutation<ScheduleRequestItem, Error, ScheduleRequestAdminCreate>({
     mutationFn: async (data) => {
-      const res: AxiosResponse<ScheduleRequestItem> = await api.post("/admin/schedule-requests", data);
+      const res: AxiosResponse<ScheduleRequestItem> = await api.post("/console/schedule-requests", data);
       return res.data;
     },
     onSuccess: () => {
@@ -51,7 +51,7 @@ export const useAdminUpdateRequest = (): UseMutationResult<ScheduleRequestItem, 
   const { success, error } = useMutationResult();
   return useMutation<ScheduleRequestItem, Error, { id: string; data: ScheduleRequestAdminUpdate }>({
     mutationFn: async ({ id, data }) => {
-      const res: AxiosResponse<ScheduleRequestItem> = await api.patch(`/admin/schedule-requests/${id}`, data);
+      const res: AxiosResponse<ScheduleRequestItem> = await api.patch(`/console/schedule-requests/${id}`, data);
       return res.data;
     },
     onSuccess: () => {
@@ -69,7 +69,7 @@ export const useUpdateRequestStatus = (): UseMutationResult<ScheduleRequestItem,
     mutationFn: async ({ id, status, rejection_reason }) => {
       const body: Record<string, string | null> = { status };
       if (rejection_reason !== undefined) body.rejection_reason = rejection_reason;
-      const res: AxiosResponse<ScheduleRequestItem> = await api.patch(`/admin/schedule-requests/${id}/status`, body);
+      const res: AxiosResponse<ScheduleRequestItem> = await api.patch(`/console/schedule-requests/${id}/status`, body);
       return res.data;
     },
     onSuccess: () => {
@@ -85,7 +85,7 @@ export const useRevertRequest = (): UseMutationResult<ScheduleRequestItem, Error
   const { success, error } = useMutationResult();
   return useMutation<ScheduleRequestItem, Error, string>({
     mutationFn: async (id) => {
-      const res: AxiosResponse<ScheduleRequestItem> = await api.post(`/admin/schedule-requests/${id}/revert`);
+      const res: AxiosResponse<ScheduleRequestItem> = await api.post(`/console/schedule-requests/${id}/revert`);
       return res.data;
     },
     onSuccess: () => {
@@ -101,7 +101,7 @@ export const useDeleteRequest = (): UseMutationResult<void, Error, string> => {
   const { success, error } = useMutationResult();
   return useMutation<void, Error, string>({
     mutationFn: async (id) => {
-      await api.delete(`/admin/schedule-requests/${id}`);
+      await api.delete(`/console/schedule-requests/${id}`);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["schedule-requests"] });
@@ -116,7 +116,7 @@ export const useConfirmRequests = (): UseMutationResult<ScheduleConfirmResult, E
   const { success, error } = useMutationResult();
   return useMutation<ScheduleConfirmResult, Error, ScheduleConfirmRequest>({
     mutationFn: async (data) => {
-      const res: AxiosResponse<ScheduleConfirmResult> = await api.post("/admin/schedule-requests/confirm", data);
+      const res: AxiosResponse<ScheduleConfirmResult> = await api.post("/console/schedule-requests/confirm", data);
       return res.data;
     },
     onSuccess: () => {
@@ -133,7 +133,7 @@ export const useConfirmPreview = (): UseMutationResult<ScheduleConfirmPreview, E
   const { error } = useMutationResult();
   return useMutation<ScheduleConfirmPreview, Error, ScheduleConfirmRequest>({
     mutationFn: async (data) => {
-      const res: AxiosResponse<ScheduleConfirmPreview> = await api.post("/admin/schedule-requests/confirm/preview", data);
+      const res: AxiosResponse<ScheduleConfirmPreview> = await api.post("/console/schedule-requests/confirm/preview", data);
       return res.data;
     },
     onError: error("Couldn't load confirmation preview"),
