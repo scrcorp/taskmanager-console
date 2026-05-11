@@ -14,7 +14,8 @@ import {
   useSchedule, useDeleteSchedule, useRevertSchedule, useCancelSchedule, useConfirmSchedule,
   useScheduleAuditLog, useSchedules, useUpdateSchedule, useDeleteScheduleHistoryEntry,
 } from "@/hooks/useSchedules";
-import { ROLE_PRIORITY } from "@/lib/permissions";
+import { PERMISSIONS, ROLE_PRIORITY } from "@/lib/permissions";
+import { usePermissions } from "@/hooks/usePermissions";
 import { useUser, useUsers } from "@/hooks/useUsers";
 import { useStore, useStores } from "@/hooks/useStores";
 import { useOrganization } from "@/hooks/useOrganization";
@@ -32,6 +33,8 @@ export default function SchedulesDetailPage() {
   const showCost = userPriority <= ROLE_PRIORITY.GM;
   const isGMPlus = userPriority <= ROLE_PRIORITY.GM;
   const isOwner = userPriority <= ROLE_PRIORITY.OWNER;
+  const { hasPermission } = usePermissions();
+  const canSwitchSchedule = hasPermission(PERMISSIONS.SCHEDULES_UPDATE);
 
   const scheduleQ = useSchedule(id);
   const userQ = useUser(scheduleQ.data?.user_id);
@@ -169,8 +172,8 @@ export default function SchedulesDetailPage() {
         onBack={() => router.back()}
         // Edit: confirmed면 GM+ only (서버 정책), draft/requested는 SV 이상 모두 가능
         onEdit={schedule.status === "confirmed" ? (isGMPlus ? () => setEditOpen(true) : undefined) : () => setEditOpen(true)}
-        // Swap: GM+ only
-        onSwitch={isGMPlus && schedule.status === "confirmed" ? () => router.push(`/schedules?switch=${id}`) : undefined}
+        // Swap: requires schedules:update (SV+ by default)
+        onSwitch={canSwitchSchedule && schedule.status === "confirmed" ? () => router.push(`/schedules?switch=${id}`) : undefined}
         // Confirm: requested 상태에서만 (SV 가능)
         onConfirm={schedule.status === "requested" ? handleConfirmAction : undefined}
         // Revert: GM+ only, confirmed → requested
