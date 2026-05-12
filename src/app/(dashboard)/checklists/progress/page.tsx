@@ -17,7 +17,8 @@ import { Select } from "@/components/ui";
 import { ProgressDayView } from "@/components/checklists/ProgressDayView";
 import { ProgressWeekView } from "@/components/checklists/ProgressWeekView";
 import { ProgressMonthView } from "@/components/checklists/ProgressMonthView";
-import { cn } from "@/lib/utils";
+import { cn, todayInTimezone } from "@/lib/utils";
+import { useTimezone } from "@/hooks/useTimezone";
 import type { ChecklistInstance } from "@/types";
 
 // ─── Date helpers ─────────────────────────────────────────────────────────────
@@ -71,8 +72,14 @@ function monthLabel(d: Date): string {
 type ViewMode = "day" | "week" | "month";
 
 export default function ChecklistProgressPage(): React.ReactElement {
+  const tz = useTimezone();
+  // 매장/조직 timezone 기준 "오늘" 을 캘린더 Date 로 환원해 초기값으로 사용.
+  // new Date() 직접 쓰면 미국 저녁에 다음날로 잡힘 (toLocaleDateString 도 브라우저 tz 의존).
+  const [selectedDate, setSelectedDate] = useState<Date>(() => {
+    const [y, m, d] = todayInTimezone(tz).split("-").map(Number);
+    return new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1);
+  });
   const [view, setView] = useState<ViewMode>("day");
-  const [selectedDate, setSelectedDate] = useState<Date>(() => new Date());
   const [selectedStoreId, setSelectedStoreId] = useState<string>("");
   const [searchQuery, setSearchQuery] = useState<string>("");
 

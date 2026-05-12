@@ -4,6 +4,8 @@ import { useState, useMemo, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useAttendances } from '@/hooks/useAttendances'
 import { useStores } from '@/hooks/useStores'
+import { useAuthStore } from '@/stores/authStore'
+import { todayInTimezone } from '@/lib/utils'
 import type { AttendanceBreakItem } from '@/types'
 
 type AttendanceState = "upcoming" | "soon" | "working" | "on_break" | "late" | "clocked_out" | "no_show" | "cancelled"
@@ -252,21 +254,31 @@ function computeLateMinutes(clockInIso?: string | null, scheduledIso?: string | 
 export function AttendancePage() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const today = new Date().toISOString().slice(0, 10)
+  // 매장/조직 timezone 기준 오늘. DB가 UTC라 toISOString()을 쓰면 미국 저녁에 다음날로 잡힘.
+  const orgTimezone = useAuthStore((s) => s.user?.organization_timezone) ?? undefined
 
   // URL 초기값 ?date=YYYY-MM-DD&store=<id>&filter=<key>
   // 잘못된 값은 무시하고 기본값 사용.
-  const initDate = sanitizeDateParam(searchParams.get('date')) ?? today
+  const initDate = sanitizeDateParam(searchParams.get('date'))
   const initFilter = parseFilterSet(searchParams.get('filter'))
   const initStore = searchParams.get('store') ?? ''
 
   const [selectedStore, setSelectedStore] = useState<string>(initStore)
   // 필터 다중 선택 — 비어있으면 All (모두 표시).
   const [filters, setFilters] = useState<Set<CheckableFilterKey>>(initFilter)
-  const [date, setDate] = useState(initDate)
+  const [date, setDate] = useState(initDate ?? todayInTimezone(orgTimezone))
 
   const storesQ = useStores()
   const stores = storesQ.data ?? []
+  const selectedStoreTz = stores.find((s) => s.id === selectedStore)?.timezone ?? orgTimezone
+
+  // URL에 ?date 가 없었으면 store timezone 확정 후 today 재정렬 (조직 tz와 매장 tz가 다른 경우).
+  useEffect(() => {
+    if (initDate) return
+    setDate(todayInTimezone(selectedStoreTz))
+    // 매장 timezone 확정 시 1회만 보정.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedStoreTz])
 
   // 첫 store 자동 선택 — URL에 값이 있고 유효하면 유지, 아니면 첫 store
   useEffect(() => {
@@ -348,9 +360,14 @@ export function AttendancePage() {
   }), [records])
 
   function shiftDate(days: number) {
-    const d = new Date(date)
-    d.setDate(d.getDate() + days)
-    setDate(d.toISOString().slice(0, 10))
+    // date 는 "YYYY-MM-DD" 캘린더 날짜 — timezone-safe 하게 +days 처리.
+    // new Date(date)는 UTC midnight 으로 파싱돼 toISOString().slice(0,10) 으로 되돌리면 음수 tz 에서 어긋남.
+    const [y, m, d] = date.split('-').map(Number)
+    const local = new Date(y ?? 1970, (m ?? 1) - 1, (d ?? 1) + days)
+    const ny = local.getFullYear()
+    const nm = String(local.getMonth() + 1).padStart(2, '0')
+    const nd = String(local.getDate()).padStart(2, '0')
+    setDate(`${ny}-${nm}-${nd}`)
   }
 
   return (

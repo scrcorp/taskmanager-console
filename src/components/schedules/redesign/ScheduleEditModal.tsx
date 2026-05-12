@@ -10,6 +10,8 @@ import { ConfirmDialog } from "./ConfirmDialog";
 import { useUserStores } from "@/hooks/useUsers";
 import { useResolveSetting } from "@/hooks/useSettings";
 import { useValidateSchedule } from "@/hooks/useSchedules";
+import { useAuthStore } from "@/stores/authStore";
+import { todayInTimezone } from "@/lib/utils";
 import type { Schedule, User, WorkRole, Store } from "@/types";
 import { ROLE_PRIORITY } from "@/lib/permissions";
 
@@ -119,8 +121,12 @@ function computeAutoBreak(startHHMM: string, endHHMM: string, breakMin: number):
 }
 
 export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefilledDate, prefilledStartTime, users, storeId, stores, selectedStoreIds, inheritedRate, inheritedRateSource, showCost = true, errorMessage, onDismissError, onClose, onSave, onDelete, isSaving }: Props) {
+  // 매장 또는 조직 timezone 기준으로 "오늘" 계산 — DB가 UTC라 toISOString()을 쓰면 미국 저녁이 다음날로 잡힘.
+  const orgTimezone = useAuthStore((s) => s.user?.organization_timezone) ?? undefined;
+  const initialStore = stores?.find((s) => s.id === storeId);
+  const initialTz = initialStore?.timezone ?? orgTimezone;
   const [userId, setUserId] = useState(prefilledUserId || users[0]?.id || "");
-  const [date, setDate] = useState(prefilledDate || new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(prefilledDate || todayInTimezone(initialTz));
   const [startTime, setStartTime] = useState("09:00");
   const [endTime, setEndTime] = useState("17:00");
   const [splitEnabled, setSplitEnabled] = useState(false);
@@ -231,7 +237,7 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
     } else if (mode === "add") {
       setModalStoreId(storeId || availableStores[0]?.id || stores?.[0]?.id || "");
       setUserId(prefilledUserId || users[0]?.id || "");
-      setDate(prefilledDate || new Date().toISOString().slice(0, 10));
+      setDate(prefilledDate || todayInTimezone(stores?.find((s) => s.id === (modalStoreId || storeId))?.timezone ?? orgTimezone));
       const initStart = prefilledStartTime || "09:00";
       setStartTime(initStart);
       setEndTime(minutesToTime(timeToMinutes(initStart) + defaultShiftMin));

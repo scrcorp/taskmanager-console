@@ -17,6 +17,8 @@ interface Props {
   workRoles: WorkRole[];
   isSingleStore: boolean;
   showCost: boolean;
+  /** 매장/조직 timezone 기준 오늘 (YYYY-MM-DD). 부모가 todayInTimezone()으로 계산해서 전달. */
+  todayStr: string;
   onDayClick: (date: string) => void;
   onWeekClick: (date: string) => void;
 }
@@ -107,8 +109,8 @@ function getWeekNumber(d0: Date): number {
   return wk;
 }
 
-export function MonthlyGrid({ year, month, schedules, shifts, workRoles, isSingleStore, showCost, onDayClick, onWeekClick }: Props) {
-  const today = new Date().toISOString().slice(0, 10);
+export function MonthlyGrid({ year, month, schedules, shifts, workRoles, isSingleStore, showCost, todayStr, onDayClick, onWeekClick }: Props) {
+  const today = todayStr;
   const firstDay = new Date(year, month, 1);
   const startDow = firstDay.getDay();
   const daysInMonth = new Date(year, month + 1, 0).getDate();
