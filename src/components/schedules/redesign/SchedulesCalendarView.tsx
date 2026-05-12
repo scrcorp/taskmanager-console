@@ -10,7 +10,7 @@
 import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useQueries } from "@tanstack/react-query";
 import api from "@/lib/api";
-import { parseApiError } from "@/lib/utils";
+import { parseApiError, todayInTimezone } from "@/lib/utils";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useSchedules, useConfirmSchedule, useRejectSchedule, useDeleteSchedule, useSubmitSchedule, useRevertSchedule, useCancelSchedule, useCreateSchedule, useUpdateSchedule, useSwitchSchedule } from "@/hooks/useSchedules";
 import { useUsers } from "@/hooks/useUsers";
@@ -558,6 +558,37 @@ export default function SchedulesCalendarView() {
         .join(" · ")
     : "";
 
+  // 매장 timezone 기준 "지금 시각" — 1분마다 갱신.
+  // Daily view 의 현재 시간 indicator, "오늘" 판정, ContextMenu 의 isPast 판정에 사용.
+  const computeNowMin = useCallback((): number => {
+    const now = new Date();
+    if (!storeTimezone) return now.getHours() * 60 + now.getMinutes();
+    const parts = new Intl.DateTimeFormat("en-GB", {
+      timeZone: storeTimezone, hour: "2-digit", minute: "2-digit", hour12: false,
+    }).format(now);
+    const [hh, mm] = parts.split(":").map(Number);
+    return (hh ?? 0) * 60 + (mm ?? 0);
+  }, [storeTimezone]);
+  const [nowMin, setNowMin] = useState<number>(() => computeNowMin());
+  useEffect(() => {
+    setNowMin(computeNowMin());
+    const id = setInterval(() => setNowMin(computeNowMin()), 30 * 1000);
+    return () => clearInterval(id);
+  }, [computeNowMin]);
+  // 매장 timezone 기준 오늘 (YYYY-MM-DD). nowMin 갱신 시 자정 경계도 자동 반영.
+  const todayStr = useMemo(
+    () => todayInTimezone(storeTimezone),
+    // nowMin 을 deps 에 포함시켜 자정 경계에서 자동 재계산되도록.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [storeTimezone, nowMin],
+  );
+  const nowLabel = useMemo(() => {
+    const h = Math.floor(nowMin / 60) % 24;
+    const m = nowMin % 60;
+    const h12 = ((h + 11) % 12) + 1;
+    return `${h12}:${String(m).padStart(2, "0")} ${h < 12 ? "AM" : "PM"}`;
+  }, [nowMin]);
+
   // schedule.range → 선택된 모든 store의 설정을 resolve해서 min start / max end
   const resolveStoreIds = useMemo(
     () => isAllStores ? stores.map((s) => s.id) : selectedStores,
@@ -659,6 +690,22 @@ export default function SchedulesCalendarView() {
 
   // axis가 configured range 밖으로 확장됐는지 여부 (Daily view에서 경고 표시용)
   const axisExpandedOutsideRange = view === "daily" && (openHour < configuredOpenHour || closeHour > configuredCloseHour);
+
+  // Daily view 현재 시간 indicator 위치 (% in 0..100). selectedDay가 오늘이 아니면 null.
+  // openHour..closeHour 범위 밖이면 null (영업시간 밖이라 표시 안 함).
+  const nowPct: number | null = useMemo(() => {
+    if (view !== "daily" || selectedDay !== todayStr) return null;
+    const openMin = openHour * 60;
+    const closeMin = closeHour * 60;
+    if (closeMin <= openMin) return null;
+    // overnight (closeHour > 24): nowMin이 openMin보다 작은데 closeHour가 24를 넘으면
+    // 다음날 새벽으로 간주해 +24h 보정. 그래도 자정 넘으면 todayStr이 다음날로 바뀌어
+    // selectedDay !== todayStr 이 되므로 indicator 자동 제거됨.
+    let n = nowMin;
+    if (n < openMin && closeMin > 24 * 60) n += 24 * 60;
+    if (n < openMin || n >= closeMin) return null;
+    return ((n - openMin) / (closeMin - openMin)) * 100;
+  }, [view, selectedDay, todayStr, openHour, closeHour, nowMin]);
 
   function getSchedulesForCell(userId: string, date: string): Schedule[] {
     // 선택 외 store도 같은 셀에 표시 — ScheduleBlock의 isOtherStore dim으로 구분.
@@ -775,7 +822,6 @@ export default function SchedulesCalendarView() {
     const sumHours = (arr: Schedule[]) => arr.reduce((sum, s) => sum + getNetWorkHours(s), 0);
     // stored rate만 합산. NULL은 0으로 (No cost로 표시되는 schedule들은 합계에서 빠짐).
     const sumCost = (arr: Schedule[]) => arr.reduce((sum, s) => sum + getNetWorkHours(s) * (s.hourly_rate ?? 0), 0);
-    const todayStr = new Date().toISOString().slice(0, 10);
     return {
       key: day.date,
       label: day.dayName,
@@ -791,7 +837,7 @@ export default function SchedulesCalendarView() {
       costPending: sumCost(pending),
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }), [weekDates, schedules, selectedStores, isAllStores, users]);
+  }), [weekDates, schedules, selectedStores, isAllStores, users, todayStr]);
 
   const dailyHourRange = useMemo(() => {
     const out: number[] = [];
@@ -1139,7 +1185,6 @@ export default function SchedulesCalendarView() {
         const stored = block?.hourly_rate ?? 0;
         // Sync 메뉴 노출 조건: GM 권한 + cascade rate 존재 + stored와 다름
         const canSync = isGMView && blockEffective != null && stored !== blockEffective;
-        const todayStr = new Date().toISOString().slice(0, 10);
         const blockIsPast = !!block && block.work_date < todayStr;
         return (
           <ContextMenu
@@ -1410,7 +1455,7 @@ export default function SchedulesCalendarView() {
             {/* View toggle */}
             <div className="flex bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg p-0.5 shrink-0">
               {(["monthly", "weekly", "daily"] as const).map((v) => (
-                <button key={v} type="button" onClick={() => { setView(v); if (v === "daily") setSelectedDay(new Date().toISOString().slice(0, 10)); }}
+                <button key={v} type="button" onClick={() => { setView(v); if (v === "daily") setSelectedDay(todayStr); }}
                   className={`px-2.5 sm:px-3.5 py-1.5 rounded-md text-[12px] sm:text-[13px] font-semibold transition-all ${view === v ? "bg-[var(--color-accent)] text-white" : "text-[var(--color-text-secondary)] hover:text-[var(--color-text)]"}`}>
                   {v === "monthly" ? "Monthly" : v === "weekly" ? "Weekly" : "Daily"}
                 </button>
@@ -1552,6 +1597,7 @@ export default function SchedulesCalendarView() {
             workRoles={monthlyWorkRolesQ.data ?? []}
             isSingleStore={isSingleStore}
             showCost={isGMView}
+            todayStr={todayStr}
             onDayClick={(date) => { setSelectedDay(date); setView("daily"); }}
             onWeekClick={(date) => { setWeekStart(getWeekStart(new Date(date + "T00:00:00"))); setView("weekly"); }}
           />
@@ -1684,6 +1730,16 @@ export default function SchedulesCalendarView() {
                             );
                           })}
                         </div>
+                        {/* 현재 시간 indicator — 오늘 + 영업시간 내 + daily view 일 때만 표시.
+                            라벨은 hover (선 근처) 시에만 노출. 시간은 뻔히 아는 정보라 평소엔 선만. */}
+                        {nowPct != null && (
+                          <div className="absolute inset-y-0 z-30 group/now" style={{ left: `${nowPct}%`, width: "8px", marginLeft: "-4px" }}>
+                            <div className="absolute inset-y-0 left-1/2 -translate-x-1/2 border-l-2 border-dashed border-[var(--color-danger)] pointer-events-none" />
+                            <span className="absolute top-0 left-1/2 -translate-x-1/2 -translate-y-full px-1.5 py-0.5 mt-[-2px] rounded-sm bg-[var(--color-danger)] text-white text-[10px] font-semibold whitespace-nowrap shadow-sm opacity-0 group-hover/now:opacity-100 transition-opacity pointer-events-none">
+                              Now {nowLabel}
+                            </span>
+                          </div>
+                        )}
                         {/* Content: flex segments (normal flow → 높이 자동 확장) */}
                         {(() => {
                           const totalMin = (closeHour - openHour) * 60;

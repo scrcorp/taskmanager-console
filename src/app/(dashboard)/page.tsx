@@ -48,32 +48,35 @@ import type { Notice, Store } from "@/types";
 
 type DateRange = "today" | "week" | "month";
 
-function getDateRange(range: DateRange): { dateFrom: string; dateTo: string } {
-  const now = new Date();
-  const yyyy = now.getFullYear();
-  const mm = String(now.getMonth() + 1).padStart(2, "0");
-  const dd = String(now.getDate()).padStart(2, "0");
-  const today = `${yyyy}-${mm}-${dd}`;
+function fmtLocalYMD(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** 매장/조직 timezone 기준으로 date range 계산.
+ *  DB가 UTC라 now.toISOString() / .getFullYear() 직접 사용 시 미국 저녁에 다음날로 잡힘. */
+function getDateRange(range: DateRange, tz: string | undefined): { dateFrom: string; dateTo: string } {
+  const today = todayInTimezone(tz);
+  const [y, m, d] = today.split("-").map(Number);
+  const yyyy = y ?? 1970;
+  const mm0 = (m ?? 1) - 1;
+  const dd = d ?? 1;
+  // tz 기준 "오늘"의 캘린더 날짜를 로컬 Date 로 환원 — 이후 산술은 캘린더 산술이라 tz 무관.
+  const todayLocal = new Date(yyyy, mm0, dd);
 
   switch (range) {
     case "today":
       return { dateFrom: today, dateTo: today };
     case "week": {
-      const day = now.getDay();
-      const sunday = new Date(now);
-      sunday.setDate(now.getDate() - day);
+      const sunday = new Date(todayLocal);
+      sunday.setDate(todayLocal.getDate() - todayLocal.getDay());
       const saturday = new Date(sunday);
       saturday.setDate(sunday.getDate() + 6);
-      return {
-        dateFrom: sunday.toISOString().split("T")[0],
-        dateTo: saturday.toISOString().split("T")[0],
-      };
+      return { dateFrom: fmtLocalYMD(sunday), dateTo: fmtLocalYMD(saturday) };
     }
     case "month": {
-      const firstDay = `${yyyy}-${mm}-01`;
-      const lastDate = new Date(yyyy, now.getMonth() + 1, 0);
-      const lastDay = lastDate.toISOString().split("T")[0];
-      return { dateFrom: firstDay, dateTo: lastDay };
+      const firstDay = `${String(yyyy).padStart(4, "0")}-${String(mm0 + 1).padStart(2, "0")}-01`;
+      const lastDate = new Date(yyyy, mm0 + 1, 0);
+      return { dateFrom: firstDay, dateTo: fmtLocalYMD(lastDate) };
     }
   }
 }
@@ -188,7 +191,7 @@ export default function DashboardPage(): React.ReactElement {
   const [dateRange, setDateRange] = useState<DateRange>("today");
   const [selectedStoreId, setSelectedStoreId] = useState<string>("");
 
-  const { dateFrom, dateTo } = useMemo(() => getDateRange(dateRange), [dateRange]);
+  const { dateFrom, dateTo } = useMemo(() => getDateRange(dateRange, tz), [dateRange, tz]);
   const storeIdParam = selectedStoreId || undefined;
 
   // ─── Data hooks (top stat cards) ───────────────────

@@ -155,13 +155,13 @@ export function formatActionTime(
 }
 
 /** 타임존 기준 오늘 날짜를 YYYY-MM-DD 문자열로 반환.
- *  timezone이 없으면 브라우저 로컬 기준.
+ *  timezone이 없으면 브라우저 로컬 기준 (toISOString() 은 UTC 라 사용 금지).
  */
 export function todayInTimezone(timezone?: string): string {
   const now = new Date();
-  if (!timezone) return now.toISOString().split("T")[0];
-  const parts = new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
-  return parts; // en-CA → "YYYY-MM-DD"
+  const opts: Intl.DateTimeFormatOptions = { year: "numeric", month: "2-digit", day: "2-digit" };
+  if (timezone) opts.timeZone = timezone;
+  return new Intl.DateTimeFormat("en-CA", opts).format(now); // en-CA → "YYYY-MM-DD"
 }
 
 // ── Day Boundary: Work Date 판단 ──────────────────────────────────

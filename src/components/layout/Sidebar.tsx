@@ -36,7 +36,8 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useAuthStore } from "@/stores/authStore";
 import { useSidebarStore } from "@/stores/sidebarStore";
 import { useUnreadCount } from "@/hooks";
-import { cn } from "@/lib/utils";
+import { useTimezone } from "@/hooks/useTimezone";
+import { cn, todayInTimezone } from "@/lib/utils";
 import { ROLE_PRIORITY, MENU_PERMISSIONS } from "@/lib/permissions";
 import { ThemeToggle } from "./ThemeToggle";
 
@@ -166,18 +167,20 @@ export function Sidebar({ onNavClick }: { onNavClick?: () => void }) {
     });
   }, [pathname]);
 
-  // 이번 주 월~일 날짜 계산
+  // 이번 주 월~일 날짜 계산 — 매장/조직 timezone 기준. DB가 UTC라 toISOString()을 쓰면 미국 저녁에 다음주로 잡힘.
+  const tz = useTimezone();
   const currentWeek = useMemo(() => {
-    const today = new Date();
+    const [y, m, d] = todayInTimezone(tz).split("-").map(Number);
+    const today = new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1);
     const day = today.getDay();
     const diff = day === 0 ? -6 : 1 - day;
     const monday = new Date(today);
     monday.setDate(today.getDate() + diff);
     const sunday = new Date(monday);
     sunday.setDate(monday.getDate() + 6);
-    const fmt = (d: Date) => d.toISOString().slice(0, 10);
+    const fmt = (dd: Date) => `${dd.getFullYear()}-${String(dd.getMonth() + 1).padStart(2, "0")}-${String(dd.getDate()).padStart(2, "0")}`;
     return { from: fmt(monday), to: fmt(sunday) };
-  }, []);
+  }, [tz]);
 
   // 현재 pathname에서 storeId 추출 (/inventory/stores/{storeId}/...)
   const currentStoreId = useMemo(() => {

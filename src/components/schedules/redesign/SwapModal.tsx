@@ -5,6 +5,8 @@
  */
 
 import { useState, useMemo, useEffect } from "react";
+import { useAuthStore } from "@/stores/authStore";
+import { todayInTimezone } from "@/lib/utils";
 import type { Schedule, User } from "@/types";
 
 interface Props {
@@ -72,7 +74,10 @@ export function SwapModal({ open, onClose, fromSchedule, fromUser, candidateSche
   const [targetScheduleId, setTargetScheduleId] = useState("");
   const [reason, setReason] = useState("");
 
-  const today = new Date().toISOString().slice(0, 10);
+  // 매장 timezone 은 SwapModal 컨텍스트로 받지 않으므로 조직 timezone fallback.
+  // toISOString().slice(0,10)은 UTC 라 미국 저녁에 다음날로 나옴.
+  const orgTimezone = useAuthStore((s) => s.user?.organization_timezone) ?? undefined;
+  const today = todayInTimezone(orgTimezone);
 
   // 모달 열릴 때 상태 초기화
   useEffect(() => {

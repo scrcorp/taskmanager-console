@@ -16,6 +16,8 @@ import { useScheduleHistory, useDeleteScheduleHistoryEntry, type ScheduleHistory
 import { useStores } from "@/hooks/useStores";
 import { useUsers } from "@/hooks/useUsers";
 import { useAuthStore } from "@/stores/authStore";
+import { useTimezone } from "@/hooks/useTimezone";
+import { todayInTimezone } from "@/lib/utils";
 import { ROLE_PRIORITY } from "@/lib/permissions";
 import { DiffDisplay } from "@/components/schedules/redesign/DiffDisplay";
 import { ConfirmDialog } from "@/components/schedules/redesign/ConfirmDialog";
@@ -139,8 +141,14 @@ export default function ScheduleHistoryPage() {
   const isOwner = (currentUser?.role_priority ?? 99) <= ROLE_PRIORITY.OWNER;
   const deleteHistoryMutation = useDeleteScheduleHistoryEntry();
 
-  const today = new Date().toISOString().slice(0, 10);
-  const monthAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  // 매장/조직 timezone 기준 — DB가 UTC라 toISOString()을 쓰면 미국 저녁에 다음날로 잡힘.
+  const tz = useTimezone();
+  const today = todayInTimezone(tz);
+  const monthAgo = (() => {
+    const [y, m, d] = today.split("-").map(Number);
+    const past = new Date(y ?? 1970, (m ?? 1) - 1, (d ?? 1) - 30);
+    return `${past.getFullYear()}-${String(past.getMonth() + 1).padStart(2, "0")}-${String(past.getDate()).padStart(2, "0")}`;
+  })();
 
   const [storeId, setStoreId] = useState("");
   const [userId, setUserId] = useState("");
