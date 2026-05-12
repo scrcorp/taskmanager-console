@@ -11,6 +11,8 @@ import { useState, useMemo, useEffect } from "react";
 import { useAttendances } from "@/hooks/useAttendances";
 import { useStores } from "@/hooks/useStores";
 import { useUsers } from "@/hooks/useUsers";
+import { useAuthStore } from "@/stores/authStore";
+import { todayInTimezone } from "@/lib/utils";
 import type { Attendance, User } from "@/types";
 import { ROLE_PRIORITY } from "@/lib/permissions";
 
@@ -19,6 +21,15 @@ function getWeekStart(d: Date): Date {
   r.setHours(0, 0, 0, 0);
   r.setDate(r.getDate() - r.getDay());
   return r;
+}
+
+/** 매장 timezone 기준 오늘의 주 시작(Sunday) Date 반환 — DB가 UTC라 new Date() 직접 사용 시 미국 저녁에 다음날 주로 잡힘. */
+function getWeekStartInTimezone(tz: string | undefined): Date {
+  const todayStr = todayInTimezone(tz);
+  const [y, m, d] = todayStr.split("-").map(Number);
+  const local = new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1);
+  local.setDate(local.getDate() - local.getDay());
+  return local;
 }
 
 function buildWeekDates(weekStart: Date): { date: string; dayName: string; dayNum: string }[] {
@@ -61,14 +72,19 @@ function rolePriorityToColorClass(p: number): string {
 }
 
 export function AttendanceSummaryPage() {
+  const orgTimezone = useAuthStore((s) => s.user?.organization_timezone) ?? undefined;
   const [selectedStore, setSelectedStore] = useState<string>("");
-  const [weekStart, setWeekStart] = useState<Date>(() => getWeekStart(new Date()));
+  // 초기에는 조직 timezone 기준 (selectedStore 확정 후 effect 에서 매장 tz 로 재정렬).
+  const [weekStart, setWeekStart] = useState<Date>(() => getWeekStartInTimezone(orgTimezone));
+  // 사용자가 주를 직접 이동시켰는지 — 그렇다면 store tz 변경 시 자동 재정렬 안 함.
+  const [weekUserMoved, setWeekUserMoved] = useState(false);
   const weekDates = useMemo(() => buildWeekDates(weekStart), [weekStart]);
 
   const storesQ = useStores();
   const usersQ = useUsers();
   const stores = storesQ.data ?? [];
   const users = usersQ.data ?? [];
+  const selectedStoreTz = stores.find((s) => s.id === selectedStore)?.timezone ?? orgTimezone;
 
   // 첫 store 자동 선택
   useEffect(() => {
@@ -76,6 +92,13 @@ export function AttendanceSummaryPage() {
       setSelectedStore(stores[0]!.id);
     }
   }, [stores, selectedStore]);
+
+  // 매장 timezone 확정 시 주 시작 보정 (사용자가 직접 주 이동 안 했을 때만).
+  useEffect(() => {
+    if (weekUserMoved) return;
+    setWeekStart(getWeekStartInTimezone(selectedStoreTz));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedStoreTz]);
 
   const dateFrom = weekDates[0]?.date;
   const dateTo = weekDates[6]?.date;
@@ -120,6 +143,7 @@ export function AttendanceSummaryPage() {
     const next = new Date(weekStart);
     next.setDate(next.getDate() + weeks * 7);
     setWeekStart(next);
+    setWeekUserMoved(true);
   }
 
   function exportCSV() {

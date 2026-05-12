@@ -19,7 +19,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@/lib/permissions";
 import { Card, Badge, Pagination, EmptyState, LoadingSpinner } from "@/components/ui";
 import { useTimezone } from "@/hooks/useTimezone";
-import { formatDateTime } from "@/lib/utils";
+import { formatDateTime, todayInTimezone } from "@/lib/utils";
 
 // ─── Log types ───────────────────────────────────
 
@@ -75,27 +75,36 @@ function SortArrows({ active, dir }: { active: boolean; dir: SortDir }) {
 
 type DatePreset = "today" | "this_week" | "last_week" | "this_month" | "all" | "custom";
 
-function getToday(): string {
-  return new Date().toISOString().slice(0, 10);
+/** YYYY-MM-DD 로 로컬 캘린더 날짜 포맷 — timezone 변환 없음. */
+function fmtLocalYMD(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-function getWeekRange(offset: number): { from: string; to: string } {
-  const now = new Date();
-  const dayOfWeek = now.getDay();
-  const monday = new Date(now);
-  monday.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1) + offset * 7);
+/** 매장/조직 timezone 의 "오늘" 을 캘린더 Date 로 환원. 이후 산술은 캘린더 산술. */
+function todayAsLocalDate(tz: string | undefined): Date {
+  const [y, m, d] = todayInTimezone(tz).split("-").map(Number);
+  return new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1);
+}
+
+function getToday(tz: string | undefined): string {
+  return todayInTimezone(tz);
+}
+
+function getWeekRange(offset: number, tz: string | undefined): { from: string; to: string } {
+  const today = todayAsLocalDate(tz);
+  const dayOfWeek = today.getDay();
+  const monday = new Date(today);
+  monday.setDate(today.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1) + offset * 7);
   const sunday = new Date(monday);
   sunday.setDate(monday.getDate() + 6);
-  const fmt = (d: Date) => d.toISOString().slice(0, 10);
-  return { from: fmt(monday), to: fmt(sunday) };
+  return { from: fmtLocalYMD(monday), to: fmtLocalYMD(sunday) };
 }
 
-function getMonthRange(): { from: string; to: string } {
-  const now = new Date();
-  const first = new Date(now.getFullYear(), now.getMonth(), 1);
-  const last = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-  const fmt = (d: Date) => d.toISOString().slice(0, 10);
-  return { from: fmt(first), to: fmt(last) };
+function getMonthRange(tz: string | undefined): { from: string; to: string } {
+  const today = todayAsLocalDate(tz);
+  const first = new Date(today.getFullYear(), today.getMonth(), 1);
+  const last = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+  return { from: fmtLocalYMD(first), to: fmtLocalYMD(last) };
 }
 
 // ─── Component ───────────────────────────────────
@@ -124,13 +133,13 @@ function ScheduleLogsContent(): React.ReactElement {
 
   // Build date range from preset
   const dateRange = useMemo(() => {
-    if (datePreset === "today") { const d = getToday(); return { from: d, to: d }; }
-    if (datePreset === "this_week") return getWeekRange(0);
-    if (datePreset === "last_week") return getWeekRange(-1);
-    if (datePreset === "this_month") return getMonthRange();
+    if (datePreset === "today") { const d = getToday(tz); return { from: d, to: d }; }
+    if (datePreset === "this_week") return getWeekRange(0, tz);
+    if (datePreset === "last_week") return getWeekRange(-1, tz);
+    if (datePreset === "this_month") return getMonthRange(tz);
     if (datePreset === "custom") return { from: customFrom || undefined, to: customTo || undefined };
     return { from: undefined, to: undefined };
-  }, [datePreset, customFrom, customTo]);
+  }, [datePreset, customFrom, customTo, tz]);
 
   const { data: logData, isLoading } = useCompletionLog({
     store_id: storeFilter || undefined,

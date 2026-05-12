@@ -48,18 +48,19 @@ export default function SchedulesDetailPage() {
     work_date: scheduleQ.data?.work_date,
   });
 
-  // 같은 user의 같은 주차 스케줄 (related)
+  // 같은 user의 같은 주차 스케줄 (related).
+  // work_date 는 캘린더 날짜 — toISOString() 으로 되돌리면 timezone offset 만큼 어긋남.
+  // 캘린더 산술로만 처리.
   const weekRange = useMemo(() => {
     if (!scheduleQ.data) return null;
-    const d = new Date(scheduleQ.data.work_date + "T00:00:00");
-    const sunday = new Date(d);
+    const [y, m, d] = scheduleQ.data.work_date.split("-").map(Number);
+    const local = new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1);
+    const sunday = new Date(local);
     sunday.setDate(sunday.getDate() - sunday.getDay());
     const saturday = new Date(sunday);
     saturday.setDate(saturday.getDate() + 6);
-    return {
-      from: sunday.toISOString().slice(0, 10),
-      to: saturday.toISOString().slice(0, 10),
-    };
+    const fmt = (dd: Date) => `${dd.getFullYear()}-${String(dd.getMonth() + 1).padStart(2, "0")}-${String(dd.getDate()).padStart(2, "0")}`;
+    return { from: fmt(sunday), to: fmt(saturday) };
   }, [scheduleQ.data]);
 
   const relatedQ = useSchedules({
