@@ -12,6 +12,8 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { User, WorkRole, Store } from "@/types";
 
+export type PreviewStatus = "draft" | "requested" | "confirmed";
+
 export interface PreviewEntry {
   tempId: string;
   userId: string;
@@ -23,6 +25,8 @@ export interface PreviewEntry {
   endTime: string;
   breakStartTime: string | null;
   breakEndTime: string | null;
+  /** Status to apply when saved. Default 'confirmed'. */
+  status: PreviewStatus;
 }
 
 const TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => {
@@ -113,6 +117,7 @@ export function ApplyToSelectedModal({
   const [globalEnd, setGlobalEnd] = useState("");
   const [globalBreakStart, setGlobalBreakStart] = useState("");
   const [globalBreakEnd, setGlobalBreakEnd] = useState("");
+  const [globalStatus, setGlobalStatus] = useState<PreviewStatus>("confirmed");
 
   const storeName = stores.find((s) => s.id === storeId)?.name ?? "Store";
   const activeWorkRoles = workRoles.filter((wr) => wr.is_active);
@@ -268,6 +273,7 @@ export function ApplyToSelectedModal({
           endTime: row.endTime || globalEnd || "18:00",
           breakStartTime: row.breakStartTime || null,
           breakEndTime: row.breakEndTime || null,
+          status: globalStatus,
         };
       })
       .filter((e) => e.startTime && e.endTime);
@@ -455,10 +461,28 @@ export function ApplyToSelectedModal({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between px-5 py-4 border-t border-[var(--color-border)]">
-          <span className="text-[12px] text-[var(--color-text-secondary)]">
-            {checkedCount} of {cells.length} will be added as preview
-          </span>
+        <div className="flex items-center justify-between px-5 py-4 border-t border-[var(--color-border)] gap-3 flex-wrap">
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-[12px] text-[var(--color-text-secondary)]">
+              {checkedCount} of {cells.length} will be added as preview
+            </span>
+            {/* Status toggle — applies to all entries added in this batch */}
+            <div className="inline-flex items-center rounded-lg border border-[var(--color-border)] overflow-hidden text-[11px]">
+              <span className="px-2.5 py-1 text-[var(--color-text-muted)] bg-[var(--color-bg)]">Save as</span>
+              {(["confirmed", "requested"] as const).map((s) => (
+                <button key={s} type="button" onClick={() => setGlobalStatus(s)}
+                  className={`px-2.5 py-1 font-semibold capitalize transition-colors ${
+                    globalStatus === s
+                      ? s === "confirmed"
+                        ? "bg-[var(--color-success-muted)] text-[var(--color-success)]"
+                        : "bg-[var(--color-warning-muted)] text-[var(--color-warning)]"
+                      : "text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]"
+                  }`}>
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
           <div className="flex items-center gap-2">
             <button type="button" onClick={onClose} className="px-4 py-2 rounded-lg text-[13px] font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] transition-colors">
               Cancel

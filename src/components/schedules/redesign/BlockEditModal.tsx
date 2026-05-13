@@ -23,6 +23,7 @@ interface Override {
   endTime?: string;
   breakStartTime?: string;
   breakEndTime?: string;
+  status?: "draft" | "requested" | "confirmed";
 }
 
 interface BlockEditModalProps {
@@ -30,7 +31,7 @@ interface BlockEditModalProps {
   selectedSchedules: Schedule[];
   workRoles: WorkRole[];
   isSubmitting: boolean;
-  onApply: (updates: { id: string; workRoleId: string | null | undefined; startTime: string | undefined; endTime: string | undefined; breakStartTime?: string; breakEndTime?: string; resetChecklist?: boolean }[]) => void;
+  onApply: (updates: { id: string; workRoleId: string | null | undefined; startTime: string | undefined; endTime: string | undefined; breakStartTime?: string; breakEndTime?: string; resetChecklist?: boolean; status?: "draft" | "requested" | "confirmed" }[]) => void;
   onClose: () => void;
 }
 
@@ -72,6 +73,7 @@ export function BlockEditModal({
   const [globalEnd, setGlobalEnd] = useState("");
   const [globalBreakStart, setGlobalBreakStart] = useState("");
   const [globalBreakEnd, setGlobalBreakEnd] = useState("");
+  const [globalStatus, setGlobalStatus] = useState<"" | "draft" | "requested" | "confirmed">("");
   /** Work Role 변경 시 각 스케줄의 체크리스트 인스턴스를 새 템플릿으로 교체할지 여부 */
   const [resetChecklists, setResetChecklists] = useState<boolean>(true);
 
@@ -84,6 +86,7 @@ export function BlockEditModal({
       setGlobalEnd("");
       setGlobalBreakStart("");
       setGlobalBreakEnd("");
+      setGlobalStatus("");
       setResetChecklists(true);
     }
   }, [open]);
@@ -143,7 +146,8 @@ export function BlockEditModal({
       .map((s) => {
         const ov = overrides.get(s.id) ?? {};
         const workRoleChanged = "workRoleId" in ov && (ov.workRoleId || null) !== (s.work_role_id ?? null);
-        // Only send fields that were actually changed
+        // status는 현재값과 다를 때만 보낸다 (no-op 호출 줄이기)
+        const statusChanged = ov.status !== undefined && ov.status !== s.status;
         return {
           id: s.id,
           workRoleId: "workRoleId" in ov ? (ov.workRoleId || null) : undefined,
@@ -151,20 +155,24 @@ export function BlockEditModal({
           endTime: ov.endTime,
           breakStartTime: ov.breakStartTime,
           breakEndTime: ov.breakEndTime,
-          // work_role이 실제로 변경된 행에만 reset_checklist 플래그 전달
           resetChecklist: workRoleChanged ? resetChecklists : undefined,
+          status: statusChanged ? ov.status : undefined,
         };
       });
     if (updates.length === 0) return;
     onApply(updates);
   }
 
-  // 변경사항이 있는 checked 행만 카운트
+  // 변경사항이 있는 checked 행만 카운트 — status도 포함.
+  // status는 현재값과 다를 때만 "변경"으로 친다 (no-op select 클릭은 제외).
   const hasChanges = selectedSchedules
     .filter((s) => !unchecked.has(s.id))
     .some((s) => {
       const ov = overrides.get(s.id);
-      return ov && (ov.workRoleId !== undefined || ov.startTime !== undefined || ov.endTime !== undefined || ov.breakStartTime !== undefined || ov.breakEndTime !== undefined);
+      if (!ov) return false;
+      const fieldChanged = ov.workRoleId !== undefined || ov.startTime !== undefined || ov.endTime !== undefined || ov.breakStartTime !== undefined || ov.breakEndTime !== undefined;
+      const statusChanged = ov.status !== undefined && ov.status !== s.status;
+      return fieldChanged || statusChanged;
     });
 
   // work_role이 실제로 변경되는 checked 행 수 — reset_checklist UI 조건부 노출용
@@ -244,6 +252,20 @@ export function BlockEditModal({
             <option value="">—</option>
             {TIME_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
           </select>
+          <select
+            value={globalStatus}
+            onChange={(e) => {
+              const v = e.target.value as "" | "requested" | "confirmed";
+              setGlobalStatus(v);
+              if (v) applyGlobal("status", v);
+            }}
+            title="Apply status to all checked rows"
+            className="w-[100px] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg px-2 py-1.5 text-[12px] text-[var(--color-text)] shrink-0"
+          >
+            <option value="">— Status —</option>
+            <option value="confirmed">Confirmed</option>
+            <option value="requested">Requested</option>
+          </select>
         </div>
 
         {/* Table header */}
@@ -294,11 +316,28 @@ export function BlockEditModal({
                     <div className="text-[11px] text-[var(--color-text-muted)] truncate">{fmtDate(s.work_date)} · {s.store_name ?? "—"}</div>
                   </div>
                 </div>
-                {/* Current status + times */}
+                {/* Status select (editable) + current times.
+                    Confirmed/Requested only — draft is the system-internal initial state
+                    for unsaved previews and shouldn't be reachable for existing schedules. */}
                 <div className="min-w-0">
-                  <span className={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold ${statusColor}`}>
-                    {s.status}
-                  </span>
+                  {(() => {
+                    // 현재 status가 draft (preview 행)이면 select 노출값은 confirmed로 normalize.
+                    const rawStatus = (ov.status ?? s.status) as string;
+                    const effStatus = rawStatus === "draft" ? "confirmed" : rawStatus;
+                    const effColor = STATUS_COLORS[effStatus] ?? statusColor;
+                    return (
+                      <select
+                        value={effStatus}
+                        onChange={(e) => setOverride(s.id, "status", e.target.value)}
+                        disabled={isUnchecked}
+                        title="Change status on save"
+                        className={`text-[10px] font-semibold rounded px-1.5 py-0.5 border-0 cursor-pointer disabled:cursor-not-allowed ${effColor}`}
+                      >
+                        <option value="confirmed">Confirmed</option>
+                        <option value="requested">Requested</option>
+                      </select>
+                    );
+                  })()}
                   <div className="text-[11px] text-[var(--color-text-muted)] mt-0.5 truncate">
                     {s.start_time}–{s.end_time}
                   </div>

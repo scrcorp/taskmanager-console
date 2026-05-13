@@ -85,6 +85,8 @@ interface ScheduleModification {
   breakStartTime?: string | null;
   breakEndTime?: string | null;
   resetChecklist?: boolean;
+  /** Target status (draft/requested/confirmed). If set, server triggers a status transition. */
+  status?: "draft" | "requested" | "confirmed";
 }
 
 interface SavePayload {
@@ -396,6 +398,7 @@ export default function BulkScheduleView({
           userId, storeId, workRoleId: e.workRoleId, workRoleName: e.workRoleName,
           workDate: targetDate, startTime: e.startTime, endTime: e.endTime,
           breakStartTime: e.breakStartTime, breakEndTime: e.breakEndTime,
+          status: "confirmed",
         });
       }
     } else if (clipboard.type === "block") {
@@ -410,6 +413,7 @@ export default function BulkScheduleView({
           userId, storeId, workRoleId: e.workRoleId, workRoleName: e.workRoleName,
           workDate: date, startTime: e.startTime, endTime: e.endTime,
           breakStartTime: e.breakStartTime, breakEndTime: e.breakEndTime,
+          status: "confirmed",
         });
       }
     }
@@ -423,11 +427,12 @@ export default function BulkScheduleView({
   function pasteToCell(userId: string, date: string) {
     if (!clipboard || clipboard.entries.length === 0) return;
     pushDataSnapshot();
-    const newEntries = clipboard.entries.map((e) => ({
+    const newEntries: PreviewEntry[] = clipboard.entries.map((e) => ({
       tempId: `paste-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
       userId, storeId, workRoleId: e.workRoleId, workRoleName: e.workRoleName,
       workDate: date, startTime: e.startTime, endTime: e.endTime,
       breakStartTime: e.breakStartTime, breakEndTime: e.breakEndTime,
+      status: "confirmed",
     }));
     setPreviewEntries((prev) => [...prev, ...newEntries]);
   }
@@ -445,6 +450,7 @@ export default function BulkScheduleView({
           userId, storeId, workRoleId: e.workRoleId, workRoleName: e.workRoleName,
           workDate: date, startTime: e.startTime, endTime: e.endTime,
           breakStartTime: e.breakStartTime, breakEndTime: e.breakEndTime,
+          status: "confirmed",
         });
       }
     }
@@ -527,7 +533,7 @@ export default function BulkScheduleView({
     toast({ type: "success", message: `${entries.length} previews added` });
   }
 
-  function handleEditApply(updates: { id: string; workRoleId: string | null | undefined; startTime: string | undefined; endTime: string | undefined; breakStartTime?: string; breakEndTime?: string; resetChecklist?: boolean }[]) {
+  function handleEditApply(updates: { id: string; workRoleId: string | null | undefined; startTime: string | undefined; endTime: string | undefined; breakStartTime?: string; breakEndTime?: string; resetChecklist?: boolean; status?: "draft" | "requested" | "confirmed" }[]) {
     pushDataSnapshot();
     setModifiedSchedules((prev) => {
       const next = new Map(prev);
@@ -543,6 +549,7 @@ export default function BulkScheduleView({
               endTime: u.endTime ?? e.endTime,
               breakStartTime: u.breakStartTime !== undefined ? (u.breakStartTime || null) : e.breakStartTime,
               breakEndTime: u.breakEndTime !== undefined ? (u.breakEndTime || null) : e.breakEndTime,
+              status: u.status ?? e.status,
             } : e,
           ));
         } else {
@@ -556,6 +563,7 @@ export default function BulkScheduleView({
             ...(u.breakStartTime !== undefined && { breakStartTime: u.breakStartTime || null }),
             ...(u.breakEndTime !== undefined && { breakEndTime: u.breakEndTime || null }),
             ...(u.resetChecklist !== undefined && { resetChecklist: u.resetChecklist }),
+            ...(u.status !== undefined && { status: u.status }),
           });
         }
       }
@@ -630,13 +638,22 @@ export default function BulkScheduleView({
     toast({ type: "success", message: `${selectedBlockIds.size} items marked for deletion` });
   }
 
-  function handleSave(excluded?: Set<string>) {
-    const creates = excluded
+  function handleSave(
+    excluded?: Set<string>,
+    statusOverrides?: Map<string, "draft" | "requested" | "confirmed">,
+  ) {
+    const applyStatus = (e: PreviewEntry) =>
+      statusOverrides?.has(e.tempId) ? { ...e, status: statusOverrides.get(e.tempId)! } : e;
+    const creates = (excluded
       ? previewEntries.filter((e) => !excluded.has(e.tempId))
-      : [...previewEntries];
+      : [...previewEntries]
+    ).map(applyStatus);
     const updates = Array.from(modifiedSchedules.entries())
       .filter(([id]) => !excluded?.has(id))
-      .map(([id, data]) => ({ id, data }));
+      .map(([id, data]) => {
+        const targetStatus = statusOverrides?.get(id);
+        return targetStatus ? { id, data: { ...data, status: targetStatus } } : { id, data };
+      });
     const deletes = Array.from(deletedScheduleIds)
       .filter((id) => !excluded?.has(id));
     onSave({ creates, updates, deletes });
@@ -673,6 +690,9 @@ export default function BulkScheduleView({
         endTime: s.end_time ?? "18:00",
         breakStartTime: s.break_start_time,
         breakEndTime: s.break_end_time,
+        // 복사 시 원본 status가 confirmed가 아닐 수 있지만, 사용자가 명시적으로 새로 생성하는 흐름이므로 default confirmed.
+        // Review 모달에서 entry/cluster/group 단위로 변경 가능.
+        status: "confirmed",
       });
     }
     setPreviewEntries((prev) => [...prev, ...newEntries]);
@@ -745,7 +765,8 @@ export default function BulkScheduleView({
         hourly_rate: 0,
         effective_rate: null,
         effective_rate_source: null,
-        status: "draft" as const,
+        // PreviewEntry의 실제 status를 그대로 전달 — BlockEditModal에서 현재값으로 보여야 함.
+        status: e.status,
         submitted_at: null,
         is_modified: false,
         rejected_by: null,
@@ -1014,6 +1035,7 @@ export default function BulkScheduleView({
                                         userId: uid, storeId, workRoleId: entry.workRoleId, workRoleName: entry.workRoleName,
                                         workDate: day.date, startTime: entry.startTime, endTime: entry.endTime,
                                         breakStartTime: entry.breakStartTime, breakEndTime: entry.breakEndTime,
+                                        status: "confirmed",
                                       });
                                     }
                                   }
@@ -1032,6 +1054,7 @@ export default function BulkScheduleView({
                                         userId: u.id, storeId, workRoleId: entry.workRoleId, workRoleName: entry.workRoleName,
                                         workDate: day.date, startTime: entry.startTime, endTime: entry.endTime,
                                         breakStartTime: entry.breakStartTime, breakEndTime: entry.breakEndTime,
+                                        status: "confirmed",
                                       });
                                     }
                                   }
@@ -1255,15 +1278,22 @@ export default function BulkScheduleView({
                               {/* Preview blocks */}
                               {cellPreviews.map((p) => {
                                 const blockSelected = selectionMode === "edit" && selectedBlockIds.has(p.tempId);
-                                // Conflict detection: check overlap with active existing schedules
+                                // Conflict detection: overlap with existing schedules OR other previews in same cell
                                 const pStart = parseTimeToHours(p.startTime);
                                 const pEnd = parseTimeToHours(p.endTime);
                                 const activeExisting = cellSchedules.filter((s) => !isDeleted(s.id));
-                                const hasConflict = activeExisting.some((s) => {
+                                const conflictWithExisting = activeExisting.some((s) => {
                                   const es = parseTimeToHours(getEffectiveSchedule(s).start_time);
                                   const ee = parseTimeToHours(getEffectiveSchedule(s).end_time);
                                   return pStart < ee && pEnd > es;
                                 });
+                                const conflictWithPreview = cellPreviews.some((other) => {
+                                  if (other.tempId === p.tempId) return false;
+                                  const os = parseTimeToHours(other.startTime);
+                                  const oe = parseTimeToHours(other.endTime);
+                                  return pStart < oe && pEnd > os;
+                                });
+                                const hasConflict = conflictWithExisting || conflictWithPreview;
                                 // Cost
                                 const pHours = Math.max(0, pEnd - pStart);
                                 const pUser = allUsers.find((u) => u.id === p.userId);
@@ -1274,13 +1304,17 @@ export default function BulkScheduleView({
                                 const bEnd = parseTimeToHours(p.breakEndTime);
                                 const breakHrs = (p.breakStartTime && p.breakEndTime) ? Math.max(0, bEnd - bStart) : 0;
                                 const netCost = (pHours - breakHrs) * pRate;
+                                // Status → border/bg/badge color. Conflict trumps status.
+                                const previewStyle = hasConflict
+                                  ? { border: "border-[var(--color-danger)]", bg: "bg-[var(--color-danger-muted)]", title: "text-[var(--color-danger)]", badge: "bg-[var(--color-danger)] text-white", label: "Conflict" }
+                                  : p.status === "requested"
+                                    ? { border: "border-[var(--color-warning)]", bg: "bg-[var(--color-warning-muted)]", title: "text-[var(--color-warning)]", badge: "bg-[var(--color-warning)] text-white", label: "Requested" }
+                                    : p.status === "draft"
+                                      ? { border: "border-[var(--color-text-muted)]", bg: "bg-[var(--color-bg)]", title: "text-[var(--color-text-muted)]", badge: "bg-[var(--color-text-muted)] text-white", label: "Draft" }
+                                      : { border: "border-[var(--color-success)]", bg: "bg-[var(--color-success-muted)]", title: "text-[var(--color-success)]", badge: "bg-[var(--color-success)] text-white", label: "Confirmed" };
                                 return (
                                   <div key={p.tempId}
-                                    className={`group/block relative rounded-md border-[1.5px] border-dashed px-2 py-1.5 cursor-pointer transition-shadow hover:shadow-[0_2px_8px_rgba(0,0,0,0.08)] ${
-                                      hasConflict
-                                        ? "border-[var(--color-danger)] bg-[var(--color-danger-muted)]"
-                                        : "border-[var(--color-accent)] bg-[var(--color-accent-muted)]"
-                                    } ${blockSelected ? "ring-2 ring-[var(--color-accent)]" : ""}`}
+                                    className={`group/block relative rounded-md border-[1.5px] border-dashed px-2 py-1.5 cursor-pointer transition-shadow hover:shadow-[0_2px_8px_rgba(0,0,0,0.08)] ${previewStyle.border} ${previewStyle.bg} ${blockSelected ? "ring-2 ring-[var(--color-accent)]" : ""}`}
                                     onClick={(e) => { if (selectionMode === "edit") { e.stopPropagation(); toggleBlock(p.tempId); } }}
                                   >
                                     {/* Hover: edit + remove */}
@@ -1299,11 +1333,11 @@ export default function BulkScheduleView({
                                       </button>
                                     </div>
                                     <div className="flex items-center justify-between gap-1">
-                                      <span className={`text-[11px] font-semibold truncate flex-1 min-w-0 ${hasConflict ? "text-[var(--color-danger)]" : "text-[var(--color-accent)]"}`}>
+                                      <span className={`text-[11px] font-semibold truncate flex-1 min-w-0 ${previewStyle.title}`}>
                                         {p.workRoleName ?? "No role"}
                                       </span>
-                                      <span className={`text-[9px] px-1 py-0.5 rounded font-semibold shrink-0 ${hasConflict ? "bg-[var(--color-danger)] text-white" : "bg-[var(--color-accent)] text-white"}`}>
-                                        {hasConflict ? "Conflict!" : "New"}
+                                      <span className={`text-[9px] px-1 py-0.5 rounded font-semibold shrink-0 ${previewStyle.badge}`}>
+                                        {previewStyle.label}
                                       </span>
                                     </div>
                                     <div className="text-[10px] text-[var(--color-text-secondary)] tabular-nums mt-0.5">
@@ -1509,7 +1543,7 @@ export default function BulkScheduleView({
         storeId={storeId}
         isSaving={isSaving}
         onClose={() => setSaveConfirmOpen(false)}
-        onConfirm={(excluded) => { setSaveConfirmOpen(false); handleSave(excluded); }}
+        onConfirm={(excluded, statusOverrides) => { setSaveConfirmOpen(false); handleSave(excluded, statusOverrides); }}
       />}
     </div>
   );
@@ -1531,7 +1565,10 @@ interface SaveReviewModalProps {
   storeId: string;
   isSaving: boolean;
   onClose: () => void;
-  onConfirm: (excluded: Set<string>) => void;
+  onConfirm: (
+    excluded: Set<string>,
+    statusOverrides: Map<string, "draft" | "requested" | "confirmed">,
+  ) => void;
 }
 
 function SaveReviewModal({
@@ -1546,6 +1583,18 @@ function SaveReviewModal({
   onConfirm,
 }: SaveReviewModalProps) {
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
+  // Per-entry status overrides (also used for modified server schedules → triggers status transition).
+  const [statusOverrides, setStatusOverrides] = useState<Map<string, "draft" | "requested" | "confirmed">>(new Map());
+  function setEntryStatus(tempId: string, status: "draft" | "requested" | "confirmed") {
+    setStatusOverrides((prev) => {
+      const next = new Map(prev);
+      next.set(tempId, status);
+      return next;
+    });
+  }
+  function getEntryStatus(e: PreviewEntry): "draft" | "requested" | "confirmed" {
+    return statusOverrides.get(e.tempId) ?? e.status;
+  }
 
   // Call POST /bulk/preview for conflict + overtime validation
   const previewMutation = useBulkPreviewSchedules();
@@ -1560,6 +1609,7 @@ function SaveReviewModal({
       end_time: e.endTime,
       break_start_time: e.breakStartTime,
       break_end_time: e.breakEndTime,
+      status: e.status,
     }));
     previewMutation.mutate({ entries });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1567,7 +1617,6 @@ function SaveReviewModal({
 
   const conflicts = previewMutation.data?.conflicts ?? [];
   const warnings = previewMutation.data?.warnings ?? [];
-  const hasConflicts = conflicts.filter((c) => !excluded.has(previewEntries[c.index]?.tempId ?? "")).length > 0;
 
   function toggle(id: string) {
     setExcluded((prev) => {
@@ -1585,6 +1634,73 @@ function SaveReviewModal({
   function userName(userId: string): string {
     return allUsers.find((u) => u.id === userId)?.full_name ?? "Unknown";
   }
+
+  // Group previewEntries by user → (workDate, time-overlap cluster).
+  // Cluster size ≥ 2 means user pasted multiple shifts that overlap in time.
+  const userGroups = useMemo(() => {
+    const byUser = new Map<string, PreviewEntry[]>();
+    for (const e of previewEntries) {
+      const arr = byUser.get(e.userId) ?? [];
+      arr.push(e);
+      byUser.set(e.userId, arr);
+    }
+    const result: { userId: string; userName: string; clusters: { key: string; entries: PreviewEntry[]; isConflict: boolean }[]; total: number; conflictCount: number }[] = [];
+    for (const [uid, list] of byUser) {
+      const byDate = new Map<string, PreviewEntry[]>();
+      for (const e of list) {
+        const arr = byDate.get(e.workDate) ?? [];
+        arr.push(e);
+        byDate.set(e.workDate, arr);
+      }
+      const clusters: { key: string; entries: PreviewEntry[]; isConflict: boolean }[] = [];
+      let conflictCount = 0;
+      for (const date of Array.from(byDate.keys()).sort()) {
+        const cellEntries = byDate.get(date)!;
+        const n = cellEntries.length;
+        const parent = Array.from({ length: n }, (_, i) => i);
+        const find = (i: number): number => parent[i] === i ? i : (parent[i] = find(parent[i]));
+        for (let i = 0; i < n; i++) {
+          for (let j = i + 1; j < n; j++) {
+            const a = cellEntries[i]!, b = cellEntries[j]!;
+            const as = parseTimeToHours(a.startTime), ae = parseTimeToHours(a.endTime);
+            const bs = parseTimeToHours(b.startTime), be = parseTimeToHours(b.endTime);
+            if (as < be && bs < ae) parent[find(i)] = find(j);
+          }
+        }
+        const groups = new Map<number, PreviewEntry[]>();
+        for (let i = 0; i < n; i++) {
+          const r = find(i);
+          if (!groups.has(r)) groups.set(r, []);
+          groups.get(r)!.push(cellEntries[i]!);
+        }
+        const sorted = Array.from(groups.values()).sort(
+          (a, b) => parseTimeToHours(a[0]!.startTime) - parseTimeToHours(b[0]!.startTime),
+        );
+        let idx = 0;
+        for (const cluster of sorted) {
+          const isConflict = cluster.length >= 2;
+          if (isConflict) conflictCount += cluster.length;
+          clusters.push({ key: `${uid}:${date}:${idx++}`, entries: cluster, isConflict });
+        }
+      }
+      result.push({ userId: uid, userName: userName(uid), clusters, total: list.length, conflictCount });
+    }
+    result.sort((a, b) => a.userName.localeCompare(b.userName));
+    return result;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [previewEntries, allUsers]);
+
+  // Conflict is "active" only if the user still has ≥2 entries checked in a cluster.
+  // Excluding all-but-one resolves it.
+  const hasConflicts = userGroups.some((g) =>
+    g.clusters.some((c) => c.isConflict && c.entries.filter((e) => !excluded.has(e.tempId)).length >= 2),
+  ) || conflicts.some((c) => {
+    const entry = previewEntries[c.index];
+    if (!entry || excluded.has(entry.tempId)) return false;
+    // Self-overlap is covered by client clusters above — skip those server messages.
+    if (c.message && c.message.startsWith("Overlaps with another shift in this save")) return false;
+    return true;
+  });
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -1605,26 +1721,113 @@ function SaveReviewModal({
 
         {/* Content */}
         <div className="overflow-y-auto flex-1 divide-y divide-[var(--color-border)]">
-          {/* Creates */}
+          {/* Creates — grouped by user, then by time-overlap cluster within each cell */}
           {previewEntries.length > 0 && (
             <div className="px-5 py-3">
               <div className="flex items-center gap-2 mb-2">
                 <span className="w-7 h-7 rounded-full bg-[var(--color-success-muted)] text-[var(--color-success)] flex items-center justify-center text-[11px] font-bold">+</span>
                 <span className="text-[13px] font-semibold text-[var(--color-text)]">New ({creates.length})</span>
               </div>
-              <div className="space-y-1">
-                {previewEntries.map((e) => {
-                  const off = excluded.has(e.tempId);
+              <div className="space-y-2">
+                {userGroups.map((group) => {
+                  const allEntries = group.clusters.flatMap((c) => c.entries);
+                  const setAllStatus = (status: "confirmed" | "requested") => {
+                    for (const e of allEntries) setEntryStatus(e.tempId, status);
+                  };
                   return (
-                    <label key={e.tempId} className={`flex items-center gap-2.5 px-2 py-1.5 rounded-lg cursor-pointer hover:bg-[var(--color-surface-hover)] transition-colors ${off ? "opacity-40" : ""}`}>
-                      <input type="checkbox" checked={!off} onChange={() => toggle(e.tempId)} className="w-4 h-4 accent-[var(--color-accent)] shrink-0" />
-                      <div className="flex-1 min-w-0">
-                        <span className="text-[12px] font-semibold text-[var(--color-text)]">{userName(e.userId)}</span>
-                        <span className="text-[11px] text-[var(--color-text-muted)] ml-2">{fmtDateShort(e.workDate)}</span>
+                  <div key={group.userId} className="rounded-lg border border-[var(--color-border)] overflow-hidden">
+                    {/* User header */}
+                    <div className="flex items-center justify-between gap-2 px-3 py-1.5 bg-[var(--color-bg)] border-b border-[var(--color-border)]">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-[12px] font-semibold text-[var(--color-text)] truncate">{group.userName}</span>
+                        <span className="text-[10px] text-[var(--color-text-muted)] shrink-0">
+                          {group.total} item{group.total !== 1 ? "s" : ""}
+                          {group.conflictCount > 0 && (
+                            <span className="text-[var(--color-danger)] font-semibold ml-1.5">· {group.conflictCount} overlapping</span>
+                          )}
+                        </span>
                       </div>
-                      <span className="text-[11px] text-[var(--color-text-secondary)] tabular-nums shrink-0">{e.startTime} – {e.endTime}</span>
-                      {e.workRoleName && <span className="text-[10px] text-[var(--color-accent)] font-semibold shrink-0 max-w-[100px] truncate">{e.workRoleName}</span>}
-                    </label>
+                      <div className="inline-flex items-center text-[10px] gap-1 shrink-0">
+                        <span className="text-[var(--color-text-muted)]">Set all</span>
+                        <button type="button" onClick={() => setAllStatus("confirmed")}
+                          className="px-2 py-0.5 rounded font-semibold text-[var(--color-success)] bg-[var(--color-success-muted)] hover:opacity-80 transition-opacity">
+                          Confirmed
+                        </button>
+                        <button type="button" onClick={() => setAllStatus("requested")}
+                          className="px-2 py-0.5 rounded font-semibold text-[var(--color-warning)] bg-[var(--color-warning-muted)] hover:opacity-80 transition-opacity">
+                          Requested
+                        </button>
+                      </div>
+                    </div>
+                    {/* Clusters */}
+                    <div className="divide-y divide-[var(--color-border)]">
+                      {group.clusters.map((cluster) => {
+                        const checkedInCluster = cluster.entries.filter((e) => !excluded.has(e.tempId)).length;
+                        const resolved = cluster.isConflict && checkedInCluster <= 1;
+                        const showConflict = cluster.isConflict && !resolved;
+                        return (
+                          <div key={cluster.key}>
+                            {cluster.isConflict && (
+                              <div className={`flex items-center gap-1.5 px-3 py-1 text-[11px] ${
+                                showConflict ? "text-[var(--color-danger)] bg-[var(--color-danger-muted)]"
+                                  : "text-[var(--color-success)] bg-[var(--color-success-muted)]"
+                              }`}>
+                                {showConflict ? (
+                                  <>
+                                    <svg width="11" height="11" viewBox="0 0 14 14" className="shrink-0" aria-hidden="true">
+                                      <path d="M7 1L13 12H1L7 1Z" fill="currentColor" fillOpacity="0.25" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+                                      <path d="M7 5.5V8M7 10v0.1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                                    </svg>
+                                    <span className="font-semibold">{cluster.entries.length} overlapping shifts on {fmtDateShort(cluster.entries[0]!.workDate)}</span>
+                                    <span className="opacity-70">— uncheck all but one to resolve</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <svg width="11" height="11" viewBox="0 0 14 14" className="shrink-0" aria-hidden="true">
+                                      <path d="M3 7l3 3 5-6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" fill="none" />
+                                    </svg>
+                                    <span className="font-semibold">Resolved · keeping 1 of {cluster.entries.length} on {fmtDateShort(cluster.entries[0]!.workDate)}</span>
+                                  </>
+                                )}
+                              </div>
+                            )}
+                            {cluster.entries.map((e) => {
+                              const off = excluded.has(e.tempId);
+                              const rowDanger = showConflict && !off;
+                              const curStatus = getEntryStatus(e);
+                              return (
+                                <div key={e.tempId}
+                                  className={`flex items-center gap-2 px-3 py-1.5 transition-colors ${
+                                    off ? "opacity-40 hover:bg-[var(--color-surface-hover)]"
+                                      : rowDanger ? "bg-[var(--color-danger-muted)]/40 hover:bg-[var(--color-danger-muted)]/60"
+                                      : "hover:bg-[var(--color-surface-hover)]"
+                                  }`}>
+                                  <input type="checkbox" checked={!off} onChange={() => toggle(e.tempId)} className="w-4 h-4 accent-[var(--color-accent)] shrink-0 cursor-pointer" />
+                                  <span className={`text-[11px] flex-1 ${rowDanger ? "text-[var(--color-danger)] font-medium" : "text-[var(--color-text)]"}`}>
+                                    {fmtDateShort(e.workDate)}
+                                  </span>
+                                  <span className={`text-[11px] tabular-nums shrink-0 ${rowDanger ? "text-[var(--color-danger)] font-semibold" : "text-[var(--color-text-secondary)]"}`}>{e.startTime} – {e.endTime}</span>
+                                  {e.workRoleName && <span className="text-[10px] text-[var(--color-accent)] font-semibold shrink-0 max-w-[100px] truncate">{e.workRoleName}</span>}
+                                  <select
+                                    value={curStatus === "draft" ? "confirmed" : curStatus}
+                                    onChange={(ev) => setEntryStatus(e.tempId, ev.target.value as "requested" | "confirmed")}
+                                    disabled={off}
+                                    title="Status to apply on save"
+                                    className={`text-[10px] font-semibold rounded px-1.5 py-0.5 border border-[var(--color-border)] bg-[var(--color-surface)] cursor-pointer disabled:cursor-not-allowed shrink-0 ${
+                                      curStatus === "requested" ? "text-[var(--color-warning)]"
+                                        : "text-[var(--color-success)]"
+                                    }`}>
+                                    <option value="confirmed">Confirmed</option>
+                                    <option value="requested">Requested</option>
+                                  </select>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
                   );
                 })}
               </div>
@@ -1688,45 +1891,51 @@ function SaveReviewModal({
           )}
         </div>
 
-        {/* Conflicts & Warnings from server preview */}
-        {(conflicts.length > 0 || warnings.length > 0) && (
-          <div className="px-5 py-3 border-t border-[var(--color-border)] bg-[var(--color-bg)]">
-            {conflicts.length > 0 && (
-              <div className="mb-2">
-                <div className="flex items-center gap-1.5 mb-1">
-                  <span className="w-4 h-4 rounded-full bg-[var(--color-danger)] text-white flex items-center justify-center text-[10px] font-bold">!</span>
-                  <span className="text-[12px] font-semibold text-[var(--color-danger)]">Conflicts ({conflicts.length})</span>
+        {/* Non-overlap server messages (validation, weekly overtime) — overlap conflicts are shown inline above */}
+        {(() => {
+          const otherServerConflicts = conflicts.filter(
+            (c) => !(c.message && c.message.startsWith("Overlaps with another shift in this save")),
+          );
+          if (otherServerConflicts.length === 0 && warnings.length === 0) return null;
+          return (
+            <div className="px-5 py-3 border-t border-[var(--color-border)] bg-[var(--color-bg)]">
+              {otherServerConflicts.length > 0 && (
+                <div className="mb-2">
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span className="w-4 h-4 rounded-full bg-[var(--color-danger)] text-white flex items-center justify-center text-[10px] font-bold">!</span>
+                    <span className="text-[12px] font-semibold text-[var(--color-danger)]">Other issues ({otherServerConflicts.length})</span>
+                  </div>
+                  <div className="space-y-0.5 pl-6">
+                    {otherServerConflicts.slice(0, 5).map((c) => {
+                      const entry = previewEntries[c.index];
+                      return (
+                        <div key={c.index} className="text-[11px] text-[var(--color-danger)]">
+                          {entry ? `${userName(entry.userId)} ${fmtDateShort(entry.workDate)}` : `Entry #${c.index}`}: {c.message}
+                        </div>
+                      );
+                    })}
+                    {otherServerConflicts.length > 5 && <div className="text-[11px] text-[var(--color-text-muted)]">...and {otherServerConflicts.length - 5} more</div>}
+                  </div>
                 </div>
-                <div className="space-y-0.5 pl-6">
-                  {conflicts.slice(0, 5).map((c) => {
-                    const entry = previewEntries[c.index];
-                    return (
-                      <div key={c.index} className="text-[11px] text-[var(--color-danger)]">
-                        {entry ? `${userName(entry.userId)} ${fmtDateShort(entry.workDate)}` : `Entry #${c.index}`}: {c.message}
+              )}
+              {warnings.length > 0 && (
+                <div>
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span className="w-4 h-4 rounded-full bg-[var(--color-warning)] text-white flex items-center justify-center text-[10px] font-bold">⚠</span>
+                    <span className="text-[12px] font-semibold text-[var(--color-warning)]">Overtime Warnings ({warnings.length})</span>
+                  </div>
+                  <div className="space-y-0.5 pl-6">
+                    {warnings.map((w) => (
+                      <div key={w.user_id} className="text-[11px] text-[var(--color-warning)]">
+                        {userName(w.user_id)}: {Math.round(w.total_minutes / 60)}h / {Math.round(w.limit_minutes / 60)}h weekly
                       </div>
-                    );
-                  })}
-                  {conflicts.length > 5 && <div className="text-[11px] text-[var(--color-text-muted)]">...and {conflicts.length - 5} more</div>}
+                    ))}
+                  </div>
                 </div>
-              </div>
-            )}
-            {warnings.length > 0 && (
-              <div>
-                <div className="flex items-center gap-1.5 mb-1">
-                  <span className="w-4 h-4 rounded-full bg-[var(--color-warning)] text-white flex items-center justify-center text-[10px] font-bold">⚠</span>
-                  <span className="text-[12px] font-semibold text-[var(--color-warning)]">Overtime Warnings ({warnings.length})</span>
-                </div>
-                <div className="space-y-0.5 pl-6">
-                  {warnings.map((w) => (
-                    <div key={w.user_id} className="text-[11px] text-[var(--color-warning)]">
-                      {userName(w.user_id)}: {Math.round(w.total_minutes / 60)}h / {Math.round(w.limit_minutes / 60)}h weekly
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-        )}
+              )}
+            </div>
+          );
+        })()}
 
         {/* Footer */}
         <div className="flex items-center justify-between px-5 py-4 border-t border-[var(--color-border)]">
@@ -1739,7 +1948,7 @@ function SaveReviewModal({
               className="px-4 py-2 rounded-lg text-[13px] font-semibold text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] transition-colors">
               Cancel
             </button>
-            <button type="button" onClick={() => onConfirm(excluded)} disabled={activeCount === 0 || isSaving || hasConflicts}
+            <button type="button" onClick={() => onConfirm(excluded, statusOverrides)} disabled={activeCount === 0 || isSaving || hasConflicts}
               title={hasConflicts ? "Resolve or exclude conflicting items first" : undefined}
               className="px-5 py-2 rounded-lg text-[13px] font-semibold bg-[var(--color-success)] text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors">
               {isSaving ? "Saving…" : `Save ${activeCount} Changes`}
