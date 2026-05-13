@@ -6,6 +6,7 @@ import { useAttendances } from '@/hooks/useAttendances'
 import { useStores } from '@/hooks/useStores'
 import { useAuthStore } from '@/stores/authStore'
 import { todayInTimezone } from '@/lib/utils'
+import { useMidnightRefresh } from '@/hooks/useMidnightRefresh'
 import type { AttendanceBreakItem } from '@/types'
 
 type AttendanceState = "upcoming" | "soon" | "working" | "on_break" | "late" | "clocked_out" | "no_show" | "cancelled"
@@ -254,8 +255,12 @@ function computeLateMinutes(clockInIso?: string | null, scheduledIso?: string | 
 export function AttendancePage() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  // 매장/조직 timezone 기준 오늘. DB가 UTC라 toISOString()을 쓰면 미국 저녁에 다음날로 잡힘.
+  // 매장/조직 timezone 기준 오늘 + 자정 자동 갱신.
   const orgTimezone = useAuthStore((s) => s.user?.organization_timezone) ?? undefined
+  const today = useMidnightRefresh(
+    () => todayInTimezone(orgTimezone),
+    [orgTimezone],
+  )
 
   // URL 초기값 ?date=YYYY-MM-DD&store=<id>&filter=<key>
   // 잘못된 값은 무시하고 기본값 사용.
@@ -267,6 +272,17 @@ export function AttendancePage() {
   // 필터 다중 선택 — 비어있으면 All (모두 표시).
   const [filters, setFilters] = useState<Set<CheckableFilterKey>>(initFilter)
   const [date, setDate] = useState(initDate ?? todayInTimezone(orgTimezone))
+
+  // 사용자가 명시적으로 다른 날짜를 고르지 않은 동안 (URL date 없고 picker 도 today
+  // 그대로) 자정이 지나가면 date state 도 새 today 로 따라가도록 sync.
+  // 사용자가 직접 다른 날짜를 골랐다면 그대로 둔다.
+  useEffect(() => {
+    if (!searchParams.get('date') && date !== today) {
+      // date 가 어제 today 그대로 굳어있었던 경우만 동기화
+      setDate(today)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [today])
 
   const storesQ = useStores()
   const stores = storesQ.data ?? []

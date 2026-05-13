@@ -33,6 +33,7 @@ import { FilterBar, type FilterState, type EmptyStaffSort } from "./FilterBar";
 import { LegendModal } from "./LegendModal";
 import { MonthlyGrid } from "./MonthlyGrid";
 import { useShifts } from "@/hooks/useShifts";
+import { useMidnightRefresh } from "@/hooks/useMidnightRefresh";
 import { useWorkRoles } from "@/hooks/useWorkRoles";
 import { useBulkCreateSchedules, useBulkUpdateSchedules, useBulkDeleteSchedules } from "@/hooks/useSchedules";
 import BulkScheduleView, { type SavePayload } from "./BulkScheduleView";

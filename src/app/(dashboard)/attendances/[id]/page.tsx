@@ -116,6 +116,7 @@ interface DraftState {
   clock_in: string;
   clock_out: string;
   status: StatusKey;
+  note: string;
 }
 
 /** 값이 있으면 그대로 input 형식으로, 없으면 빈 문자열.
@@ -125,6 +126,7 @@ function buildDraft(att: Attendance): DraftState {
     clock_in: isoToLocalInput(att.clock_in),
     clock_out: isoToLocalInput(att.clock_out),
     status: att.status as StatusKey,
+    note: att.note ?? "",
   };
 }
 
@@ -201,6 +203,9 @@ export default function AttendanceDetailPage(): React.ReactElement {
     if (draft.status !== initialDraft.status) {
       calls.push({ field: "status", value: draft.status });
     }
+    if (draft.note !== initialDraft.note) {
+      calls.push({ field: "note", value: draft.note });
+    }
 
     if (calls.length === 0) {
       toast({ type: "info", message: "No changes" });
@@ -239,9 +244,51 @@ export default function AttendanceDetailPage(): React.ReactElement {
     return (
       draft.clock_in !== initialDraft.clock_in ||
       draft.clock_out !== initialDraft.clock_out ||
-      draft.status !== initialDraft.status
+      draft.status !== initialDraft.status ||
+      draft.note !== initialDraft.note
     );
   }, [draft, initialDraft]);
+
+  // 같은 시점 (±2s) + 같은 actor 의 corrections 를 한 카드로 묶음 — 매니저가
+  // 한 번에 status + 시간 둘 다 바꿔도 한 group 으로 보임.
+  // attendance early-return 보다 먼저 호출되어야 hook 순서 안정.
+  const correctionGroups: ActivityGroup[] = useMemo(() => {
+    const corrections = attendance?.corrections ?? [];
+    if (corrections.length === 0) return [];
+    const sorted = [...corrections].sort((a, b) =>
+      a.created_at < b.created_at ? 1 : -1,
+    );
+    const groups: ActivityGroup[] = [];
+    for (const c of sorted) {
+      const last = groups[groups.length - 1];
+      const sameBucket =
+        last !== undefined &&
+        last.tag === c.field_name &&
+        last.actor === (c.corrected_by_name || "Unknown") &&
+        Math.abs(
+          new Date(last.createdAt).getTime() - new Date(c.created_at).getTime(),
+        ) < 2000;
+      const entry: ActivityEntry = {
+        before: humanizeValue(c.original_value, tz),
+        after: humanizeValue(c.corrected_value, tz),
+        label: undefined,
+      };
+      if (sameBucket) {
+        last!.entries.push(entry);
+        if (!last!.reason && c.reason) last!.reason = c.reason;
+      } else {
+        groups.push({
+          id: c.id,
+          tag: c.field_name,
+          actor: c.corrected_by_name || "Unknown",
+          createdAt: c.created_at,
+          entries: [entry],
+          reason: c.reason ?? null,
+        });
+      }
+    }
+    return groups;
+  }, [attendance, tz]);
 
   if (isLoading) return <LoadingSpinner size="lg" className="mt-32" />;
   if (!attendance) {
@@ -253,7 +300,6 @@ export default function AttendanceDetailPage(): React.ReactElement {
   }
 
   const badge = statusBadge[attendance.status as StatusKey] ?? statusBadge.upcoming;
-  const corrections: AttendanceCorrection[] = attendance.corrections ?? [];
 
   return (
     <div>
@@ -421,13 +467,25 @@ export default function AttendanceDetailPage(): React.ReactElement {
           />
         </div>
 
-        {/* 메모 */}
-        {attendance.note && (
+        {/* 메모 — 매니저 자유 메모 영역. 편집 모드에서 직접 수정 가능. */}
+        {(editing || attendance.note) && (
           <div className="pt-3 border-t border-border">
             <div className="text-xs text-text-muted mb-1">Note</div>
-            <p className="text-sm text-text-secondary whitespace-pre-wrap">
-              {attendance.note}
-            </p>
+            {editing && draft ? (
+              <textarea
+                value={draft.note}
+                onChange={(e) =>
+                  setDraft({ ...draft, note: e.target.value })
+                }
+                rows={3}
+                placeholder="Manager memo (optional). Edits are logged in correction history."
+                className="w-full px-3 py-2 rounded-md bg-surface border border-border text-sm text-text outline-none focus:border-accent"
+              />
+            ) : (
+              <p className="text-sm text-text-secondary whitespace-pre-wrap">
+                {attendance.note}
+              </p>
+            )}
           </div>
         )}
 
@@ -447,63 +505,162 @@ export default function AttendanceDetailPage(): React.ReactElement {
         )}
       </Card>
 
-      {/* 수정 이력 */}
+      {/* 활동 이력 */}
       <Card className="p-6 mt-6">
         <div className="flex items-center gap-2 mb-4">
           <History size={16} className="text-text-secondary" />
-          <h2 className="text-lg font-bold">Correction History</h2>
-          {corrections.length > 0 && (
-            <Badge variant="accent">{corrections.length}</Badge>
+          <h2 className="text-lg font-bold">Activity History</h2>
+          {correctionGroups.length > 0 && (
+            <Badge variant="accent">{correctionGroups.length}</Badge>
           )}
         </div>
 
-        {corrections.length === 0 ? (
+        {correctionGroups.length === 0 ? (
           <div className="text-sm text-text-muted py-4">
-            No corrections have been made.
+            No activity recorded yet.
           </div>
         ) : (
           <div className="space-y-3">
-            {corrections.map((correction: AttendanceCorrection) => (
-              <div
-                key={correction.id}
-                className="p-3 rounded-lg bg-surface-hover border border-border"
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="accent">{correction.field_name}</Badge>
-                    <span className="text-xs text-text-muted">
-                      by {correction.corrected_by_name || "Unknown"}
+            {correctionGroups.map((group) => {
+              const tag = activityTagInfo(group.tag);
+              return (
+                <div
+                  key={group.id}
+                  className="p-3 rounded-lg bg-surface-hover border border-border"
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold ${tag.cls}`}
+                      >
+                        {tag.label}
+                      </span>
+                      <span className="text-xs text-text-muted">
+                        by {group.actor}
+                      </span>
+                    </div>
+                    <span
+                      className="text-xs text-text-muted"
+                      title={formatDateTime(group.createdAt, tz)}
+                    >
+                      {timeAgo(group.createdAt)}
                     </span>
                   </div>
-                  <span className="text-xs text-text-muted">
-                    {timeAgo(correction.created_at)}
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div>
-                    <div className="text-xs text-text-muted">Original</div>
-                    <div className="text-text-secondary">
-                      {correction.original_value || "(empty)"}
+                  {group.entries.map((e, idx) => (
+                    <div key={idx} className={idx > 0 ? "mt-2 pt-2 border-t border-border" : ""}>
+                      {e.before !== null && e.before !== undefined ? (
+                        <div className="grid grid-cols-2 gap-3 text-sm">
+                          <div>
+                            <div className="text-xs text-text-muted">Before</div>
+                            <div className="text-text-secondary">{e.before}</div>
+                          </div>
+                          <div>
+                            <div className="text-xs text-text-muted">After</div>
+                            <div className="text-text">{e.after}</div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="text-sm">
+                          <span className="text-xs text-text-muted">Set: </span>
+                          <span className="text-text">{e.after}</span>
+                        </div>
+                      )}
+                      {e.label && (
+                        <div className="text-xs text-text-muted mt-1">{e.label}</div>
+                      )}
                     </div>
-                  </div>
-                  <div>
-                    <div className="text-xs text-text-muted">Corrected</div>
-                    <div className="text-text">{correction.corrected_value}</div>
-                  </div>
-                </div>
-                {correction.reason && (
+                  ))}
+                  {group.reason && (
                   <div className="mt-2">
                     <div className="text-xs text-text-muted">Reason</div>
-                    <p className="text-sm text-text-secondary">{correction.reason}</p>
+                    <p className="text-sm text-text-secondary">{group.reason}</p>
                   </div>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </Card>
     </div>
   );
+}
+
+// ─── Activity history helpers ───────────────────────────────────────────
+
+interface ActivityEntry {
+  before?: string | null;
+  after: string;
+  /** optional 보조 라벨 (예: "Clock-in time:") */
+  label?: string;
+}
+
+interface ActivityGroup {
+  id: string;
+  tag: string;
+  actor: string;
+  createdAt: string;
+  entries: ActivityEntry[];
+  reason: string | null;
+}
+
+function activityTagInfo(tag: string): { label: string; cls: string } {
+  switch (tag) {
+    case "clock_in":
+      return { label: "Clock-in", cls: "bg-success-muted text-success" };
+    case "clock_out":
+      return { label: "Clock-out", cls: "bg-surface-hover text-text-secondary" };
+    case "break_start":
+      return { label: "Break start", cls: "bg-warning-muted text-warning" };
+    case "break_end":
+      return { label: "Break end", cls: "bg-success-muted text-success" };
+    case "modify":
+    case "status": // legacy
+      return { label: "Modify", cls: "bg-accent-muted text-accent" };
+    case "note":
+      return { label: "Note", cls: "bg-accent-muted text-accent" };
+    case "auto_clock_out":
+      return { label: "Auto clock-out", cls: "bg-danger-muted text-danger" };
+    default:
+      return { label: tag, cls: "bg-surface-hover text-text-secondary" };
+  }
+}
+
+/** ISO datetime 이면 store tz 기준 "May 13, 02:25 AM" 형태로, status enum 이면 그대로 사람이 읽을 수 있게. */
+function humanizeValue(raw: string | null | undefined, tz?: string): string {
+  if (raw === null || raw === undefined) return "—";
+  const v = raw.trim();
+  if (!v || v === "(none)" || v === "(empty)") return "—";
+  if (v === "(cleared)") return "Cleared";
+  if (v === "(set)") return "Set";
+  // ISO datetime 패턴 검사
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v)) {
+    try {
+      const d = new Date(v);
+      return new Intl.DateTimeFormat("en-US", {
+        timeZone: tz,
+        month: "short",
+        day: "numeric",
+        hour: "numeric",
+        minute: "2-digit",
+        hour12: true,
+      }).format(d);
+    } catch {
+      return v;
+    }
+  }
+  // status enum
+  const statusLabels: Record<string, string> = {
+    upcoming: "Upcoming",
+    soon: "Soon",
+    working: "Working",
+    on_break: "On break",
+    late: "Late",
+    clocked_out: "Clocked out",
+    no_show: "No show",
+    cancelled: "Cancelled",
+  };
+  return statusLabels[v] ?? v;
 }
 
 // ─── Break Sessions Editor ────────────────────────────────────────────────
