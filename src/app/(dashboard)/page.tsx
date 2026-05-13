@@ -42,6 +42,7 @@ import { useResultModal } from "@/components/ui/ResultModal";
 import api from "@/lib/api";
 import { cn, formatDate, parseApiError, todayInTimezone } from "@/lib/utils";
 import { useTimezone } from "@/hooks/useTimezone";
+import { useMidnightRefresh } from "@/hooks/useMidnightRefresh";
 import type { Notice, Store } from "@/types";
 
 // ─── Date Range Helpers ──────────────────────────────────
@@ -182,7 +183,8 @@ export default function DashboardPage(): React.ReactElement {
   useAuthStore();
   const { showSuccess, showError } = useResultModal();
   const tz = useTimezone();
-  const today: string = todayInTimezone(tz);
+  // 자정이 지나면 자동으로 재계산 — 페이지를 24h 이상 켜둬도 stale today 안 됨.
+  const today: string = useMidnightRefresh(() => todayInTimezone(tz), [tz]);
 
   // ─── Export state ──────────────────────────────────
   const [isExporting, setIsExporting] = useState<boolean>(false);
@@ -191,7 +193,12 @@ export default function DashboardPage(): React.ReactElement {
   const [dateRange, setDateRange] = useState<DateRange>("today");
   const [selectedStoreId, setSelectedStoreId] = useState<string>("");
 
-  const { dateFrom, dateTo } = useMemo(() => getDateRange(dateRange, tz), [dateRange, tz]);
+  // useMidnightRefresh: dateRange 가 'today' 일 때 자정이 지나면 자동 재계산.
+  // tz 포함 — store timezone 기준 날짜 경계 처리.
+  const { dateFrom, dateTo } = useMidnightRefresh(
+    () => getDateRange(dateRange, tz),
+    [dateRange, tz],
+  );
   const storeIdParam = selectedStoreId || undefined;
 
   // ─── Data hooks (top stat cards) ───────────────────
