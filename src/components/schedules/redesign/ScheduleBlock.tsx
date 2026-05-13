@@ -227,7 +227,7 @@ export function ScheduleBlock({ schedule, showCost, attendance, currentStoreId, 
       </div>
 
       {/* Row 2: Time range */}
-      <div className="text-[10px] text-[var(--color-text-secondary)] tabular-nums mt-0.5">
+      <div className="text-[11px] font-medium text-[var(--color-text)] tabular-nums mt-0.5">
         {timeRange}
       </div>
 
