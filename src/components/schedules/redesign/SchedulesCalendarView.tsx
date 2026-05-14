@@ -33,6 +33,7 @@ import { FilterBar, type FilterState, type EmptyStaffSort } from "./FilterBar";
 import { LegendModal } from "./LegendModal";
 import { MonthlyGrid } from "./MonthlyGrid";
 import { useShifts } from "@/hooks/useShifts";
+import { useMidnightRefresh } from "@/hooks/useMidnightRefresh";
 import { useWorkRoles } from "@/hooks/useWorkRoles";
 import { useBulkCreateSchedules, useBulkUpdateSchedules, useBulkDeleteSchedules } from "@/hooks/useSchedules";
 import BulkScheduleView, { type SavePayload } from "./BulkScheduleView";
@@ -351,7 +352,8 @@ export default function SchedulesCalendarView() {
     let deleted = 0;
     let phase = "creates";
     try {
-      // 1. Creates
+      // 1. Creates — per-entry status (user picks in Apply/Review modal).
+      //    Non-GM+ requests for "confirmed" will be downgraded server-side per Decision #10.
       if (payload.creates.length > 0) {
         const creates = payload.creates.map((e) => ({
           user_id: e.userId,
@@ -362,12 +364,12 @@ export default function SchedulesCalendarView() {
           end_time: e.endTime,
           break_start_time: e.breakStartTime,
           break_end_time: e.breakEndTime,
-          status: (isGMView ? "confirmed" : "requested") as "confirmed" | "requested",
+          status: e.status,
         }));
         await bulkCreateMutation.mutateAsync({ entries: creates, skip_on_conflict: true });
         created = payload.creates.length;
       }
-      // 2. Updates
+      // 2. Updates — also forwards status if the modification carries one.
       phase = "updates";
       if (payload.updates.length > 0) {
         const updates = payload.updates.map((u) => ({
@@ -378,6 +380,7 @@ export default function SchedulesCalendarView() {
           break_start_time: u.data.breakStartTime,
           break_end_time: u.data.breakEndTime,
           reset_checklist: u.data.resetChecklist,
+          status: u.data.status,
         }));
         await bulkUpdateMutation.mutateAsync({ updates });
         updated = payload.updates.length;

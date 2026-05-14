@@ -1096,6 +1096,8 @@ export interface BulkPreviewEntry {
   end_time: string;
   break_start_time?: string | null;
   break_end_time?: string | null;
+  /** Initial status to apply on save. Default 'confirmed'. Server may downgrade non-GM+. */
+  status?: "draft" | "requested" | "confirmed";
 }
 
 export interface BulkPreviewItem {
@@ -1132,6 +1134,8 @@ export interface BulkUpdateItem {
   note?: string | null;
   hourly_rate?: number | null;
   reset_checklist?: boolean | null;
+  /** Target status. If set, server triggers the matching status transition (submit/confirm/revert). */
+  status?: "draft" | "requested" | "confirmed";
 }
 
 export interface BulkUpdateRequest {
