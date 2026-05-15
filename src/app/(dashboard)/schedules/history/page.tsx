@@ -17,6 +17,7 @@ import { useStores } from "@/hooks/useStores";
 import { useUsers } from "@/hooks/useUsers";
 import { useAuthStore } from "@/stores/authStore";
 import { useTimezone } from "@/hooks/useTimezone";
+import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import { todayInTimezone } from "@/lib/utils";
 import { ROLE_PRIORITY } from "@/lib/permissions";
 import { DiffDisplay } from "@/components/schedules/redesign/DiffDisplay";
@@ -150,13 +151,36 @@ export default function ScheduleHistoryPage() {
     return `${past.getFullYear()}-${String(past.getMonth() + 1).padStart(2, "0")}-${String(past.getDate()).padStart(2, "0")}`;
   })();
 
-  const [storeId, setStoreId] = useState("");
-  const [userId, setUserId] = useState("");
-  const [actorId, setActorId] = useState("");
-  const [eventType, setEventType] = useState("");
-  const [dateFrom, setDateFrom] = useState(monthAgo);
-  const [dateTo, setDateTo] = useState(today);
-  const [page, setPage] = useState(1);
+  // URL + localStorage 영속. dateFrom/dateTo 는 transient — 매번 최신 month range 가 자연스러움.
+  const [params, setParams] = usePersistedFilters(
+    "schedules.history",
+    {
+      store: "",
+      user: "",
+      actor: "",
+      event: "",
+      from: "",
+      to: "",
+      page: "1",
+    },
+    { transient: ["from", "to"] },
+  );
+  const storeId = params.store;
+  const userId = params.user;
+  const actorId = params.actor;
+  const eventType = params.event;
+  const dateFrom = params.from || monthAgo;
+  const dateTo = params.to || today;
+  const page = Math.max(1, Number(params.page) || 1);
+
+  const setStoreId = (v: string): void => setParams({ store: v || null, page: null });
+  const setUserId = (v: string): void => setParams({ user: v || null, page: null });
+  const setActorId = (v: string): void => setParams({ actor: v || null, page: null });
+  const setEventType = (v: string): void => setParams({ event: v || null, page: null });
+  const setDateFrom = (v: string): void => setParams({ from: v === monthAgo ? null : v, page: null });
+  const setDateTo = (v: string): void => setParams({ to: v === today ? null : v, page: null });
+  const setPage = (n: number): void => setParams({ page: n === 1 ? null : String(n) });
+
   const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
 
   const storesQ = useStores();
@@ -311,7 +335,7 @@ export default function ScheduleHistoryPage() {
               <div className="flex items-center gap-2 text-[11px]">
                 <button
                   type="button"
-                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  onClick={() => setPage(Math.max(1, page - 1))}
                   disabled={page <= 1}
                   className="px-2 py-1 rounded border border-[var(--color-border)] disabled:opacity-30"
                 >
@@ -320,7 +344,7 @@ export default function ScheduleHistoryPage() {
                 <span className="text-[var(--color-text-muted)]">{page} / {totalPages}</span>
                 <button
                   type="button"
-                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  onClick={() => setPage(Math.min(totalPages, page + 1))}
                   disabled={page >= totalPages}
                   className="px-2 py-1 rounded border border-[var(--color-border)] disabled:opacity-30"
                 >

@@ -5,7 +5,7 @@
  */
 
 import React, { useState, useCallback } from "react";
-import { useUrlParams } from "@/hooks/useUrlParams";
+import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import { useStoreAudits, useAuditDetail } from "@/hooks/useInventory";
 import { useStores } from "@/hooks/useStores";
 import {
@@ -31,7 +31,7 @@ function auditStatusBadge(status: InventoryAudit["status"]): {
 }
 
 export default function AuditsPage(): React.ReactElement {
-  const [urlParams, setUrlParams] = useUrlParams({ store: "", page: "1" });
+  const [urlParams, setUrlParams] = usePersistedFilters("inventory.audits", { store: "", page: "1" });
   const storeId = urlParams.store;
   const page = Number(urlParams.page);
   const [selectedAuditId, setSelectedAuditId] = useState<string | null>(null);

@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { useSessionState } from "@/hooks/useSessionState";
+import { useEffect, useMemo } from "react";
+import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import { useStores } from "@/hooks/useStores";
 import { HiringStorePicker } from "@/components/hiring/StorePicker";
 import {
@@ -19,12 +19,15 @@ import { useApplications } from "@/hooks/useHiring";
 
 export default function HiringPage() {
   const { data: stores = [], isLoading } = useStores();
-  // sessionStorage 에 selectedId / tab 기억 — 새로고침/뒤로가기 시 복원, URL 은 안 건드림
-  const [selectedId, setSelectedId] = useSessionState<string | null>(
-    "hiring:selectedStoreId",
-    null,
-  );
-  const [tab, setTab] = useSessionState<HiringTab>("hiring:tab", "link");
+  // URL + localStorage 영속 — 상세 페이지 갔다와도, 다음 로그인에도 store/tab 복원
+  const [params, setParams] = usePersistedFilters("hiring", {
+    store: "",
+    tab: "link",
+  });
+  const selectedId: string | null = params.store || null;
+  const tab = params.tab as HiringTab;
+  const setSelectedId = (id: string | null): void => setParams({ store: id || null });
+  const setTab = (t: HiringTab): void => setParams({ tab: t === "link" ? null : t });
 
   // 매장 목록이 로드된 후, 저장된 id 가 유효하지 않으면 첫 매장으로 fallback
   useEffect(() => {

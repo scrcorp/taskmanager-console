@@ -10,7 +10,7 @@
 import React, { useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
-import { useUrlParams } from "@/hooks/useUrlParams";
+import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import { useStoreAudits, useAuditDetail } from "@/hooks/useInventory";
 import { useStores } from "@/hooks/useStores";
 import {
@@ -41,7 +41,7 @@ export default function AuditsPage(): React.ReactElement {
   const storeId = params.storeId;
   const router = useRouter();
 
-  const [urlParams, setUrlParams] = useUrlParams({ page: "1" });
+  const [urlParams, setUrlParams] = usePersistedFilters("inventory.store.audits", { page: "1" });
   const page = Number(urlParams.page);
 
   const [selectedAuditId, setSelectedAuditId] = useState<string | null>(null);

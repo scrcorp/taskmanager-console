@@ -10,7 +10,7 @@
 import React from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ChevronLeft } from "lucide-react";
-import { useUrlParams } from "@/hooks/useUrlParams";
+import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import { useStoreTransactions } from "@/hooks/useInventory";
 import { useStores } from "@/hooks/useStores";
 import {
@@ -44,7 +44,7 @@ export default function TransactionsPage(): React.ReactElement {
   const storeId = params.storeId;
   const router = useRouter();
 
-  const [urlParams, setUrlParams] = useUrlParams({
+  const [urlParams, setUrlParams] = usePersistedFilters("inventory.store.transactions", {
     product_id: "",
     type: "",
     date_from: "",

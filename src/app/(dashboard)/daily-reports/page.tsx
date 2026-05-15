@@ -6,12 +6,13 @@
  * Daily reports list page with store, date range, period, and status filters.
  */
 
-import React, { useState, useMemo, Suspense } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import React, { useMemo, Suspense } from "react";
+import { useRouter } from "next/navigation";
 import { FileText, MapPin, Calendar, User, MessageSquare } from "lucide-react";
 import { useDailyReports } from "@/hooks/useDailyReports";
 import { useStores } from "@/hooks/useStores";
-import { Button, Card, Badge, ClearButton, LoadingSpinner, Pagination } from "@/components/ui";
+import { usePersistedFilters } from "@/hooks/usePersistedFilters";
+import { Card, Badge, ClearButton, LoadingSpinner, Pagination } from "@/components/ui";
 import type { DailyReport, Store } from "@/types";
 import { formatFixedDate } from "@/lib/utils";
 
@@ -34,13 +35,24 @@ const PER_PAGE = 20;
 
 function DailyReportsContent(): React.ReactElement {
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const [urlParams, setUrlParams] = usePersistedFilters("daily-reports", {
+    store: "",
+    period: "",
+    from: "",
+    to: "",
+    page: "1",
+  });
+  const selectedStoreId = urlParams.store;
+  const selectedPeriod = urlParams.period;
+  const dateFrom = urlParams.from;
+  const dateTo = urlParams.to;
+  const page = Math.max(1, Number(urlParams.page) || 1);
 
-  const [selectedStoreId, setSelectedStoreId] = useState<string>("");
-  const [selectedPeriod, setSelectedPeriod] = useState<string>("");
-  const [dateFrom, setDateFrom] = useState<string>(() => searchParams.get("from") ?? "");
-  const [dateTo, setDateTo] = useState<string>(() => searchParams.get("to") ?? "");
-  const [page, setPage] = useState<number>(1);
+  const setSelectedStoreId = (v: string): void => setUrlParams({ store: v || null, page: null });
+  const setSelectedPeriod = (v: string): void => setUrlParams({ period: v || null, page: null });
+  const setDateFrom = (v: string): void => setUrlParams({ from: v || null, page: null });
+  const setDateTo = (v: string): void => setUrlParams({ to: v || null, page: null });
+  const setPage = (next: number): void => setUrlParams({ page: next === 1 ? null : String(next) });
 
   const { data: stores } = useStores();
   const { data: reportsData, isLoading } = useDailyReports({
@@ -78,7 +90,6 @@ function DailyReportsContent(): React.ReactElement {
           value={selectedStoreId}
           onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
             setSelectedStoreId(e.target.value);
-            setPage(1);
           }}
           className="px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent"
         >
@@ -94,7 +105,6 @@ function DailyReportsContent(): React.ReactElement {
           value={selectedPeriod}
           onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
             setSelectedPeriod(e.target.value);
-            setPage(1);
           }}
           className="px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent"
         >
@@ -110,7 +120,6 @@ function DailyReportsContent(): React.ReactElement {
           value={dateFrom}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
             setDateFrom(e.target.value);
-            setPage(1);
           }}
           className="px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent"
         />
@@ -120,12 +129,11 @@ function DailyReportsContent(): React.ReactElement {
           value={dateTo}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
             setDateTo(e.target.value);
-            setPage(1);
           }}
           className="px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent"
         />
         {(dateFrom || dateTo) && (
-          <ClearButton onClick={() => { setDateFrom(""); setDateTo(""); setPage(1); }} />
+          <ClearButton onClick={() => setUrlParams({ from: null, to: null, page: null })} />
         )}
       </div>
 

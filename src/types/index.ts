@@ -30,6 +30,8 @@ export interface UserMe {
   password_changed_at: string | null;
   must_change_password: boolean;
   preferred_language: PreferredLanguage;
+  /** Server-persisted console filters per page (1 account, 1 dataset). */
+  console_filters?: Record<string, Record<string, string>>;
 }
 
 // Organization
@@ -584,6 +586,8 @@ export interface Attendance {
   note: string | null;
   created_at: string;
   corrections?: AttendanceCorrection[];
+  /** 수정 이력 개수 — list 응답에서 corrections 본문 없이 "수정됨" 표시용. */
+  correction_count?: number;
 }
 
 /** 근태 수정 이력 응답 타입.

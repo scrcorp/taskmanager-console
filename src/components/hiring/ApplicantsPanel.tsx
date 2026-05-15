@@ -6,7 +6,7 @@ import {
   useApplications,
   type ApplicationStage,
 } from "@/hooks/useHiring";
-import { useSessionState } from "@/hooks/useSessionState";
+import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import { ApplicantDetailDrawer } from "./ApplicantDetailDrawer";
 
 interface Props {
@@ -46,11 +46,12 @@ const STAGE_FILTERS: { key: string; label: string }[] = [
 ];
 
 export function ApplicantsPanel({ storeId }: Props) {
-  // store 별로 필터 상태 따로 — 매장 바꿔도 각 매장의 직전 필터 유지
-  const [stageFilter, setStageFilter] = useSessionState<string>(
-    `hiring:applicantsFilter:${storeId}`,
-    "all",
-  );
+  // 1계정 1데이터 — 매장 바꿔도 stage 필터는 그대로 유지. URL + localStorage + 서버 영속.
+  const [params, setParams] = usePersistedFilters("hiring.applicants", {
+    stage: "all",
+  });
+  const stageFilter = params.stage;
+  const setStageFilter = (v: string): void => setParams({ stage: v === "all" ? null : v });
   const { data, isLoading } = useApplications(
     storeId,
     stageFilter === "all" ? undefined : stageFilter,

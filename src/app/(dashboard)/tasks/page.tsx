@@ -8,7 +8,7 @@
 
 import React, { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { useUrlParams } from "@/hooks/useUrlParams";
+import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import { Plus, Trash2 } from "lucide-react";
 import { useTasks, useCreateTask, useDeleteTask } from "@/hooks/useTasks";
 import { useStores } from "@/hooks/useStores";
@@ -61,7 +61,7 @@ export default function TasksPage(): React.ReactElement {
   const canManageTasks = hasPermission(PERMISSIONS.TASKS_CREATE);
 
   // -- Filter state (URL-persisted) --
-  const [urlParams, setUrlParams] = useUrlParams({ store: "", status: "", priority: "", page: "1" });
+  const [urlParams, setUrlParams] = usePersistedFilters("tasks", { store: "", status: "", priority: "", page: "1" });
   const filterStoreId = urlParams.store;
   const filterStatus = urlParams.status;
   const filterPriority = urlParams.priority;

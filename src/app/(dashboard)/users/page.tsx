@@ -14,9 +14,10 @@ import { Plus, Search } from "lucide-react";
 import { useUsers, useCreateUser } from "@/hooks/useUsers";
 import { useRoles } from "@/hooks/useRoles";
 import { useStores } from "@/hooks/useStores";
+import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { Table, Badge, Modal, Select } from "@/components/ui";
+import { Table, Badge, Modal, Select, MultiSelectFilter } from "@/components/ui";
 import type { Column } from "@/components/ui/Table";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useToast } from "@/components/ui/Toast";
@@ -25,6 +26,14 @@ import { useTimezone } from "@/hooks/useTimezone";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS, ROLE_PRIORITY } from "@/lib/permissions";
 import type { User, Role, Store } from "@/types";
+
+/** comma-separated string → trimmed string array (used for URL-stored multi-selects) */
+function csvToArr(v: string): string[] {
+  return v ? v.split(",").filter(Boolean) : [];
+}
+function arrToCsv(v: string[]): string | null {
+  return v.length === 0 ? null : v.join(",");
+}
 
 /** 매장 배정 체크 상태 / Store assignment check state */
 interface StoreCheck {
@@ -56,8 +65,6 @@ const INITIAL_FORM: UserFormData = {
   store_checks: {},
 };
 
-const STORAGE_KEY = "showInactiveUsers";
-
 export default function UsersPage(): React.ReactElement {
   const router = useRouter();
   const { toast } = useToast();
@@ -65,19 +72,46 @@ export default function UsersPage(): React.ReactElement {
   const tz = useTimezone();
   const canManageUsers = hasPermission(PERMISSIONS.USERS_CREATE);
 
-  /** 필터 상태 — 멀티셀렉트 */
-  const [searchQuery, setSearchQuery] = useState<string>("");
-  const [selectedStaffIds, setSelectedStaffIds] = useState<string[]>([]);
-  const [selectedRoles, setSelectedRoles] = useState<string[]>([]);
-  const [selectedStoreIds, setSelectedStoreIds] = useState<string[]>([]);
-  const [emailFilter, setEmailFilter] = useState<"all" | "verified" | "unverified">("all");
+  /** URL + localStorage 영속 필터 — 상세 페이지 다녀와도, 새로고침/재로그인 후에도 복원 */
+  const [params, setParams] = usePersistedFilters("users", {
+    q: "",
+    staff: "",
+    role: "",
+    store: "",
+    email: "all",
+    sort: "",
+    dir: "asc",
+    inactive: "",
+  });
+  const searchQuery = params.q;
+  const selectedStaffIds = useMemo(() => csvToArr(params.staff), [params.staff]);
+  const selectedRoles = useMemo(() => csvToArr(params.role), [params.role]);
+  const selectedStoreIds = useMemo(() => csvToArr(params.store), [params.store]);
+  const emailFilter = (params.email || "all") as "all" | "verified" | "unverified";
+  const sortKey: string | null = params.sort || null;
+  const sortDirection = (params.dir || "asc") as "asc" | "desc";
+  const showInactive = params.inactive === "1";
+
+  const setSearchQuery = useCallback((v: string) => setParams({ q: v || null }), [setParams]);
+  const toggleStaffId = useCallback((id: string) => {
+    setParams({ staff: arrToCsv(selectedStaffIds.includes(id) ? selectedStaffIds.filter((x) => x !== id) : [...selectedStaffIds, id]) });
+  }, [selectedStaffIds, setParams]);
+  const toggleRole = useCallback((r: string) => {
+    setParams({ role: arrToCsv(selectedRoles.includes(r) ? selectedRoles.filter((x) => x !== r) : [...selectedRoles, r]) });
+  }, [selectedRoles, setParams]);
+  const toggleStoreId = useCallback((id: string) => {
+    setParams({ store: arrToCsv(selectedStoreIds.includes(id) ? selectedStoreIds.filter((x) => x !== id) : [...selectedStoreIds, id]) });
+  }, [selectedStoreIds, setParams]);
+  const setEmailFilter = useCallback((v: "all" | "verified" | "unverified") => {
+    setParams({ email: v === "all" ? null : v });
+  }, [setParams]);
+
+  /** ephemeral UI state — 모달, 드롭다운 열림 */
   const [openFilter, setOpenFilter] = useState<string | null>(null);
-  const [sortKey, setSortKey] = useState<string | null>(null);
-  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc");
   const filterRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLDivElement>(null);
 
-  /** 외부 클릭 시 드롭다운 닫기 */
+  /** 외부 클릭 + ESC 시 드롭다운 닫기 */
   useEffect(() => {
     function handleClick(e: MouseEvent) {
       const target = e.target as Node;
@@ -91,8 +125,15 @@ export default function UsersPage(): React.ReactElement {
         setOpenFilter((prev) => prev === "staff" ? null : prev);
       }
     }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpenFilter(null);
+    }
     document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKey);
+    };
   }, []);
 
   /** 데이터 훅 / Data hooks */
@@ -106,20 +147,9 @@ export default function UsersPage(): React.ReactElement {
   const stores: Store[] = useMemo(() => storesData ?? [], [storesData]);
   const createUser = useCreateUser();
 
-  /** Show Inactive 체크박스 상태 (localStorage) */
-  const [showInactive, setShowInactive] = useState<boolean>(false);
-
-  /** localStorage에서 초기값 로드 */
-  useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored === "true") setShowInactive(true);
-  }, []);
-
-  /** 체크박스 변경 시 localStorage 저장 */
   const handleToggleInactive = useCallback((checked: boolean) => {
-    setShowInactive(checked);
-    localStorage.setItem(STORAGE_KEY, String(checked));
-  }, []);
+    setParams({ inactive: checked ? "1" : null });
+  }, [setParams]);
 
   /** 생성 모달 상태 / Create modal state */
   const [isCreateOpen, setIsCreateOpen] = useState<boolean>(false);
@@ -144,12 +174,11 @@ export default function UsersPage(): React.ReactElement {
   /** 정렬 핸들러 */
   const handleSort = useCallback((key: string) => {
     if (sortKey === key) {
-      setSortDirection((prev) => prev === "asc" ? "desc" : "asc");
+      setParams({ dir: sortDirection === "asc" ? "desc" : "asc" });
     } else {
-      setSortKey(key);
-      setSortDirection("asc");
+      setParams({ sort: key, dir: "asc" });
     }
-  }, [sortKey]);
+  }, [sortKey, sortDirection, setParams]);
 
   /** 필터링 + 정렬된 사용자 목록 / Filtered and sorted user list */
   const filteredUsers: User[] = useMemo(() => {
@@ -417,6 +446,21 @@ export default function UsersPage(): React.ReactElement {
             {openFilter === "staff" && (
               <div className="absolute top-full left-0 mt-1.5 w-[300px] bg-surface border border-border rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] z-30 overflow-hidden">
                 <div className="max-h-[280px] overflow-y-auto py-1">
+                  {/* "All" 옵션 — 클릭 시 이 섹션의 모든 선택 해제. 검색 중에는 숨김 (검색 결과가 우선) */}
+                  {searchQuery.trim() === "" && (
+                    <button
+                      type="button"
+                      onClick={() => setParams({ staff: null })}
+                      className={`w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-left transition-colors ${selectedStaffIds.length === 0 ? "bg-accent-muted" : "hover:bg-surface-hover"}`}
+                    >
+                      <span className={`w-4 h-4 rounded border-[1.5px] flex items-center justify-center shrink-0 transition-colors ${selectedStaffIds.length === 0 ? "bg-accent border-accent" : "border-border"}`}>
+                        {selectedStaffIds.length === 0 && (
+                          <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="2 5 4.5 7.5 8 3" /></svg>
+                        )}
+                      </span>
+                      <span className="flex-1 font-semibold text-text">All</span>
+                    </button>
+                  )}
                   {(() => {
                     const query = searchQuery.trim().toLowerCase();
                     const filtered = query
@@ -429,7 +473,7 @@ export default function UsersPage(): React.ReactElement {
                       <button
                         key={u.id}
                         type="button"
-                        onClick={() => setSelectedStaffIds((prev) => prev.includes(u.id) ? prev.filter((id) => id !== u.id) : [...prev, u.id])}
+                        onClick={() => toggleStaffId(u.id)}
                         className={`w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-left transition-colors ${selectedStaffIds.includes(u.id) ? "bg-accent-muted" : "hover:bg-surface-hover"}`}
                       >
                         <span className={`w-4 h-4 rounded border-[1.5px] flex items-center justify-center shrink-0 transition-colors ${selectedStaffIds.includes(u.id) ? "bg-accent border-accent" : "border-border"}`}>
@@ -447,81 +491,28 @@ export default function UsersPage(): React.ReactElement {
             )}
           </div>
 
-          {/* Role Multi-select */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setOpenFilter(openFilter === "role" ? null : "role")}
-              className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold border flex items-center gap-1.5 transition-colors ${
-                selectedRoles.length > 0
-                  ? "bg-accent-muted text-accent border-accent/30"
-                  : "bg-surface text-text-secondary border-border hover:border-text-muted hover:text-text"
-              } ${openFilter === "role" ? "ring-2 ring-accent/20" : ""}`}
-            >
-              Role
-              {selectedRoles.length > 0 && (
-                <span className="bg-accent text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center">{selectedRoles.length}</span>
-              )}
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className={`transition-transform ${openFilter === "role" ? "rotate-180" : ""}`}><polyline points="2.5 4 5 6.5 7.5 4" /></svg>
-            </button>
-            {openFilter === "role" && (
-              <div className="absolute top-full left-0 mt-1.5 w-[200px] bg-surface border border-border rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] z-30 overflow-hidden py-1 max-h-[280px] overflow-y-auto">
-                {uniqueRoleNames.map((roleName) => (
-                  <button
-                    key={roleName}
-                    type="button"
-                    onClick={() => setSelectedRoles((prev) => prev.includes(roleName) ? prev.filter((r) => r !== roleName) : [...prev, roleName])}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-left transition-colors ${selectedRoles.includes(roleName) ? "bg-accent-muted" : "hover:bg-surface-hover"}`}
-                  >
-                    <span className={`w-4 h-4 rounded border-[1.5px] flex items-center justify-center shrink-0 transition-colors ${selectedRoles.includes(roleName) ? "bg-accent border-accent" : "border-border"}`}>
-                      {selectedRoles.includes(roleName) && (
-                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="2 5 4.5 7.5 8 3" /></svg>
-                      )}
-                    </span>
-                    <span className="flex-1 font-medium text-text">{roleName}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          {/* Role + Store multi-select — 공통 MultiSelectFilter 컴포넌트 사용. */}
+          <MultiSelectFilter
+            label="Role"
+            options={uniqueRoleNames.map((r) => ({ id: r, label: r }))}
+            selected={selectedRoles}
+            onToggle={toggleRole}
+            onClearAll={() => setParams({ role: null })}
+            width={200}
+            open={openFilter === "role"}
+            onOpenChange={(o) => setOpenFilter(o ? "role" : null)}
+          />
 
-          {/* Store Multi-select */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setOpenFilter(openFilter === "store" ? null : "store")}
-              className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold border flex items-center gap-1.5 transition-colors ${
-                selectedStoreIds.length > 0
-                  ? "bg-accent-muted text-accent border-accent/30"
-                  : "bg-surface text-text-secondary border-border hover:border-text-muted hover:text-text"
-              } ${openFilter === "store" ? "ring-2 ring-accent/20" : ""}`}
-            >
-              Store
-              {selectedStoreIds.length > 0 && (
-                <span className="bg-accent text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center">{selectedStoreIds.length}</span>
-              )}
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className={`transition-transform ${openFilter === "store" ? "rotate-180" : ""}`}><polyline points="2.5 4 5 6.5 7.5 4" /></svg>
-            </button>
-            {openFilter === "store" && (
-              <div className="absolute top-full left-0 mt-1.5 w-[240px] bg-surface border border-border rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] z-30 overflow-hidden py-1 max-h-[280px] overflow-y-auto">
-                {stores.map((s: Store) => (
-                  <button
-                    key={s.id}
-                    type="button"
-                    onClick={() => setSelectedStoreIds((prev) => prev.includes(s.id) ? prev.filter((id) => id !== s.id) : [...prev, s.id])}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-left transition-colors ${selectedStoreIds.includes(s.id) ? "bg-accent-muted" : "hover:bg-surface-hover"}`}
-                  >
-                    <span className={`w-4 h-4 rounded border-[1.5px] flex items-center justify-center shrink-0 transition-colors ${selectedStoreIds.includes(s.id) ? "bg-accent border-accent" : "border-border"}`}>
-                      {selectedStoreIds.includes(s.id) && (
-                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="2 5 4.5 7.5 8 3" /></svg>
-                      )}
-                    </span>
-                    <span className="flex-1 font-medium text-text">{s.name}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
+          <MultiSelectFilter
+            label="Store"
+            options={stores.map((s: Store) => ({ id: s.id, label: s.name }))}
+            selected={selectedStoreIds}
+            onToggle={toggleStoreId}
+            onClearAll={() => setParams({ store: null })}
+            width={240}
+            open={openFilter === "store"}
+            onOpenChange={(o) => setOpenFilter(o ? "store" : null)}
+          />
 
           {/* Email Verified filter */}
           <div className="relative">
@@ -572,7 +563,7 @@ export default function UsersPage(): React.ReactElement {
           {(searchQuery || totalFilterCount > 0) && (
             <button
               type="button"
-              onClick={() => { setSearchQuery(""); setSelectedStaffIds([]); setSelectedRoles([]); setSelectedStoreIds([]); setEmailFilter("all"); setOpenFilter(null); }}
+              onClick={() => { setParams({ q: null, staff: null, role: null, store: null, email: null }); setOpenFilter(null); }}
               className="text-[12px] text-text-muted hover:text-danger flex items-center gap-1 transition-colors"
             >
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="9" y1="3" x2="3" y2="9" /><line x1="3" y1="3" x2="9" y2="9" /></svg>
@@ -597,14 +588,14 @@ export default function UsersPage(): React.ReactElement {
               return (
                 <span key={`u${id}`} className="inline-flex items-center gap-1 px-2.5 py-1 bg-accent-muted text-accent rounded-full text-[11px] font-semibold">
                   {u.full_name || u.username}
-                  <button type="button" onClick={() => setSelectedStaffIds((prev) => prev.filter((x) => x !== id))} className="opacity-60 hover:opacity-100 ml-0.5">×</button>
+                  <button type="button" onClick={() => toggleStaffId(id)} className="opacity-60 hover:opacity-100 ml-0.5">×</button>
                 </span>
               );
             })}
             {selectedRoles.map((r) => (
               <span key={`r${r}`} className="inline-flex items-center gap-1 px-2.5 py-1 bg-accent-muted text-accent rounded-full text-[11px] font-semibold">
                 {r}
-                <button type="button" onClick={() => setSelectedRoles((prev) => prev.filter((x) => x !== r))} className="opacity-60 hover:opacity-100 ml-0.5">×</button>
+                <button type="button" onClick={() => toggleRole(r)} className="opacity-60 hover:opacity-100 ml-0.5">×</button>
               </span>
             ))}
             {selectedStoreIds.map((id) => {
@@ -612,7 +603,7 @@ export default function UsersPage(): React.ReactElement {
               return (
                 <span key={`s${id}`} className="inline-flex items-center gap-1 px-2.5 py-1 bg-accent-muted text-accent rounded-full text-[11px] font-semibold">
                   {s?.name ?? id}
-                  <button type="button" onClick={() => setSelectedStoreIds((prev) => prev.filter((x) => x !== id))} className="opacity-60 hover:opacity-100 ml-0.5">×</button>
+                  <button type="button" onClick={() => toggleStoreId(id)} className="opacity-60 hover:opacity-100 ml-0.5">×</button>
                 </span>
               );
             })}

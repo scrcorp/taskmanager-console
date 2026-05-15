@@ -1,21 +1,63 @@
 "use client";
 
-import { useState, useMemo, useEffect } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { useAttendances } from '@/hooks/useAttendances'
 import { useStores } from '@/hooks/useStores'
+import { useUsers } from '@/hooks/useUsers'
 import { useAuthStore } from '@/stores/authStore'
+import { usePersistedFilters } from '@/hooks/usePersistedFilters'
 import { todayInTimezone } from '@/lib/utils'
 import { useMidnightRefresh } from '@/hooks/useMidnightRefresh'
 import type { AttendanceBreakItem } from '@/types'
+import { AttendanceWeeklyView } from './AttendanceWeeklyView'
+import { WeekPickerCalendar, DatePickerCalendar, getWeekStart } from './WeekPickerCalendar'
+import {
+  AttendanceFilterBar,
+  EMPTY_ATTENDANCE_FILTERS,
+  matchesStatusFilter,
+  rolePriorityToBadgeId,
+  type AttendanceUiFilters,
+  type AttendanceStatusKey,
+} from './AttendanceFilterBar'
 
-type AttendanceState = "upcoming" | "soon" | "working" | "on_break" | "late" | "clocked_out" | "no_show" | "cancelled"
-type FilterKey = AttendanceState | 'all'
+type ViewMode = 'daily' | 'weekly'
 
-// "all" 은 집합에서 "0개 선택" 을 의미 (= 모두 표시). 체크 가능한 필터 키만 여기에.
-type CheckableFilterKey = Exclude<FilterKey, 'all'>
+/** YYYY-MM-DD → Date (local midnight). */
+function ymdToDate(ymd: string): Date {
+  const [y, m, d] = ymd.split('-').map(Number)
+  return new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1)
+}
 
-const VALID_FILTER_KEYS: FilterKey[] = ['all', 'upcoming', 'soon', 'working', 'on_break', 'late', 'no_show', 'clocked_out', 'cancelled']
+/** Date → YYYY-MM-DD (local). */
+function dateToYmd(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** "MON, MAY 13, 2026" 형식 — Daily trigger button 라벨. */
+function formatDayLabel(ymd: string): string {
+  const d = ymdToDate(ymd)
+  const wd = d.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()
+  const mo = d.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()
+  return `${wd}, ${mo} ${d.getDate()}, ${d.getFullYear()}`
+}
+
+/** "[W20] MAY 10 – MAY 16" 형식. schedules/overview 와 동일 패턴. */
+function formatWeekLabel(weekStartYmd: string): string {
+  const d0 = ymdToDate(weekStartYmd)
+  const d6 = new Date(d0)
+  d6.setDate(d6.getDate() + 6)
+  const nextJan1 = new Date(d0.getFullYear() + 1, 0, 1)
+  const yr = d0 <= nextJan1 && nextJan1 <= d6 ? d0.getFullYear() + 1 : d0.getFullYear()
+  const jan1 = new Date(yr, 0, 1)
+  const w1Sun = new Date(jan1)
+  w1Sun.setDate(w1Sun.getDate() - w1Sun.getDay())
+  const wk = Math.round((d0.getTime() - w1Sun.getTime()) / (7 * 86400000)) + 1
+  const m0 = d0.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()
+  const m6 = d6.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()
+  const crossYear = d0.getFullYear() !== d6.getFullYear()
+  return `[W${wk}${crossYear ? ` '${String(yr).slice(2)}` : ''}] ${m0} ${d0.getDate()} – ${m6} ${d6.getDate()}`
+}
 
 /** YYYY-MM-DD 형식인지 간이 검증. 잘못된 값이면 null 반환. */
 function sanitizeDateParam(raw: string | null): string | null {
@@ -26,21 +68,15 @@ function sanitizeDateParam(raw: string | null): string | null {
   return raw
 }
 
-function sanitizeFilterParam(raw: string | null): FilterKey | null {
-  if (!raw) return null
-  return (VALID_FILTER_KEYS as string[]).includes(raw) ? (raw as FilterKey) : null
-}
+const VALID_STATUS_KEYS: AttendanceStatusKey[] = ['upcoming', 'working', 'on_break', 'late', 'no_show', 'clocked_out']
 
-// URL 의 comma-separated filter 값을 파싱해 유효한 키 집합 반환.
-// 비어있거나 'all' 포함 시 빈 Set (= 모두 표시).
-function parseFilterSet(raw: string | null): Set<CheckableFilterKey> {
-  if (!raw) return new Set()
-  const parts = raw.split(',').map((s) => s.trim()).filter(Boolean)
-  const valid = parts.filter(
-    (p): p is CheckableFilterKey =>
-      p !== 'all' && (VALID_FILTER_KEYS as string[]).includes(p),
+function parseCsv(raw: string): string[] {
+  return raw ? raw.split(',').map((s) => s.trim()).filter(Boolean) : []
+}
+function parseStatuses(raw: string): AttendanceStatusKey[] {
+  return parseCsv(raw).filter((p): p is AttendanceStatusKey =>
+    (VALID_STATUS_KEYS as string[]).includes(p),
   )
-  return new Set(valid)
 }
 
 const ROLE_DEFAULT_COLOR = "bg-[var(--color-success-muted)] text-[var(--color-success)]"
@@ -55,15 +91,6 @@ const stateMeta: Record<string, { label: string; bg: string; text: string; dot: 
   no_show: { label: 'No show', bg: 'bg-[var(--color-danger-muted)]', text: 'text-[var(--color-danger)]', dot: 'bg-[var(--color-danger)]' },
   cancelled: { label: 'Cancelled', bg: 'bg-[var(--color-text-muted)]/10', text: 'text-[var(--color-text-muted)]', dot: 'bg-[var(--color-text-muted)]' },
 }
-
-const tabs: { key: FilterKey; label: string }[] = [
-  { key: 'all', label: 'All' },
-  { key: 'working', label: 'Clocked In' },
-  { key: 'on_break', label: 'On Break' },
-  { key: 'late', label: 'Late' },
-  { key: 'no_show', label: 'No Show' },
-  { key: 'clocked_out', label: 'Done' },
-]
 
 /** 24h HH:MM formatter (null → null). */
 function formatHHmm24(iso?: string | null): string | null {
@@ -254,7 +281,6 @@ function computeLateMinutes(clockInIso?: string | null, scheduledIso?: string | 
 
 export function AttendancePage() {
   const router = useRouter()
-  const searchParams = useSearchParams()
   // 매장/조직 timezone 기준 오늘 + 자정 자동 갱신.
   const orgTimezone = useAuthStore((s) => s.user?.organization_timezone) ?? undefined
   const today = useMidnightRefresh(
@@ -262,76 +288,84 @@ export function AttendancePage() {
     [orgTimezone],
   )
 
-  // URL 초기값 ?date=YYYY-MM-DD&store=<id>&filter=<key>
-  // 잘못된 값은 무시하고 기본값 사용.
-  const initDate = sanitizeDateParam(searchParams.get('date'))
-  const initFilter = parseFilterSet(searchParams.get('filter'))
-  const initStore = searchParams.get('store') ?? ''
+  // URL + localStorage 영속 필터.
+  // date 는 transient — 매 세션 새 today 가 기본이라 localStorage 저장 안 함.
+  const [params, setParams] = usePersistedFilters(
+    'attendances',
+    { date: '', store: '', view: '', staff: '', roles: '', statuses: '', edited: '' },
+    { transient: ['date'] },
+  )
+  const rawDate = sanitizeDateParam(params.date || null)
+  const selectedStore = params.store
+  // URL/저장 값이 비어있으면 today 사용. 사용자가 직접 고른 값이 있으면 그대로.
+  const date = rawDate ?? todayInTimezone(orgTimezone)
+  const view: ViewMode = params.view === 'weekly' ? 'weekly' : 'daily'
 
-  const [selectedStore, setSelectedStore] = useState<string>(initStore)
-  // 필터 다중 선택 — 비어있으면 All (모두 표시).
-  const [filters, setFilters] = useState<Set<CheckableFilterKey>>(initFilter)
-  const [date, setDate] = useState(initDate ?? todayInTimezone(orgTimezone))
+  const filters: AttendanceUiFilters = useMemo(() => ({
+    staffIds: parseCsv(params.staff),
+    roles: parseCsv(params.roles),
+    statuses: parseStatuses(params.statuses),
+    editedOnly: params.edited === '1',
+  }), [params.staff, params.roles, params.statuses, params.edited])
 
-  // 사용자가 명시적으로 다른 날짜를 고르지 않은 동안 (URL date 없고 picker 도 today
-  // 그대로) 자정이 지나가면 date state 도 새 today 로 따라가도록 sync.
-  // 사용자가 직접 다른 날짜를 골랐다면 그대로 둔다.
-  useEffect(() => {
-    if (!searchParams.get('date') && date !== today) {
-      // date 가 어제 today 그대로 굳어있었던 경우만 동기화
-      setDate(today)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [today])
+  const setSelectedStore = useCallback(
+    (v: string) => setParams({ store: v || null }),
+    [setParams],
+  )
+  const setDate = useCallback(
+    (v: string) => setParams({ date: v || null }),
+    [setParams],
+  )
+  const setView = useCallback(
+    (v: ViewMode) => setParams({ view: v === 'weekly' ? 'weekly' : null }),
+    [setParams],
+  )
+  const setFilters = useCallback(
+    (next: AttendanceUiFilters) => {
+      setParams({
+        staff: next.staffIds.length ? next.staffIds.join(',') : null,
+        roles: next.roles.length ? next.roles.join(',') : null,
+        statuses: next.statuses.length ? next.statuses.join(',') : null,
+        edited: next.editedOnly ? '1' : null,
+      })
+    },
+    [setParams],
+  )
+
+  // 자정 자동 갱신 — 사용자가 명시적으로 date 안 골랐을 때만 today 따라감.
+  // rawDate === null 이면 derived `date` 가 자동 today 되므로 별도 sync 불필요.
 
   const storesQ = useStores()
   const stores = storesQ.data ?? []
-  const selectedStoreTz = stores.find((s) => s.id === selectedStore)?.timezone ?? orgTimezone
 
-  // URL에 ?date 가 없었으면 store timezone 확정 후 today 재정렬 (조직 tz와 매장 tz가 다른 경우).
-  useEffect(() => {
-    if (initDate) return
-    setDate(todayInTimezone(selectedStoreTz))
-    // 매장 timezone 확정 시 1회만 보정.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedStoreTz])
-
-  // 첫 store 자동 선택 — URL에 값이 있고 유효하면 유지, 아니면 첫 store
-  useEffect(() => {
-    if (selectedStore) {
-      // URL에서 받은 id가 실제 존재하지 않으면 fallback
-      if (stores.length > 0 && !stores.some((s) => s.id === selectedStore)) {
-        setSelectedStore(stores[0]!.id)
-      }
-      return
-    }
-    if (stores.length > 0) {
-      setSelectedStore(stores[0]!.id)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stores])
-
-  // state 변경 시 URL sync — history.replaceState 직접 사용 (nav race 방지)
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const params = new URLSearchParams(window.location.search)
-    params.set('date', date)
-    if (selectedStore) params.set('store', selectedStore)
-    else params.delete('store')
-    if (filters.size === 0) params.delete('filter')
-    else params.set('filter', Array.from(filters).join(','))
-    const next = `${window.location.pathname}?${params.toString()}`
-    if (next !== window.location.pathname + window.location.search) {
-      window.history.replaceState(null, '', next)
-    }
-  }, [date, selectedStore, filters])
+  // 첫 store 자동 선택은 setParams 로 강제하지 않는다.
+  // 이유: usePersistedFilters 의 hydration (localStorage → URL) 보다 먼저 발동하면 사용자의 마지막
+  //       선택을 stores[0] 으로 덮어쓰는 race 가 생긴다. schedules/redesign 패턴처럼 derived
+  //       (URL/저장값이 있고 유효하면 그것, 아니면 stores[0]) 로만 fallback 한다.
+  //       사용자가 select 를 바꾸는 시점에야 URL 에 store= 가 들어가서 자연스레 영속화된다.
+  const effectiveStore = useMemo(() => {
+    if (selectedStore && stores.some((s) => s.id === selectedStore)) return selectedStore
+    return stores[0]?.id ?? ''
+  }, [selectedStore, stores])
 
   const attendancesQ = useAttendances({
-    store_id: selectedStore || undefined,
+    store_id: effectiveStore || undefined,
     work_date: date,
     per_page: 200,
   })
   const records = attendancesQ.data?.items ?? []
+
+  // FilterBar 의 Staff 옵션 + Role 매칭 source. Weekly view 의 직원 행 source 와 동일.
+  const usersQ = useUsers(effectiveStore ? { store_id: effectiveStore, is_active: true } : undefined)
+  const storeUsers = usersQ.data ?? []
+  const userIdToRoleBadge = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const u of storeUsers) m.set(u.id, rolePriorityToBadgeId(u.role_priority))
+    return m
+  }, [storeUsers])
+
+  // Date picker popup 열림 여부 — Daily/Weekly 공통 (한 번에 하나만 열림).
+  const [datePickerOpen, setDatePickerOpen] = useState(false)
 
   // 진행 중 break 경과시간 및 live work 계산용 — 30s 간격 tick
   const [nowMs, setNowMs] = useState<number>(() => Date.now())
@@ -344,29 +378,22 @@ export function AttendancePage() {
   const isLateRow = (r: typeof records[number]): boolean =>
     r.status === 'late' || (r.anomalies?.includes('late') ?? false)
 
+  /** AttendancePage 의 Daily 본문에서 쓰는 filtered list. Weekly 는 자체 필터링.
+   *  4개 필터 (Staff/Role/Status/Edited) 를 모두 AND 로 적용. */
   const filtered = useMemo(() => {
-    if (filters.size === 0) return records
     return records.filter((r) => {
-      // 'late' 는 anomaly 기반, 나머지는 status 기반
-      if (filters.has('late') && isLateRow(r)) return true
-      if (filters.has(r.status as CheckableFilterKey)) return true
-      return false
+      if (filters.staffIds.length > 0 && !filters.staffIds.includes(r.user_id)) return false
+      if (filters.roles.length > 0) {
+        const badge = userIdToRoleBadge.get(r.user_id)
+        if (!badge || !filters.roles.includes(badge)) return false
+      }
+      if (!matchesStatusFilter(r.status, r.anomalies, filters.statuses)) return false
+      if (filters.editedOnly && (r.correction_count ?? 0) === 0) return false
+      return true
     })
-  }, [records, filters])
+  }, [records, filters, userIdToRoleBadge])
 
-  function toggleFilter(key: CheckableFilterKey) {
-    setFilters((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }
-
-  function clearFilters() {
-    setFilters(new Set())
-  }
-
+  // Stat cards 는 필터 무관 전체 records 기반.
   const stats = useMemo(() => ({
     upcoming: records.filter((r) => r.status === 'upcoming' || r.status === 'soon').length,
     working: records.filter((r) => r.status === 'working').length,
@@ -391,7 +418,7 @@ export function AttendancePage() {
       {/* Header */}
       <div className="flex items-center gap-3 pt-4 pb-1">
         <select
-          value={selectedStore}
+          value={effectiveStore}
           onChange={e => setSelectedStore(e.target.value)}
           className="px-3 py-1.5 bg-[var(--color-surface)] border-2 border-[var(--color-accent)] rounded-lg text-[13px] font-semibold text-[var(--color-accent)] cursor-pointer"
         >
@@ -403,24 +430,110 @@ export function AttendancePage() {
       <div className="flex items-center justify-between py-2 gap-3 flex-wrap">
         <div className="flex items-center gap-3">
           <h1 className="text-[22px] font-semibold text-[var(--color-text)]">Attendance</h1>
-          {attendancesQ.isLoading && <span className="text-[11px] text-[var(--color-text-muted)]">Loading…</span>}
+          {attendancesQ.isLoading && view === 'daily' && <span className="text-[11px] text-[var(--color-text-muted)]">Loading…</span>}
         </div>
         <div className="flex items-center gap-2">
-          <button type="button" onClick={() => shiftDate(-1)} className="w-8 h-8 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]" aria-label="Previous day">
+          {/* View toggle — Daily / Weekly */}
+          <div className="inline-flex p-0.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]">
+            <button
+              type="button"
+              onClick={() => setView('daily')}
+              aria-pressed={view === 'daily'}
+              className={`px-3 py-1 rounded-md text-[12px] font-semibold transition-colors ${
+                view === 'daily'
+                  ? 'bg-[var(--color-accent)] text-white'
+                  : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]'
+              }`}
+            >
+              Daily
+            </button>
+            <button
+              type="button"
+              onClick={() => setView('weekly')}
+              aria-pressed={view === 'weekly'}
+              className={`px-3 py-1 rounded-md text-[12px] font-semibold transition-colors ${
+                view === 'weekly'
+                  ? 'bg-[var(--color-accent)] text-white'
+                  : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]'
+              }`}
+            >
+              Weekly
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => shiftDate(view === 'weekly' ? -7 : -1)}
+            className="w-8 h-8 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]"
+            aria-label={view === 'weekly' ? 'Previous week' : 'Previous day'}
+          >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="9 11 5 7 9 3"/></svg>
           </button>
-          <input
-            type="date"
-            value={date}
-            onChange={e => setDate(e.target.value)}
-            className="px-2 py-1 border border-[var(--color-border)] rounded-lg text-[13px] font-semibold text-[var(--color-text)] min-w-[140px] text-center"
-          />
-          <button type="button" onClick={() => shiftDate(1)} className="w-8 h-8 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]" aria-label="Next day">
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setDatePickerOpen((p) => !p)}
+              className="w-[272px] px-3 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-[13px] font-semibold text-[var(--color-text)] text-center tabular-nums"
+            >
+              {view === 'weekly'
+                ? formatWeekLabel(dateToYmd(getWeekStart(ymdToDate(date))))
+                : formatDayLabel(date)}
+            </button>
+            {datePickerOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setDatePickerOpen(false)}
+                />
+                <div className="absolute top-full right-0 mt-1 z-50">
+                  {view === 'weekly' ? (
+                    <WeekPickerCalendar
+                      selectedWeekStart={getWeekStart(ymdToDate(date))}
+                      onSelect={(ws) => {
+                        setDate(dateToYmd(ws))
+                        setDatePickerOpen(false)
+                      }}
+                    />
+                  ) : (
+                    <DatePickerCalendar
+                      selectedDate={ymdToDate(date)}
+                      onSelect={(d) => {
+                        setDate(dateToYmd(d))
+                        setDatePickerOpen(false)
+                      }}
+                    />
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => shiftDate(view === 'weekly' ? 7 : 1)}
+            className="w-8 h-8 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]"
+            aria-label={view === 'weekly' ? 'Next week' : 'Next day'}
+          >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="5 3 9 7 5 11"/></svg>
           </button>
         </div>
       </div>
 
+      {/* Filter bar — Daily/Weekly 공통. 4개 필터: Staff/Role/Status/Edited. */}
+      <AttendanceFilterBar
+        filters={filters}
+        onChange={setFilters}
+        storeUsers={storeUsers}
+      />
+
+      {view === 'weekly' ? (
+        <AttendanceWeeklyView
+          storeId={effectiveStore}
+          weekStart={date}
+          filters={filters}
+          storeUsers={storeUsers}
+        />
+      ) : (
+        <>
       {/* Stat cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
         <StatCard label="Upcoming" value={stats.upcoming} color="text-[var(--color-text)]" />
@@ -428,47 +541,6 @@ export function AttendancePage() {
         <StatCard label="Late" value={stats.late} color="text-[var(--color-danger)]" />
         <StatCard label="On Break" value={stats.onBreak} color="text-[var(--color-warning)]" />
         <StatCard label="No Show" value={stats.noShow} color="text-[var(--color-danger)]" />
-      </div>
-
-      {/* Filter chips — 다중 선택 */}
-      <div className="flex items-center gap-1 mb-3 overflow-x-auto">
-        {tabs.map((t) => {
-          // "All" 칩은 아무것도 선택 안 된 상태를 표시. 클릭 시 전체 선택 해제.
-          if (t.key === 'all') {
-            const active = filters.size === 0
-            return (
-              <button
-                key={t.key}
-                type="button"
-                onClick={clearFilters}
-                className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold whitespace-nowrap transition-colors ${
-                  active
-                    ? 'bg-[var(--color-accent)] text-white'
-                    : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]'
-                }`}
-              >
-                {t.label}
-              </button>
-            )
-          }
-          const key = t.key as CheckableFilterKey
-          const active = filters.has(key)
-          return (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => toggleFilter(key)}
-              aria-pressed={active}
-              className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold whitespace-nowrap transition-colors ${
-                active
-                  ? 'bg-[var(--color-accent)] text-white'
-                  : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]'
-              }`}
-            >
-              {t.label}
-            </button>
-          )
-        })}
       </div>
 
       {/* Table */}
@@ -583,6 +655,8 @@ export function AttendancePage() {
           </tbody>
         </table>
       </div>
+        </>
+      )}
     </div>
   )
 }

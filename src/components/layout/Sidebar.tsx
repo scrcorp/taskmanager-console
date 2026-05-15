@@ -31,6 +31,8 @@ import {
   ShieldCheck,
   Tablet,
   UserPlus,
+  Wallet,
+  Coins,
 } from "lucide-react";
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useAuthStore } from "@/stores/authStore";
@@ -102,6 +104,14 @@ const navItems: NavItem[] = [
       { href: "/inventory/stores", label: "Store Inventory", icon: Warehouse },
       { href: "/inventory/transactions", label: "Transactions", icon: History },
       { href: "/inventory/audits", label: "Audits", icon: ClipboardCheck },
+    ],
+  },
+  {
+    href: "/pay/tips",
+    label: "Pay",
+    icon: Wallet,
+    children: [
+      { href: "/pay/tips", label: "Tips", icon: Coins },
     ],
   },
   { href: "/alerts", label: "Alerts", icon: Bell },
@@ -190,7 +200,8 @@ export function Sidebar({ onNavClick }: { onNavClick?: () => void }) {
 
   const resolveChildHref = (href: string): string => {
     if (href === "/checklists/log") return `/checklists/log?from=${currentWeek.from}&to=${currentWeek.to}`;
-    if (href === "/attendances") return `/attendances?from=${currentWeek.from}&to=${currentWeek.to}`;
+    // attendance 는 usePersistedFilters 로 store/view/date/필터를 영속화하므로 query 를 하드코딩 X.
+    // 사용자가 마지막으로 보던 상태가 그대로 복원된다.
     // Dynamic store-scoped links — substitute storeId if available
     if (href.includes("__storeId__")) {
       if (!currentStoreId) return "/inventory/stores";
