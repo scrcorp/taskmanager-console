@@ -10,7 +10,7 @@
 
 import React, { useState, useMemo, useCallback, useEffect } from "react";
 import { useRouter, useParams } from "next/navigation";
-import { useUrlParams } from "@/hooks/useUrlParams";
+import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import {
   ChevronLeft,
   Plus,
@@ -192,7 +192,7 @@ export default function StoreDetailPage(): React.ReactElement {
   const canUpdateSettings = hasPermission(PERMISSIONS.STORES_UPDATE);
 
   /** 현재 활성 탭 (URL-persisted) / Currently active tab */
-  const [urlParams, setUrlParams] = useUrlParams({ tab: "shifts-positions" });
+  const [urlParams, setUrlParams] = usePersistedFilters("stores.detail", { tab: "shifts-positions" });
   const activeTab: TabName = (["shifts-positions", "checklists", "settings"] as TabName[]).includes(urlParams.tab as TabName)
     ? (urlParams.tab as TabName)
     : "shifts-positions";

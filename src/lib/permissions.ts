@@ -110,6 +110,15 @@ export const PERMISSIONS = {
   HIRING_UPDATE: "hiring:update",
   HIRING_HIRE: "hiring:hire",
   HIRING_BLOCK: "hiring:block",
+
+  // ── Tips ──
+  TIPS_READ: "tips:read",
+  TIPS_EDIT_OWN: "tips:edit_own",
+  TIPS_EDIT_ALL: "tips:edit_all",
+  TIPS_ADD_FOR_OTHERS: "tips:add_for_others",
+  TIPS_PERIOD_CONFIRM: "tips:period_confirm",
+  TIPS_PERIOD_OVERRIDE: "tips:period_override",
+  TIPS_FORM_VIEW: "tips:form_view",
 } as const;
 
 /**
@@ -137,6 +146,7 @@ export const PAGE_PERMISSIONS: Record<string, string> = {
   "/inventory": PERMISSIONS.INVENTORY_READ,
   "/settings/roles": PERMISSIONS.ROLES_READ,
   "/settings/attendance-devices": PERMISSIONS.ATTENDANCE_DEVICES_READ,
+  "/pay/tips": PERMISSIONS.TIPS_READ,
 };
 // Note: /settings (General) has no permission gate — password change must remain accessible.
 // SV/Staff are hidden from the Settings menu via MENU_PERMISSIONS instead.
@@ -162,6 +172,7 @@ export const MENU_PERMISSIONS: Record<string, string> = {
   "/settings": PERMISSIONS.ORG_READ,
   "/settings/roles": PERMISSIONS.ROLES_READ,
   "/settings/attendance-devices": PERMISSIONS.ATTENDANCE_DEVICES_READ,
+  "/pay/tips": PERMISSIONS.TIPS_READ,
 };
 
 /**

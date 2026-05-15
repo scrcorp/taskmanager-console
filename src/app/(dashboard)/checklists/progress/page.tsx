@@ -9,10 +9,11 @@
  * - Month view: calendar grid with daily completion rates
  */
 
-import React, { useState, useMemo } from "react";
+import React, { useMemo } from "react";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useStores } from "@/hooks/useStores";
 import { useChecklistInstances, useReviewSummary } from "@/hooks/useChecklistInstances";
+import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import { Select } from "@/components/ui";
 import { ProgressDayView } from "@/components/checklists/ProgressDayView";
 import { ProgressWeekView } from "@/components/checklists/ProgressWeekView";
@@ -73,15 +74,28 @@ type ViewMode = "day" | "week" | "month";
 
 export default function ChecklistProgressPage(): React.ReactElement {
   const tz = useTimezone();
-  // 매장/조직 timezone 기준 "오늘" 을 캘린더 Date 로 환원해 초기값으로 사용.
-  // new Date() 직접 쓰면 미국 저녁에 다음날로 잡힘 (toLocaleDateString 도 브라우저 tz 의존).
-  const [selectedDate, setSelectedDate] = useState<Date>(() => {
-    const [y, m, d] = todayInTimezone(tz).split("-").map(Number);
+
+  // URL + localStorage 영속 — date 는 transient (매 세션 새 today 가 자연스러움)
+  const [params, setParams] = usePersistedFilters(
+    "checklists.progress",
+    { date: "", view: "day", store: "", q: "" },
+    { transient: ["date"] },
+  );
+  const view = params.view as ViewMode;
+  const selectedStoreId = params.store;
+  const searchQuery = params.q;
+  const selectedDate: Date = useMemo(() => {
+    const raw = params.date || todayInTimezone(tz);
+    const [y, m, d] = raw.split("-").map(Number);
     return new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1);
-  });
-  const [view, setView] = useState<ViewMode>("day");
-  const [selectedStoreId, setSelectedStoreId] = useState<string>("");
-  const [searchQuery, setSearchQuery] = useState<string>("");
+  }, [params.date, tz]);
+  const setSelectedDate = (next: Date | ((prev: Date) => Date)): void => {
+    const resolved = typeof next === "function" ? next(selectedDate) : next;
+    setParams({ date: toDateStr(resolved) });
+  };
+  const setView = (v: ViewMode): void => setParams({ view: v === "day" ? null : v });
+  const setSelectedStoreId = (v: string): void => setParams({ store: v || null });
+  const setSearchQuery = (v: string): void => setParams({ q: v || null });
 
   // ── Derived date ranges ──────────────────────────────────────────────────
 

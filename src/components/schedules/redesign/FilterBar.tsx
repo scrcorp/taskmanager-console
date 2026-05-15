@@ -2,9 +2,14 @@
 
 /**
  * FilterBar — server User/Schedule 직접 사용. positions/shifts는 schedules 데이터에서 동적 추출.
+ *
+ * Multi-select dropdown 5종 (Staff/Role/Status/Position/Work Role) 은
+ * 공통 컴포넌트 `<MultiSelectFilter>` 로 통일. Empty staff dropdown 은
+ * radio + hide toggle 구조라 별도로 인라인 유지.
  */
 
 import { useState, useRef, useEffect, useMemo } from "react";
+import { MultiSelectFilter } from "@/components/ui";
 import type { User, Schedule } from "@/types";
 import { ROLE_PRIORITY } from "@/lib/permissions";
 
@@ -78,20 +83,28 @@ function getInitials(name: string | null | undefined): string {
 }
 
 export function FilterBar({ filters, onChange, users, schedules, selectedStoreId, rightSlot, emptyStaffSort, onEmptyStaffSortChange, emptyStaffHide, onEmptyStaffHideChange }: Props) {
+  // 5개 multi-select + empty-staff 가 상호배타적으로 열리도록 부모 state 로 제어.
   const [openMenu, setOpenMenu] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const containerRef = useRef<HTMLDivElement>(null);
+  const emptyStaffRef = useRef<HTMLDivElement>(null);
 
-  // Close on outside click
+  // empty-staff 메뉴만 outside-click + ESC 처리 (MultiSelectFilter 는 자체 처리).
   useEffect(() => {
+    if (openMenu !== "empty-staff") return;
     function handleClick(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      if (emptyStaffRef.current && !emptyStaffRef.current.contains(e.target as Node)) {
         setOpenMenu(null);
       }
     }
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setOpenMenu(null);
+    }
     document.addEventListener("mousedown", handleClick);
-    return () => document.removeEventListener("mousedown", handleClick);
-  }, []);
+    document.addEventListener("keydown", handleKey);
+    return () => {
+      document.removeEventListener("mousedown", handleClick);
+      document.removeEventListener("keydown", handleKey);
+    };
+  }, [openMenu]);
 
   // 동적 positions / shifts 추출
   const dynamicPositions = useMemo(() => {
@@ -130,189 +143,112 @@ export function FilterBar({ filters, onChange, users, schedules, selectedStoreId
 
   function clearAll() {
     onChange({ staffIds: [], roles: [], statuses: [], positions: [], shifts: [] });
-    setSearchQuery("");
     setOpenMenu(null);
   }
 
-  const filteredUserSearch = users.filter((u) => !searchQuery.trim() || (u.full_name ?? u.username).toLowerCase().includes(searchQuery.toLowerCase()));
+  /** 한 dropdown 만 열려있도록 — 다른 거 열려있으면 자동으로 닫음 */
+  const handleOpenChange = (menuId: string) => (next: boolean) => {
+    setOpenMenu(next ? menuId : (openMenu === menuId ? null : openMenu));
+  };
 
-  function FilterButton({ id, label, count }: { id: string; label: string; count: number }) {
-    const isActive = openMenu === id;
-    return (
-      <button
-        type="button"
-        onClick={() => setOpenMenu(isActive ? null : id)}
-        className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold border flex items-center gap-1.5 transition-colors ${
-          count > 0
-            ? "bg-[var(--color-accent-muted)] text-[var(--color-accent)] border-[var(--color-accent)]/30"
-            : "bg-[var(--color-surface)] text-[var(--color-text-secondary)] border-[var(--color-border)] hover:border-[var(--color-text-muted)] hover:text-[var(--color-text)]"
-        } ${isActive ? "ring-2 ring-[var(--color-accent)]/20" : ""}`}
-      >
-        {label}
-        {count > 0 && (
-          <span className="bg-[var(--color-accent)] text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center">
-            {count}
-          </span>
-        )}
-        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className={`transition-transform ${isActive ? "rotate-180" : ""}`}>
-          <polyline points="2.5 4 5 6.5 7.5 4" />
-        </svg>
-      </button>
-    );
-  }
-
-  function CheckboxList({ items, selected, onToggle }: { items: { id: string; label: string; meta?: React.ReactNode }[]; selected: string[]; onToggle: (id: string) => void }) {
-    return (
-      <div className="py-1 max-h-[280px] overflow-y-auto">
-        {items.length === 0 && (
-          <div className="px-3 py-4 text-[12px] text-[var(--color-text-muted)] italic text-center">No options</div>
-        )}
-        {items.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => onToggle(item.id)}
-            className={`w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-left transition-colors ${selected.includes(item.id) ? "bg-[var(--color-accent-muted)]" : "hover:bg-[var(--color-surface-hover)]"}`}
-          >
-            <span className={`w-4 h-4 rounded border-[1.5px] flex items-center justify-center shrink-0 transition-colors ${selected.includes(item.id) ? "bg-[var(--color-accent)] border-[var(--color-accent)]" : "border-[var(--color-border)]"}`}>
-              {selected.includes(item.id) && (
-                <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="2 5 4.5 7.5 8 3" />
-                </svg>
-              )}
-            </span>
-            <span className="flex-1 font-medium text-[var(--color-text)]">{item.label}</span>
-            {item.meta}
-          </button>
-        ))}
-      </div>
-    );
-  }
+  // ── Staff 옵션 (검색 + 커스텀 row: 아바타 + role 약어 + Scheduled 뱃지)
+  const staffOptions = users.map((u) => ({
+    id: u.id,
+    label: u.full_name || u.username,
+    user: u,
+  }));
 
   return (
-    <div ref={containerRef} className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-4 py-3 mb-4">
+    <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-4 py-3 mb-4">
       {/* Filter buttons row */}
       <div className="flex items-center gap-2 flex-wrap">
-        {/* Staff search */}
-        <div className="relative">
-          <FilterButton id="staff" label="Staff" count={filters.staffIds.length} />
-          {openMenu === "staff" && (
-            <div className="absolute top-full left-0 mt-1.5 w-[300px] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] z-30 overflow-hidden">
-              <div className="p-2 border-b border-[var(--color-border)]">
-                <div className="flex items-center gap-1.5 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg px-3 py-1.5">
-                  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="var(--color-text-muted)" strokeWidth="1.5" strokeLinecap="round"><circle cx="6" cy="6" r="4" /><line x1="9" y1="9" x2="12" y2="12" /></svg>
-                  <input
-                    type="text"
-                    autoFocus
-                    placeholder="Search by name..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    className="bg-transparent outline-none text-[13px] w-full"
-                  />
-                  {searchQuery && (
-                    <button type="button" onClick={() => setSearchQuery("")} className="text-[var(--color-text-muted)] hover:text-[var(--color-text)]">
-                      <svg width="11" height="11" viewBox="0 0 11 11" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="8" y1="3" x2="3" y2="8" /><line x1="3" y1="3" x2="8" y2="8" /></svg>
-                    </button>
-                  )}
-                </div>
-              </div>
-              <div className="max-h-[280px] overflow-y-auto py-1">
-                {filteredUserSearch.length === 0 ? (
-                  <div className="px-4 py-8 text-center">
-                    <div className="text-[12px] text-[var(--color-text-muted)] mb-1">No staff found</div>
+        <MultiSelectFilter
+          label="Staff"
+          options={staffOptions}
+          selected={filters.staffIds}
+          onToggle={(id) => toggle("staffIds", id)}
+          onClearAll={() => onChange({ ...filters, staffIds: [] })}
+          searchable
+          searchPlaceholder="Search by name..."
+          width={300}
+          open={openMenu === "staff"}
+          onOpenChange={handleOpenChange("staff")}
+          filterFn={(opt, q) => {
+            const u = opt.user;
+            const needle = q.trim().toLowerCase();
+            return (u.full_name ?? u.username).toLowerCase().includes(needle)
+              || u.username.toLowerCase().includes(needle);
+          }}
+          renderOption={(opt, isSelected) => {
+            const u = opt.user;
+            const hasSchedule = usersWithSchedule.has(u.id);
+            const roleId = rolePriorityToBadge(u.role_priority);
+            return (
+              <div className="flex-1 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold shrink-0 ${rolePriorityToColorClass(u.role_priority)}`}>
+                    {getInitials(u.full_name)}
                   </div>
-                ) : (
-                  filteredUserSearch.map((u) => {
-                    const hasSchedule = usersWithSchedule.has(u.id);
-                    const roleId = rolePriorityToBadge(u.role_priority);
-                    return (
-                      <button
-                        key={u.id}
-                        type="button"
-                        onClick={() => toggle("staffIds", u.id)}
-                        className={`w-full flex items-center justify-between px-3 py-2 text-[13px] cursor-pointer transition-colors ${filters.staffIds.includes(u.id) ? "bg-[var(--color-accent-muted)]" : "hover:bg-[var(--color-surface-hover)]"}`}
-                      >
-                        <div className="flex items-center gap-2.5">
-                          <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold ${rolePriorityToColorClass(u.role_priority)}`}>{getInitials(u.full_name)}</div>
-                          <span className="font-medium text-[var(--color-text)]">{u.full_name || u.username}</span>
-                          <span className="text-[10px] text-[var(--color-text-muted)] uppercase">{roleId}</span>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${hasSchedule ? "bg-[var(--color-success-muted)] text-[var(--color-success)]" : "bg-[var(--color-bg)] text-[var(--color-text-muted)]"}`}>
-                            {hasSchedule ? "Scheduled" : "No schedule"}
-                          </span>
-                          {filters.staffIds.includes(u.id) && (
-                            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="var(--color-accent)" strokeWidth="2" strokeLinecap="round"><polyline points="2 6 5 9 10 3" /></svg>
-                          )}
-                        </div>
-                      </button>
-                    );
-                  })
-                )}
+                  <span className="font-medium text-[var(--color-text)] truncate">{u.full_name || u.username}</span>
+                  <span className="text-[10px] text-[var(--color-text-muted)] uppercase shrink-0">{roleId}</span>
+                </div>
+                <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${hasSchedule ? "bg-[var(--color-success-muted)] text-[var(--color-success)]" : "bg-[var(--color-bg)] text-[var(--color-text-muted)]"}`}>
+                  {hasSchedule ? "Scheduled" : "No schedule"}
+                </span>
+                {/* checkmark 는 부모가 그리지만, 기존 디자인은 row 우측에도 별도 체크가 있었음 — 생략해도 무방. */}
+                {isSelected ? null : null}
               </div>
-            </div>
-          )}
-        </div>
+            );
+          }}
+        />
 
-        {/* Role */}
-        <div className="relative">
-          <FilterButton id="role" label="Role" count={filters.roles.length} />
-          {openMenu === "role" && (
-            <div className="absolute top-full left-0 mt-1.5 w-[200px] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] z-30 overflow-hidden">
-              <CheckboxList
-                items={ALL_ROLES.map((r) => ({ id: r.id, label: r.label }))}
-                selected={filters.roles}
-                onToggle={(id) => toggle("roles", id)}
-              />
-            </div>
-          )}
-        </div>
+        <MultiSelectFilter
+          label="Role"
+          options={ALL_ROLES.map((r) => ({ id: r.id, label: r.label }))}
+          selected={filters.roles}
+          onToggle={(id) => toggle("roles", id)}
+          onClearAll={() => onChange({ ...filters, roles: [] })}
+          width={200}
+          open={openMenu === "role"}
+          onOpenChange={handleOpenChange("role")}
+        />
 
-        {/* Status */}
-        <div className="relative">
-          <FilterButton id="status" label="Status" count={filters.statuses.length} />
-          {openMenu === "status" && (
-            <div className="absolute top-full left-0 mt-1.5 w-[200px] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] z-30 overflow-hidden">
-              <CheckboxList
-                items={ALL_STATUSES.map((s) => ({
-                  id: s.id,
-                  label: s.label,
-                  meta: <span className="w-2.5 h-2.5 rounded-full" style={{ background: s.color }} />,
-                }))}
-                selected={filters.statuses}
-                onToggle={(id) => toggle("statuses", id)}
-              />
-            </div>
-          )}
-        </div>
+        <MultiSelectFilter
+          label="Status"
+          options={ALL_STATUSES.map((s) => ({
+            id: s.id,
+            label: s.label,
+            meta: <span className="w-2.5 h-2.5 rounded-full" style={{ background: s.color }} />,
+          }))}
+          selected={filters.statuses}
+          onToggle={(id) => toggle("statuses", id)}
+          onClearAll={() => onChange({ ...filters, statuses: [] })}
+          width={200}
+          open={openMenu === "status"}
+          onOpenChange={handleOpenChange("status")}
+        />
 
-        {/* Position (dynamic) */}
-        <div className="relative">
-          <FilterButton id="position" label="Position" count={filters.positions.length} />
-          {openMenu === "position" && (
-            <div className="absolute top-full left-0 mt-1.5 w-[200px] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] z-30 overflow-hidden">
-              <CheckboxList
-                items={dynamicPositions.map((p) => ({ id: p, label: p }))}
-                selected={filters.positions}
-                onToggle={(id) => toggle("positions", id)}
-              />
-            </div>
-          )}
-        </div>
+        <MultiSelectFilter
+          label="Position"
+          options={dynamicPositions.map((p) => ({ id: p, label: p }))}
+          selected={filters.positions}
+          onToggle={(id) => toggle("positions", id)}
+          onClearAll={() => onChange({ ...filters, positions: [] })}
+          width={200}
+          open={openMenu === "position"}
+          onOpenChange={handleOpenChange("position")}
+        />
 
-        {/* Shift (dynamic — work role names) */}
-        <div className="relative">
-          <FilterButton id="shift" label="Work Role" count={filters.shifts.length} />
-          {openMenu === "shift" && (
-            <div className="absolute top-full left-0 mt-1.5 w-[220px] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] z-30 overflow-hidden">
-              <CheckboxList
-                items={dynamicShifts.map((s) => ({ id: s, label: s }))}
-                selected={filters.shifts}
-                onToggle={(id) => toggle("shifts", id)}
-              />
-            </div>
-          )}
-        </div>
+        <MultiSelectFilter
+          label="Work Role"
+          options={dynamicShifts.map((s) => ({ id: s, label: s }))}
+          selected={filters.shifts}
+          onToggle={(id) => toggle("shifts", id)}
+          onClearAll={() => onChange({ ...filters, shifts: [] })}
+          width={220}
+          open={openMenu === "shift"}
+          onOpenChange={handleOpenChange("shift")}
+        />
 
         {totalActive > 0 && (
           <button type="button" onClick={clearAll} className="text-[12px] text-[var(--color-text-muted)] hover:text-[var(--color-danger)] flex items-center gap-1 transition-colors">
@@ -321,14 +257,14 @@ export function FilterBar({ filters, onChange, users, schedules, selectedStoreId
           </button>
         )}
 
-        {/* Empty staff — 우측 끝, hide 토글 + sort 라디오 분리 */}
+        {/* Empty staff — multi-select 가 아닌 radio + toggle 구조라 그대로 인라인 유지 */}
         {emptyStaffSort && onEmptyStaffSortChange && onEmptyStaffHideChange && (() => {
           const isDefault = !emptyStaffHide && emptyStaffSort === "bottom";
           const chipLabel = emptyStaffHide
             ? "Hidden"
             : EMPTY_SORT_OPTIONS.find((o) => o.id === emptyStaffSort)?.label ?? "Bottom";
           return (
-            <div className="relative ml-auto">
+            <div ref={emptyStaffRef} className="relative ml-auto">
               <button
                 type="button"
                 onClick={() => setOpenMenu(openMenu === "empty-staff" ? null : "empty-staff")}

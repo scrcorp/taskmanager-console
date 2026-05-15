@@ -7,7 +7,7 @@
  */
 
 import React, { useState, useCallback } from "react";
-import { useUrlParams } from "@/hooks/useUrlParams";
+import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import { Plus, Trash2 } from "lucide-react";
 import {
   useEvalTemplates,
@@ -43,7 +43,7 @@ export default function EvaluationsPage(): React.ReactElement {
   const tz = useTimezone();
   const isGMOrAbove = hasPermission(PERMISSIONS.EVALUATIONS_CREATE);
 
-  const [urlParams, setUrlParams] = useUrlParams({ tab: "templates", tpage: "1", epage: "1" });
+  const [urlParams, setUrlParams] = usePersistedFilters("evaluations", { tab: "templates", tpage: "1", epage: "1" });
   const activeTab = (urlParams.tab === "evaluations" ? "evaluations" : "templates") as "templates" | "evaluations";
   const templatePage = Number(urlParams.tpage);
   const evalPage = Number(urlParams.epage);

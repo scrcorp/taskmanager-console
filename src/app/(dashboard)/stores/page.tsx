@@ -10,7 +10,7 @@
 
 import React, { useState, useMemo, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { useUrlParams } from "@/hooks/useUrlParams";
+import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import { Plus, Search, Edit, Trash2, X, GripVertical } from "lucide-react";
 import {
   DndContext,
@@ -150,7 +150,7 @@ export default function StoresPage(): React.ReactElement {
   const createPosition = useCreatePosition();
 
   /** 검색어 상태 (URL-persisted) / Search query state */
-  const [urlParams, setUrlParams] = useUrlParams({ search: "" });
+  const [urlParams, setUrlParams] = usePersistedFilters("stores", { search: "" });
   const searchQuery = urlParams.search;
 
   /** 생성 모달 상태 / Create modal state */

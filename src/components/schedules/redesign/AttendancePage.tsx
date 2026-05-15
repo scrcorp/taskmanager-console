@@ -1,10 +1,11 @@
 "use client";
 
-import { useState, useMemo, useEffect } from 'react'
-import { useRouter, useSearchParams } from 'next/navigation'
+import { useState, useMemo, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { useAttendances } from '@/hooks/useAttendances'
 import { useStores } from '@/hooks/useStores'
 import { useAuthStore } from '@/stores/authStore'
+import { usePersistedFilters } from '@/hooks/usePersistedFilters'
 import { todayInTimezone } from '@/lib/utils'
 import { useMidnightRefresh } from '@/hooks/useMidnightRefresh'
 import type { AttendanceBreakItem } from '@/types'
@@ -254,7 +255,6 @@ function computeLateMinutes(clockInIso?: string | null, scheduledIso?: string | 
 
 export function AttendancePage() {
   const router = useRouter()
-  const searchParams = useSearchParams()
   // 매장/조직 timezone 기준 오늘 + 자정 자동 갱신.
   const orgTimezone = useAuthStore((s) => s.user?.organization_timezone) ?? undefined
   const today = useMidnightRefresh(
@@ -262,44 +262,44 @@ export function AttendancePage() {
     [orgTimezone],
   )
 
-  // URL 초기값 ?date=YYYY-MM-DD&store=<id>&filter=<key>
-  // 잘못된 값은 무시하고 기본값 사용.
-  const initDate = sanitizeDateParam(searchParams.get('date'))
-  const initFilter = parseFilterSet(searchParams.get('filter'))
-  const initStore = searchParams.get('store') ?? ''
+  // URL + localStorage 영속 필터.
+  // date 는 transient — 매 세션 새 today 가 기본이라 localStorage 저장 안 함.
+  const [params, setParams] = usePersistedFilters(
+    'attendances',
+    { date: '', store: '', filter: '' },
+    { transient: ['date'] },
+  )
+  const rawDate = sanitizeDateParam(params.date || null)
+  const selectedStore = params.store
+  const filters = useMemo(() => parseFilterSet(params.filter || null), [params.filter])
+  // URL/저장 값이 비어있으면 today 사용. 사용자가 직접 고른 값이 있으면 그대로.
+  const date = rawDate ?? todayInTimezone(orgTimezone)
 
-  const [selectedStore, setSelectedStore] = useState<string>(initStore)
-  // 필터 다중 선택 — 비어있으면 All (모두 표시).
-  const [filters, setFilters] = useState<Set<CheckableFilterKey>>(initFilter)
-  const [date, setDate] = useState(initDate ?? todayInTimezone(orgTimezone))
+  const setSelectedStore = useCallback(
+    (v: string) => setParams({ store: v || null }),
+    [setParams],
+  )
+  const setDate = useCallback(
+    (v: string) => setParams({ date: v || null }),
+    [setParams],
+  )
+  const setFilters = useCallback(
+    (next: Set<CheckableFilterKey> | ((prev: Set<CheckableFilterKey>) => Set<CheckableFilterKey>)) => {
+      const resolved = typeof next === 'function' ? next(filters) : next
+      setParams({ filter: resolved.size === 0 ? null : Array.from(resolved).join(',') })
+    },
+    [filters, setParams],
+  )
 
-  // 사용자가 명시적으로 다른 날짜를 고르지 않은 동안 (URL date 없고 picker 도 today
-  // 그대로) 자정이 지나가면 date state 도 새 today 로 따라가도록 sync.
-  // 사용자가 직접 다른 날짜를 골랐다면 그대로 둔다.
-  useEffect(() => {
-    if (!searchParams.get('date') && date !== today) {
-      // date 가 어제 today 그대로 굳어있었던 경우만 동기화
-      setDate(today)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [today])
+  // 자정 자동 갱신 — 사용자가 명시적으로 date 안 골랐을 때만 today 따라감.
+  // rawDate === null 이면 derived `date` 가 자동 today 되므로 별도 sync 불필요.
 
   const storesQ = useStores()
   const stores = storesQ.data ?? []
-  const selectedStoreTz = stores.find((s) => s.id === selectedStore)?.timezone ?? orgTimezone
 
-  // URL에 ?date 가 없었으면 store timezone 확정 후 today 재정렬 (조직 tz와 매장 tz가 다른 경우).
-  useEffect(() => {
-    if (initDate) return
-    setDate(todayInTimezone(selectedStoreTz))
-    // 매장 timezone 확정 시 1회만 보정.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedStoreTz])
-
-  // 첫 store 자동 선택 — URL에 값이 있고 유효하면 유지, 아니면 첫 store
+  // 첫 store 자동 선택 — URL/저장 값이 있고 유효하면 유지, 아니면 첫 store.
   useEffect(() => {
     if (selectedStore) {
-      // URL에서 받은 id가 실제 존재하지 않으면 fallback
       if (stores.length > 0 && !stores.some((s) => s.id === selectedStore)) {
         setSelectedStore(stores[0]!.id)
       }
@@ -310,21 +310,6 @@ export function AttendancePage() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stores])
-
-  // state 변경 시 URL sync — history.replaceState 직접 사용 (nav race 방지)
-  useEffect(() => {
-    if (typeof window === 'undefined') return
-    const params = new URLSearchParams(window.location.search)
-    params.set('date', date)
-    if (selectedStore) params.set('store', selectedStore)
-    else params.delete('store')
-    if (filters.size === 0) params.delete('filter')
-    else params.set('filter', Array.from(filters).join(','))
-    const next = `${window.location.pathname}?${params.toString()}`
-    if (next !== window.location.pathname + window.location.search) {
-      window.history.replaceState(null, '', next)
-    }
-  }, [date, selectedStore, filters])
 
   const attendancesQ = useAttendances({
     store_id: selectedStore || undefined,

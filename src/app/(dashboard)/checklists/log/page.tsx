@@ -9,13 +9,13 @@
  * 테이블: Type | Date/Time | Staff | Role | Description | By
  */
 
-import React, { useState, useMemo, Suspense } from "react";
-import { useSearchParams } from "next/navigation";
+import React, { useMemo, Suspense } from "react";
 import { Search, ChevronUp, ChevronDown } from "lucide-react";
 import { useStores } from "@/hooks/useStores";
 import { useCompletionLog } from "@/hooks/useCompletionLog";
 import type { CompletionLogEntry } from "@/hooks/useCompletionLog";
 import { usePermissions } from "@/hooks/usePermissions";
+import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import { PERMISSIONS } from "@/lib/permissions";
 import { Card, Badge, Pagination, EmptyState, LoadingSpinner } from "@/components/ui";
 import { useTimezone } from "@/hooks/useTimezone";
@@ -113,20 +113,39 @@ function ScheduleLogsContent(): React.ReactElement {
   const { hasPermission } = usePermissions();
   const tz = useTimezone();
 
-  // Filters
-  const [typeFilter, setTypeFilter] = useState<string>("all");
-  const [storeFilter, setStoreFilter] = useState<string>("");
-  const [datePreset, setDatePreset] = useState<DatePreset>("today");
-  const [customFrom, setCustomFrom] = useState<string>("");
-  const [customTo, setCustomTo] = useState<string>("");
-  const [searchQuery, setSearchQuery] = useState<string>("");
-
-  // Sort
-  const [sort, setSort] = useState<SortState>({ key: "timestamp", dir: "desc" });
-
-  // Pagination
-  const [page, setPage] = useState(1);
+  // URL + localStorage 영속 필터
+  const [params, setParams] = usePersistedFilters("checklists.log", {
+    type: "all",
+    store: "",
+    preset: "today",
+    from: "",
+    to: "",
+    q: "",
+    sort_key: "timestamp",
+    sort_dir: "desc",
+    page: "1",
+  });
+  const typeFilter = params.type;
+  const storeFilter = params.store;
+  const datePreset = params.preset as DatePreset;
+  const customFrom = params.from;
+  const customTo = params.to;
+  const searchQuery = params.q;
+  const sort: SortState = { key: params.sort_key, dir: params.sort_dir as "asc" | "desc" };
+  const page = Math.max(1, Number(params.page) || 1);
   const perPage = 15;
+
+  const setTypeFilter = (v: string): void => setParams({ type: v === "all" ? null : v, page: null });
+  const setStoreFilter = (v: string): void => setParams({ store: v || null, page: null });
+  const setDatePreset = (v: DatePreset): void => setParams({ preset: v === "today" ? null : v, page: null });
+  const setCustomFrom = (v: string): void => setParams({ from: v || null, page: null });
+  const setCustomTo = (v: string): void => setParams({ to: v || null, page: null });
+  const setSearchQuery = (v: string): void => setParams({ q: v || null, page: null });
+  const setSort = (next: SortState | ((prev: SortState) => SortState)): void => {
+    const resolved = typeof next === "function" ? next(sort) : next;
+    setParams({ sort_key: resolved.key, sort_dir: resolved.dir });
+  };
+  const setPage = (n: number): void => setParams({ page: n === 1 ? null : String(n) });
 
   // Data
   const { data: stores } = useStores();
@@ -241,7 +260,7 @@ function ScheduleLogsContent(): React.ReactElement {
       <div className="flex flex-wrap items-center gap-2.5 mb-4">
         <select
           value={typeFilter}
-          onChange={(e) => { setTypeFilter(e.target.value); setPage(1); }}
+          onChange={(e) => setTypeFilter(e.target.value)}
           className="px-2.5 py-1.5 text-xs font-medium bg-surface border border-border rounded-lg text-text-secondary focus:border-accent focus:ring-1 focus:ring-accent outline-none"
         >
           <option value="all">All Types</option>
@@ -252,7 +271,7 @@ function ScheduleLogsContent(): React.ReactElement {
 
         <select
           value={storeFilter}
-          onChange={(e) => { setStoreFilter(e.target.value); setPage(1); }}
+          onChange={(e) => setStoreFilter(e.target.value)}
           className="px-2.5 py-1.5 text-xs font-medium bg-surface border border-border rounded-lg text-text-secondary focus:border-accent focus:ring-1 focus:ring-accent outline-none"
         >
           <option value="">All Stores</option>
@@ -263,7 +282,7 @@ function ScheduleLogsContent(): React.ReactElement {
 
         <select
           value={datePreset}
-          onChange={(e) => { setDatePreset(e.target.value as DatePreset); setPage(1); }}
+          onChange={(e) => setDatePreset(e.target.value as DatePreset)}
           className="px-2.5 py-1.5 text-xs font-medium bg-surface border border-border rounded-lg text-text-secondary focus:border-accent focus:ring-1 focus:ring-accent outline-none"
         >
           <option value="today">Today</option>
@@ -279,14 +298,14 @@ function ScheduleLogsContent(): React.ReactElement {
             <input
               type="date"
               value={customFrom}
-              onChange={(e) => { setCustomFrom(e.target.value); setPage(1); }}
+              onChange={(e) => setCustomFrom(e.target.value)}
               className="px-2.5 py-1.5 text-xs bg-surface border border-border rounded-lg text-text-secondary focus:border-accent focus:ring-1 focus:ring-accent outline-none"
             />
             <span className="text-xs text-text-muted">~</span>
             <input
               type="date"
               value={customTo}
-              onChange={(e) => { setCustomTo(e.target.value); setPage(1); }}
+              onChange={(e) => setCustomTo(e.target.value)}
               className="px-2.5 py-1.5 text-xs bg-surface border border-border rounded-lg text-text-secondary focus:border-accent focus:ring-1 focus:ring-accent outline-none"
             />
           </>
@@ -297,7 +316,7 @@ function ScheduleLogsContent(): React.ReactElement {
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => { setSearchQuery(e.target.value); setPage(1); }}
+            onChange={(e) => setSearchQuery(e.target.value)}
             placeholder="Search logs..."
             className="pl-8 pr-3 py-1.5 text-xs bg-surface border border-border rounded-lg text-text focus:border-accent focus:ring-1 focus:ring-accent outline-none min-w-[180px]"
           />

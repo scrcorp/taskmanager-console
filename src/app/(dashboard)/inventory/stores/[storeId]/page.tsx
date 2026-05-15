@@ -9,7 +9,7 @@
 
 import React, { useState, useCallback, useMemo } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { useUrlParams } from "@/hooks/useUrlParams";
+import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import { useDebounce } from "@/hooks/useDebounce";
 import {
   Plus,
@@ -89,7 +89,7 @@ export default function StoreInventoryPage(): React.ReactElement {
   const canDelete = hasPermission(PERMISSIONS.INVENTORY_DELETE);
 
   // -- URL-persisted filters --
-  const [urlParams, setUrlParams] = useUrlParams({
+  const [urlParams, setUrlParams] = usePersistedFilters("inventory.store", {
     category: "",
     search: "",
     search_field: "all",
