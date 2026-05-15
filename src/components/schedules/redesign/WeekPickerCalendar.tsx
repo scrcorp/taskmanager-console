@@ -39,11 +39,34 @@ export function fmtWeekRange(start: Date): string {
 }
 
 interface Props {
+  /** mode='week' 시 선택된 주의 시작일 (Sunday). mode='day' 시 선택된 날짜.
+   *  Prop 이름이 어색하지만 schedules 사용처와의 호환을 위해 유지. */
   selectedWeekStart: Date;
-  onSelect: (weekStart: Date) => void;
+  /** mode='week' 시 선택한 주의 weekStart 를, mode='day' 시 선택한 날짜를 콜백. */
+  onSelect: (date: Date) => void;
+  /** 선택 단위. 'week' (default) — row 단위 / 'day' — cell 단위. */
+  mode?: "week" | "day";
 }
 
-export function WeekPickerCalendar({ selectedWeekStart, onSelect }: Props) {
+/** 같은 monthly grid 를 day-단위 선택용으로 사용하는 얇은 래퍼.
+ *  AttendancePage 의 Daily 모드 처럼 단일 날짜를 고르는 곳에서 사용. */
+export function DatePickerCalendar({
+  selectedDate,
+  onSelect,
+}: {
+  selectedDate: Date;
+  onSelect: (d: Date) => void;
+}) {
+  return (
+    <WeekPickerCalendar
+      selectedWeekStart={selectedDate}
+      onSelect={onSelect}
+      mode="day"
+    />
+  );
+}
+
+export function WeekPickerCalendar({ selectedWeekStart, onSelect, mode = "week" }: Props) {
   const [view, setView] = useState<"week" | "month" | "year">("week");
   const [displayDate, setDisplayDate] = useState(() =>
     new Date(selectedWeekStart.getFullYear(), selectedWeekStart.getMonth(), 1),
@@ -134,31 +157,71 @@ export function WeekPickerCalendar({ selectedWeekStart, onSelect }: Props) {
             {weeks.map((week, wi) => {
               if (wi === 5 && week.every((d) => d.getMonth() !== month)) return null;
               const ws = getWeekStart(week[0]!);
-              const isSel = sameDay(ws, selectedWeekStart);
-              const isHov = hoverWeek !== null && sameDay(ws, hoverWeek);
+              // week-mode 에선 row 단위 select. day-mode 에선 cell 단위 select.
+              const isRowSel = mode === "week" && sameDay(ws, selectedWeekStart);
+              const isRowHov = mode === "week" && hoverWeek !== null && sameDay(ws, hoverWeek);
+              if (mode === "week") {
+                return (
+                  <div
+                    key={wi}
+                    className={`grid grid-cols-7 rounded-lg cursor-pointer transition-colors ${
+                      isRowSel
+                        ? "bg-[var(--color-accent)]"
+                        : isRowHov
+                          ? "bg-[var(--color-accent-muted)]"
+                          : "hover:bg-[var(--color-accent-muted)]"
+                    }`}
+                    onMouseEnter={() => setHoverWeek(ws)}
+                    onMouseLeave={() => setHoverWeek(null)}
+                    onClick={() => onSelect(ws)}
+                  >
+                    {week.map((day, di) => {
+                      const inMonth = day.getMonth() === month;
+                      const isToday = sameDay(day, today);
+                      return (
+                        <div
+                          key={di}
+                          className={`text-center text-[12px] py-1.5 ${
+                            isRowSel
+                              ? "text-white font-semibold"
+                              : isToday
+                                ? "font-bold text-[var(--color-accent)]"
+                                : inMonth
+                                  ? "text-[var(--color-text)]"
+                                  : "text-[var(--color-text-muted)] opacity-30"
+                          }`}
+                        >
+                          {day.getDate()}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              }
+              // day-mode: cell 단위 hover/select.
               return (
-                <div key={wi}
-                  className={`grid grid-cols-7 rounded-lg cursor-pointer transition-colors ${
-                    isSel ? "bg-[var(--color-accent)]"
-                    : isHov ? "bg-[var(--color-accent-muted)]"
-                    : "hover:bg-[var(--color-accent-muted)]"
-                  }`}
-                  onMouseEnter={() => setHoverWeek(ws)}
-                  onMouseLeave={() => setHoverWeek(null)}
-                  onClick={() => onSelect(ws)}
-                >
+                <div key={wi} className="grid grid-cols-7">
                   {week.map((day, di) => {
                     const inMonth = day.getMonth() === month;
                     const isToday = sameDay(day, today);
+                    const isDaySel = sameDay(day, selectedWeekStart);
                     return (
-                      <div key={di} className={`text-center text-[12px] py-1.5 ${
-                        isSel ? "text-white font-semibold"
-                        : isToday ? "font-bold text-[var(--color-accent)]"
-                        : inMonth ? "text-[var(--color-text)]"
-                        : "text-[var(--color-text-muted)] opacity-30"
-                      }`}>
+                      <button
+                        key={di}
+                        type="button"
+                        onClick={() => onSelect(day)}
+                        className={`text-center text-[12px] py-1.5 rounded-lg cursor-pointer transition-colors ${
+                          isDaySel
+                            ? "bg-[var(--color-accent)] text-white font-semibold"
+                            : isToday
+                              ? "font-bold text-[var(--color-accent)] hover:bg-[var(--color-accent-muted)]"
+                              : inMonth
+                                ? "text-[var(--color-text)] hover:bg-[var(--color-accent-muted)]"
+                                : "text-[var(--color-text-muted)] opacity-30 hover:bg-[var(--color-accent-muted)]"
+                        }`}
+                      >
                         {day.getDate()}
-                      </div>
+                      </button>
                     );
                   })}
                 </div>

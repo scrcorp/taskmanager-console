@@ -9,6 +9,46 @@ import { usePersistedFilters } from '@/hooks/usePersistedFilters'
 import { todayInTimezone } from '@/lib/utils'
 import { useMidnightRefresh } from '@/hooks/useMidnightRefresh'
 import type { AttendanceBreakItem } from '@/types'
+import { AttendanceWeeklyView } from './AttendanceWeeklyView'
+import { WeekPickerCalendar, DatePickerCalendar, getWeekStart } from './WeekPickerCalendar'
+
+type ViewMode = 'daily' | 'weekly'
+
+/** YYYY-MM-DD → Date (local midnight). */
+function ymdToDate(ymd: string): Date {
+  const [y, m, d] = ymd.split('-').map(Number)
+  return new Date(y ?? 1970, (m ?? 1) - 1, d ?? 1)
+}
+
+/** Date → YYYY-MM-DD (local). */
+function dateToYmd(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** "MON, MAY 13, 2026" 형식 — Daily trigger button 라벨. */
+function formatDayLabel(ymd: string): string {
+  const d = ymdToDate(ymd)
+  const wd = d.toLocaleDateString('en-US', { weekday: 'short' }).toUpperCase()
+  const mo = d.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()
+  return `${wd}, ${mo} ${d.getDate()}, ${d.getFullYear()}`
+}
+
+/** "[W20] MAY 10 – MAY 16" 형식. schedules/overview 와 동일 패턴. */
+function formatWeekLabel(weekStartYmd: string): string {
+  const d0 = ymdToDate(weekStartYmd)
+  const d6 = new Date(d0)
+  d6.setDate(d6.getDate() + 6)
+  const nextJan1 = new Date(d0.getFullYear() + 1, 0, 1)
+  const yr = d0 <= nextJan1 && nextJan1 <= d6 ? d0.getFullYear() + 1 : d0.getFullYear()
+  const jan1 = new Date(yr, 0, 1)
+  const w1Sun = new Date(jan1)
+  w1Sun.setDate(w1Sun.getDate() - w1Sun.getDay())
+  const wk = Math.round((d0.getTime() - w1Sun.getTime()) / (7 * 86400000)) + 1
+  const m0 = d0.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()
+  const m6 = d6.toLocaleDateString('en-US', { month: 'short' }).toUpperCase()
+  const crossYear = d0.getFullYear() !== d6.getFullYear()
+  return `[W${wk}${crossYear ? ` '${String(yr).slice(2)}` : ''}] ${m0} ${d0.getDate()} – ${m6} ${d6.getDate()}`
+}
 
 type AttendanceState = "upcoming" | "soon" | "working" | "on_break" | "late" | "clocked_out" | "no_show" | "cancelled"
 type FilterKey = AttendanceState | 'all'
@@ -266,7 +306,7 @@ export function AttendancePage() {
   // date 는 transient — 매 세션 새 today 가 기본이라 localStorage 저장 안 함.
   const [params, setParams] = usePersistedFilters(
     'attendances',
-    { date: '', store: '', filter: '' },
+    { date: '', store: '', filter: '', view: '' },
     { transient: ['date'] },
   )
   const rawDate = sanitizeDateParam(params.date || null)
@@ -274,6 +314,7 @@ export function AttendancePage() {
   const filters = useMemo(() => parseFilterSet(params.filter || null), [params.filter])
   // URL/저장 값이 비어있으면 today 사용. 사용자가 직접 고른 값이 있으면 그대로.
   const date = rawDate ?? todayInTimezone(orgTimezone)
+  const view: ViewMode = params.view === 'weekly' ? 'weekly' : 'daily'
 
   const setSelectedStore = useCallback(
     (v: string) => setParams({ store: v || null }),
@@ -281,6 +322,10 @@ export function AttendancePage() {
   )
   const setDate = useCallback(
     (v: string) => setParams({ date: v || null }),
+    [setParams],
+  )
+  const setView = useCallback(
+    (v: ViewMode) => setParams({ view: v === 'weekly' ? 'weekly' : null }),
     [setParams],
   )
   const setFilters = useCallback(
@@ -317,6 +362,9 @@ export function AttendancePage() {
     per_page: 200,
   })
   const records = attendancesQ.data?.items ?? []
+
+  // Date picker popup 열림 여부 — Daily/Weekly 공통 (한 번에 하나만 열림).
+  const [datePickerOpen, setDatePickerOpen] = useState(false)
 
   // 진행 중 break 경과시간 및 live work 계산용 — 30s 간격 tick
   const [nowMs, setNowMs] = useState<number>(() => Date.now())
@@ -388,24 +436,98 @@ export function AttendancePage() {
       <div className="flex items-center justify-between py-2 gap-3 flex-wrap">
         <div className="flex items-center gap-3">
           <h1 className="text-[22px] font-semibold text-[var(--color-text)]">Attendance</h1>
-          {attendancesQ.isLoading && <span className="text-[11px] text-[var(--color-text-muted)]">Loading…</span>}
+          {attendancesQ.isLoading && view === 'daily' && <span className="text-[11px] text-[var(--color-text-muted)]">Loading…</span>}
         </div>
         <div className="flex items-center gap-2">
-          <button type="button" onClick={() => shiftDate(-1)} className="w-8 h-8 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]" aria-label="Previous day">
+          {/* View toggle — Daily / Weekly */}
+          <div className="inline-flex p-0.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]">
+            <button
+              type="button"
+              onClick={() => setView('daily')}
+              aria-pressed={view === 'daily'}
+              className={`px-3 py-1 rounded-md text-[12px] font-semibold transition-colors ${
+                view === 'daily'
+                  ? 'bg-[var(--color-accent)] text-white'
+                  : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]'
+              }`}
+            >
+              Daily
+            </button>
+            <button
+              type="button"
+              onClick={() => setView('weekly')}
+              aria-pressed={view === 'weekly'}
+              className={`px-3 py-1 rounded-md text-[12px] font-semibold transition-colors ${
+                view === 'weekly'
+                  ? 'bg-[var(--color-accent)] text-white'
+                  : 'text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]'
+              }`}
+            >
+              Weekly
+            </button>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => shiftDate(view === 'weekly' ? -7 : -1)}
+            className="w-8 h-8 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]"
+            aria-label={view === 'weekly' ? 'Previous week' : 'Previous day'}
+          >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="9 11 5 7 9 3"/></svg>
           </button>
-          <input
-            type="date"
-            value={date}
-            onChange={e => setDate(e.target.value)}
-            className="px-2 py-1 border border-[var(--color-border)] rounded-lg text-[13px] font-semibold text-[var(--color-text)] min-w-[140px] text-center"
-          />
-          <button type="button" onClick={() => shiftDate(1)} className="w-8 h-8 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]" aria-label="Next day">
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setDatePickerOpen((p) => !p)}
+              className="w-[272px] px-3 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-[13px] font-semibold text-[var(--color-text)] text-center tabular-nums"
+            >
+              {view === 'weekly'
+                ? formatWeekLabel(dateToYmd(getWeekStart(ymdToDate(date))))
+                : formatDayLabel(date)}
+            </button>
+            {datePickerOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setDatePickerOpen(false)}
+                />
+                <div className="absolute top-full right-0 mt-1 z-50">
+                  {view === 'weekly' ? (
+                    <WeekPickerCalendar
+                      selectedWeekStart={getWeekStart(ymdToDate(date))}
+                      onSelect={(ws) => {
+                        setDate(dateToYmd(ws))
+                        setDatePickerOpen(false)
+                      }}
+                    />
+                  ) : (
+                    <DatePickerCalendar
+                      selectedDate={ymdToDate(date)}
+                      onSelect={(d) => {
+                        setDate(dateToYmd(d))
+                        setDatePickerOpen(false)
+                      }}
+                    />
+                  )}
+                </div>
+              </>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => shiftDate(view === 'weekly' ? 7 : 1)}
+            className="w-8 h-8 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]"
+            aria-label={view === 'weekly' ? 'Next week' : 'Next day'}
+          >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><polyline points="5 3 9 7 5 11"/></svg>
           </button>
         </div>
       </div>
 
+      {view === 'weekly' ? (
+        <AttendanceWeeklyView storeId={selectedStore} weekStart={date} />
+      ) : (
+        <>
       {/* Stat cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
         <StatCard label="Upcoming" value={stats.upcoming} color="text-[var(--color-text)]" />
@@ -568,6 +690,8 @@ export function AttendancePage() {
           </tbody>
         </table>
       </div>
+        </>
+      )}
     </div>
   )
 }
