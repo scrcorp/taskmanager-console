@@ -9,7 +9,7 @@
  */
 
 import React, { useState, useMemo, useCallback, useRef, DragEvent } from "react";
-import { useUrlParams } from "@/hooks/useUrlParams";
+import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import { Plus, ChevronRight, Trash2, Edit, Upload, Download, FileSpreadsheet, X } from "lucide-react";
 import {
   useAllChecklistTemplates,
@@ -116,7 +116,7 @@ export default function ChecklistsPage(): React.ReactElement {
   const canManageChecklists = hasPermission(PERMISSIONS.CHECKLISTS_CREATE);
 
   /* ---- Filter state (URL-persisted) ---- */
-  const [urlParams, setUrlParams] = useUrlParams({ store: "", shift: "", position: "" });
+  const [urlParams, setUrlParams] = usePersistedFilters("checklists", { store: "", shift: "", position: "" });
   const filterStoreId = urlParams.store;
   const filterShiftId = urlParams.shift;
   const filterPositionId = urlParams.position;

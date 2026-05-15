@@ -30,6 +30,8 @@ export interface UserMe {
   password_changed_at: string | null;
   must_change_password: boolean;
   preferred_language: PreferredLanguage;
+  /** Server-persisted console filters per page (1 account, 1 dataset). */
+  console_filters?: Record<string, Record<string, string>>;
 }
 
 // Organization

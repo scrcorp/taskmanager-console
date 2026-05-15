@@ -1,6 +1,5 @@
 "use client";
 
-import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Bell, Check, CheckCheck, ExternalLink, Mail, MailOpen } from "lucide-react";
 import {
@@ -9,6 +8,7 @@ import {
   useMarkRead,
   useMarkAllRead,
 } from "@/hooks";
+import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import {
   Button,
   Card,
@@ -62,7 +62,9 @@ function getAlertHref(referenceType: string | null, referenceId: string | null):
 export default function AlertsPage() {
   const router = useRouter();
   const { toast } = useToast();
-  const [page, setPage] = useState<number>(1);
+  const [urlParams, setUrlParams] = usePersistedFilters("alerts", { page: "1" });
+  const page = Math.max(1, Number(urlParams.page) || 1);
+  const setPage = (next: number): void => setUrlParams({ page: next === 1 ? null : String(next) });
   const perPage: number = 20;
 
   const { data, isLoading } = useAlerts(page, perPage);

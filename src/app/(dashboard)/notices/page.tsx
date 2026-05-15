@@ -8,7 +8,7 @@
 
 import React, { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { useUrlParams } from "@/hooks/useUrlParams";
+import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import { Plus, Edit, Trash2 } from "lucide-react";
 import {
   useNotices,
@@ -47,7 +47,7 @@ export default function NoticesPage(): React.ReactElement {
   const canManageNotices = hasPermission(PERMISSIONS.ANNOUNCEMENTS_CREATE);
 
   // -- Pagination state (URL-persisted) --
-  const [urlParams, setUrlParams] = useUrlParams({ page: "1" });
+  const [urlParams, setUrlParams] = usePersistedFilters("notices", { page: "1" });
   const page = Number(urlParams.page);
 
   // -- Modal state --

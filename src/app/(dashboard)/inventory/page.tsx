@@ -10,7 +10,7 @@
 import React, { useState, useCallback, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Plus, Package, Upload } from "lucide-react";
-import { useUrlParams } from "@/hooks/useUrlParams";
+import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import { useDebounce } from "@/hooks/useDebounce";
 import {
   useCategories,
@@ -61,7 +61,7 @@ export default function InventoryPage(): React.ReactElement {
   const canDelete = hasPermission(PERMISSIONS.INVENTORY_DELETE);
 
   // -- URL-persisted filter state --
-  const [urlParams, setUrlParams] = useUrlParams({
+  const [urlParams, setUrlParams] = usePersistedFilters("inventory", {
     category: "",
     search: "",
     search_field: "all",

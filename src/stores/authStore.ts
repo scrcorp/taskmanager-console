@@ -14,6 +14,7 @@ import { create } from "zustand";
 import type { UserMe } from "@/types";
 import { clearTokens, setTokens, getRefreshToken } from "@/lib/auth";
 import api from "@/lib/api";
+import { hydrateFromServer, cancelPendingSync } from "@/lib/consoleFiltersSync";
 
 /** 인증 상태 인터페이스 */
 interface AuthState {
@@ -36,7 +37,10 @@ export const useAuthStore = create<AuthState>((set) => ({
       setTokens(res.data.access_token, res.data.refresh_token);
       // 토큰 저장 후 사용자 정보 조회
       const me = await api.get("/auth/me");
-      set({ user: me.data, isLoading: false });
+      const user: UserMe = me.data;
+      set({ user, isLoading: false });
+      // 서버에 저장된 페이지별 필터를 이 디바이스 localStorage 로 hydrate.
+      hydrateFromServer(user.id, user.console_filters);
     } catch (error) {
       set({ isLoading: false });
       throw error;
@@ -50,6 +54,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       // 서버 측 토큰 무효화 (실패해도 무시)
       api.post("/auth/logout", { refresh_token: refreshToken }).catch(() => {});
     }
+    cancelPendingSync();
     clearTokens();
     set({ user: null });
     window.location.href = "/login";
@@ -59,7 +64,10 @@ export const useAuthStore = create<AuthState>((set) => ({
   fetchMe: async () => {
     try {
       const res = await api.get("/auth/me");
-      set({ user: res.data });
+      const user: UserMe = res.data;
+      set({ user });
+      // 새로고침/탭 복귀 시에도 서버 → localStorage hydrate (다른 디바이스 변경 반영).
+      hydrateFromServer(user.id, user.console_filters);
     } catch (err: unknown) {
       const status = (err as { response?: { status?: number } })?.response?.status;
       if (status === 401 || status === 403) {

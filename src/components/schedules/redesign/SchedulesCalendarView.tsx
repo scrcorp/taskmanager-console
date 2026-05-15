@@ -11,7 +11,8 @@ import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useQueries } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { parseApiError, todayInTimezone } from "@/lib/utils";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import { useSchedules, useConfirmSchedule, useRejectSchedule, useDeleteSchedule, useSubmitSchedule, useRevertSchedule, useCancelSchedule, useCreateSchedule, useUpdateSchedule, useSwitchSchedule } from "@/hooks/useSchedules";
 import { useUsers } from "@/hooks/useUsers";
 import { ROLE_PRIORITY } from "@/lib/permissions";
@@ -255,41 +256,92 @@ function StoreMultiSelect({ stores, selectedStores, onChange }: {
 
 export default function SchedulesCalendarView() {
   const router = useRouter();
-  const searchParams = useSearchParams();
+  // 'store' (외부 진입 link) 와 'edit' (스케줄 deeplink) 만 추가로 읽는다 — 그 외 모든 페이지 state 는 usePersistedFilters 가 관리.
+  const rawSearchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
+  const urlStoreParam = rawSearchParams.get("store") ?? "";
+  const urlEditParam = rawSearchParams.get("edit") ?? "";
 
-  // URL 기반 state 초기화 — back nav 시 자동 복원
-  // ?view=weekly|daily&week=YYYY-MM-DD&day=YYYY-MM-DD&store=<id>
-  const initViewParam = searchParams.get("view");
-  const initView: ViewMode = initViewParam === "daily" ? "daily" : initViewParam === "monthly" ? "monthly" : "weekly";
-  const initWeekStart: Date = (() => {
-    const w = searchParams.get("week");
-    if (w) {
-      const d = new Date(w + "T00:00:00");
+  // URL + localStorage + 서버 영속 — 1계정 1데이터 (다른 디바이스에서도 동일).
+  // transient: week/day/my 는 매 세션 이번주/오늘이 자연스러우니 영속 X (URL sync 만).
+  const [params, setParams] = usePersistedFilters(
+    "schedules.calendar",
+    {
+      view: "weekly",
+      week: "",
+      day: "",
+      my: "",
+      stores: "",
+      staff: "",
+      roles: "",
+      statuses: "",
+      positions: "",
+      shifts: "",
+      wsc: "-1",
+      wss: "none",
+      dsc: "-1",
+      dss: "none",
+      esort: "bottom",
+      ehide: "",
+    },
+    { transient: ["week", "day", "my"] },
+  );
+
+  const view = (params.view === "daily" || params.view === "monthly" ? params.view : "weekly") as ViewMode;
+  const weekStart: Date = useMemo(() => {
+    if (params.week) {
+      const d = new Date(params.week + "T00:00:00");
       if (!Number.isNaN(d.getTime())) return getWeekStart(d);
     }
     return getWeekStart(new Date());
-  })();
-  const initSelectedDay: string = searchParams.get("day") ?? buildWeekDates(initWeekStart)[0]?.date ?? "";
-
-  const [view, setView] = useState<ViewMode>(initView);
-  const [weekStart, setWeekStart] = useState<Date>(initWeekStart);
+  }, [params.week]);
   const weekDates = useMemo(() => buildWeekDates(weekStart), [weekStart]);
-  const [selectedDay, setSelectedDay] = useState(initSelectedDay);
-  // Monthly
-  const [monthYear, setMonthYear] = useState(() => {
+  const selectedDay = params.day || (weekDates[0]?.date ?? "");
+  const monthYear = useMemo(() => {
+    if (params.my) {
+      const [y, m] = params.my.split("-").map(Number);
+      if (y && m !== undefined && !Number.isNaN(y) && !Number.isNaN(m)) {
+        return { year: y, month: m };
+      }
+    }
     const now = new Date();
     return { year: now.getFullYear(), month: now.getMonth() };
-  });
+  }, [params.my]);
+
+  // setters (rerendering via setParams + memoized derived state above)
+  const setView = useCallback((v: ViewMode) => setParams({ view: v === "weekly" ? null : v }), [setParams]);
+  const setWeekStart = useCallback((d: Date) => setParams({ week: fmtLocalDate(d) }), [setParams]);
+  const setSelectedDay = useCallback((s: string) => setParams({ day: s || null }), [setParams]);
+  const setMonthYear = useCallback(
+    (next: { year: number; month: number } | ((p: { year: number; month: number }) => { year: number; month: number })) => {
+      const resolved = typeof next === "function" ? (next as (p: { year: number; month: number }) => { year: number; month: number })(monthYear) : next;
+      setParams({ my: `${resolved.year}-${resolved.month}` });
+    },
+    [setParams, monthYear],
+  );
+
   // 현재 로그인 사용자의 role 기반으로 cost/actions 표시 여부 결정
   // Owner(10) / GM(20) 만 cost 정보 표시, SV(30) / Staff(40) 는 숨김
   const currentUser = useAuthStore((s) => s.user);
   const isGMView = (currentUser?.role_priority ?? 99) <= ROLE_PRIORITY.GM;
-  const [weeklySortCol, setWeeklySortCol] = useState(-1);
-  const [weeklySortState, setWeeklySortState] = useState<SortState>("none");
-  const [dailySortCol, setDailySortCol] = useState(-1);
-  const [dailySortState, setDailySortState] = useState<SortState>("none");
+
+  const weeklySortCol = Number(params.wsc);
+  const weeklySortState = params.wss as SortState;
+  const dailySortCol = Number(params.dsc);
+  const dailySortState = params.dss as SortState;
+  const setWeeklySortCol = useCallback((c: number) => setParams({ wsc: c === -1 ? null : String(c) }), [setParams]);
+  const setWeeklySortState = useCallback((s: SortState) => setParams({ wss: s === "none" ? null : s }), [setParams]);
+  const setDailySortCol = useCallback((c: number) => setParams({ dsc: c === -1 ? null : String(c) }), [setParams]);
+  const setDailySortState = useCallback((s: SortState) => setParams({ dss: s === "none" ? null : s }), [setParams]);
+
   // 멀티 스토어 선택: 빈 배열 = All (전체)
-  const [selectedStores, setSelectedStores] = useState<string[]>([]);
+  const selectedStores = useMemo(
+    () => (params.stores ? params.stores.split(",").filter(Boolean) : []),
+    [params.stores],
+  );
+  const setSelectedStores = useCallback(
+    (next: string[]) => setParams({ stores: next.length === 0 ? null : next.join(",") }),
+    [setParams],
+  );
   const isAllStores = selectedStores.length === 0;
   const selectedStoreSet = useMemo(() => new Set(selectedStores), [selectedStores]);
   const primaryStoreId = selectedStores[0] ?? "";
@@ -303,30 +355,20 @@ export default function SchedulesCalendarView() {
   const [switchOpen, setSwitchOpen] = useState(false);
   const [switchSourceId, setSwitchSourceId] = useState<string | null>(null);
   const [switchError, setSwitchError] = useState<string | null>(null);
-  const [emptyStaffSort, setEmptyStaffSort] = useState<EmptyStaffSort>(() => {
-    if (typeof window === "undefined") return "bottom";
-    const v = localStorage.getItem("schedule.emptyStaffSort");
+  const emptyStaffSort = ((): EmptyStaffSort => {
+    const v = params.esort;
     if (v === "bottom" || v === "top" || v === "in-order") return v;
-    // legacy 마이그레이션 (구버전 emptyStaffMode 키)
-    const legacy = localStorage.getItem("schedule.emptyStaffMode");
-    if (legacy === "show") return "in-order";
-    if (legacy === "down") return "bottom";
     return "bottom";
-  });
-  const [emptyStaffHide, setEmptyStaffHide] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    const v = localStorage.getItem("schedule.emptyStaffHide");
-    if (v === "1") return true;
-    if (v === "0") return false;
-    // legacy 마이그레이션
-    return localStorage.getItem("schedule.emptyStaffMode") === "hide";
-  });
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      localStorage.setItem("schedule.emptyStaffSort", emptyStaffSort);
-      localStorage.setItem("schedule.emptyStaffHide", emptyStaffHide ? "1" : "0");
-    }
-  }, [emptyStaffSort, emptyStaffHide]);
+  })();
+  const emptyStaffHide = params.ehide === "1";
+  const setEmptyStaffSort = useCallback(
+    (v: EmptyStaffSort) => setParams({ esort: v === "bottom" ? null : v }),
+    [setParams],
+  );
+  const setEmptyStaffHide = useCallback(
+    (v: boolean) => setParams({ ehide: v ? "1" : null }),
+    [setParams],
+  );
   const [changeStaffOpen, setChangeStaffOpen] = useState(false);
   const [changeStaffSourceId, setChangeStaffSourceId] = useState<string | null>(null);
   const [editModal, setEditModal] = useState<{ open: boolean; mode: "add" | "edit"; blockId?: string; staffId?: string; date?: string; startTime?: string }>({ open: false, mode: "add" });
@@ -335,7 +377,26 @@ export default function SchedulesCalendarView() {
   /** 체크리스트 conflict 확인 (reset_checklist 플래그 동의 유도) */
   const [clResetPrompt, setClResetPrompt] = useState<{ payload: ScheduleEditPayload; blockId: string; message: string } | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; type: "delete" | "revert" | "reject" | "cancel" | "confirm"; blockId?: string }>({ open: false, type: "delete" });
-  const [filters, setFilters] = useState<FilterState>({ staffIds: [], roles: [], statuses: [], positions: [], shifts: [] });
+  const filters: FilterState = useMemo(
+    () => ({
+      staffIds: params.staff ? params.staff.split(",").filter(Boolean) : [],
+      roles: params.roles ? params.roles.split(",").filter(Boolean) : [],
+      statuses: params.statuses ? params.statuses.split(",").filter(Boolean) : [],
+      positions: params.positions ? params.positions.split(",").filter(Boolean) : [],
+      shifts: params.shifts ? params.shifts.split(",").filter(Boolean) : [],
+    }),
+    [params.staff, params.roles, params.statuses, params.positions, params.shifts],
+  );
+  const setFilters = useCallback(
+    (next: FilterState) => setParams({
+      staff: next.staffIds.length === 0 ? null : next.staffIds.join(","),
+      roles: next.roles.length === 0 ? null : next.roles.join(","),
+      statuses: next.statuses.length === 0 ? null : next.statuses.join(","),
+      positions: next.positions.length === 0 ? null : next.positions.join(","),
+      shifts: next.shifts.length === 0 ? null : next.shifts.join(","),
+    }),
+    [setParams],
+  );
   const [legendOpen, setLegendOpen] = useState(false);
 
   // ─── Bulk mode ─────────────────────────────────────
@@ -443,51 +504,24 @@ export default function SchedulesCalendarView() {
   const shiftsQ = useShifts(isSingleStore ? selectedStores[0] : undefined);
   const monthlyWorkRolesQ = useWorkRoles(isSingleStore ? selectedStores[0] : undefined);
 
-  // URL store 파라미터 ↔ selectedStores 동기화.
-  // stores 로드 후 + searchParams 변경 시에도 재반영. "all"이면 빈 배열 유지.
-  const urlStoreKey = searchParams.get("store") ?? "";
+  // 외부 deeplink 호환 — `?store=<id>` 또는 `?store=all` 로 들어왔을 때 1회 동기화.
+  // (usePersistedFilters 는 'stores' 키를 쓰지만 기존 deeplink 는 'store' 단수 사용)
+  const legacyStoreSyncedRef = useRef(false);
   useEffect(() => {
+    if (legacyStoreSyncedRef.current) return;
     if (stores.length === 0) return;
-    if (urlStoreKey === "all" || urlStoreKey === "") {
+    if (!urlStoreParam) return;
+    legacyStoreSyncedRef.current = true;
+    if (urlStoreParam === "all") {
       if (selectedStores.length > 0) setSelectedStores([]);
       return;
     }
-    const ids = urlStoreKey.split(",").filter((id) => stores.some((s) => s.id === id));
+    const ids = urlStoreParam.split(",").filter((id) => stores.some((s) => s.id === id));
     if (ids.length === 0) return;
-    // 이미 같으면 no-op (무한 재동기화 방지)
     const same = ids.length === selectedStores.length && ids.every((id) => selectedStores.includes(id));
     if (!same) setSelectedStores(ids);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stores, urlStoreKey]);
-
-  // view / weekStart / selectedDay / selectedStore 변경 시 URL sync.
-  // window.history.replaceState 직접 사용 — router.replace는 Next.js navigation을
-  // 트리거하면서 페이지 state를 흔들 수 있음 (특히 우리 effect가 URL을 다시 읽지 않더라도
-  // searchParams의 새 reference로 다른 effect들이 재실행되면서 race가 생길 수 있음).
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    params.set("view", view);
-    if (view === "monthly") {
-      params.set("month", `${monthYear.year}-${String(monthYear.month + 1).padStart(2, "0")}`);
-      params.delete("week");
-      params.delete("day");
-    } else if (view === "weekly") {
-      params.set("week", weekDates[0]?.date ?? "");
-      params.delete("day");
-      params.delete("month");
-    } else {
-      params.set("day", selectedDay);
-      params.delete("week");
-      params.delete("month");
-    }
-    params.set("store", isAllStores ? "all" : selectedStores.join(","));
-    const next = `${window.location.pathname}?${params.toString()}`;
-    if (next !== window.location.pathname + window.location.search) {
-      window.history.replaceState(null, "", next);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [view, weekStart, selectedDay, selectedStores, isAllStores, monthYear]);
+  }, [stores, urlStoreParam]);
 
   // selectedDay가 현재 weekDates 밖으로 나가면 weekStart 자동 동기화
   useEffect(() => {
@@ -500,15 +534,16 @@ export default function SchedulesCalendarView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedDay]);
 
-  // ?edit=<id> 쿼리 → edit modal 열기 (detail page에서 진입 시)
+  // ?edit=<id> 쿼리 → edit modal 열기 (detail page에서 진입 시). 1회만 실행.
+  const editDeeplinkConsumedRef = useRef(false);
   useEffect(() => {
-    const editId = searchParams.get("edit");
-    if (editId && !editModal.open) {
-      setEditModal({ open: true, mode: "edit", blockId: editId });
+    if (editDeeplinkConsumedRef.current) return;
+    if (urlEditParam && !editModal.open) {
+      editDeeplinkConsumedRef.current = true;
+      setEditModal({ open: true, mode: "edit", blockId: urlEditParam });
     }
-    // 쿼리는 modal 닫을 때 정리
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchParams]);
+  }, [urlEditParam]);
 
   // ─── Mutations ────────────────────────────────────────
 
@@ -981,8 +1016,7 @@ export default function SchedulesCalendarView() {
   }
 
   function handleDayClick(dateKey: string) {
-    setSelectedDay(dateKey);
-    setView("daily");
+    setParams({ day: dateKey || null, view: "daily" });
   }
 
   function handleBlockClick(e: React.MouseEvent, sched: Schedule) {
@@ -1040,9 +1074,14 @@ export default function SchedulesCalendarView() {
   function closeEditModal() {
     setEditModal({ open: false, mode: "add" });
     setEditModalError(null);
-    // 쿼리 정리
-    if (searchParams.get("edit")) {
-      router.replace("/schedules", { scroll: false });
+    // ?edit= 쿼리만 제거, 다른 필터 (view, stores, filters 등) 는 보존.
+    if (typeof window !== "undefined") {
+      const sp = new URLSearchParams(window.location.search);
+      if (sp.has("edit")) {
+        sp.delete("edit");
+        const qs = sp.toString();
+        router.replace(qs ? `/schedules?${qs}` : "/schedules", { scroll: false });
+      }
     }
   }
 
@@ -1458,7 +1497,10 @@ export default function SchedulesCalendarView() {
             {/* View toggle */}
             <div className="flex bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg p-0.5 shrink-0">
               {(["monthly", "weekly", "daily"] as const).map((v) => (
-                <button key={v} type="button" onClick={() => { setView(v); if (v === "daily") setSelectedDay(todayStr); }}
+                <button key={v} type="button" onClick={() => {
+                  if (v === "daily") setParams({ view: "daily", day: todayStr });
+                  else setParams({ view: v === "weekly" ? null : v });
+                }}
                   className={`px-2.5 sm:px-3.5 py-1.5 rounded-md text-[12px] sm:text-[13px] font-semibold transition-all ${view === v ? "bg-[var(--color-accent)] text-white" : "text-[var(--color-text-secondary)] hover:text-[var(--color-text)]"}`}>
                   {v === "monthly" ? "Monthly" : v === "weekly" ? "Weekly" : "Daily"}
                 </button>
@@ -1601,8 +1643,8 @@ export default function SchedulesCalendarView() {
             isSingleStore={isSingleStore}
             showCost={isGMView}
             todayStr={todayStr}
-            onDayClick={(date) => { setSelectedDay(date); setView("daily"); }}
-            onWeekClick={(date) => { setWeekStart(getWeekStart(new Date(date + "T00:00:00"))); setView("weekly"); }}
+            onDayClick={(date) => setParams({ day: date || null, view: "daily" })}
+            onWeekClick={(date) => setParams({ week: fmtLocalDate(getWeekStart(new Date(date + "T00:00:00"))), view: null })}
           />
         )}
 

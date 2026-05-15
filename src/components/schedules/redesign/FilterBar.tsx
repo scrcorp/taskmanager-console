@@ -161,9 +161,24 @@ export function FilterBar({ filters, onChange, users, schedules, selectedStoreId
     );
   }
 
-  function CheckboxList({ items, selected, onToggle }: { items: { id: string; label: string; meta?: React.ReactNode }[]; selected: string[]; onToggle: (id: string) => void }) {
+  function CheckboxList({ items, selected, onToggle, onClearAll }: { items: { id: string; label: string; meta?: React.ReactNode }[]; selected: string[]; onToggle: (id: string) => void; onClearAll: () => void }) {
     return (
       <div className="py-1 max-h-[280px] overflow-y-auto">
+        {/* "All" — 항상 최상단. 선택 0개 = active. 클릭 시 그 섹션 전체 해제. */}
+        <button
+          type="button"
+          onClick={onClearAll}
+          className={`w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-left transition-colors ${selected.length === 0 ? "bg-[var(--color-accent-muted)]" : "hover:bg-[var(--color-surface-hover)]"}`}
+        >
+          <span className={`w-4 h-4 rounded border-[1.5px] flex items-center justify-center shrink-0 transition-colors ${selected.length === 0 ? "bg-[var(--color-accent)] border-[var(--color-accent)]" : "border-[var(--color-border)]"}`}>
+            {selected.length === 0 && (
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="2 5 4.5 7.5 8 3" />
+              </svg>
+            )}
+          </span>
+          <span className="flex-1 font-semibold text-[var(--color-text)]">All</span>
+        </button>
         {items.length === 0 && (
           <div className="px-3 py-4 text-[12px] text-[var(--color-text-muted)] italic text-center">No options</div>
         )}
@@ -217,6 +232,23 @@ export function FilterBar({ filters, onChange, users, schedules, selectedStoreId
                 </div>
               </div>
               <div className="max-h-[280px] overflow-y-auto py-1">
+                {/* "All" — 검색어 없을 때만 표시. 클릭 시 staff 섹션 전체 해제. */}
+                {!searchQuery.trim() && (
+                  <button
+                    type="button"
+                    onClick={() => onChange({ ...filters, staffIds: [] })}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 text-[13px] text-left transition-colors ${filters.staffIds.length === 0 ? "bg-[var(--color-accent-muted)]" : "hover:bg-[var(--color-surface-hover)]"}`}
+                  >
+                    <span className={`w-4 h-4 rounded border-[1.5px] flex items-center justify-center shrink-0 transition-colors ${filters.staffIds.length === 0 ? "bg-[var(--color-accent)] border-[var(--color-accent)]" : "border-[var(--color-border)]"}`}>
+                      {filters.staffIds.length === 0 && (
+                        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                          <polyline points="2 5 4.5 7.5 8 3" />
+                        </svg>
+                      )}
+                    </span>
+                    <span className="flex-1 font-semibold text-[var(--color-text)]">All</span>
+                  </button>
+                )}
                 {filteredUserSearch.length === 0 ? (
                   <div className="px-4 py-8 text-center">
                     <div className="text-[12px] text-[var(--color-text-muted)] mb-1">No staff found</div>
@@ -263,6 +295,7 @@ export function FilterBar({ filters, onChange, users, schedules, selectedStoreId
                 items={ALL_ROLES.map((r) => ({ id: r.id, label: r.label }))}
                 selected={filters.roles}
                 onToggle={(id) => toggle("roles", id)}
+                onClearAll={() => onChange({ ...filters, roles: [] })}
               />
             </div>
           )}
@@ -281,6 +314,7 @@ export function FilterBar({ filters, onChange, users, schedules, selectedStoreId
                 }))}
                 selected={filters.statuses}
                 onToggle={(id) => toggle("statuses", id)}
+                onClearAll={() => onChange({ ...filters, statuses: [] })}
               />
             </div>
           )}
@@ -295,6 +329,7 @@ export function FilterBar({ filters, onChange, users, schedules, selectedStoreId
                 items={dynamicPositions.map((p) => ({ id: p, label: p }))}
                 selected={filters.positions}
                 onToggle={(id) => toggle("positions", id)}
+                onClearAll={() => onChange({ ...filters, positions: [] })}
               />
             </div>
           )}
@@ -309,6 +344,7 @@ export function FilterBar({ filters, onChange, users, schedules, selectedStoreId
                 items={dynamicShifts.map((s) => ({ id: s, label: s }))}
                 selected={filters.shifts}
                 onToggle={(id) => toggle("shifts", id)}
+                onClearAll={() => onChange({ ...filters, shifts: [] })}
               />
             </div>
           )}

@@ -7,11 +7,12 @@
  * user × day 매트릭스로 집계.
  */
 
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { useAttendances } from "@/hooks/useAttendances";
 import { useStores } from "@/hooks/useStores";
 import { useUsers } from "@/hooks/useUsers";
 import { useAuthStore } from "@/stores/authStore";
+import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import { todayInTimezone } from "@/lib/utils";
 import type { Attendance, User } from "@/types";
 import { ROLE_PRIORITY } from "@/lib/permissions";
@@ -73,7 +74,16 @@ function rolePriorityToColorClass(p: number): string {
 
 export function AttendanceSummaryPage() {
   const orgTimezone = useAuthStore((s) => s.user?.organization_timezone) ?? undefined;
-  const [selectedStore, setSelectedStore] = useState<string>("");
+  // store 만 영속. weekStart 는 transient — 매 세션 이번주가 자연스러움.
+  const [params, setParams] = usePersistedFilters(
+    "attendances.summary",
+    { store: "" },
+  );
+  const selectedStore = params.store;
+  const setSelectedStore = useCallback(
+    (v: string) => setParams({ store: v || null }),
+    [setParams],
+  );
   // 초기에는 조직 timezone 기준 (selectedStore 확정 후 effect 에서 매장 tz 로 재정렬).
   const [weekStart, setWeekStart] = useState<Date>(() => getWeekStartInTimezone(orgTimezone));
   // 사용자가 주를 직접 이동시켰는지 — 그렇다면 store tz 변경 시 자동 재정렬 안 함.
