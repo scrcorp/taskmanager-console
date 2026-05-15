@@ -31,6 +31,8 @@ import {
   ShieldCheck,
   Tablet,
   UserPlus,
+  Wallet,
+  Coins,
 } from "lucide-react";
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useAuthStore } from "@/stores/authStore";
@@ -102,6 +104,14 @@ const navItems: NavItem[] = [
       { href: "/inventory/stores", label: "Store Inventory", icon: Warehouse },
       { href: "/inventory/transactions", label: "Transactions", icon: History },
       { href: "/inventory/audits", label: "Audits", icon: ClipboardCheck },
+    ],
+  },
+  {
+    href: "/pay/tips",
+    label: "Pay",
+    icon: Wallet,
+    children: [
+      { href: "/pay/tips", label: "Tips", icon: Coins },
     ],
   },
   { href: "/alerts", label: "Alerts", icon: Bell },
