@@ -23,3 +23,5 @@ export { EmptyState } from "./EmptyState";
 export { LoadingSpinner } from "./LoadingSpinner";
 export { ImageUpload } from "./ImageUpload";
 export { Lightbox } from "./Lightbox";
+export { MultiSelectFilter } from "./MultiSelectFilter";
+export type { MultiSelectOption } from "./MultiSelectFilter";
