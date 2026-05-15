@@ -4,6 +4,7 @@ import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAttendances } from '@/hooks/useAttendances'
 import { useStores } from '@/hooks/useStores'
+import { useUsers } from '@/hooks/useUsers'
 import { useAuthStore } from '@/stores/authStore'
 import { usePersistedFilters } from '@/hooks/usePersistedFilters'
 import { todayInTimezone } from '@/lib/utils'
@@ -11,6 +12,14 @@ import { useMidnightRefresh } from '@/hooks/useMidnightRefresh'
 import type { AttendanceBreakItem } from '@/types'
 import { AttendanceWeeklyView } from './AttendanceWeeklyView'
 import { WeekPickerCalendar, DatePickerCalendar, getWeekStart } from './WeekPickerCalendar'
+import {
+  AttendanceFilterBar,
+  EMPTY_ATTENDANCE_FILTERS,
+  matchesStatusFilter,
+  rolePriorityToBadgeId,
+  type AttendanceUiFilters,
+  type AttendanceStatusKey,
+} from './AttendanceFilterBar'
 
 type ViewMode = 'daily' | 'weekly'
 
@@ -50,14 +59,6 @@ function formatWeekLabel(weekStartYmd: string): string {
   return `[W${wk}${crossYear ? ` '${String(yr).slice(2)}` : ''}] ${m0} ${d0.getDate()} – ${m6} ${d6.getDate()}`
 }
 
-type AttendanceState = "upcoming" | "soon" | "working" | "on_break" | "late" | "clocked_out" | "no_show" | "cancelled"
-type FilterKey = AttendanceState | 'all'
-
-// "all" 은 집합에서 "0개 선택" 을 의미 (= 모두 표시). 체크 가능한 필터 키만 여기에.
-type CheckableFilterKey = Exclude<FilterKey, 'all'>
-
-const VALID_FILTER_KEYS: FilterKey[] = ['all', 'upcoming', 'soon', 'working', 'on_break', 'late', 'no_show', 'clocked_out', 'cancelled']
-
 /** YYYY-MM-DD 형식인지 간이 검증. 잘못된 값이면 null 반환. */
 function sanitizeDateParam(raw: string | null): string | null {
   if (!raw) return null
@@ -67,21 +68,15 @@ function sanitizeDateParam(raw: string | null): string | null {
   return raw
 }
 
-function sanitizeFilterParam(raw: string | null): FilterKey | null {
-  if (!raw) return null
-  return (VALID_FILTER_KEYS as string[]).includes(raw) ? (raw as FilterKey) : null
-}
+const VALID_STATUS_KEYS: AttendanceStatusKey[] = ['upcoming', 'working', 'on_break', 'late', 'no_show', 'clocked_out']
 
-// URL 의 comma-separated filter 값을 파싱해 유효한 키 집합 반환.
-// 비어있거나 'all' 포함 시 빈 Set (= 모두 표시).
-function parseFilterSet(raw: string | null): Set<CheckableFilterKey> {
-  if (!raw) return new Set()
-  const parts = raw.split(',').map((s) => s.trim()).filter(Boolean)
-  const valid = parts.filter(
-    (p): p is CheckableFilterKey =>
-      p !== 'all' && (VALID_FILTER_KEYS as string[]).includes(p),
+function parseCsv(raw: string): string[] {
+  return raw ? raw.split(',').map((s) => s.trim()).filter(Boolean) : []
+}
+function parseStatuses(raw: string): AttendanceStatusKey[] {
+  return parseCsv(raw).filter((p): p is AttendanceStatusKey =>
+    (VALID_STATUS_KEYS as string[]).includes(p),
   )
-  return new Set(valid)
 }
 
 const ROLE_DEFAULT_COLOR = "bg-[var(--color-success-muted)] text-[var(--color-success)]"
@@ -96,15 +91,6 @@ const stateMeta: Record<string, { label: string; bg: string; text: string; dot: 
   no_show: { label: 'No show', bg: 'bg-[var(--color-danger-muted)]', text: 'text-[var(--color-danger)]', dot: 'bg-[var(--color-danger)]' },
   cancelled: { label: 'Cancelled', bg: 'bg-[var(--color-text-muted)]/10', text: 'text-[var(--color-text-muted)]', dot: 'bg-[var(--color-text-muted)]' },
 }
-
-const tabs: { key: FilterKey; label: string }[] = [
-  { key: 'all', label: 'All' },
-  { key: 'working', label: 'Clocked In' },
-  { key: 'on_break', label: 'On Break' },
-  { key: 'late', label: 'Late' },
-  { key: 'no_show', label: 'No Show' },
-  { key: 'clocked_out', label: 'Done' },
-]
 
 /** 24h HH:MM formatter (null → null). */
 function formatHHmm24(iso?: string | null): string | null {
@@ -306,15 +292,21 @@ export function AttendancePage() {
   // date 는 transient — 매 세션 새 today 가 기본이라 localStorage 저장 안 함.
   const [params, setParams] = usePersistedFilters(
     'attendances',
-    { date: '', store: '', filter: '', view: '' },
+    { date: '', store: '', view: '', staff: '', roles: '', statuses: '', edited: '' },
     { transient: ['date'] },
   )
   const rawDate = sanitizeDateParam(params.date || null)
   const selectedStore = params.store
-  const filters = useMemo(() => parseFilterSet(params.filter || null), [params.filter])
   // URL/저장 값이 비어있으면 today 사용. 사용자가 직접 고른 값이 있으면 그대로.
   const date = rawDate ?? todayInTimezone(orgTimezone)
   const view: ViewMode = params.view === 'weekly' ? 'weekly' : 'daily'
+
+  const filters: AttendanceUiFilters = useMemo(() => ({
+    staffIds: parseCsv(params.staff),
+    roles: parseCsv(params.roles),
+    statuses: parseStatuses(params.statuses),
+    editedOnly: params.edited === '1',
+  }), [params.staff, params.roles, params.statuses, params.edited])
 
   const setSelectedStore = useCallback(
     (v: string) => setParams({ store: v || null }),
@@ -329,11 +321,15 @@ export function AttendancePage() {
     [setParams],
   )
   const setFilters = useCallback(
-    (next: Set<CheckableFilterKey> | ((prev: Set<CheckableFilterKey>) => Set<CheckableFilterKey>)) => {
-      const resolved = typeof next === 'function' ? next(filters) : next
-      setParams({ filter: resolved.size === 0 ? null : Array.from(resolved).join(',') })
+    (next: AttendanceUiFilters) => {
+      setParams({
+        staff: next.staffIds.length ? next.staffIds.join(',') : null,
+        roles: next.roles.length ? next.roles.join(',') : null,
+        statuses: next.statuses.length ? next.statuses.join(',') : null,
+        edited: next.editedOnly ? '1' : null,
+      })
     },
-    [filters, setParams],
+    [setParams],
   )
 
   // 자정 자동 갱신 — 사용자가 명시적으로 date 안 골랐을 때만 today 따라감.
@@ -342,26 +338,31 @@ export function AttendancePage() {
   const storesQ = useStores()
   const stores = storesQ.data ?? []
 
-  // 첫 store 자동 선택 — URL/저장 값이 있고 유효하면 유지, 아니면 첫 store.
-  useEffect(() => {
-    if (selectedStore) {
-      if (stores.length > 0 && !stores.some((s) => s.id === selectedStore)) {
-        setSelectedStore(stores[0]!.id)
-      }
-      return
-    }
-    if (stores.length > 0) {
-      setSelectedStore(stores[0]!.id)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stores])
+  // 첫 store 자동 선택은 setParams 로 강제하지 않는다.
+  // 이유: usePersistedFilters 의 hydration (localStorage → URL) 보다 먼저 발동하면 사용자의 마지막
+  //       선택을 stores[0] 으로 덮어쓰는 race 가 생긴다. schedules/redesign 패턴처럼 derived
+  //       (URL/저장값이 있고 유효하면 그것, 아니면 stores[0]) 로만 fallback 한다.
+  //       사용자가 select 를 바꾸는 시점에야 URL 에 store= 가 들어가서 자연스레 영속화된다.
+  const effectiveStore = useMemo(() => {
+    if (selectedStore && stores.some((s) => s.id === selectedStore)) return selectedStore
+    return stores[0]?.id ?? ''
+  }, [selectedStore, stores])
 
   const attendancesQ = useAttendances({
-    store_id: selectedStore || undefined,
+    store_id: effectiveStore || undefined,
     work_date: date,
     per_page: 200,
   })
   const records = attendancesQ.data?.items ?? []
+
+  // FilterBar 의 Staff 옵션 + Role 매칭 source. Weekly view 의 직원 행 source 와 동일.
+  const usersQ = useUsers(effectiveStore ? { store_id: effectiveStore, is_active: true } : undefined)
+  const storeUsers = usersQ.data ?? []
+  const userIdToRoleBadge = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const u of storeUsers) m.set(u.id, rolePriorityToBadgeId(u.role_priority))
+    return m
+  }, [storeUsers])
 
   // Date picker popup 열림 여부 — Daily/Weekly 공통 (한 번에 하나만 열림).
   const [datePickerOpen, setDatePickerOpen] = useState(false)
@@ -377,29 +378,22 @@ export function AttendancePage() {
   const isLateRow = (r: typeof records[number]): boolean =>
     r.status === 'late' || (r.anomalies?.includes('late') ?? false)
 
+  /** AttendancePage 의 Daily 본문에서 쓰는 filtered list. Weekly 는 자체 필터링.
+   *  4개 필터 (Staff/Role/Status/Edited) 를 모두 AND 로 적용. */
   const filtered = useMemo(() => {
-    if (filters.size === 0) return records
     return records.filter((r) => {
-      // 'late' 는 anomaly 기반, 나머지는 status 기반
-      if (filters.has('late') && isLateRow(r)) return true
-      if (filters.has(r.status as CheckableFilterKey)) return true
-      return false
+      if (filters.staffIds.length > 0 && !filters.staffIds.includes(r.user_id)) return false
+      if (filters.roles.length > 0) {
+        const badge = userIdToRoleBadge.get(r.user_id)
+        if (!badge || !filters.roles.includes(badge)) return false
+      }
+      if (!matchesStatusFilter(r.status, r.anomalies, filters.statuses)) return false
+      if (filters.editedOnly && (r.correction_count ?? 0) === 0) return false
+      return true
     })
-  }, [records, filters])
+  }, [records, filters, userIdToRoleBadge])
 
-  function toggleFilter(key: CheckableFilterKey) {
-    setFilters((prev) => {
-      const next = new Set(prev)
-      if (next.has(key)) next.delete(key)
-      else next.add(key)
-      return next
-    })
-  }
-
-  function clearFilters() {
-    setFilters(new Set())
-  }
-
+  // Stat cards 는 필터 무관 전체 records 기반.
   const stats = useMemo(() => ({
     upcoming: records.filter((r) => r.status === 'upcoming' || r.status === 'soon').length,
     working: records.filter((r) => r.status === 'working').length,
@@ -424,7 +418,7 @@ export function AttendancePage() {
       {/* Header */}
       <div className="flex items-center gap-3 pt-4 pb-1">
         <select
-          value={selectedStore}
+          value={effectiveStore}
           onChange={e => setSelectedStore(e.target.value)}
           className="px-3 py-1.5 bg-[var(--color-surface)] border-2 border-[var(--color-accent)] rounded-lg text-[13px] font-semibold text-[var(--color-accent)] cursor-pointer"
         >
@@ -524,8 +518,20 @@ export function AttendancePage() {
         </div>
       </div>
 
+      {/* Filter bar — Daily/Weekly 공통. 4개 필터: Staff/Role/Status/Edited. */}
+      <AttendanceFilterBar
+        filters={filters}
+        onChange={setFilters}
+        storeUsers={storeUsers}
+      />
+
       {view === 'weekly' ? (
-        <AttendanceWeeklyView storeId={selectedStore} weekStart={date} />
+        <AttendanceWeeklyView
+          storeId={effectiveStore}
+          weekStart={date}
+          filters={filters}
+          storeUsers={storeUsers}
+        />
       ) : (
         <>
       {/* Stat cards */}
@@ -535,47 +541,6 @@ export function AttendancePage() {
         <StatCard label="Late" value={stats.late} color="text-[var(--color-danger)]" />
         <StatCard label="On Break" value={stats.onBreak} color="text-[var(--color-warning)]" />
         <StatCard label="No Show" value={stats.noShow} color="text-[var(--color-danger)]" />
-      </div>
-
-      {/* Filter chips — 다중 선택 */}
-      <div className="flex items-center gap-1 mb-3 overflow-x-auto">
-        {tabs.map((t) => {
-          // "All" 칩은 아무것도 선택 안 된 상태를 표시. 클릭 시 전체 선택 해제.
-          if (t.key === 'all') {
-            const active = filters.size === 0
-            return (
-              <button
-                key={t.key}
-                type="button"
-                onClick={clearFilters}
-                className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold whitespace-nowrap transition-colors ${
-                  active
-                    ? 'bg-[var(--color-accent)] text-white'
-                    : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]'
-                }`}
-              >
-                {t.label}
-              </button>
-            )
-          }
-          const key = t.key as CheckableFilterKey
-          const active = filters.has(key)
-          return (
-            <button
-              key={t.key}
-              type="button"
-              onClick={() => toggleFilter(key)}
-              aria-pressed={active}
-              className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold whitespace-nowrap transition-colors ${
-                active
-                  ? 'bg-[var(--color-accent)] text-white'
-                  : 'bg-[var(--color-surface)] border border-[var(--color-border)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]'
-              }`}
-            >
-              {t.label}
-            </button>
-          )
-        })}
       </div>
 
       {/* Table */}

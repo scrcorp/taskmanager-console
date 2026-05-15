@@ -14,7 +14,12 @@ import { useMemo } from "react";
 import { useRouter } from "next/navigation";
 import { useAttendances } from "@/hooks/useAttendances";
 import { useUsers } from "@/hooks/useUsers";
-import type { Attendance } from "@/types";
+import type { Attendance, User } from "@/types";
+import {
+  matchesStatusFilter,
+  rolePriorityToBadgeId,
+  type AttendanceUiFilters,
+} from "./AttendanceFilterBar";
 
 type AttendanceState = Attendance["status"];
 
@@ -112,11 +117,15 @@ function isLate(r: Attendance): boolean {
 
 interface Props {
   storeId: string;
-  /** 어느 날짜이든 OK — 내부에서 해당 주의 월요일로 정규화. */
+  /** 어느 날짜이든 OK — 내부에서 해당 주의 일요일로 정규화. */
   weekStart: string;
+  /** 부모(AttendancePage) 에서 영속화하는 UI 필터. Daily/Weekly 공통. */
+  filters: AttendanceUiFilters;
+  /** 매장 직원 — 부모와 같은 소스 (UI 일관성 + 중복 fetch 방지). */
+  storeUsers: User[];
 }
 
-export function AttendanceWeeklyView({ storeId, weekStart }: Props) {
+export function AttendanceWeeklyView({ storeId, weekStart, filters, storeUsers: storeUsersProp }: Props) {
   const router = useRouter();
   const normalizedWeekStart = useMemo(() => sundayOf(weekStart), [weekStart]);
   const days = useMemo(() => weekDates(normalizedWeekStart), [normalizedWeekStart]);
@@ -131,14 +140,32 @@ export function AttendanceWeeklyView({ storeId, weekStart }: Props) {
   });
   const records = attendancesQ.data?.items ?? [];
 
-  // 매장의 활성 직원 전체 — attendance 없어도 행으로 표시 (스케줄 없는 날은 OFF).
-  const usersQ = useUsers(storeId ? { store_id: storeId, is_active: true } : undefined);
-  const storeUsers = usersQ.data ?? [];
+  // 매장 활성 직원 — 부모(AttendancePage) 가 fetch 한 storeUsers 를 prop 으로 받음.
+  // 부모가 없는 경우엔 자체 fetch 로 fallback.
+  const usersQ = useUsers(
+    storeId && storeUsersProp.length === 0 ? { store_id: storeId, is_active: true } : undefined,
+  );
+  const storeUsers: User[] = storeUsersProp.length > 0 ? storeUsersProp : (usersQ.data ?? []);
 
-  // 직원 ID → 요일별 attendance 배열.
+  // user_id → role badge ('owner'|'gm'|'sv'|'staff') 매핑. Role 필터링용.
+  const userIdToRoleBadge = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const u of storeUsers) m.set(u.id, rolePriorityToBadgeId(u.role_priority));
+    return m;
+  }, [storeUsers]);
+
+  // 셀 단위 필터링 — Status / Edited 적용. (Staff/Role 은 행 단위로 따로 처리.)
+  function passesCellFilter(r: Attendance): boolean {
+    if (!matchesStatusFilter(r.status, r.anomalies, filters.statuses)) return false;
+    if (filters.editedOnly && (r.correction_count ?? 0) === 0) return false;
+    return true;
+  }
+
+  // 직원 ID → 요일별 attendance 배열 (Status/Edited 필터 적용 후).
   const attendanceByUser = useMemo(() => {
     const map = new Map<string, Map<string, Attendance[]>>();
     for (const r of records) {
+      if (!passesCellFilter(r)) continue;
       let perDay = map.get(r.user_id);
       if (!perDay) {
         perDay = new Map();
@@ -149,12 +176,24 @@ export function AttendanceWeeklyView({ storeId, weekStart }: Props) {
       perDay.set(r.work_date, list);
     }
     return map;
-  }, [records]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [records, filters.statuses, filters.editedOnly]);
 
-  // 행 목록 — 매장 직원이 fetch 됐으면 그 목록 사용, 아니면 records 기반.
+  /** 행 단위 필터 — Staff (id), Role (badge). */
+  function passesRowFilter(userId: string): boolean {
+    if (filters.staffIds.length > 0 && !filters.staffIds.includes(userId)) return false;
+    if (filters.roles.length > 0) {
+      const badge = userIdToRoleBadge.get(userId);
+      if (!badge || !filters.roles.includes(badge)) return false;
+    }
+    return true;
+  }
+
+  // 행 목록 — 매장 직원이 fetch 됐으면 그 목록 사용, 아니면 records 기반. Row 필터 적용.
   const rows = useMemo(() => {
     if (storeUsers.length > 0) {
       return storeUsers
+        .filter((u) => passesRowFilter(u.id))
         .map((u) => ({
           user_id: u.id,
           user_name: u.full_name || u.username || "—",
@@ -173,12 +212,14 @@ export function AttendanceWeeklyView({ storeId, weekStart }: Props) {
       }
     }
     return Array.from(fallback.values())
+      .filter((u) => passesRowFilter(u.user_id))
       .map((u) => ({
         ...u,
         perDay: attendanceByUser.get(u.user_id) ?? new Map<string, Attendance[]>(),
       }))
       .sort((a, b) => a.user_name.localeCompare(b.user_name));
-  }, [storeUsers, records, attendanceByUser]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeUsers, records, attendanceByUser, filters.staffIds, filters.roles, userIdToRoleBadge]);
 
   // Daily 와 동일한 5 개 stat — Upcoming/Clocked In/Late/On Break/No Show. (+ Edited 별도 hint)
   const stats = useMemo(() => {
