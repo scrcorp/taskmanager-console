@@ -255,9 +255,9 @@ function StoreMultiSelect({ stores, selectedStores, onChange }: {
 
 export default function SchedulesCalendarView() {
   const router = useRouter();
-  // 'store' (외부 진입 link) 와 'edit' (스케줄 deeplink) 만 추가로 읽는다 — 그 외 모든 페이지 state 는 usePersistedFilters 가 관리.
+  // 'edit' (스케줄 deeplink) 만 추가로 읽는다 — 그 외 모든 페이지 state 는 usePersistedFilters 가 관리.
+  // legacy 'store' (단수) deeplink 는 제거됨 — cross-page leak 원인이라 무시. `?stores=` 만 사용.
   const rawSearchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
-  const urlStoreParam = rawSearchParams.get("store") ?? "";
   const urlEditParam = rawSearchParams.get("edit") ?? "";
 
   // URL + localStorage + 서버 영속 — 1계정 1데이터 (다른 디바이스에서도 동일).
@@ -499,24 +499,12 @@ export default function SchedulesCalendarView() {
   const shiftsQ = useShifts(isSingleStore ? selectedStores[0] : undefined);
   const monthlyWorkRolesQ = useWorkRoles(isSingleStore ? selectedStores[0] : undefined);
 
-  // 외부 deeplink 호환 — `?store=<id>` 또는 `?store=all` 로 들어왔을 때 1회 동기화.
-  // (usePersistedFilters 는 'stores' 키를 쓰지만 기존 deeplink 는 'store' 단수 사용)
-  const legacyStoreSyncedRef = useRef(false);
-  useEffect(() => {
-    if (legacyStoreSyncedRef.current) return;
-    if (stores.length === 0) return;
-    if (!urlStoreParam) return;
-    legacyStoreSyncedRef.current = true;
-    if (urlStoreParam === "all") {
-      if (selectedStores.length > 0) setSelectedStores([]);
-      return;
-    }
-    const ids = urlStoreParam.split(",").filter((id) => stores.some((s) => s.id === id));
-    if (ids.length === 0) return;
-    const same = ids.length === selectedStores.length && ids.every((id) => selectedStores.includes(id));
-    if (!same) setSelectedStores(ids);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stores, urlStoreParam]);
+  // legacy `?store=` (단수) deeplink 는 deprecated.
+  // 이전에는 URL ?store= 를 받아 영속 stores (복수) 를 덮어썼는데, 다른 페이지
+  // (attendance 등) 에서 URL query 가 carry over 되면 사용자의 multi-select 영속이
+  // 단일 매장으로 덮어쓰여지는 cross-page leak 문제가 있었다.
+  // 이제는 ?store= 를 무시 — 사용자의 영속 stores 그대로 유지. (외부 deeplink 필요하면
+  // `?stores=<id>` (복수) 사용.)
 
   // selectedDay가 현재 weekDates 밖으로 나가면 weekStart 자동 동기화
   useEffect(() => {

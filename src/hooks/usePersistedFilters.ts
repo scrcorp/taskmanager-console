@@ -7,21 +7,23 @@
  * 1. 페이지 내 라우팅 (상세 → 뒤로가기): URL search params로 복원
  * 2. 새로고침 / 탭 닫고 다시 열기: URL search params로 복원
  * 3. 로그아웃 후 다시 로그인 / 새 세션: localStorage에서 복원
- * 4. 다른 디바이스 동기화: 추후 백엔드 user_preferences API로 확장 (현재 미구현)
+ * 4. 다른 디바이스 동기화: 서버 console_filters (PUT/GET /auth/me/console-filters)
  *
- * Persists per-page filter/sort/pagination state across navigation, refresh,
- * and re-login. URL search params are the source of truth during a session,
- * with a localStorage backup that re-hydrates the URL on next visit when no
- * params are present.
+ * 저장 구조: 모든 페이지 필터가 단일 `HTM:FILTERS:{userId}` 키 안 nested JSON 으로 통합.
+ *   { "schedules.calendar": {stores: "..."}, "attendances": {store: "..."}, ... }
+ * page key 와 sub-key 는 URL params 와 1:1 대응 (모두 소문자).
  */
 
 import { useCallback, useEffect, useRef } from "react";
 import { useSearchParams, useRouter, usePathname } from "next/navigation";
 import { useUrlParams } from "./useUrlParams";
 import { useAuthStore } from "@/stores/authStore";
-import { scheduleSync } from "@/lib/consoleFiltersSync";
-
-const STORAGE_PREFIX = "htm:filters:";
+import {
+  ensureMigrated,
+  readPageFilters,
+  scheduleSync,
+  writePageFilters,
+} from "@/lib/consoleFiltersSync";
 
 /**
  * 일회성 공유 링크 마커. URL 에 `?_ext=1` 가 붙어있으면 그 진입은 외부 공유로 간주되어
@@ -33,71 +35,48 @@ const STORAGE_PREFIX = "htm:filters:";
  */
 const EXT_MARKER = "_ext";
 
-function makeStorageKey(userId: string | null, key: string): string {
-  // user별 격리 — 같은 머신을 다른 admin이 써도 필터가 누출되지 않도록
-  return `${STORAGE_PREFIX}${userId ?? "anon"}:${key}`;
-}
-
-function readStorage<K extends string>(
-  fullKey: string,
+function readPageWithCleanup<K extends string>(
+  pageKey: string,
   defaults: Record<K, string>,
-): Partial<Record<K, string>> | null {
-  if (typeof window === "undefined") return null;
-  try {
-    const raw = window.localStorage.getItem(fullKey);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as unknown;
-    if (!parsed || typeof parsed !== "object") return null;
-    const result: Partial<Record<K, string>> = {};
-    for (const k of Object.keys(defaults) as K[]) {
-      const v = (parsed as Record<string, unknown>)[k];
-      if (typeof v === "string") result[k] = v;
+): { values: Partial<Record<K, string>>; hadStaleKeys: boolean } | null {
+  const stored = readPageFilters(pageKey);
+  if (!stored) return null;
+  const result: Partial<Record<K, string>> = {};
+  const known = new Set(Object.keys(defaults));
+  let hadStaleKeys = false;
+  for (const [pk, pv] of Object.entries(stored)) {
+    if (!known.has(pk)) {
+      hadStaleKeys = true;
+      continue;
     }
-    return result;
-  } catch {
-    return null;
+    if (typeof pv === "string") result[pk as K] = pv;
   }
+  return { values: result, hadStaleKeys };
 }
 
-function writeStorage<K extends string>(
-  fullKey: string,
+function writePageFromParams<K extends string>(
+  pageKey: string,
   defaults: Record<K, string>,
   values: Record<K, string>,
   transient: Set<string>,
 ): void {
-  if (typeof window === "undefined") return;
-  try {
-    const toSave: Partial<Record<K, string>> = {};
-    let hasAny = false;
-    for (const k of Object.keys(defaults) as K[]) {
-      if (transient.has(k)) continue;
-      const v = values[k];
-      if (v && v !== defaults[k]) {
-        toSave[k] = v;
-        hasAny = true;
-      }
+  const toSave: Record<string, string> = {};
+  for (const k of Object.keys(defaults) as K[]) {
+    if (transient.has(k)) continue;
+    const v = values[k];
+    if (v && v !== defaults[k]) {
+      toSave[k] = v;
     }
-    if (hasAny) {
-      window.localStorage.setItem(fullKey, JSON.stringify(toSave));
-    } else {
-      window.localStorage.removeItem(fullKey);
-    }
-  } catch {
-    // localStorage may be unavailable (private mode, quota, etc.) — fall back silently
   }
+  writePageFilters(pageKey, toSave);
 }
 
 /**
- * Clear stored filters for one (userId, storageKey) pair.
- * Pass null userId to clear the anon bucket.
+ * Clear stored filters for one storageKey (page).
+ * (userId 인자는 옛 API 호환용 — 무시됨. user 격리는 logout 시 storage 전체 삭제로 보장.)
  */
-export function clearPersistedFilters(userId: string | null, storageKey: string): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.localStorage.removeItem(makeStorageKey(userId, storageKey));
-  } catch {
-    /* ignore */
-  }
+export function clearPersistedFilters(_userId: string | null, storageKey: string): void {
+  writePageFilters(storageKey, {});
 }
 
 interface PersistedFiltersOptions {
@@ -139,14 +118,15 @@ export function usePersistedFilters<K extends string>(
   // localStorage/서버 에 저장하지 않는다. 본인의 저장된 필터를 덮어쓰지 않음.
   // 사용자가 직접 즐겨찾기한 URL 은 마커 없으니 정상 영속화.
   const externalEntryRef = useRef(false);
-  const fullKey = makeStorageKey(userId, storageKey);
-  const lastHydratedKeyRef = useRef<string | null>(null);
+  const lastHydratedSlotRef = useRef<string | null>(null);
+  const slotKey = `${userId ?? "anon"}::${storageKey}`;
 
-  // storageKey 가 동적으로 바뀌는 경우 (예: ApplicantsPanel 처럼 storeId 별 분리) 새 키로 다시 hydrate 해야 한다.
-  if (lastHydratedKeyRef.current !== fullKey) {
+  // storageKey 가 동적으로 바뀌는 경우 (예: ApplicantsPanel 처럼 storeId 별 분리) 또는
+  // user 가 바뀌면 새 slot 으로 다시 hydrate.
+  if (lastHydratedSlotRef.current !== slotKey) {
     hydratedRef.current = false;
     externalEntryRef.current = false;
-    lastHydratedKeyRef.current = fullKey;
+    lastHydratedSlotRef.current = slotKey;
   }
 
   // One-shot hydration: on first mount (after auth resolves), if NONE of the
@@ -157,8 +137,11 @@ export function usePersistedFilters<K extends string>(
     if (userId === null && useAuthStore.getState().isLoading) return;
     hydratedRef.current = true;
 
+    // 기존 분리 키 (`htm:filters:{userId}:*`) 가 남아 있으면 통합 키로 옮기고 청소.
+    // 이미 마이그레이션된 사용자에겐 no-op.
+    ensureMigrated(userId);
+
     // 명시 마커 (`?_ext=1`) 가 붙은 진입은 외부 공유 → 영속화 skip.
-    // 마커 없이 query 만 있으면 사용자가 직접 입력/즐겨찾기 한 거로 보고 정상 저장.
     const extParam = searchParams.get(EXT_MARKER);
     if (extParam === "1" || extParam === "true") {
       externalEntryRef.current = true;
@@ -170,14 +153,25 @@ export function usePersistedFilters<K extends string>(
     );
     if (hasAnyInUrl) return; // URL 값이 source of truth — 그대로 두고 localStorage 덮어쓰지 않음
 
-    const stored = readStorage(fullKey, defaultsRef.current);
+    const stored = readPageWithCleanup(storageKey, defaultsRef.current);
     if (!stored) return;
+
+    // Stale 키가 storage 에 남아 있으면 (defaults 에 없는 키), cleaned dict 로 다시 써서
+    // 서버 PUT 시에도 정리된 dict 가 올라가도록 한다.
+    if (stored.hadStaleKeys) {
+      const cleaned: Record<string, string> = {};
+      for (const [k, v] of Object.entries(stored.values)) {
+        if (typeof v === "string") cleaned[k] = v;
+      }
+      writePageFilters(storageKey, cleaned);
+      scheduleSync(userId);
+    }
 
     const next = new URLSearchParams(searchParams.toString());
     let dirty = false;
     for (const k of Object.keys(defaultsRef.current) as K[]) {
       if (transientRef.current.has(k)) continue;
-      const v = stored[k];
+      const v = stored.values[k];
       if (v && v !== defaultsRef.current[k]) {
         next.set(k, v);
         dirty = true;
@@ -187,7 +181,7 @@ export function usePersistedFilters<K extends string>(
     const qs = next.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fullKey]);
+  }, [slotKey]);
 
   // 같은 tick 안에서 setParams 가 여러 번 호출되면 (예: setView + setSelectedDay 연쇄)
   // microtask 로 모아서 한 번에 URL 업데이트. 두 번째 호출이 첫 번째를 덮어쓰는 race 방지.
@@ -244,10 +238,10 @@ export function usePersistedFilters<K extends string>(
   useEffect(() => {
     if (!hydratedRef.current) return;
     if (externalEntryRef.current) return; // 외부 진입 후 사용자 변경 전 — skip
-    writeStorage(fullKey, defaultsRef.current, params, transientRef.current);
+    writePageFromParams(storageKey, defaultsRef.current, params, transientRef.current);
     scheduleSync(userId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fullKey, ...Object.keys(defaultsRef.current).map((k) => params[k as K])]);
+  }, [slotKey, ...Object.keys(defaultsRef.current).map((k) => params[k as K])]);
 
   return [params, setParams];
 }

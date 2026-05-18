@@ -14,7 +14,7 @@ import { create } from "zustand";
 import type { UserMe } from "@/types";
 import { clearTokens, setTokens, getRefreshToken } from "@/lib/auth";
 import api from "@/lib/api";
-import { hydrateFromServer, cancelPendingSync } from "@/lib/consoleFiltersSync";
+import { hydrateFromServer, cancelPendingSync, clearStoredFilters } from "@/lib/consoleFiltersSync";
 
 /** 인증 상태 인터페이스 */
 interface AuthState {
@@ -55,6 +55,8 @@ export const useAuthStore = create<AuthState>((set) => ({
       api.post("/auth/logout", { refresh_token: refreshToken }).catch(() => {});
     }
     cancelPendingSync();
+    // 같은 머신에 다른 admin 이 로그인 시 이전 사용자의 필터가 노출되지 않도록 영속 storage 삭제.
+    clearStoredFilters();
     clearTokens();
     set({ user: null });
     window.location.href = "/login";
