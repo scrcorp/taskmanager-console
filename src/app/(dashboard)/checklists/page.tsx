@@ -34,13 +34,11 @@ import {
   Card,
   Badge,
   Modal,
-  ConfirmDialog,
 } from "@/components/ui";
 import { Textarea } from "@/components/ui/Textarea";
-import { SortableList } from "@/components/ui/SortableList";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
-import { useResultModal } from "@/components/ui/ResultModal";
-import { cn, parseApiError } from "@/lib/utils";
+import { useModal } from "@/components/ui/imperative-modal";
+import { cn } from "@/lib/utils";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@/lib/permissions";
 import type {
@@ -111,7 +109,7 @@ function hasVerificationType(value: string, type: "photo" | "text"): boolean {
 }
 
 export default function ChecklistsPage(): React.ReactElement {
-  const { showSuccess, showError } = useResultModal();
+  const modal = useModal();
   const { hasPermission } = usePermissions();
   const canManageChecklists = hasPermission(PERMISSIONS.CHECKLISTS_CREATE);
 
@@ -181,11 +179,6 @@ export default function ChecklistsPage(): React.ReactElement {
   const { data: filterShifts } = useShifts(filterStoreId || undefined);
   const { data: filterPositions } = usePositions(filterStoreId || undefined);
 
-  /* ---- Delete state ---- */
-  const [isDeleteOpen, setIsDeleteOpen] = useState<boolean>(false);
-  const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(null);
-  const [deletingTemplateName, setDeletingTemplateName] = useState<string>("");
-
   /* ---- Expanded template (view items) ---- */
   const [expandedTemplateId, setExpandedTemplateId] = useState<string | null>(null);
 
@@ -200,9 +193,6 @@ export default function ChecklistsPage(): React.ReactElement {
   const [isItemEditOpen, setIsItemEditOpen] = useState<boolean>(false);
   const [itemEditForm, setItemEditForm] = useState<ItemFormData>(INITIAL_ITEM_FORM);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
-  const [isItemDeleteOpen, setIsItemDeleteOpen] = useState<boolean>(false);
-  const [deletingItemId, setDeletingItemId] = useState<string | null>(null);
-  const [deletingItemTitle, setDeletingItemTitle] = useState<string>("");
 
   /* ---- Mutations ---- */
   const createTemplate = useCreateChecklistTemplate();
@@ -280,7 +270,6 @@ export default function ChecklistsPage(): React.ReactElement {
         shift_id: createShiftId,
         position_id: createPositionId,
       });
-      showSuccess("Checklist template created! Add items below.");
       setIsCreateOpen(false);
       // 필터를 생성한 템플릿의 store로 설정하여 목록에 보이게 함
       setUrlParams({ store: createStoreId, shift: null, position: null });
@@ -290,10 +279,10 @@ export default function ChecklistsPage(): React.ReactElement {
       setCreatePositionId("");
       // 생성 후 아이템 추가 화면으로 자동 전환
       setExpandedTemplateId(created.id);
-    } catch (err) {
-      showError(parseApiError(err, "Failed to create checklist template."));
+    } catch {
+      // hook 자동 모달이 표시함.
     }
-  }, [createTitle, createStoreId, createShiftId, createPositionId, createTemplate, showSuccess, showError]);
+  }, [createTitle, createStoreId, createShiftId, createPositionId, createTemplate, setUrlParams]);
 
   const handleCreateInlineShift = useCallback(async (): Promise<void> => {
     if (!createStoreId || !newShiftName.trim()) return;
@@ -306,11 +295,10 @@ export default function ChecklistsPage(): React.ReactElement {
       setCreatePositionId("");
       setIsCreatingShift(false);
       setNewShiftName("");
-      showSuccess("Shift created!");
-    } catch (err) {
-      showError(parseApiError(err, "Failed to create shift."));
+    } catch {
+      // hook 자동 모달이 표시함.
     }
-  }, [createStoreId, newShiftName, createNewShift, showSuccess, showError]);
+  }, [createStoreId, newShiftName, createNewShift]);
 
   const handleCreateInlinePosition = useCallback(async (): Promise<void> => {
     if (!createStoreId || !newPositionName.trim()) return;
@@ -322,11 +310,10 @@ export default function ChecklistsPage(): React.ReactElement {
       setCreatePositionId(created.id);
       setIsCreatingPosition(false);
       setNewPositionName("");
-      showSuccess("Position created!");
-    } catch (err) {
-      showError(parseApiError(err, "Failed to create position."));
+    } catch {
+      // hook 자동 모달이 표시함.
     }
-  }, [createStoreId, newPositionName, createNewPosition, showSuccess, showError]);
+  }, [createStoreId, newPositionName, createNewPosition]);
 
   const handleImport = useCallback(async (): Promise<void> => {
     if (!importFile) return;
@@ -336,20 +323,18 @@ export default function ChecklistsPage(): React.ReactElement {
         duplicate_action: duplicateAction,
       });
       setImportResult(result);
-      showSuccess(`Import complete! ${result.created_templates} templates created.`);
-    } catch (err) {
-      showError(parseApiError(err, "Failed to import Excel file."));
+    } catch {
+      // hook 자동 모달이 표시함.
     }
-  }, [importFile, duplicateAction, importTemplates, showSuccess, showError]);
+  }, [importFile, duplicateAction, importTemplates]);
 
   const handleDownloadSample = useCallback(async (): Promise<void> => {
     try {
       await downloadSampleExcel();
-      showSuccess("Sample template downloaded!");
-    } catch (err) {
-      showError(parseApiError(err, "Failed to download sample template."));
+    } catch {
+      void modal.alert({ type: "error", message: "Failed to download sample template." });
     }
-  }, [showSuccess, showError]);
+  }, [modal]);
 
   const handleDragOver = useCallback((e: DragEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -371,9 +356,9 @@ export default function ChecklistsPage(): React.ReactElement {
     if (file && file.name.endsWith(".xlsx")) {
       setImportFile(file);
     } else if (file) {
-      showError("Only .xlsx files are supported.");
+      void modal.alert({ type: "error", message: "Only .xlsx files are supported." });
     }
-  }, [showError]);
+  }, [modal]);
 
   const formatFileSize = (bytes: number): string => {
     if (bytes < 1024) return `${bytes} B`;
@@ -382,29 +367,26 @@ export default function ChecklistsPage(): React.ReactElement {
   };
 
   const handleOpenDelete = useCallback(
-    (template: ChecklistTemplate, e: React.MouseEvent): void => {
+    async (template: ChecklistTemplate, e: React.MouseEvent): Promise<void> => {
       e.stopPropagation();
-      setDeletingTemplateId(template.id);
-      setDeletingTemplateName(template.title);
-      setIsDeleteOpen(true);
-    },
-    [],
-  );
-
-  const handleDelete = useCallback(async (): Promise<void> => {
-    if (!deletingTemplateId) return;
-    try {
-      await deleteTemplate.mutateAsync(deletingTemplateId);
-      showSuccess("Checklist template deleted!");
-      setIsDeleteOpen(false);
-      setDeletingTemplateId(null);
-      if (expandedTemplateId === deletingTemplateId) {
-        setExpandedTemplateId(null);
+      const ok = await modal.confirm({
+        title: "Delete Checklist Template",
+        message: `Are you sure you want to delete "${template.title}"? All items will also be deleted.`,
+        confirmLabel: "Delete",
+        variant: "danger",
+      });
+      if (!ok) return;
+      try {
+        await deleteTemplate.mutateAsync(template.id);
+        if (expandedTemplateId === template.id) {
+          setExpandedTemplateId(null);
+        }
+      } catch {
+        // hook 자동 모달이 표시함.
       }
-    } catch (err) {
-      showError(parseApiError(err, "Failed to delete checklist template."));
-    }
-  }, [deletingTemplateId, deleteTemplate, expandedTemplateId, showSuccess, showError]);
+    },
+    [deleteTemplate, expandedTemplateId, modal],
+  );
 
   const toggleExpand = useCallback((templateId: string): void => {
     setExpandedTemplateId((prev) => (prev === templateId ? null : templateId));
@@ -488,15 +470,14 @@ export default function ChecklistsPage(): React.ReactElement {
           sort_order: startOrder + index,
         })),
       });
-      showSuccess(`${parsedItems.length} items added!`);
       setIsBulkOpen(false);
       setBulkText("");
-    } catch (err) {
-      showError(parseApiError(err, "Failed to add items."));
+    } catch {
+      // hook 자동 모달이 표시함.
     } finally {
       setIsBulkAdding(false);
     }
-  }, [expandedTemplateId, parsedItems, sortedItems, bulkCreateItems, showSuccess, showError]);
+  }, [expandedTemplateId, parsedItems, sortedItems, bulkCreateItems]);
 
   /* ---- Item CRUD handlers ---- */
   const handleCreateItem = useCallback(async (): Promise<void> => {
@@ -517,13 +498,12 @@ export default function ChecklistsPage(): React.ReactElement {
         recurrence_days: recurrence.recurrence_days,
         sort_order: nextOrder,
       });
-      showSuccess("Checklist item created!");
       setIsItemCreateOpen(false);
       setItemCreateForm(INITIAL_ITEM_FORM);
-    } catch (err) {
-      showError(parseApiError(err, "Failed to create checklist item."));
+    } catch {
+      // hook 자동 모달이 표시함.
     }
-  }, [expandedTemplateId, itemCreateForm, createItem, showSuccess, showError, sortedItems]);
+  }, [expandedTemplateId, itemCreateForm, createItem, sortedItems]);
 
   const handleOpenItemEdit = useCallback(
     (item: ChecklistItem, e: React.MouseEvent): void => {
@@ -555,37 +535,32 @@ export default function ChecklistsPage(): React.ReactElement {
         recurrence_type: recurrence.recurrence_type,
         recurrence_days: recurrence.recurrence_days,
       });
-      showSuccess("Checklist item updated!");
       setIsItemEditOpen(false);
       setEditingItemId(null);
       setItemEditForm(INITIAL_ITEM_FORM);
-    } catch (err) {
-      showError(parseApiError(err, "Failed to update checklist item."));
+    } catch {
+      // hook 자동 모달이 표시함.
     }
-  }, [editingItemId, itemEditForm, updateItem, expandedTemplateId, showSuccess, showError]);
+  }, [editingItemId, itemEditForm, updateItem, expandedTemplateId]);
 
   const handleOpenItemDelete = useCallback(
-    (item: ChecklistItem, e: React.MouseEvent): void => {
+    async (item: ChecklistItem, e: React.MouseEvent): Promise<void> => {
       e.stopPropagation();
-      setDeletingItemId(item.id);
-      setDeletingItemTitle(item.title);
-      setIsItemDeleteOpen(true);
+      const ok = await modal.confirm({
+        title: "Delete Checklist Item",
+        message: `Are you sure you want to delete "${item.title}"?`,
+        confirmLabel: "Delete",
+        variant: "danger",
+      });
+      if (!ok) return;
+      try {
+        await deleteItem.mutateAsync({ id: item.id, templateId: expandedTemplateId || "" });
+      } catch {
+        // hook 자동 모달이 표시함.
+      }
     },
-    [],
+    [deleteItem, expandedTemplateId, modal],
   );
-
-  const handleDeleteItem = useCallback(async (): Promise<void> => {
-    if (!deletingItemId) return;
-    try {
-      await deleteItem.mutateAsync({ id: deletingItemId, templateId: expandedTemplateId || "" });
-      showSuccess("Checklist item deleted!");
-      setIsItemDeleteOpen(false);
-      setDeletingItemId(null);
-      setDeletingItemTitle("");
-    } catch (err) {
-      showError(parseApiError(err, "Failed to delete checklist item."));
-    }
-  }, [deletingItemId, deleteItem, expandedTemplateId, showSuccess, showError]);
 
   /* ---- Store-specific shift/position data for display ---- */
   // For each unique store_id in templates, we'd need shifts/positions
@@ -741,7 +716,7 @@ export default function ChecklistsPage(): React.ReactElement {
                         <div className="flex items-center gap-1">
                           <button
                             type="button"
-                            onClick={(e: React.MouseEvent) => handleOpenDelete(template, e)}
+                            onClick={(e: React.MouseEvent) => void handleOpenDelete(template, e)}
                             className="p-1.5 rounded-md text-text-muted hover:text-danger hover:bg-danger-muted transition-colors"
                             aria-label={`Delete ${template.title}`}
                           >
@@ -838,7 +813,7 @@ export default function ChecklistsPage(): React.ReactElement {
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={(e: React.MouseEvent) => handleOpenItemDelete(item, e)}
+                                      onClick={(e: React.MouseEvent) => void handleOpenItemDelete(item, e)}
                                       className="p-1 rounded-md text-text-muted hover:text-danger hover:bg-danger-muted transition-colors"
                                       aria-label={`Delete ${item.title}`}
                                     >
@@ -1190,20 +1165,6 @@ export default function ChecklistsPage(): React.ReactElement {
       </Modal>
 
       {/* Delete Template Dialog */}
-      <ConfirmDialog
-        isOpen={isDeleteOpen}
-        onClose={() => {
-          setIsDeleteOpen(false);
-          setDeletingTemplateId(null);
-          setDeletingTemplateName("");
-        }}
-        onConfirm={handleDelete}
-        title="Delete Checklist Template"
-        message={`Are you sure you want to delete "${deletingTemplateName}"? All items will also be deleted.`}
-        confirmLabel="Delete"
-        isLoading={deleteTemplate.isPending}
-      />
-
       {/* Create Item Modal */}
       <Modal
         isOpen={isItemCreateOpen}
@@ -1539,21 +1500,6 @@ export default function ChecklistsPage(): React.ReactElement {
           </div>
         </div>
       </Modal>
-
-      {/* Delete Item Dialog */}
-      <ConfirmDialog
-        isOpen={isItemDeleteOpen}
-        onClose={() => {
-          setIsItemDeleteOpen(false);
-          setDeletingItemId(null);
-          setDeletingItemTitle("");
-        }}
-        onConfirm={handleDeleteItem}
-        title="Delete Checklist Item"
-        message={`Are you sure you want to delete "${deletingItemTitle}"?`}
-        confirmLabel="Delete"
-        isLoading={deleteItem.isPending}
-      />
 
       {/* Excel Import Modal */}
       <Modal

@@ -14,7 +14,6 @@ import React, { useState, useRef, useEffect, useMemo } from "react";
 import { Send, Paperclip, Loader2, Trash2, RotateCcw, CheckCircle } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Modal, Lightbox } from "@/components/ui";
-import { useResultModal } from "@/components/ui/ResultModal";
 import {
   useAddReviewContent,
   useDeleteReviewContent,
@@ -23,7 +22,6 @@ import {
   useDeleteItemReview,
 } from "@/hooks/useChecklistInstances";
 import { useAuthStore } from "@/stores/authStore";
-import { parseApiError } from "@/lib/utils";
 import type { ChecklistInstanceItem, ChecklistItemMessage } from "@/types";
 
 type TimelineEvent =
@@ -110,7 +108,6 @@ export function ReviewChatModal({
   item,
   onReviewChange,
 }: ReviewChatModalProps): React.ReactElement {
-  const { showError } = useResultModal();
   const user = useAuthStore((s) => s.user);
   const queryClient = useQueryClient();
   const addContent = useAddReviewContent();
@@ -208,8 +205,8 @@ export function ReviewChatModal({
     try {
       await addContent.mutateAsync({ instanceId, itemIndex, type: "text", content: trimmed });
       setText("");
-    } catch (err) {
-      showError(parseApiError(err, "Failed to send."));
+    } catch {
+      // hook handles error modal
     } finally {
       setIsSending(false);
     }
@@ -232,8 +229,8 @@ export function ReviewChatModal({
       await fetch(upload_url, { method: "PUT", body: file, headers: { "Content-Type": file.type } });
       const type = file.type.startsWith("video/") ? "video" : "photo";
       await addContent.mutateAsync({ instanceId, itemIndex, type, content: file_url });
-    } catch (err) {
-      showError(parseApiError(err, "Failed to upload."));
+    } catch {
+      // hook handles error modal
     } finally {
       setIsUploading(false);
       if (fileInputRef.current) fileInputRef.current.value = "";
@@ -243,8 +240,8 @@ export function ReviewChatModal({
   const handleDelete = async (contentId: string) => {
     try {
       await deleteContent.mutateAsync({ instanceId, itemIndex, contentId });
-    } catch (err) {
-      showError(parseApiError(err, "Failed to delete."));
+    } catch {
+      // hook handles error modal
     }
   };
 
@@ -260,8 +257,8 @@ export function ReviewChatModal({
       // Modal is open — refetch so timeline shows the review_change log entry
       queryClient.invalidateQueries({ queryKey: ["checklist-instances"] });
       onReviewChange?.();
-    } catch (err) {
-      showError(parseApiError(err, "Failed to update review."));
+    } catch {
+      // hook handles error modal
     } finally {
       setIsActing(false);
     }

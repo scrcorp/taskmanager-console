@@ -45,10 +45,9 @@ import {
   Select,
   Input,
   Pagination,
-  ConfirmDialog,
 } from "@/components/ui";
-import { useToast } from "@/components/ui/Toast";
-import { parseApiError, formatDateTime } from "@/lib/utils";
+import { useModal } from "@/components/ui/imperative-modal";
+import { formatDateTime } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { ProductForm, type ProductFormData } from "@/components/inventory/ProductForm";
 import type {
@@ -83,7 +82,7 @@ export default function StoreInventoryPage(): React.ReactElement {
   const params = useParams<{ storeId: string }>();
   const storeId = params.storeId;
   const router = useRouter();
-  const { toast } = useToast();
+  const modal = useModal();
   const { hasPermission } = usePermissions();
   const canManage = hasPermission(PERMISSIONS.INVENTORY_CREATE);
   const canDelete = hasPermission(PERMISSIONS.INVENTORY_DELETE);
@@ -134,11 +133,9 @@ export default function StoreInventoryPage(): React.ReactElement {
 
   // -- Detail modal --
   const [detailItem, setDetailItem] = useState<StoreInventoryItem | null>(null);
-  const [removeItemId, setRemoveItemId] = useState<string | null>(null);
 
   // -- Multi-select state — preserved across page navigation. --
   const [selectedItemIds, setSelectedItemIds] = useState<Set<string>>(new Set());
-  const [bulkRemoveOpen, setBulkRemoveOpen] = useState(false);
 
   // -- Edit modal state — opened from row's Edit button or detail modal.
   //    The actual form lives inside <EditItemModal> so per-row hooks
@@ -418,7 +415,7 @@ export default function StoreInventoryPage(): React.ReactElement {
                     type="button"
                     onClick={(e: React.MouseEvent) => {
                       e.stopPropagation();
-                      setRemoveItemId(item.id);
+                      void handleRemoveItem(item.id);
                     }}
                     className="px-2 py-1 rounded text-xs text-danger hover:bg-danger-muted transition-colors cursor-pointer"
                   >
@@ -455,7 +452,7 @@ export default function StoreInventoryPage(): React.ReactElement {
 
   const handleCreateProductInModal = useCallback(() => {
     if (!createFormData || !createFormData.name.trim()) {
-      toast({ type: "error", message: "Product name is required." });
+      void modal.alert({ type: "error", message: "Product name is required." });
       return;
     }
     const payload = {
@@ -474,7 +471,6 @@ export default function StoreInventoryPage(): React.ReactElement {
 
     createProduct.mutate(payload, {
       onSuccess: (newProduct) => {
-        toast({ type: "success", message: "Product created." });
         // Auto-select the newly created product and go back to selection
         setSelectedProducts((prev) => [
           ...prev,
@@ -489,11 +485,8 @@ export default function StoreInventoryPage(): React.ReactElement {
         setAddStep(1);
         setCreateFormData(null);
       },
-      onError: (err) => {
-        toast({ type: "error", message: parseApiError(err, "Failed to create product.") });
-      },
     });
-  }, [createFormData, createProduct, toast]);
+  }, [createFormData, createProduct, modal]);
 
   const handleToggleSelect = (product: InventoryProduct) => {
     setSelectedProducts((prev) => {
@@ -516,7 +509,7 @@ export default function StoreInventoryPage(): React.ReactElement {
 
   const handleProceedToStep2 = () => {
     if (selectedProducts.length === 0) {
-      toast({ type: "error", message: "Select at least one product." });
+      void modal.alert({ type: "error", message: "Select at least one product." });
       return;
     }
     setAddStep(2);
@@ -534,15 +527,51 @@ export default function StoreInventoryPage(): React.ReactElement {
       { items },
       {
         onSuccess: () => {
-          toast({ type: "success", message: `${items.length} product(s) added to store.` });
           setIsAddOpen(false);
-        },
-        onError: (err) => {
-          toast({ type: "error", message: parseApiError(err, "Failed to add products.") });
         },
       },
     );
-  }, [selectedProducts, bulkAdd, toast]);
+  }, [selectedProducts, bulkAdd]);
+
+  // Single remove (row "Remove" button).
+  const handleRemoveItem = useCallback(async (itemId: string) => {
+    const ok = await modal.confirm({
+      title: "Remove Product from Store",
+      message: "This will remove this product from the store inventory. The product itself will remain in the catalog.",
+      confirmLabel: "Remove",
+      variant: "danger",
+    });
+    if (!ok) return;
+    removeItem.mutate(itemId);
+  }, [modal, removeItem]);
+
+  // Bulk remove (selection toolbar).
+  const handleBulkRemove = useCallback(async () => {
+    const ok = await modal.confirm({
+      title: "Remove Selected Items",
+      message: `Remove ${selectedItemIds.size} product(s) from this store's inventory? Products themselves will stay in the catalog.`,
+      confirmLabel: "Remove",
+      variant: "danger",
+    });
+    if (!ok) return;
+    // Sequentially fire single-item removes — there's no bulk-remove endpoint,
+    // and selections are typically small enough that this is fine.
+    const ids = Array.from(selectedItemIds);
+    let success = 0;
+    for (const id of ids) {
+      try {
+        await removeItem.mutateAsync(id);
+        success += 1;
+      } catch {
+        // continue; final summary reports counts (hook also fires per-error modal).
+      }
+    }
+    const failed = ids.length - success;
+    if (failed > 0) {
+      void modal.alert({ type: "error", message: `${success} removed, ${failed} failed.` });
+    }
+    clearItemSelection();
+  }, [modal, removeItem, selectedItemIds]);
 
   // Server returns { total, normal, low, out }
   const rawSummary = summaryData ?? { total: 0, normal: 0, low: 0, out: 0 };
@@ -579,7 +608,7 @@ export default function StoreInventoryPage(): React.ReactElement {
             <Button
               variant="danger"
               size="sm"
-              onClick={() => setBulkRemoveOpen(true)}
+              onClick={() => void handleBulkRemove()}
             >
               Remove Selected
             </Button>
@@ -1048,61 +1077,6 @@ export default function StoreInventoryPage(): React.ReactElement {
         )}
       </Modal>
 
-      <ConfirmDialog
-        isOpen={removeItemId !== null}
-        onClose={() => setRemoveItemId(null)}
-        onConfirm={() => {
-          if (!removeItemId) return;
-          removeItem.mutate(removeItemId, {
-            onSuccess: () => {
-              toast({ type: "success", message: "Product removed from store." });
-              setRemoveItemId(null);
-            },
-            onError: (err) => {
-              toast({ type: "error", message: parseApiError(err, "Failed to remove.") });
-            },
-          });
-        }}
-        title="Remove Product from Store"
-        message="This will remove this product from the store inventory. The product itself will remain in the catalog."
-        confirmLabel="Remove"
-        isLoading={removeItem.isPending}
-      />
-
-      <ConfirmDialog
-        isOpen={bulkRemoveOpen}
-        onClose={() => setBulkRemoveOpen(false)}
-        onConfirm={async () => {
-          // Sequentially fire single-item removes — there's no bulk-remove endpoint,
-          // and selections are typically small enough that this is fine.
-          const ids = Array.from(selectedItemIds);
-          let success = 0;
-          for (const id of ids) {
-            try {
-              await removeItem.mutateAsync(id);
-              success += 1;
-            } catch {
-              // continue; final toast reports success/fail counts
-            }
-          }
-          const failed = ids.length - success;
-          if (failed === 0) {
-            toast({ type: "success", message: `${success} item(s) removed from store.` });
-          } else {
-            toast({
-              type: "error",
-              message: `${success} removed, ${failed} failed.`,
-            });
-          }
-          clearItemSelection();
-          setBulkRemoveOpen(false);
-        }}
-        title="Remove Selected Items"
-        message={`Remove ${selectedItemIds.size} product(s) from this store's inventory? Products themselves will stay in the catalog.`}
-        confirmLabel="Remove"
-        isLoading={removeItem.isPending}
-      />
-
       {editItem && (
         <EditItemModal
           item={editItem}
@@ -1126,7 +1100,7 @@ function EditItemModal({
   storeId: string;
   onClose: () => void;
 }): React.ReactElement {
-  const { toast } = useToast();
+  const modal = useModal();
   const updateItem = useUpdateStoreInventoryItem(storeId);
   const createTransaction = useCreateTransaction(storeId, item.id);
 
@@ -1146,15 +1120,15 @@ function EditItemModal({
 
   const handleSave = async () => {
     if (isNaN(minQtyNum) || minQtyNum < 0) {
-      toast({ type: "error", message: "Min Qty must be a non-negative integer." });
+      void modal.alert({ type: "error", message: "Min Qty must be a non-negative integer." });
       return;
     }
     if (isNaN(currentQtyNum) || currentQtyNum < 0) {
-      toast({ type: "error", message: "Current Qty must be a non-negative integer." });
+      void modal.alert({ type: "error", message: "Current Qty must be a non-negative integer." });
       return;
     }
     if (reasonRequired && !reason.trim()) {
-      toast({ type: "error", message: "Please provide a reason for the quantity change." });
+      void modal.alert({ type: "error", message: "Please provide a reason for the quantity change." });
       return;
     }
     setSaving(true);
@@ -1175,10 +1149,9 @@ function EditItemModal({
           reason: reason.trim(),
         });
       }
-      toast({ type: "success", message: "Item updated." });
       onClose();
-    } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to update.") });
+    } catch {
+      // hook 자동 모달이 표시함.
     } finally {
       setSaving(false);
     }

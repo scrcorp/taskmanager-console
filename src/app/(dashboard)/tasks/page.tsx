@@ -23,11 +23,9 @@ import {
   Modal,
   Badge,
   Pagination,
-  ConfirmDialog,
-  LoadingSpinner,
 } from "@/components/ui";
-import { useResultModal } from "@/components/ui/ResultModal";
-import { formatFixedDate, parseApiError } from "@/lib/utils";
+import { useModal } from "@/components/ui/imperative-modal";
+import { formatFixedDate } from "@/lib/utils";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@/lib/permissions";
 import type { AdditionalTask, Store, User } from "@/types";
@@ -56,7 +54,7 @@ const PER_PAGE: number = 20;
 
 export default function TasksPage(): React.ReactElement {
   const router = useRouter();
-  const { showSuccess, showError } = useResultModal();
+  const modal = useModal();
   const { hasPermission } = usePermissions();
   const canManageTasks = hasPermission(PERMISSIONS.TASKS_CREATE);
 
@@ -75,9 +73,6 @@ export default function TasksPage(): React.ReactElement {
   const [formPriority, setFormPriority] = useState<string>("normal");
   const [formDueDate, setFormDueDate] = useState<string>("");
   const [formAssigneeIds, setFormAssigneeIds] = useState<string[]>([]);
-
-  // -- Delete state --
-  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   // -- Data hooks --
   const { data: tasksData, isLoading } = useTasks({
@@ -191,7 +186,7 @@ export default function TasksPage(): React.ReactElement {
                 type="button"
                 onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
                   e.stopPropagation();
-                  setDeleteId(item.id);
+                  void handleDelete(item.id);
                 }}
                 className="p-1.5 rounded-lg text-text-muted hover:text-danger hover:bg-danger-muted transition-colors cursor-pointer"
                 title="Delete"
@@ -235,7 +230,7 @@ export default function TasksPage(): React.ReactElement {
 
   const handleCreateSubmit: () => void = useCallback((): void => {
     if (!formTitle.trim()) {
-      showError("Task title is required.");
+      void modal.alert({ type: "error", message: "Task title is required." });
       return;
     }
 
@@ -250,28 +245,25 @@ export default function TasksPage(): React.ReactElement {
       },
       {
         onSuccess: (): void => {
-          showSuccess("Task created successfully.");
           setIsCreateOpen(false);
-        },
-        onError: (err): void => {
-          showError(parseApiError(err, "Failed to create task."));
         },
       },
     );
-  }, [formTitle, formDescription, formStoreId, formPriority, formDueDate, formAssigneeIds, createTask, showSuccess, showError]);
+  }, [formTitle, formDescription, formStoreId, formPriority, formDueDate, formAssigneeIds, createTask, modal]);
 
-  const handleDelete: () => void = useCallback((): void => {
-    if (!deleteId) return;
-    deleteTask.mutate(deleteId, {
-      onSuccess: (): void => {
-        showSuccess("Task deleted successfully.");
-        setDeleteId(null);
-      },
-      onError: (err): void => {
-        showError(parseApiError(err, "Failed to delete task."));
-      },
-    });
-  }, [deleteId, deleteTask, showSuccess, showError]);
+  const handleDelete = useCallback(
+    async (id: string): Promise<void> => {
+      const ok = await modal.confirm({
+        title: "Delete Task",
+        message: "Are you sure you want to delete this task? This action cannot be undone.",
+        confirmLabel: "Delete",
+        variant: "danger",
+      });
+      if (!ok) return;
+      deleteTask.mutate(id);
+    },
+    [deleteTask, modal],
+  );
 
   return (
     <div>
@@ -439,17 +431,6 @@ export default function TasksPage(): React.ReactElement {
           </div>
         </div>
       </Modal>
-
-      {/* Delete Confirm Dialog */}
-      <ConfirmDialog
-        isOpen={deleteId !== null}
-        onClose={() => setDeleteId(null)}
-        onConfirm={handleDelete}
-        title="Delete Task"
-        message="Are you sure you want to delete this task? This action cannot be undone."
-        confirmLabel="Delete"
-        isLoading={deleteTask.isPending}
-      />
     </div>
   );
 }

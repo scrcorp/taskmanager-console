@@ -5,6 +5,7 @@ import { ThemeProvider } from "next-themes";
 import { useState } from "react";
 import { ToastProvider } from "@/components/ui/Toast";
 import { ResultModalProvider } from "@/components/ui/ResultModal";
+import { ModalProvider } from "@/components/ui/imperative-modal";
 
 /** 앱 전역 프로바이더 래퍼 — React Query + Toast 컨텍스트 제공.
  *
@@ -27,7 +28,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
     <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
       <QueryClientProvider client={queryClient}>
         <ToastProvider>
-          <ResultModalProvider>{children}</ResultModalProvider>
+          <ResultModalProvider>
+            <ModalProvider>{children}</ModalProvider>
+          </ResultModalProvider>
         </ToastProvider>
       </QueryClientProvider>
     </ThemeProvider>

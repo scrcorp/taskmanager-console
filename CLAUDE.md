@@ -335,31 +335,48 @@ if (name.includes("owner"))                 // → isOwner (문자열 비교 금
 
 사용자 액션 결과는 일관된 패턴으로 표시한다.
 
-### MODAL (`useResultModal` / `ResultModal` / `AppModal`)
+### 두 책임 분리
 
-자동 dismiss 안 함, 사용자가 OK 눌러야 닫힘. 화면 중앙.
+- **Mutation 결과 모달**: hook 이 자동 발사. 호출 측에서 `showSuccess`/`showError` 또 부르지 말 것 (중복 모달 원인).
+- **Confirm / 임의 컴포넌트 모달**: 호출 측이 `useModal` imperative API 로 직접 호출.
 
-다음의 경우 **반드시 모달**:
+### useModal — confirm / alert / open
 
-- 명시적 사용자 액션 결과 (생성/수정/삭제/확정/취소/제출/전송 등)
-- 폼 제출 결과 (입력값 손실 방지)
-- 권한/인증/세션 만료 오류
-- 네트워크/서버 오류 (재시도 필요한 경우)
-- bulk 작업 결과 (부분 실패 시 `details` bullet 표시)
-- 영구 변경 / 결제 / 게시 / 송신
-- 회원가입 / 로그인 결과
+```typescript
+import { useModal } from "@/components/ui/imperative-modal";
 
-### TOAST (`useToast` / `ToastManager.info`)
+const modal = useModal();
 
-자동 사라짐. 가벼운 정보용.
+// Confirm (return: boolean)
+const ok = await modal.confirm({
+  title: "Delete?",
+  message: "...",
+  confirmLabel: "Delete",
+  variant: "danger",
+});
+if (!ok) return;
 
-다음에만 사용:
+// Confirm with reason (return: string | undefined)
+const reason = await modal.confirm({
+  title: "Cancel?",
+  message: "...",
+  variant: "danger",
+  requiresReason: true,
+  reasonLabel: "Reason (optional)",
+});
+if (reason === undefined) return;
 
-- "Copied to clipboard"
-- 광학적 reorder/sort/copy-paste 즉시 시각 피드백 동반된 micro 작업
-- 자동 백그라운드 sync 결과 (사용자 의도 X)
+// Alert (단순 메시지 — validation 등 mutation 외 결과)
+void modal.alert({ type: "error", message: "Please enter a valid number." });
 
-### Hook 패턴
+// Custom 컴포넌트 모달 (폼/리스트/특수 UI)
+const result = await modal.open<ResultType>(
+  ({ close }) => <MyForm onDone={close} />,
+  { title: "Edit", size: "lg", closeOnBackdrop: false },
+);
+```
+
+### Hook 패턴 — mutation 결과 모달 자동 발사
 
 ```typescript
 import { useMutationResult } from "@/lib/mutationResult";
@@ -372,18 +389,41 @@ return useMutation({
 });
 ```
 
-### Component 패턴
+호출 측 (페이지/컴포넌트) 은 mutation 결과 모달을 **다시 띄우지 않는다**:
 
 ```typescript
-import { useResultModal } from "@/components/ui/ResultModal";
+// ❌ 금지 — 두 번 뜸
+try {
+  await mut.mutateAsync(data);
+  showSuccess("Created!");
+} catch (err) {
+  showError(parseApiError(err, "Failed"));
+}
 
-const { showSuccess, showError } = useResultModal();
-// ...
-showSuccess("Saved.");
-showError(parseApiError(err, "Unexpected error"), { title: "Couldn't save" });
+// ✅ OK — hook 이 자동 처리
+try {
+  await mut.mutateAsync(data);
+  setOpen(false); // 후처리만
+} catch {
+  // hook 자동 모달
+}
 ```
 
-### Flutter 패턴
+### TOAST (`useToast`)
+
+자동 사라짐. 가벼운 정보용. **mutation 결과에 쓰지 말 것** — hook 이 모달로 띄움.
+
+- "Copied to clipboard"
+- 광학적 reorder/sort/copy-paste 즉시 시각 피드백
+- 자동 백그라운드 sync 결과 (사용자 의도 X)
+
+### 죽은/제거된 패턴
+
+- `<ConfirmDialog>` declarative — `modal.confirm` 으로 대체. 사용 금지.
+- `useResultModal().show/showSuccess/showError` 직접 호출 — `useMutationResult` (hook) 또는 `modal.alert` 로 대체.
+- `ErrorModal.tsx`, `CompanyCodeModal.tsx`, `schedules/redesign/ConfirmDialog.tsx` — 삭제됨.
+
+### Flutter 패턴 (app)
 
 ```dart
 import '../../widgets/app_modal.dart';
@@ -396,4 +436,4 @@ await AppModal.show(context, title: 'Couldn\'t save', message: '...', type: Moda
 
 광범위한 "Failed to do X" fallback 대신 `parseApiError(err, "Unexpected error")` 사용.
 status code (401/403/404/408/409/413/422/429/5xx)와 `detail`/`message` 필드를 자동
-가공하여 친화 메시지 반환.
+가공하여 친화 메시지 반환. **Hook 내부의 `useMutationResult`/`useErrorToast` 가 자동으로 사용**하므로 페이지/컴포넌트에서 따로 호출할 일은 거의 없음.

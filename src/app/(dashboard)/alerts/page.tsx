@@ -17,8 +17,7 @@ import {
   EmptyState,
   LoadingSpinner,
 } from "@/components/ui";
-import { useToast } from "@/components/ui/Toast";
-import { timeAgo, parseApiError } from "@/lib/utils";
+import { timeAgo } from "@/lib/utils";
 import type { Alert } from "@/types";
 
 /** reference_type → admin 경로 매핑.
@@ -61,7 +60,6 @@ function getAlertHref(referenceType: string | null, referenceId: string | null):
  */
 export default function AlertsPage() {
   const router = useRouter();
-  const { toast } = useToast();
   const [urlParams, setUrlParams] = usePersistedFilters("alerts", { page: "1" });
   const page = Math.max(1, Number(urlParams.page) || 1);
   const setPage = (next: number): void => setUrlParams({ page: next === 1 ? null : String(next) });
@@ -80,19 +78,13 @@ export default function AlertsPage() {
   /** 단일 알림을 읽음 처리합니다.
    *  Mark a single alert as read. */
   const handleMarkRead = (alertId: string): void => {
-    markRead.mutate(alertId, {
-      onError: (err) => toast({ type: "error", message: parseApiError(err, "읽음 처리 실패 (Mark read failed)") }),
-    });
+    markRead.mutate(alertId);
   };
 
   /** 모든 읽지 않은 알림을 읽음 처리합니다.
    *  Mark all unread alerts as read. */
   const handleMarkAllRead = (): void => {
-    markAllRead.mutate(undefined, {
-      onSuccess: () =>
-        toast({ type: "success", message: "모든 알림이 읽음 처리되었습니다 (All marked as read)" }),
-      onError: (err) => toast({ type: "error", message: parseApiError(err, "전체 읽음 처리 실패 (Mark all read failed)") }),
-    });
+    markAllRead.mutate();
   };
 
   /** 알림 타입에 따른 배지를 반환합니다.

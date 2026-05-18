@@ -33,10 +33,10 @@ import { useStores } from "@/hooks/useStores";
 import { useRoles } from "@/hooks/useRoles";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
-import { Badge, Modal, Select, ConfirmDialog } from "@/components/ui";
+import { Badge, Modal, Select } from "@/components/ui";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
-import { useToast } from "@/components/ui/Toast";
-import { formatDate, parseApiError } from "@/lib/utils";
+import { useModal } from "@/components/ui/imperative-modal";
+import { formatDate } from "@/lib/utils";
 import { useTimezone } from "@/hooks/useTimezone";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS, ROLE_PRIORITY } from "@/lib/permissions";
@@ -94,7 +94,7 @@ export default function UserDetailPage(): React.ReactElement {
   const router = useRouter();
   const params = useParams();
   const userId: string = params.id as string;
-  const { toast } = useToast();
+  const modal = useModal();
   const { hasPermission, priority: myPriority } = usePermissions();
   const tz = useTimezone();
   const canManageUsers = hasPermission(PERMISSIONS.USERS_UPDATE);
@@ -118,16 +118,9 @@ export default function UserDetailPage(): React.ReactElement {
     useState<UserEditFormData>(INITIAL_EDIT_FORM);
   /** 모달 오픈 시점의 원본 스냅샷 — dirty 체크용 */
   const editOriginalRef = useRef<UserEditFormData>(INITIAL_EDIT_FORM);
-  const [confirmDiscardOpen, setConfirmDiscardOpen] = useState<boolean>(false);
 
   /* ---- Reset password state ---------------------------------------------- */
-  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState<boolean>(false);
   const [resetResult, setResetResult] = useState<{ temporaryPassword: string } | null>(null);
-
-  /* ---- Role change confirmation state ----------------------------------- */
-  const [isRoleChangeOpen, setIsRoleChangeOpen] = useState<boolean>(false);
-  /** 인라인 RoleEditor에서 Save 눌렀을 때 확인 대기 중인 새 role id */
-  const [pendingRoleId, setPendingRoleId] = useState<string | null>(null);
 
   /* ---- Store membership state -------------------------------------------- */
   const [storeChecks, setStoreChecks] = useState<Record<string, StoreCheckState>>({});
@@ -153,10 +146,8 @@ export default function UserDetailPage(): React.ReactElement {
     return role?.priority ?? 999;
   }, [user, roleList]);
 
-  /** 역할 변경 경고 메시지 — 전환 방향에 따라 맞춤 메시지 생성
-   *  인라인 RoleEditor(pendingRoleId) / Edit Profile 모달(editForm.role_id) 둘 다 커버 */
-  const roleChangeAlert = useMemo((): { title: string; message: string; isDangerous: boolean } => {
-    const targetRoleId = pendingRoleId ?? editForm.role_id;
+  /** 역할 변경 경고 메시지 — 전환 방향에 따라 맞춤 메시지 생성. targetRoleId 받아서 즉시 계산 */
+  const buildRoleChangeAlert = useCallback((targetRoleId: string): { title: string; message: string; isDangerous: boolean } => {
     const currentRole = roleList.find((r: Role) => r.name === user?.role_name);
     const nextRole = roleList.find((r: Role) => r.id === targetRoleId);
     if (!currentRole || !nextRole) {
@@ -214,7 +205,7 @@ export default function UserDetailPage(): React.ReactElement {
       message: `Change role from ${currentRole.name} to ${nextRole.name}? Store permissions will follow the new role.`,
       isDangerous: false,
     };
-  }, [roleList, user, editForm.role_id, pendingRoleId]);
+  }, [roleList, user]);
 
   const isStaff = userRolePriority >= ROLE_PRIORITY.STAFF;
   const isSV = userRolePriority === ROLE_PRIORITY.SV;
@@ -295,27 +286,38 @@ export default function UserDetailPage(): React.ReactElement {
   }, [editForm]);
 
   /** Edit 모달 닫기 시도 — dirty면 확인 다이얼로그 띄우기 */
-  const tryCloseEdit = useCallback((): void => {
+  const tryCloseEdit = useCallback(async (): Promise<void> => {
     if (isEditDirty()) {
-      setConfirmDiscardOpen(true);
-      return;
+      const ok = await modal.confirm({
+        title: "Discard Changes?",
+        message: "You have unsaved changes. Are you sure you want to close without saving?",
+        confirmLabel: "Discard",
+        variant: "danger",
+      });
+      if (!ok) return;
     }
     setIsEditOpen(false);
     setEditForm(INITIAL_EDIT_FORM);
-  }, [isEditDirty]);
+  }, [isEditDirty, modal]);
 
   /** 사용자 수정 저장 (역할 변경 확인 포함) / Save user edits (with role change check) */
-  const handleSaveClick = useCallback((): void => {
+  const handleSaveClick = useCallback(async (): Promise<void> => {
     if (!editForm.username.trim() || !editForm.full_name.trim()) return;
     if (editForm.role_id && user) {
       const currentRole = roleList.find((r: Role) => r.name === user.role_name);
       if (currentRole && editForm.role_id !== currentRole.id) {
-        setIsRoleChangeOpen(true);
-        return;
+        const alert = buildRoleChangeAlert(editForm.role_id);
+        const ok = await modal.confirm({
+          title: alert.title,
+          message: alert.message,
+          confirmLabel: alert.isDangerous ? "Proceed" : "Change Role",
+          variant: alert.isDangerous ? "danger" : "primary",
+        });
+        if (!ok) return;
       }
     }
     handleUpdate();
-  }, [editForm, user, roleList]);
+  }, [editForm, user, roleList, modal, buildRoleChangeAlert]);
 
   /** 사용자 수정 저장 / Save user edits */
   const handleUpdate = useCallback(async (): Promise<void> => {
@@ -327,7 +329,7 @@ export default function UserDetailPage(): React.ReactElement {
       : hourlyRateStr === "0" ? null
       : Number(hourlyRateStr);
     if (hourlyRateVal !== undefined && hourlyRateVal !== null && isNaN(hourlyRateVal)) {
-      toast({ type: "error", message: "Hourly rate must be a valid number." });
+      void modal.alert({ type: "error", message: "Hourly rate must be a valid number." });
       return;
     }
 
@@ -357,14 +359,12 @@ export default function UserDetailPage(): React.ReactElement {
         payload.hourly_rate = hourlyRateVal;
       }
       await updateUser.mutateAsync(payload);
-      toast({ type: "success", message: "Staff member updated successfully!" });
       setIsEditOpen(false);
-      setIsRoleChangeOpen(false);
       setEditForm(INITIAL_EDIT_FORM);
-    } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to update staff member.") });
+    } catch {
+      // hook 자동 모달
     }
-  }, [userId, editForm, updateUser, toast]);
+  }, [userId, editForm, updateUser, user]);
 
   /** 활성/비활성 토글 / Toggle active status */
   const handleToggleActive = useCallback(async (): Promise<void> => {
@@ -373,27 +373,28 @@ export default function UserDetailPage(): React.ReactElement {
         id: userId,
         is_active: !user?.is_active,
       });
-      toast({
-        type: "success",
-        message: user?.is_active
-          ? "Staff member deactivated."
-          : "Staff member activated.",
-      });
-    } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to toggle active status.") });
+    } catch {
+      // hook 자동 모달
     }
-  }, [userId, user, toggleActive, toast]);
+  }, [userId, user, toggleActive]);
 
   /** 관리자 비밀번호 초기화 */
   const handleResetPassword = useCallback(async (): Promise<void> => {
+    if (!user) return;
+    const ok = await modal.confirm({
+      title: "Reset Password",
+      message: `Are you sure you want to reset the password for "${user.full_name}"? A temporary password will be generated and sent to their email. They will be logged out from all devices.`,
+      confirmLabel: "Reset Password",
+      variant: "danger",
+    });
+    if (!ok) return;
     try {
       const result = await adminResetPassword.mutateAsync(userId);
-      setIsResetConfirmOpen(false);
       setResetResult({ temporaryPassword: result.temporary_password });
-    } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to reset password.") });
+    } catch {
+      // hook 자동 모달
     }
-  }, [userId, adminResetPassword, toast]);
+  }, [userId, adminResetPassword, user, modal]);
 
   /** 관리 체크박스 토글 */
   const handleManagerToggle = useCallback((storeId: string, storeName: string, checked: boolean): void => {
@@ -458,12 +459,11 @@ export default function UserDetailPage(): React.ReactElement {
       }));
     try {
       await syncUserStores.mutateAsync({ userId, assignments });
-      toast({ type: "success", message: "Store assignments updated." });
       setIsStoreEditing(false);
-    } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to update store assignments.") });
+    } catch {
+      // hook 자동 모달
     }
-  }, [userId, storeChecks, syncUserStores, toast]);
+  }, [userId, storeChecks, syncUserStores]);
 
   /** 매장 배정 취소 */
   const handleCancelStores = useCallback((): void => {
@@ -622,9 +622,20 @@ export default function UserDetailPage(): React.ReactElement {
             myPriority={myPriority}
             canEdit={canManageUsers}
             onSave={async (roleId) => {
-              // 바로 실행하지 않고 확인 다이얼로그로 전달 (전환 방향에 따른 맞춤 경고)
-              setPendingRoleId(roleId);
-              setIsRoleChangeOpen(true);
+              // 전환 방향에 따른 맞춤 경고로 inline confirm
+              const alert = buildRoleChangeAlert(roleId);
+              const ok = await modal.confirm({
+                title: alert.title,
+                message: alert.message,
+                confirmLabel: alert.isDangerous ? "Proceed" : "Change Role",
+                variant: alert.isDangerous ? "danger" : "primary",
+              });
+              if (!ok) return;
+              try {
+                await updateUser.mutateAsync({ id: userId, role_id: roleId });
+              } catch {
+                // hook 자동 모달
+              }
             }}
             isSaving={updateUser.isPending}
           />
@@ -639,9 +650,8 @@ export default function UserDetailPage(): React.ReactElement {
             onSave={async (rate) => {
               try {
                 await updateUser.mutateAsync({ id: userId, hourly_rate: rate });
-                toast({ type: "success", message: "Hourly rate updated." });
-              } catch (err) {
-                toast({ type: "error", message: parseApiError(err, "Failed to update hourly rate.") });
+              } catch {
+                // hook 자동 모달
               }
             }}
             isSaving={updateUser.isPending}
@@ -794,7 +804,8 @@ export default function UserDetailPage(): React.ReactElement {
             <Button
               variant="danger"
               size="sm"
-              onClick={() => setIsResetConfirmOpen(true)}
+              onClick={() => void handleResetPassword()}
+              isLoading={adminResetPassword.isPending}
             >
               Reset Password
             </Button>
@@ -821,7 +832,7 @@ export default function UserDetailPage(): React.ReactElement {
       {/* Edit User Modal */}
       <Modal
         isOpen={isEditOpen}
-        onClose={tryCloseEdit}
+        onClose={() => void tryCloseEdit()}
         title="Edit Staff Member"
         closeOnBackdrop={false}
       >
@@ -875,13 +886,13 @@ export default function UserDetailPage(): React.ReactElement {
           <div className="flex justify-end gap-2 pt-2">
             <Button
               variant="secondary"
-              onClick={tryCloseEdit}
+              onClick={() => void tryCloseEdit()}
             >
               Cancel
             </Button>
             <Button
               variant="primary"
-              onClick={handleSaveClick}
+              onClick={() => void handleSaveClick()}
               isLoading={updateUser.isPending}
               disabled={!editForm.username.trim() || !editForm.full_name.trim()}
             >
@@ -890,60 +901,6 @@ export default function UserDetailPage(): React.ReactElement {
           </div>
         </div>
       </Modal>
-
-      {/* Discard Edits Confirmation — 수정사항이 있을 때 닫기 확인 */}
-      <ConfirmDialog
-        isOpen={confirmDiscardOpen}
-        onClose={() => setConfirmDiscardOpen(false)}
-        onConfirm={() => {
-          setConfirmDiscardOpen(false);
-          setIsEditOpen(false);
-          setEditForm(INITIAL_EDIT_FORM);
-        }}
-        title="Discard Changes?"
-        message="You have unsaved changes. Are you sure you want to close without saving?"
-        confirmLabel="Discard"
-      />
-
-      {/* Role Change Confirmation — 전환 방향에 따라 맞춤 메시지 */}
-      <ConfirmDialog
-        isOpen={isRoleChangeOpen}
-        onClose={() => {
-          setIsRoleChangeOpen(false);
-          setPendingRoleId(null);
-        }}
-        onConfirm={async () => {
-          if (pendingRoleId) {
-            // 인라인 RoleEditor 경로 — 직접 mutate
-            try {
-              await updateUser.mutateAsync({ id: userId, role_id: pendingRoleId });
-              toast({ type: "success", message: "Role updated." });
-            } catch (err) {
-              toast({ type: "error", message: parseApiError(err, "Failed to change role.") });
-            }
-            setPendingRoleId(null);
-            setIsRoleChangeOpen(false);
-          } else {
-            // Edit Profile 모달 경로 — 기존 handleUpdate 재사용
-            await handleUpdate();
-          }
-        }}
-        title={roleChangeAlert.title}
-        message={roleChangeAlert.message}
-        confirmLabel={roleChangeAlert.isDangerous ? "Proceed" : "Change Role"}
-        isLoading={updateUser.isPending}
-      />
-
-      {/* Reset Password Confirmation Dialog */}
-      <ConfirmDialog
-        isOpen={isResetConfirmOpen}
-        onClose={() => setIsResetConfirmOpen(false)}
-        onConfirm={handleResetPassword}
-        title="Reset Password"
-        message={`Are you sure you want to reset the password for "${user.full_name}"? A temporary password will be generated and sent to their email. They will be logged out from all devices.`}
-        confirmLabel="Reset Password"
-        isLoading={adminResetPassword.isPending}
-      />
 
       {/* Reset Password Result Modal */}
       {resetResult && (

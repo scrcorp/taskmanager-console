@@ -14,9 +14,8 @@ import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
 import { Textarea } from "@/components/ui/Textarea";
 import { ImageUpload } from "@/components/ui/ImageUpload";
-import { useResultModal } from "@/components/ui/ResultModal";
+import { useModal } from "@/components/ui/imperative-modal";
 import { useCategories, useProducts, useCreateCategory, useGenerateProductCode, useSubUnits, useCreateSubUnit } from "@/hooks/useInventory";
-import { parseApiError } from "@/lib/utils";
 import type { InventoryCategory, InventoryProduct } from "@/types";
 
 export interface ProductFormData {
@@ -118,7 +117,7 @@ export function ProductForm({
   const [addingCategory, setAddingCategory] = useState(false);
   const [addingSubcategory, setAddingSubcategory] = useState(false);
 
-  const { showError } = useResultModal();
+  const modal = useModal();
   const { data: categoriesRaw, refetch: refetchCategories } = useCategories();
   const { data: subUnitsData, refetch: refetchSubUnits } = useSubUnits();
   const createCategory = useCreateCategory();
@@ -196,14 +195,11 @@ export function ProductForm({
             setCategoryId(created.id);
             setAddingCategory(false);
           },
-          onError: (err) => {
-            const msg = parseApiError(err, "Failed to create category");
-            showError(msg);
-          },
+          // hook handles error modal
         },
       );
     },
-    [createCategory, refetchCategories, showError],
+    [createCategory, refetchCategories],
   );
 
   const handleAddSubcategory = useCallback(
@@ -216,14 +212,11 @@ export function ProductForm({
             setSubcategoryId(created.id);
             setAddingSubcategory(false);
           },
-          onError: (err) => {
-            const msg = parseApiError(err, "Failed to create subcategory");
-            showError(msg);
-          },
+          // hook handles error modal
         },
       );
     },
-    [createCategory, refetchCategories, categoryId, showError],
+    [createCategory, refetchCategories, categoryId],
   );
 
   return (
@@ -395,7 +388,7 @@ export function ProductForm({
                 const code = newName.toLowerCase().replace(/\s+/g, "_");
                 // Check duplicate by code
                 if ((subUnitsData ?? []).some((u) => u.code === code)) {
-                  showError(`"${newName}" already exists`);
+                  void modal.alert({ type: "error", message: `"${newName}" already exists` });
                   return;
                 }
                 createSubUnit.mutate(
@@ -406,9 +399,7 @@ export function ProductForm({
                       setSubUnit(created.code);
                       setAddingSubUnit(false);
                     },
-                    onError: (err) => {
-                      showError(parseApiError(err, "Failed to create sub unit."));
-                    },
+                    // hook handles error modal
                   },
                 );
               }}

@@ -33,11 +33,11 @@ import {
 } from "@/hooks/useAttendanceDevices";
 import { useTimezone } from "@/hooks/useTimezone";
 import { Button } from "@/components/ui/Button";
-import { Badge, ConfirmDialog } from "@/components/ui";
+import { Badge } from "@/components/ui";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useToast } from "@/components/ui/Toast";
-import { useResultModal } from "@/components/ui/ResultModal";
-import { formatDate, formatDateTimeSeconds, parseApiError } from "@/lib/utils";
+import { useModal } from "@/components/ui/imperative-modal";
+import { formatDate, formatDateTimeSeconds } from "@/lib/utils";
 import type { AttendanceDevice } from "@/types";
 
 const ATTENDANCE_SERVICE_KEY = "attendance";
@@ -60,7 +60,7 @@ export default function AttendanceDevicesSettingsPage(): React.ReactElement {
 
 function AttendanceDevicesContent(): React.ReactElement {
   const { toast } = useToast();
-  const { showSuccess, showError } = useResultModal();
+  const modal = useModal();
   const { hasPermission } = usePermissions();
   const tz = useTimezone();
   const canUpdate = hasPermission(PERMISSIONS.ATTENDANCE_DEVICES_UPDATE);
@@ -70,8 +70,6 @@ function AttendanceDevicesContent(): React.ReactElement {
     ATTENDANCE_SERVICE_KEY,
   );
   const rotateCode = useRotateAccessCode();
-  const [isRotateConfirmOpen, setIsRotateConfirmOpen] =
-    useState<boolean>(false);
   const [codeCopied, setCodeCopied] = useState<boolean>(false);
 
   /* ---- Devices ----------------------------------------------------------- */
@@ -88,24 +86,25 @@ function AttendanceDevicesContent(): React.ReactElement {
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState<string>("");
 
-  /* ---- Revoke confirmation ---------------------------------------------- */
-  const [revokeTarget, setRevokeTarget] = useState<AttendanceDevice | null>(
-    null,
-  );
-
   /* ======================================================================= */
   /*  Handlers                                                               */
   /* ======================================================================= */
 
   const handleRotateCode = useCallback(async (): Promise<void> => {
+    const ok = await modal.confirm({
+      title: "Rotate Access Code",
+      message:
+        "Rotating the code will immediately invalidate the current code. Any pending tablet enrollments will need the new code. Continue?",
+      confirmLabel: "Rotate",
+      variant: "danger",
+    });
+    if (!ok) return;
     try {
       await rotateCode.mutateAsync(ATTENDANCE_SERVICE_KEY);
-      setIsRotateConfirmOpen(false);
-      showSuccess("Access code rotated.");
-    } catch (err) {
-      showError(parseApiError(err, "Failed to rotate access code."));
+    } catch {
+      // hook 자동 모달
     }
-  }, [rotateCode, showSuccess, showError]);
+  }, [rotateCode, modal]);
 
   const handleCopyCode = useCallback(async (code: string): Promise<void> => {
     try {
@@ -135,29 +134,32 @@ function AttendanceDevicesContent(): React.ReactElement {
     if (!renamingId) return;
     const name = renameValue.trim();
     if (!name) {
-      showError("Device name cannot be empty.");
+      void modal.alert({ type: "error", message: "Device name cannot be empty." });
       return;
     }
     try {
       await updateDevice.mutateAsync({ id: renamingId, device_name: name });
-      showSuccess("Device renamed.");
       setRenamingId(null);
       setRenameValue("");
-    } catch (err) {
-      showError(parseApiError(err, "Failed to rename device."));
+    } catch {
+      // hook 자동 모달
     }
-  }, [renamingId, renameValue, updateDevice, showSuccess, showError]);
+  }, [renamingId, renameValue, updateDevice, modal]);
 
-  const handleRevoke = useCallback(async (): Promise<void> => {
-    if (!revokeTarget) return;
+  const handleRevokeDevice = useCallback(async (device: AttendanceDevice): Promise<void> => {
+    const ok = await modal.confirm({
+      title: "Revoke Device",
+      message: `Revoke "${device.device_name ?? "(unnamed)"}" at ${device.store_name}? This tablet will no longer be able to record attendance until re-enrolled.`,
+      confirmLabel: "Revoke",
+      variant: "danger",
+    });
+    if (!ok) return;
     try {
-      await revokeDevice.mutateAsync(revokeTarget.id);
-      showSuccess("Device revoked.");
-      setRevokeTarget(null);
-    } catch (err) {
-      showError(parseApiError(err, "Failed to revoke device."));
+      await revokeDevice.mutateAsync(device.id);
+    } catch {
+      // hook 자동 모달
     }
-  }, [revokeTarget, revokeDevice, showSuccess, showError]);
+  }, [revokeDevice, modal]);
 
   /* ======================================================================= */
   /*  Render                                                                 */
@@ -218,8 +220,8 @@ function AttendanceDevicesContent(): React.ReactElement {
                   <Button
                     variant="secondary"
                     size="sm"
-                    onClick={() => setIsRotateConfirmOpen(true)}
-                    disabled={accessCode.source === "env"}
+                    onClick={() => void handleRotateCode()}
+                    disabled={accessCode.source === "env" || rotateCode.isPending}
                   >
                     <RefreshCw className="h-4 w-4" />
                     Rotate
@@ -374,7 +376,7 @@ function AttendanceDevicesContent(): React.ReactElement {
                                 </button>
                                 <button
                                   type="button"
-                                  onClick={() => setRevokeTarget(device)}
+                                  onClick={() => void handleRevokeDevice(device)}
                                   className="p-1.5 rounded text-text-secondary hover:text-danger hover:bg-danger-muted transition-colors"
                                   title="Revoke"
                                 >
@@ -394,31 +396,6 @@ function AttendanceDevicesContent(): React.ReactElement {
         )}
       </div>
 
-      {/* Rotate Access Code confirmation */}
-      <ConfirmDialog
-        isOpen={isRotateConfirmOpen}
-        onClose={() => setIsRotateConfirmOpen(false)}
-        onConfirm={handleRotateCode}
-        title="Rotate Access Code"
-        message="Rotating the code will immediately invalidate the current code. Any pending tablet enrollments will need the new code. Continue?"
-        confirmLabel="Rotate"
-        isLoading={rotateCode.isPending}
-      />
-
-      {/* Revoke device confirmation */}
-      <ConfirmDialog
-        isOpen={revokeTarget != null}
-        onClose={() => setRevokeTarget(null)}
-        onConfirm={handleRevoke}
-        title="Revoke Device"
-        message={
-          revokeTarget
-            ? `Revoke "${revokeTarget.device_name ?? "(unnamed)"}" at ${revokeTarget.store_name}? This tablet will no longer be able to record attendance until re-enrolled.`
-            : ""
-        }
-        confirmLabel="Revoke"
-        isLoading={revokeDevice.isPending}
-      />
     </div>
   );
 }

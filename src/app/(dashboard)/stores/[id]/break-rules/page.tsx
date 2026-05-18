@@ -6,13 +6,10 @@ import { ArrowLeft } from "lucide-react";
 import { useBreakRule, useUpsertBreakRule } from "@/hooks/useBreakRules";
 import { useStore } from "@/hooks/useStores";
 import { Button, Card, Input, Select } from "@/components/ui";
-import { useResultModal } from "@/components/ui/ResultModal";
-import { parseApiError } from "@/lib/utils";
 
 export default function BreakRulesPage(): React.ReactElement {
   const params = useParams();
   const router = useRouter();
-  const { showSuccess, showError } = useResultModal();
   const storeId = params.id as string;
 
   const { data: store } = useStore(storeId);
@@ -44,9 +41,8 @@ export default function BreakRulesPage(): React.ReactElement {
           work_hour_calc_basis: calcBasis,
         },
       });
-      showSuccess("Break rules saved");
-    } catch (err) {
-      showError(parseApiError(err, "Failed to save break rules"));
+    } catch {
+      // hook 이 자동으로 에러 모달
     }
   };
 

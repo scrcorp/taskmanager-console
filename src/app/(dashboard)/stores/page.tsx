@@ -35,10 +35,10 @@ import { useCreatePosition } from "@/hooks/usePositions";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui/Select";
-import { Table, Badge, Modal, ConfirmDialog } from "@/components/ui";
+import { Table, Badge, Modal } from "@/components/ui";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
-import { useResultModal } from "@/components/ui/ResultModal";
-import { formatDate, parseApiError } from "@/lib/utils";
+import { useModal } from "@/components/ui/imperative-modal";
+import { formatDate } from "@/lib/utils";
 import { useTimezone } from "@/hooks/useTimezone";
 import { TIMEZONE_OPTIONS } from "@/lib/timezones";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -134,7 +134,7 @@ function DraggableStringRow({
 
 export default function StoresPage(): React.ReactElement {
   const router = useRouter();
-  const { showSuccess, showError } = useResultModal();
+  const modal = useModal();
 
   /** 권한 훅 / Permission hook */
   const { hasPermission } = usePermissions();
@@ -164,11 +164,6 @@ export default function StoresPage(): React.ReactElement {
   const [isEditOpen, setIsEditOpen] = useState<boolean>(false);
   const [editForm, setEditForm] = useState<StoreFormData>(INITIAL_FORM);
   const [editingStoreId, setEditingStoreId] = useState<string | null>(null);
-
-  /** 삭제 확인 다이얼로그 상태 / Delete confirmation dialog state */
-  const [isDeleteOpen, setIsDeleteOpen] = useState<boolean>(false);
-  const [deletingStoreId, setDeletingStoreId] = useState<string | null>(null);
-  const [deletingStoreName, setDeletingStoreName] = useState<string>("");
 
   /** 검색으로 필터링된 매장 목록 / Filtered stores by search query */
   const filteredStores: Store[] = useMemo(() => {
@@ -284,17 +279,16 @@ export default function StoresPage(): React.ReactElement {
         );
       }
 
-      showSuccess("Store created successfully!");
       setIsCreateOpen(false);
       setCreateForm(INITIAL_FORM);
       setNewShiftName("");
       setNewPositionName("");
-    } catch (err) {
-      showError(parseApiError(err, "Failed to create store."));
+    } catch {
+      // hook 이 자동으로 에러 모달
     } finally {
       setIsCreating(false);
     }
-  }, [createForm, createStore, createShift, createPosition, showSuccess, showError]);
+  }, [createForm, createStore, createShift, createPosition]);
 
   /** 수정 모달 열기 / Open edit modal */
   const handleOpenEdit = useCallback(
@@ -317,39 +311,33 @@ export default function StoresPage(): React.ReactElement {
         address: editForm.address.trim() || undefined,
         timezone: editForm.timezone || null,
       });
-      showSuccess("Store updated successfully!");
       setIsEditOpen(false);
       setEditingStoreId(null);
       setEditForm(INITIAL_FORM);
-    } catch (err) {
-      showError(parseApiError(err, "Failed to update store."));
+    } catch {
+      // hook 이 자동으로 에러 모달
     }
-  }, [editingStoreId, editForm, updateStore, showSuccess, showError]);
+  }, [editingStoreId, editForm, updateStore]);
 
-  /** 삭제 확인 열기 / Open delete confirmation */
+  /** 매장 삭제 핸들러 / Handle store deletion (inline confirm) */
   const handleOpenDelete = useCallback(
-    (store: Store, e: React.MouseEvent): void => {
+    async (store: Store, e: React.MouseEvent): Promise<void> => {
       e.stopPropagation();
-      setDeletingStoreId(store.id);
-      setDeletingStoreName(store.name);
-      setIsDeleteOpen(true);
+      const ok = await modal.confirm({
+        title: "Delete Store",
+        message: `Are you sure you want to delete "${store.name}"? This action cannot be undone.`,
+        confirmLabel: "Delete",
+        variant: "danger",
+      });
+      if (!ok) return;
+      try {
+        await deleteStore.mutateAsync(store.id);
+      } catch {
+        // hook 이 자동으로 에러 모달
+      }
     },
-    [],
+    [modal, deleteStore],
   );
-
-  /** 매장 삭제 핸들러 / Handle store deletion */
-  const handleDelete = useCallback(async (): Promise<void> => {
-    if (!deletingStoreId) return;
-    try {
-      await deleteStore.mutateAsync(deletingStoreId);
-      showSuccess("Store deleted successfully!");
-      setIsDeleteOpen(false);
-      setDeletingStoreId(null);
-      setDeletingStoreName("");
-    } catch (err) {
-      showError(parseApiError(err, "Failed to delete store."));
-    }
-  }, [deletingStoreId, deleteStore, showSuccess, showError]);
 
   /** 행 클릭으로 상세 페이지 이동 / Navigate to detail on row click */
   const handleRowClick = useCallback(
@@ -415,7 +403,7 @@ export default function StoresPage(): React.ReactElement {
                   </button>
                   <button
                     type="button"
-                    onClick={(e: React.MouseEvent) => handleOpenDelete(store, e)}
+                    onClick={(e: React.MouseEvent) => void handleOpenDelete(store, e)}
                     className="p-1.5 rounded-md text-text-muted hover:text-danger hover:bg-danger-muted transition-colors"
                     aria-label={`Delete ${store.name}`}
                   >
@@ -732,21 +720,6 @@ export default function StoresPage(): React.ReactElement {
           </div>
         </div>
       </Modal>
-
-      {/* Delete Confirmation Dialog */}
-      <ConfirmDialog
-        isOpen={isDeleteOpen}
-        onClose={() => {
-          setIsDeleteOpen(false);
-          setDeletingStoreId(null);
-          setDeletingStoreName("");
-        }}
-        onConfirm={handleDelete}
-        title="Delete Store"
-        message={`Are you sure you want to delete "${deletingStoreName}"? This action cannot be undone.`}
-        confirmLabel="Delete"
-        isLoading={deleteStore.isPending}
-      />
     </div>
   );
 }

@@ -21,8 +21,7 @@
 
 import { useState, useMemo, useRef, useEffect } from "react";
 import { useStores } from "@/hooks/useStores";
-import { useResultModal } from "@/components/ui/ResultModal";
-import { ConfirmDialog } from "@/components/schedules/redesign/ConfirmDialog";
+import { useModal } from "@/components/ui/imperative-modal";
 import {
   useSettingsRegistry,
   useOrgSettings,
@@ -59,14 +58,18 @@ export function ScheduleSettings({ onBack }: Props) {
   const stores = storesQ.data ?? [];
   const [activeTab, setActiveTab] = useState<"org" | string>("org");
   const [draft, setDraft] = useState<DraftState>(EMPTY_DRAFT);
-  const [pendingTab, setPendingTab] = useState<"org" | string | null>(null);
-  const { showSuccess, showError } = useResultModal();
+  const modal = useModal();
 
   // 탭 변경 시 draft 폐기 (혼동 방지)
-  function handleTabChange(tab: "org" | string) {
+  async function handleTabChange(tab: "org" | string): Promise<void> {
     if (Object.keys(draft.values).length > 0 || draft.deletedKeys.length > 0) {
-      setPendingTab(tab);
-      return;
+      const ok = await modal.confirm({
+        title: "Discard unsaved changes?",
+        message: "You have unsaved changes in this tab. Switching will discard them.",
+        confirmLabel: "Discard",
+        variant: "danger",
+      });
+      if (!ok) return;
     }
     setDraft(EMPTY_DRAFT);
     setActiveTab(tab);
@@ -219,9 +222,11 @@ export function ScheduleSettings({ onBack }: Props) {
       for (const [key, entry] of Object.entries(rangeValue)) {
         if (entry && typeof entry === "object" && "start" in entry && "end" in entry) {
           if (toMinutes(entry.start) >= toMinutes(entry.end)) {
-            showError(
-              `Schedule Range: Start must be before End (${key === "all" ? "all days" : key}).`,
-            );
+            void modal.alert({
+              type: "error",
+              title: "Couldn't save settings",
+              message: `Schedule Range: Start must be before End (${key === "all" ? "all days" : key}).`,
+            });
             return;
           }
         }
@@ -245,12 +250,9 @@ export function ScheduleSettings({ onBack }: Props) {
       }
 
       setDraft(EMPTY_DRAFT);
-      showSuccess("Settings saved");
-    } catch (e) {
-      showError(
-        "Save failed: " + (e instanceof Error ? e.message : String(e)),
-        { title: "Couldn't save settings" },
-      );
+      // 결과 모달은 각 upsert/delete mutation hook 이 알아서 띄움 — 페이지에서 추가 모달 없음.
+    } catch {
+      // 에러 모달도 각 mutation hook 이 onError 에서 띄움 — 페이지에서 추가 모달 없음.
     }
   }
 
@@ -434,19 +436,6 @@ export function ScheduleSettings({ onBack }: Props) {
         </div>
       )}
 
-      <ConfirmDialog
-        open={pendingTab !== null}
-        title="Discard unsaved changes?"
-        message="You have unsaved changes in this tab. Switching will discard them."
-        confirmLabel="Discard"
-        confirmVariant="danger"
-        onConfirm={() => {
-          setDraft(EMPTY_DRAFT);
-          if (pendingTab !== null) setActiveTab(pendingTab);
-          setPendingTab(null);
-        }}
-        onCancel={() => setPendingTab(null)}
-      />
     </div>
   );
 }

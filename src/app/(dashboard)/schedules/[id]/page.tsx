@@ -9,9 +9,9 @@ import { useMemo, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ScheduleDetailPage } from "@/components/schedules/redesign/ScheduleDetailPage";
 import { ScheduleEditModal, type ScheduleEditPayload } from "@/components/schedules/redesign/ScheduleEditModal";
-import { ConfirmDialog } from "@/components/schedules/redesign/ConfirmDialog";
+import { useModal } from "@/components/ui/imperative-modal";
 import {
-  useSchedule, useDeleteSchedule, useRevertSchedule, useCancelSchedule, useConfirmSchedule,
+  useSchedule, useDeleteScheduleFlow, useRevertSchedule, useCancelSchedule, useConfirmSchedule,
   useScheduleAuditLog, useSchedules, useUpdateSchedule, useDeleteScheduleHistoryEntry,
 } from "@/hooks/useSchedules";
 import { PERMISSIONS, ROLE_PRIORITY } from "@/lib/permissions";
@@ -70,7 +70,7 @@ export default function SchedulesDetailPage() {
     per_page: 50,
   });
 
-  const deleteMutation = useDeleteSchedule();
+  const deleteFlow = useDeleteScheduleFlow();
   const revertMutation = useRevertSchedule();
   const cancelMutation = useCancelSchedule();
   const confirmMutation = useConfirmSchedule();
@@ -78,9 +78,8 @@ export default function SchedulesDetailPage() {
   const deleteHistoryMutation = useDeleteScheduleHistoryEntry();
 
   const [editOpen, setEditOpen] = useState(false);
-  const [confirmAction, setConfirmAction] = useState<null | "delete" | "cancel" | "revert">(null);
-  const [pendingHistoryDeleteId, setPendingHistoryDeleteId] = useState<string | null>(null);
   const [editError, setEditError] = useState<string | null>(null);
+  const modal = useModal();
 
   if (scheduleQ.isLoading || userQ.isLoading) {
     return <div className="py-8 text-center text-[var(--color-text-muted)]">Loading…</div>;
@@ -98,11 +97,46 @@ export default function SchedulesDetailPage() {
   const auditEvents = auditLogQ.data ?? [];
   const relatedSchedules = (relatedQ.data?.items ?? []).filter((s) => s.id !== schedule.id);
 
-  const handleDelete = () => setConfirmAction("delete");
-  const handleCancelConfirmed = () => setConfirmAction("cancel");
-  const handleRevert = () => setConfirmAction("revert");
-  const handleConfirmAction = () => {
+  // 모든 confirm 흐름이 modal.confirm 으로 통일됨. 결과 모달은 각 mutation hook 이 자동 발사.
+  const handleDelete = (): void => {
+    void deleteFlow(id, () => router.push("/schedules"));
+  };
+  const handleCancelConfirmed = async (): Promise<void> => {
+    const reason = await modal.confirm({
+      title: "Cancel Confirmed Schedule",
+      message: "This will mark the schedule as cancelled (record kept). You can optionally provide a reason.",
+      confirmLabel: "Cancel Schedule",
+      variant: "danger",
+      requiresReason: true,
+      reasonLabel: "Cancellation reason (optional)",
+    });
+    if (reason === undefined) return;
+    cancelMutation.mutate(
+      { id, cancellation_reason: reason || undefined },
+      { onSuccess: () => scheduleQ.refetch() },
+    );
+  };
+  const handleRevert = async (): Promise<void> => {
+    const ok = await modal.confirm({
+      title: "Revert to Requested",
+      message: "The schedule will be moved back to the approval queue.",
+      confirmLabel: "Revert",
+    });
+    if (!ok) return;
+    revertMutation.mutate(id, { onSuccess: () => scheduleQ.refetch() });
+  };
+  const handleConfirmAction = (): void => {
     confirmMutation.mutate(id, { onSuccess: () => scheduleQ.refetch() });
+  };
+  const handleDeleteHistoryEntry = async (logId: string): Promise<void> => {
+    const ok = await modal.confirm({
+      title: "Delete History Entry",
+      message: "This will permanently remove the audit log entry. This action cannot be undone.",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!ok) return;
+    deleteHistoryMutation.mutate(logId, { onSuccess: () => auditLogQ.refetch() });
   };
 
   // Effective rate cascade: user → store → org
@@ -185,7 +219,7 @@ export default function SchedulesDetailPage() {
             ? (isGMPlus ? handleCancelConfirmed : undefined)
             : handleDelete
         }
-        onDeleteHistoryEntry={isOwner ? (logId) => setPendingHistoryDeleteId(logId) : undefined}
+        onDeleteHistoryEntry={isOwner ? handleDeleteHistoryEntry : undefined}
       />
 
       <ScheduleEditModal
@@ -202,71 +236,9 @@ export default function SchedulesDetailPage() {
         onClose={() => { setEditOpen(false); setEditError(null); }}
         onSave={handleEditSave}
         isSaving={updateMutation.isPending}
-        onDelete={() => {
-          setEditOpen(false);
-          handleDelete();
-        }}
+        onDeleted={() => router.push("/schedules")}
       />
 
-      <ConfirmDialog
-        open={confirmAction === "delete"}
-        title="Delete Schedule"
-        message="This will permanently remove the schedule record. Use this only for incorrectly created entries."
-        confirmLabel="Delete"
-        confirmVariant="danger"
-        onConfirm={() => {
-          setConfirmAction(null);
-          deleteMutation.mutate(id, { onSuccess: () => router.push("/schedules") });
-        }}
-        onCancel={() => setConfirmAction(null)}
-      />
-
-      <ConfirmDialog
-        open={confirmAction === "cancel"}
-        title="Cancel Confirmed Schedule"
-        message="This will mark the schedule as cancelled (record kept). You can optionally provide a reason."
-        confirmLabel="Cancel Schedule"
-        confirmVariant="danger"
-        requiresReason
-        reasonLabel="Cancellation reason (optional)"
-        onConfirm={(reason) => {
-          setConfirmAction(null);
-          cancelMutation.mutate(
-            { id, cancellation_reason: reason || undefined },
-            { onSuccess: () => scheduleQ.refetch() },
-          );
-        }}
-        onCancel={() => setConfirmAction(null)}
-      />
-
-      <ConfirmDialog
-        open={confirmAction === "revert"}
-        title="Revert to Requested"
-        message="The schedule will be moved back to the approval queue."
-        confirmLabel="Revert"
-        onConfirm={() => {
-          setConfirmAction(null);
-          revertMutation.mutate(id, { onSuccess: () => scheduleQ.refetch() });
-        }}
-        onCancel={() => setConfirmAction(null)}
-      />
-
-      <ConfirmDialog
-        open={pendingHistoryDeleteId !== null}
-        title="Delete History Entry"
-        message="This will permanently remove the audit log entry. This action cannot be undone."
-        confirmLabel="Delete"
-        confirmVariant="danger"
-        onConfirm={() => {
-          if (pendingHistoryDeleteId) {
-            deleteHistoryMutation.mutate(pendingHistoryDeleteId, {
-              onSuccess: () => auditLogQ.refetch(),
-            });
-          }
-          setPendingHistoryDeleteId(null);
-        }}
-        onCancel={() => setPendingHistoryDeleteId(null)}
-      />
     </>
   );
 }

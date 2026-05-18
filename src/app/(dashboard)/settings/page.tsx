@@ -15,8 +15,8 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Select } from "@/components/ui";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
-import { useResultModal } from "@/components/ui/ResultModal";
-import { parseApiError, formatDate } from "@/lib/utils";
+import { useModal } from "@/components/ui/imperative-modal";
+import { formatDate } from "@/lib/utils";
 import { TIMEZONE_OPTIONS } from "@/lib/timezones";
 import { ChangePasswordModal } from "@/components/auth/ChangePasswordModal";
 import { AlertPreferencesSection } from "@/components/settings/AlertPreferencesSection";
@@ -33,7 +33,7 @@ const LANGUAGE_OPTIONS = [
 ];
 
 export default function SettingsPage(): React.ReactElement {
-  const { showSuccess, showError } = useResultModal();
+  const modal = useModal();
   const { data: org, isLoading } = useOrganization();
   const updateOrg = useUpdateOrganization();
   const user = useAuthStore((s) => s.user);
@@ -59,20 +59,19 @@ export default function SettingsPage(): React.ReactElement {
 
   const handleSave = async (): Promise<void> => {
     if (!timezone) {
-      showError("Please select a timezone.");
+      void modal.alert({ type: "error", message: "Please select a timezone." });
       return;
     }
     const rateStr = defaultHourlyRate.trim();
     const rateVal = rateStr === "" ? null : Number(rateStr);
     if (rateVal !== null && (isNaN(rateVal) || rateVal < 0)) {
-      showError("Default hourly rate must be a positive number.");
+      void modal.alert({ type: "error", message: "Default hourly rate must be a positive number." });
       return;
     }
     try {
       await updateOrg.mutateAsync({ timezone, default_hourly_rate: rateVal });
-      showSuccess("Organization settings updated!");
-    } catch (err) {
-      showError(parseApiError(err, "Failed to update settings."));
+    } catch {
+      // hook 자동 모달
     }
   };
 
@@ -189,9 +188,8 @@ export default function SettingsPage(): React.ReactElement {
             onClick={async () => {
               try {
                 await updateLanguage.mutateAsync(language);
-                showSuccess("Language preference saved.");
-              } catch (err) {
-                showError(parseApiError(err, "Failed to update language."));
+              } catch {
+                // hook 자동 모달
               }
             }}
           >

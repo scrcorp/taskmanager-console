@@ -23,11 +23,10 @@ import {
   Input,
   Textarea,
   Select,
-  ConfirmDialog,
   LoadingSpinner,
 } from "@/components/ui";
-import { useResultModal } from "@/components/ui/ResultModal";
-import { formatDateTime, formatFixedDate, timeAgo, parseApiError } from "@/lib/utils";
+import { useModal } from "@/components/ui/imperative-modal";
+import { formatDateTime, formatFixedDate, timeAgo } from "@/lib/utils";
 
 
 /** 추가 업무 상세 페이지 — 업무 상세 조회, 수정, 상태 변경, 삭제.
@@ -37,7 +36,7 @@ import { formatDateTime, formatFixedDate, timeAgo, parseApiError } from "@/lib/u
 export default function TaskDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { showSuccess, showError } = useResultModal();
+  const modal = useModal();
   const tz = useTimezone();
 
   const { data: task, isLoading } = useTask(id);
@@ -46,7 +45,6 @@ export default function TaskDetailPage() {
   const deleteTask = useDeleteTask();
 
   const [showEdit, setShowEdit] = useState<boolean>(false);
-  const [showDelete, setShowDelete] = useState<boolean>(false);
 
   /* ── 수정 폼 상태 (Edit form state) ── */
   const [editTitle, setEditTitle] = useState<string>("");
@@ -81,36 +79,33 @@ export default function TaskDetailPage() {
       { id, ...payload },
       {
         onSuccess: () => {
-          showSuccess("Task updated");
           setShowEdit(false);
         },
-        onError: (err) => showError(parseApiError(err, "Update failed")),
       }
     );
   };
 
   /** 업무를 삭제하고 목록으로 이동합니다.
    *  Delete task and navigate back to list. */
-  const handleDelete = (): void => {
+  const handleDelete = async (): Promise<void> => {
+    const ok = await modal.confirm({
+      title: "Delete Task",
+      message: task ? `"${task.title}" 업무를 삭제하시겠습니까? (Delete this task?)` : "Delete this task?",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!ok) return;
     deleteTask.mutate(id, {
       onSuccess: () => {
-        showSuccess("Task deleted");
         router.push("/tasks");
       },
-      onError: (err) => showError(parseApiError(err, "Delete failed")),
     });
   };
 
   /** 상태를 빠르게 변경합니다.
    *  Quick status change. */
   const quickStatus = (status: "pending" | "in_progress" | "completed"): void => {
-    updateTask.mutate(
-      { id, status },
-      {
-        onSuccess: () => showSuccess("Status changed"),
-        onError: (err) => showError(parseApiError(err, "Status change failed")),
-      }
-    );
+    updateTask.mutate({ id, status });
   };
 
   /* ── 우선순위 배지 매핑 (Priority badge map) ── */
@@ -153,7 +148,7 @@ export default function TaskDetailPage() {
           <Button variant="secondary" size="sm" onClick={openEdit}>
             <Edit2 size={14} className="mr-1" /> Edit
           </Button>
-          <Button variant="danger" size="sm" onClick={() => setShowDelete(true)}>
+          <Button variant="danger" size="sm" onClick={() => void handleDelete()}>
             <Trash2 size={14} className="mr-1" /> Delete
           </Button>
         </div>
@@ -392,16 +387,6 @@ export default function TaskDetailPage() {
           </div>
         </div>
       </Modal>
-
-      {/* ── 삭제 확인 (Delete Confirm) ── */}
-      <ConfirmDialog
-        isOpen={showDelete}
-        onClose={() => setShowDelete(false)}
-        onConfirm={handleDelete}
-        title="Delete Task"
-        message={`"${task.title}" 업무를 삭제하시겠습니까? (Delete this task?)`}
-        isLoading={deleteTask.isPending}
-      />
     </div>
   );
 }

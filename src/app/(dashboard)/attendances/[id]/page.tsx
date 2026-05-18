@@ -43,8 +43,8 @@ import {
   Select,
   LoadingSpinner,
 } from "@/components/ui";
-import { useToast } from "@/components/ui/Toast";
-import { formatDateTime, formatFixedDate, timeAgo, parseApiError } from "@/lib/utils";
+import { useModal } from "@/components/ui/imperative-modal";
+import { formatDateTime, formatFixedDate, timeAgo } from "@/lib/utils";
 
 type StatusKey =
   | "upcoming"
@@ -134,7 +134,7 @@ export default function AttendanceDetailPage(): React.ReactElement {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { toast } = useToast();
+  const modal = useModal();
   const tz = useTimezone();
 
   const { data: attendance, isLoading } = useAttendance(id);
@@ -208,7 +208,7 @@ export default function AttendanceDetailPage(): React.ReactElement {
     }
 
     if (calls.length === 0) {
-      toast({ type: "info", message: "No changes" });
+      void modal.alert({ type: "info", message: "No changes" });
       setEditing(false);
       return;
     }
@@ -225,15 +225,11 @@ export default function AttendanceDetailPage(): React.ReactElement {
           },
         });
       }
-      toast({
-        type: "success",
-        message: `Updated ${calls.length} field${calls.length > 1 ? "s" : ""}`,
-      });
       setEditing(false);
       setInitialDraft(null);
       setReason("");
-    } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Correction failed") });
+    } catch {
+      // hook 자동 모달이 표시함.
     }
   };
 
@@ -705,7 +701,7 @@ function BreakSessionsEditor({
   tz,
   editable,
 }: BreakSessionsEditorProps): React.ReactElement {
-  const { toast } = useToast();
+  const modal = useModal();
   const addBreak = useAddBreakSession();
   const updateBreak = useUpdateBreakSession();
   const deleteBreak = useDeleteBreakSession();
@@ -725,13 +721,13 @@ function BreakSessionsEditor({
 
   const handleAdd = async (): Promise<void> => {
     if (!draftStart) {
-      toast({ type: "error", message: "Start time is required" });
+      void modal.alert({ type: "error", message: "Start time is required" });
       return;
     }
     const startedIso = localInputToIso(draftStart);
     const endedIso = draftEnd ? localInputToIso(draftEnd) : null;
     if (!startedIso) {
-      toast({ type: "error", message: "Invalid start time" });
+      void modal.alert({ type: "error", message: "Invalid start time" });
       return;
     }
     try {
@@ -743,20 +739,24 @@ function BreakSessionsEditor({
           break_type: draftType,
         },
       });
-      toast({ type: "success", message: "Break added" });
       resetAddForm();
-    } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to add break") });
+    } catch {
+      // hook 자동 모달이 표시함.
     }
   };
 
   const handleDelete = async (breakId: string): Promise<void> => {
-    if (!window.confirm("Delete this break session?")) return;
+    const ok = await modal.confirm({
+      title: "Delete Break Session",
+      message: "Delete this break session?",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!ok) return;
     try {
       await deleteBreak.mutateAsync({ attendanceId, breakId });
-      toast({ type: "success", message: "Break deleted" });
-    } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to delete break") });
+    } catch {
+      // hook 자동 모달이 표시함.
     }
   };
 
@@ -775,8 +775,8 @@ function BreakSessionsEditor({
           clear_ended_at: patch.ended_at === null,
         },
       });
-    } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to update break") });
+    } catch {
+      // hook 자동 모달이 표시함.
     }
   };
 

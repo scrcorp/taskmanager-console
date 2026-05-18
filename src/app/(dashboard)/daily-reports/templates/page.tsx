@@ -29,11 +29,9 @@ import {
   Table,
   Modal,
   Badge,
-  ConfirmDialog,
   LoadingSpinner,
 } from "@/components/ui";
-import { useResultModal } from "@/components/ui/ResultModal";
-import { parseApiError } from "@/lib/utils";
+import { useModal } from "@/components/ui/imperative-modal";
 import type {
   DailyReportTemplate,
   DailyReportTemplateCreate,
@@ -71,7 +69,7 @@ interface TemplateGroup {
 
 export default function DailyReportTemplatesPage(): React.ReactElement {
   const router = useRouter();
-  const { showSuccess, showError } = useResultModal();
+  const modal = useModal();
 
   // Data hooks
   const { data: templates, isLoading } = useTemplates();
@@ -101,9 +99,6 @@ export default function DailyReportTemplatesPage(): React.ReactElement {
   const [excelName, setExcelName] = useState("");
   const [excelStoreId, setExcelStoreId] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Delete state
-  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   // Inline toggle pending state (id-level disable while mutation flies)
   const [togglingId, setTogglingId] = useState<string | null>(null);
@@ -144,12 +139,12 @@ export default function DailyReportTemplatesPage(): React.ReactElement {
 
   const handleSave = useCallback(async () => {
     if (!formName.trim()) {
-      showError("Template name is required");
+      void modal.alert({ type: "error", message: "Template name is required" });
       return;
     }
     const validSections = formSections.filter((s) => s.title.trim());
     if (validSections.length === 0) {
-      showError("At least one section with a title is required");
+      void modal.alert({ type: "error", message: "At least one section with a title is required" });
       return;
     }
     const sections = validSections.map((s, i) => ({
@@ -168,7 +163,6 @@ export default function DailyReportTemplatesPage(): React.ReactElement {
           sections,
         };
         await updateTemplate.mutateAsync({ id: editingId, data });
-        showSuccess("Template updated");
       } else {
         // 신규 템플릿은 항상 active 로 생성 (서버 default). Active 체크박스는 편집 시에만 노출.
         const data: DailyReportTemplateCreate = {
@@ -178,29 +172,28 @@ export default function DailyReportTemplatesPage(): React.ReactElement {
           sections,
         };
         await createTemplate.mutateAsync(data);
-        showSuccess("Template created");
       }
       setIsFormOpen(false);
       resetForm();
-    } catch (err) {
-      showError(parseApiError(err, "Failed to save template"));
+    } catch {
+      // hook 자동 모달이 표시함.
     }
-  }, [formName, formStoreId, formIsDefault, formIsActive, formSections, editingId, createTemplate, updateTemplate, showSuccess, showError, resetForm]);
+  }, [formName, formStoreId, formIsDefault, formIsActive, formSections, editingId, createTemplate, updateTemplate, modal, resetForm]);
 
-  const handleDelete = useCallback(async () => {
-    if (!deleteId) return;
-    try {
-      await deleteTemplate.mutateAsync(deleteId);
-      showSuccess("Template deleted");
-      setDeleteId(null);
-    } catch (err) {
-      showError(parseApiError(err, "Failed to delete template"));
-    }
-  }, [deleteId, deleteTemplate, showSuccess, showError]);
+  const handleDelete = useCallback(async (id: string) => {
+    const ok = await modal.confirm({
+      title: "Delete Template",
+      message: "Are you sure you want to delete this template? This action cannot be undone.",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!ok) return;
+    deleteTemplate.mutate(id);
+  }, [deleteTemplate, modal]);
 
   const handleExcelUpload = useCallback(async () => {
     if (!excelFile || !excelName.trim()) {
-      showError("File and template name are required");
+      void modal.alert({ type: "error", message: "File and template name are required" });
       return;
     }
     try {
@@ -209,23 +202,22 @@ export default function DailyReportTemplatesPage(): React.ReactElement {
         name: excelName.trim(),
         store_id: excelStoreId || undefined,
       });
-      showSuccess("Template created from Excel");
       setIsExcelOpen(false);
       setExcelFile(null);
       setExcelName("");
       setExcelStoreId("");
-    } catch (err) {
-      showError(parseApiError(err, "Failed to upload Excel"));
+    } catch {
+      // hook 자동 모달이 표시함.
     }
-  }, [excelFile, excelName, excelStoreId, uploadExcel, showSuccess, showError]);
+  }, [excelFile, excelName, excelStoreId, uploadExcel, modal]);
 
   const handleDownloadSample = useCallback(async () => {
     try {
       await downloadSampleExcel();
     } catch {
-      showError("Failed to download sample file");
+      void modal.alert({ type: "error", message: "Failed to download sample file" });
     }
-  }, [showError]);
+  }, [modal]);
 
   const addSection = useCallback(() => {
     setFormSections((prev) => [...prev, createEmptySection(prev.length + 1)]);
@@ -257,13 +249,13 @@ export default function DailyReportTemplatesPage(): React.ReactElement {
           id: tpl.id,
           data: { is_default: true },
         });
-      } catch (err) {
-        showError(parseApiError(err, "Couldn't set as default"));
+      } catch {
+        // hook 자동 모달이 표시함.
       } finally {
         setTogglingId(null);
       }
     },
-    [updateTemplate, showError],
+    [updateTemplate],
   );
 
   /** Active 칩 클릭: is_active 를 토글.
@@ -276,13 +268,13 @@ export default function DailyReportTemplatesPage(): React.ReactElement {
           id: tpl.id,
           data: { is_active: !tpl.is_active },
         });
-      } catch (err) {
-        showError(parseApiError(err, "Couldn't update template status"));
+      } catch {
+        // hook 자동 모달이 표시함.
       } finally {
         setTogglingId(null);
       }
     },
-    [updateTemplate, showError],
+    [updateTemplate],
   );
 
   const isSaving = createTemplate.isPending || updateTemplate.isPending;
@@ -364,7 +356,7 @@ export default function DailyReportTemplatesPage(): React.ReactElement {
             <Pencil className="h-4 w-4" />
           </button>
           <button
-            onClick={() => setDeleteId(tpl.id)}
+            onClick={() => void handleDelete(tpl.id)}
             className="text-text-muted hover:text-danger transition-colors"
             title="Delete"
           >
@@ -656,16 +648,6 @@ export default function DailyReportTemplatesPage(): React.ReactElement {
         </div>
       </Modal>
 
-      {/* Delete Confirm */}
-      <ConfirmDialog
-        isOpen={!!deleteId}
-        onClose={() => setDeleteId(null)}
-        onConfirm={handleDelete}
-        title="Delete Template"
-        message="Are you sure you want to delete this template? This action cannot be undone."
-        confirmLabel="Delete"
-        isLoading={deleteTemplate.isPending}
-      />
     </div>
   );
 }

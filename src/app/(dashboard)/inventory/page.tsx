@@ -31,10 +31,8 @@ import {
   Modal,
   Badge,
   Pagination,
-  ConfirmDialog,
 } from "@/components/ui";
-import { useResultModal } from "@/components/ui/ResultModal";
-import { parseApiError } from "@/lib/utils";
+import { useModal } from "@/components/ui/imperative-modal";
 import { ProductForm, type ProductFormData } from "@/components/inventory/ProductForm";
 import { ImportProductsModal } from "@/components/inventory/ImportProductsModal";
 import type { InventoryProduct, InventoryCategory } from "@/types";
@@ -55,7 +53,7 @@ function truncate(text: string | null, max: number): string {
 
 export default function InventoryPage(): React.ReactElement {
   const router = useRouter();
-  const { showSuccess, showError } = useResultModal();
+  const modal = useModal();
   const { hasPermission } = usePermissions();
   const canCreate = hasPermission(PERMISSIONS.INVENTORY_CREATE);
   const canDelete = hasPermission(PERMISSIONS.INVENTORY_DELETE);
@@ -103,7 +101,6 @@ export default function InventoryPage(): React.ReactElement {
 
   // -- Selection state --
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [bulkAction, setBulkAction] = useState<"delete" | "deactivate" | "activate" | null>(null);
 
   const toggleSelect = (id: string) => {
     setSelectedIds((prev) => {
@@ -130,8 +127,6 @@ export default function InventoryPage(): React.ReactElement {
   // -- Modal state --
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isImportOpen, setIsImportOpen] = useState(false);
-  const [deactivateId, setDeactivateId] = useState<string | null>(null);
-  const [deleteId, setDeleteId] = useState<string | null>(null);
   const [formData, setFormData] = useState<ProductFormData | null>(null);
 
   // -- Data --
@@ -307,7 +302,7 @@ export default function InventoryPage(): React.ReactElement {
                 {item.is_active ? (
                   <button
                     type="button"
-                    onClick={(e) => { e.stopPropagation(); setDeactivateId(item.id); }}
+                    onClick={(e) => { e.stopPropagation(); void handleDeactivate(item.id); }}
                     className="px-2 py-1 rounded text-xs text-warning hover:bg-warning-muted transition-colors cursor-pointer"
                   >
                     Deactivate
@@ -323,7 +318,7 @@ export default function InventoryPage(): React.ReactElement {
                 )}
                 <button
                   type="button"
-                  onClick={(e) => { e.stopPropagation(); setDeleteId(item.id); }}
+                  onClick={(e) => { e.stopPropagation(); void handleDelete(item.id); }}
                   className="px-2 py-1 rounded text-xs text-danger hover:bg-danger-muted transition-colors cursor-pointer"
                 >
                   Delete
@@ -349,7 +344,7 @@ export default function InventoryPage(): React.ReactElement {
 
   const handleCreateSubmit = useCallback(() => {
     if (!formData || !formData.name.trim()) {
-      showError("Product name is required.");
+      void modal.alert({ type: "error", message: "Product name is required." });
       return;
     }
 
@@ -369,61 +364,61 @@ export default function InventoryPage(): React.ReactElement {
 
     createProduct.mutate(payload, {
       onSuccess: () => {
-        showSuccess("Product created successfully.");
         setIsCreateOpen(false);
       },
-      onError: (err) => {
-        showError(parseApiError(err, "Failed to create product."));
-      },
     });
-  }, [formData, createProduct, showSuccess, showError]);
+  }, [formData, createProduct, modal]);
 
-  const handleDeactivate = useCallback(() => {
-    if (!deactivateId) return;
-    deactivateProduct.mutate(deactivateId, {
-      onSuccess: () => {
-        showSuccess("Product deactivated.");
-        setDeactivateId(null);
-      },
-      onError: (err) => {
-        showError(parseApiError(err, "Failed to deactivate product."));
-      },
+  const handleDeactivate = useCallback(async (id: string) => {
+    const ok = await modal.confirm({
+      title: "Deactivate Product",
+      message: "Are you sure you want to deactivate this product? It will be hidden from active lists but history is preserved.",
+      confirmLabel: "Deactivate",
+      variant: "danger",
     });
-  }, [deactivateId, deactivateProduct, showSuccess, showError]);
+    if (!ok) return;
+    deactivateProduct.mutate(id);
+  }, [modal, deactivateProduct]);
 
   const handleActivate = useCallback((id: string) => {
-    activateProduct.mutate(id, {
-      onSuccess: () => showSuccess("Product activated."),
-      onError: (err) => showError(parseApiError(err, "Failed to activate.")),
-    });
-  }, [activateProduct, showSuccess, showError]);
+    activateProduct.mutate(id);
+  }, [activateProduct]);
 
-  const handleDelete = useCallback(() => {
-    if (!deleteId) return;
-    deleteProduct.mutate(deleteId, {
-      onSuccess: () => {
-        showSuccess("Product permanently deleted.");
-        setDeleteId(null);
-      },
-      onError: (err) => {
-        showError(parseApiError(err, "Failed to delete product."));
-      },
+  const handleDelete = useCallback(async (id: string) => {
+    const ok = await modal.confirm({
+      title: "Permanently Delete Product",
+      message: "This will permanently delete this product and ALL related data including store inventory, stock in/out history, and audit records. This action CANNOT be undone.",
+      confirmLabel: "Delete Permanently",
+      variant: "danger",
     });
-  }, [deleteId, deleteProduct, showSuccess, showError]);
+    if (!ok) return;
+    deleteProduct.mutate(id);
+  }, [modal, deleteProduct]);
 
-  const [bulkLoading, setBulkLoading] = useState(false);
-  const handleBulkAction = useCallback(async () => {
-    if (!bulkAction || selectedIds.size === 0) return;
-    setBulkLoading(true);
+  const handleBulkAction = useCallback(async (action: "delete" | "deactivate" | "activate") => {
+    if (selectedIds.size === 0) return;
+    const actionLabelPast = action === "delete" ? "deleted" : action === "deactivate" ? "deactivated" : "activated";
+    const ok = await modal.confirm({
+      title: `Bulk ${action === "delete" ? "Delete" : action === "deactivate" ? "Deactivate" : "Activate"} — ${selectedIds.size} product(s)`,
+      message:
+        action === "delete"
+          ? `This will permanently delete ${selectedIds.size} product(s) and ALL related data. This action CANNOT be undone.`
+          : action === "deactivate"
+          ? `${selectedIds.size} product(s) will be deactivated.`
+          : `${selectedIds.size} product(s) will be activated.`,
+      confirmLabel: action === "delete" ? "Delete All" : action === "deactivate" ? "Deactivate All" : "Activate All",
+      variant: action === "delete" ? "danger" : "primary",
+    });
+    if (!ok) return;
     let successCount = 0;
     let errorCount = 0;
     for (const id of selectedIds) {
       try {
-        if (bulkAction === "delete") {
+        if (action === "delete") {
           await deleteProduct.mutateAsync(id);
-        } else if (bulkAction === "deactivate") {
+        } else if (action === "deactivate") {
           await deactivateProduct.mutateAsync(id);
-        } else if (bulkAction === "activate") {
+        } else if (action === "activate") {
           await activateProduct.mutateAsync(id);
         }
         successCount++;
@@ -431,16 +426,14 @@ export default function InventoryPage(): React.ReactElement {
         errorCount++;
       }
     }
-    setBulkLoading(false);
-    setBulkAction(null);
     clearSelection();
-    const actionLabel = bulkAction === "delete" ? "deleted" : bulkAction === "deactivate" ? "deactivated" : "activated";
+    // Bulk 결과는 페이지에서 직접 알림 (hook 자동 모달은 개별 요청마다 발사되므로 합계 알림이 별도 필요).
     if (errorCount === 0) {
-      showSuccess(`${successCount} product(s) ${actionLabel}.`);
+      void modal.alert({ type: "success", message: `${successCount} product(s) ${actionLabelPast}.` });
     } else {
-      showError(`${successCount} succeeded, ${errorCount} failed.`);
+      void modal.alert({ type: "error", message: `${successCount} succeeded, ${errorCount} failed.` });
     }
-  }, [bulkAction, selectedIds, deleteProduct, deactivateProduct, activateProduct, showSuccess, showError]);
+  }, [selectedIds, deleteProduct, deactivateProduct, activateProduct, modal]);
 
   return (
     <div>
@@ -464,10 +457,10 @@ export default function InventoryPage(): React.ReactElement {
         </div>
         {selectedIds.size > 0 ? (
           <div className="flex items-center gap-2">
-            <button onClick={() => setBulkAction("activate")} className="px-3 py-1.5 rounded-lg text-xs font-medium text-success bg-success-muted hover:bg-success/20 transition-colors">Activate</button>
-            <button onClick={() => setBulkAction("deactivate")} className="px-3 py-1.5 rounded-lg text-xs font-medium text-warning bg-warning-muted hover:bg-warning/20 transition-colors">Deactivate</button>
+            <button onClick={() => void handleBulkAction("activate")} className="px-3 py-1.5 rounded-lg text-xs font-medium text-success bg-success-muted hover:bg-success/20 transition-colors">Activate</button>
+            <button onClick={() => void handleBulkAction("deactivate")} className="px-3 py-1.5 rounded-lg text-xs font-medium text-warning bg-warning-muted hover:bg-warning/20 transition-colors">Deactivate</button>
             {canDelete && (
-              <button onClick={() => setBulkAction("delete")} className="px-3 py-1.5 rounded-lg text-xs font-medium text-danger bg-danger-muted hover:bg-danger/20 transition-colors">Delete</button>
+              <button onClick={() => void handleBulkAction("delete")} className="px-3 py-1.5 rounded-lg text-xs font-medium text-danger bg-danger-muted hover:bg-danger/20 transition-colors">Delete</button>
             )}
           </div>
         ) : canCreate && (
@@ -581,43 +574,6 @@ export default function InventoryPage(): React.ReactElement {
       <ImportProductsModal
         isOpen={isImportOpen}
         onClose={() => setIsImportOpen(false)}
-      />
-
-      {/* Deactivate Confirm Dialog */}
-      <ConfirmDialog
-        isOpen={deactivateId !== null}
-        onClose={() => setDeactivateId(null)}
-        onConfirm={handleDeactivate}
-        title="Deactivate Product"
-        message="Are you sure you want to deactivate this product? It will be hidden from active lists but history is preserved."
-        confirmLabel="Deactivate"
-        isLoading={deactivateProduct.isPending}
-      />
-
-      <ConfirmDialog
-        isOpen={deleteId !== null}
-        onClose={() => setDeleteId(null)}
-        onConfirm={handleDelete}
-        title="Permanently Delete Product"
-        message="This will permanently delete this product and ALL related data including store inventory, stock in/out history, and audit records. This action CANNOT be undone."
-        confirmLabel="Delete Permanently"
-        isLoading={deleteProduct.isPending}
-      />
-
-      <ConfirmDialog
-        isOpen={bulkAction !== null}
-        onClose={() => setBulkAction(null)}
-        onConfirm={handleBulkAction}
-        title={`Bulk ${bulkAction === "delete" ? "Delete" : bulkAction === "deactivate" ? "Deactivate" : "Activate"} — ${selectedIds.size} product(s)`}
-        message={
-          bulkAction === "delete"
-            ? `This will permanently delete ${selectedIds.size} product(s) and ALL related data. This action CANNOT be undone.`
-            : bulkAction === "deactivate"
-            ? `${selectedIds.size} product(s) will be deactivated.`
-            : `${selectedIds.size} product(s) will be activated.`
-        }
-        confirmLabel={bulkAction === "delete" ? "Delete All" : bulkAction === "deactivate" ? "Deactivate All" : "Activate All"}
-        isLoading={bulkLoading}
       />
     </div>
   );

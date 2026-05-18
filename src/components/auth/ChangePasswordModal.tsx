@@ -5,7 +5,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useChangePassword } from "@/hooks/usePassword";
 import { setTokens } from "@/lib/auth";
-import { useResultModal } from "@/components/ui/ResultModal";
+import { useModal } from "@/components/ui/imperative-modal";
 import { parseApiError } from "@/lib/utils";
 
 /**
@@ -26,7 +26,7 @@ export function ChangePasswordModal({
   isOpen,
   onClose,
 }: ChangePasswordModalProps): React.ReactElement | null {
-  const { showError } = useResultModal();
+  const modal = useModal();
   const changePassword = useChangePassword();
 
   const [currentPassword, setCurrentPassword] = useState("");
@@ -49,12 +49,12 @@ export function ChangePasswordModal({
     setCurrentPasswordError("");
 
     if (newPassword !== confirmPassword) {
-      showError("New passwords do not match.");
+      void modal.alert({ type: "error", message: "New passwords do not match." });
       return;
     }
 
     if (newPassword.length < 1) {
-      showError("New password is required.");
+      void modal.alert({ type: "error", message: "New password is required." });
       return;
     }
 
@@ -67,11 +67,10 @@ export function ChangePasswordModal({
       setTokens(result.access_token, result.refresh_token);
       setSuccess(true);
     } catch (err) {
+      // hook가 자동으로 에러 모달을 띄움. 단, incorrect 패스워드는 인라인 힌트도 추가 표시.
       const msg = parseApiError(err, "Failed to change password.");
       if (msg.toLowerCase().includes("incorrect") || msg.toLowerCase().includes("wrong")) {
         setCurrentPasswordError("Current password is incorrect.");
-      } else {
-        showError(msg);
       }
     }
   };
