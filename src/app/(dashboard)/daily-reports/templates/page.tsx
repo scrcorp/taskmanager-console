@@ -4,6 +4,9 @@
  * 일일 보고서 템플릿 관리 페이지 -- 템플릿 CRUD.
  *
  * Daily report template management page with create, edit, and delete.
+ * Templates are grouped by store (Organization-wide first, then per-store).
+ * Default / Active chips toggle inline (server enforces single-default per scope
+ * and last-active-protection).
  */
 
 import React, { useState, useCallback, useMemo, useRef } from "react";
@@ -56,6 +59,16 @@ function createEmptySection(sort_order: number): SectionFormItem {
   };
 }
 
+/** 그룹 키: store_id 가 null 이면 organization-wide. */
+type GroupKey = string | null;
+
+interface TemplateGroup {
+  key: GroupKey;
+  label: string;
+  subtitle: string;
+  templates: DailyReportTemplate[];
+}
+
 export default function DailyReportTemplatesPage(): React.ReactElement {
   const router = useRouter();
   const { showSuccess, showError } = useResultModal();
@@ -79,6 +92,7 @@ export default function DailyReportTemplatesPage(): React.ReactElement {
   const [formName, setFormName] = useState("");
   const [formStoreId, setFormStoreId] = useState("");
   const [formIsDefault, setFormIsDefault] = useState(false);
+  const [formIsActive, setFormIsActive] = useState(true);
   const [formSections, setFormSections] = useState<SectionFormItem[]>([]);
 
   // Excel upload modal state
@@ -91,11 +105,15 @@ export default function DailyReportTemplatesPage(): React.ReactElement {
   // Delete state
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
+  // Inline toggle pending state (id-level disable while mutation flies)
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+
   const resetForm = useCallback(() => {
     setEditingId(null);
     setFormName("");
     setFormStoreId("");
     setFormIsDefault(false);
+    setFormIsActive(true);
     setFormSections([createEmptySection(1)]);
   }, []);
 
@@ -109,6 +127,7 @@ export default function DailyReportTemplatesPage(): React.ReactElement {
     setFormName(tpl.name);
     setFormStoreId(tpl.store_id ?? "");
     setFormIsDefault(tpl.is_default);
+    setFormIsActive(tpl.is_active);
     setFormSections(
       tpl.sections
         .sort((a, b) => a.sort_order - b.sort_order)
@@ -145,11 +164,13 @@ export default function DailyReportTemplatesPage(): React.ReactElement {
         const data: DailyReportTemplateUpdate = {
           name: formName.trim(),
           is_default: formIsDefault,
+          is_active: formIsActive,
           sections,
         };
         await updateTemplate.mutateAsync({ id: editingId, data });
         showSuccess("Template updated");
       } else {
+        // 신규 템플릿은 항상 active 로 생성 (서버 default). Active 체크박스는 편집 시에만 노출.
         const data: DailyReportTemplateCreate = {
           name: formName.trim(),
           store_id: formStoreId || null,
@@ -164,7 +185,7 @@ export default function DailyReportTemplatesPage(): React.ReactElement {
     } catch (err) {
       showError(parseApiError(err, "Failed to save template"));
     }
-  }, [formName, formStoreId, formIsDefault, formSections, editingId, createTemplate, updateTemplate, showSuccess, showError, resetForm]);
+  }, [formName, formStoreId, formIsDefault, formIsActive, formSections, editingId, createTemplate, updateTemplate, showSuccess, showError, resetForm]);
 
   const handleDelete = useCallback(async () => {
     if (!deleteId) return;
@@ -223,13 +244,135 @@ export default function DailyReportTemplatesPage(): React.ReactElement {
     [],
   );
 
+  // --- Inline toggles ---
+
+  /** Default 칩 클릭: 이 템플릿을 default 로 promote.
+   * 서버가 같은 scope 의 기존 default 를 자동으로 해제한다 (service guard). */
+  const handleToggleDefault = useCallback(
+    async (tpl: DailyReportTemplate) => {
+      if (tpl.is_default) return; // 이미 default 면 아무 동작 없음
+      setTogglingId(tpl.id);
+      try {
+        await updateTemplate.mutateAsync({
+          id: tpl.id,
+          data: { is_default: true },
+        });
+      } catch (err) {
+        showError(parseApiError(err, "Couldn't set as default"));
+      } finally {
+        setTogglingId(null);
+      }
+    },
+    [updateTemplate, showError],
+  );
+
+  /** Active 칩 클릭: is_active 를 토글.
+   * 서버가 마지막 active 보호 가드를 갖고 있어 거부될 수 있다. */
+  const handleToggleActive = useCallback(
+    async (tpl: DailyReportTemplate) => {
+      setTogglingId(tpl.id);
+      try {
+        await updateTemplate.mutateAsync({
+          id: tpl.id,
+          data: { is_active: !tpl.is_active },
+        });
+      } catch (err) {
+        showError(parseApiError(err, "Couldn't update template status"));
+      } finally {
+        setTogglingId(null);
+      }
+    },
+    [updateTemplate, showError],
+  );
+
   const isSaving = createTemplate.isPending || updateTemplate.isPending;
 
-  const storeNameMap = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const s of activeStores) map.set(s.id, s.name);
-    return map;
-  }, [activeStores]);
+  // --- Group templates by store ---
+
+  const groups: TemplateGroup[] = useMemo(() => {
+    const list = templates ?? [];
+    const orgWide = list.filter((t) => !t.store_id);
+    const byStore = new Map<string, DailyReportTemplate[]>();
+    for (const t of list) {
+      if (!t.store_id) continue;
+      const arr = byStore.get(t.store_id) ?? [];
+      arr.push(t);
+      byStore.set(t.store_id, arr);
+    }
+
+    const result: TemplateGroup[] = [];
+    if (orgWide.length > 0) {
+      result.push({
+        key: null,
+        label: "Organization-wide",
+        subtitle: `${orgWide.filter((t) => t.is_active).length} active`,
+        templates: orgWide,
+      });
+    }
+    // 매장 순서는 서버 응답 (created_at) 순서 그대로
+    for (const store of activeStores) {
+      const arr = byStore.get(store.id);
+      if (!arr || arr.length === 0) continue;
+      result.push({
+        key: store.id,
+        label: store.name,
+        subtitle: `${arr.filter((t) => t.is_active).length} active`,
+        templates: arr,
+      });
+    }
+    return result;
+  }, [templates, activeStores]);
+
+  const renderTemplateRows = (rows: DailyReportTemplate[]) =>
+    rows.map((tpl: DailyReportTemplate) => ({
+      id: tpl.id,
+      name: tpl.name,
+      sections_count: tpl.sections.length,
+      is_default: tpl.is_default ? (
+        <Badge variant="accent">Default</Badge>
+      ) : (
+        <button
+          type="button"
+          onClick={() => handleToggleDefault(tpl)}
+          disabled={togglingId === tpl.id}
+          className="text-xs text-text-muted hover:text-accent transition-colors disabled:opacity-50 disabled:cursor-not-allowed underline-offset-2 hover:underline"
+          title="Set as default for this scope"
+        >
+          Set default
+        </button>
+      ),
+      is_active: (
+        <button
+          type="button"
+          onClick={() => handleToggleActive(tpl)}
+          disabled={togglingId === tpl.id}
+          className="inline-flex disabled:opacity-50 disabled:cursor-not-allowed"
+          title={tpl.is_active ? "Click to deactivate" : "Click to activate"}
+        >
+          <Badge variant={tpl.is_active ? "success" : "warning"}>
+            {tpl.is_active ? "Active" : "Inactive"}
+          </Badge>
+        </button>
+      ),
+      actions: (
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => openEditForm(tpl)}
+            className="text-text-muted hover:text-accent transition-colors"
+            title="Edit"
+          >
+            <Pencil className="h-4 w-4" />
+          </button>
+          <button
+            onClick={() => setDeleteId(tpl.id)}
+            className="text-text-muted hover:text-danger transition-colors"
+            title="Delete"
+          >
+            <Trash2 className="h-4 w-4" />
+          </button>
+        </div>
+      ),
+    }));
 
   return (
     <div>
@@ -260,59 +403,39 @@ export default function DailyReportTemplatesPage(): React.ReactElement {
         </div>
       </div>
 
-      {/* Template list */}
+      {/* Template list — grouped by store */}
       {isLoading ? (
         <div className="flex justify-center py-12">
           <LoadingSpinner size="lg" />
         </div>
-      ) : (
+      ) : groups.length === 0 ? (
         <Card>
-          <Table
-            columns={[
-              { key: "name", header: "Name" },
-              { key: "store", header: "Store" },
-              { key: "sections_count", header: "Sections" },
-              { key: "is_default", header: "Default" },
-              { key: "is_active", header: "Status" },
-              { key: "actions", header: "" },
-            ]}
-            data={(templates ?? []).map((tpl: DailyReportTemplate) => ({
-              id: tpl.id,
-              name: tpl.name,
-              store: tpl.store_id
-                ? storeNameMap.get(tpl.store_id) ?? "Unknown"
-                : "Organization Default",
-              sections_count: tpl.sections.length,
-              is_default: tpl.is_default ? (
-                <Badge variant="accent">Default</Badge>
-              ) : null,
-              is_active: (
-                <Badge variant={tpl.is_active ? "success" : "warning"}>
-                  {tpl.is_active ? "Active" : "Inactive"}
-                </Badge>
-              ),
-              actions: (
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => openEditForm(tpl)}
-                    className="text-text-muted hover:text-accent transition-colors"
-                    title="Edit"
-                  >
-                    <Pencil className="h-4 w-4" />
-                  </button>
-                  <button
-                    onClick={() => setDeleteId(tpl.id)}
-                    className="text-text-muted hover:text-danger transition-colors"
-                    title="Delete"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                </div>
-              ),
-            }))}
-            emptyMessage="No templates yet. Create one to get started."
-          />
+          <div className="py-8 text-center text-sm text-text-muted">
+            No templates yet. Create one to get started.
+          </div>
         </Card>
+      ) : (
+        <div className="space-y-4">
+          {groups.map((group) => (
+            <Card key={group.key ?? "__org__"}>
+              <div className="flex items-baseline gap-2 px-4 pt-4 pb-2">
+                <h2 className="text-sm font-semibold text-text">{group.label}</h2>
+                <span className="text-xs text-text-muted">· {group.subtitle}</span>
+              </div>
+              <Table
+                columns={[
+                  { key: "name", header: "Name" },
+                  { key: "sections_count", header: "Sections" },
+                  { key: "is_default", header: "Default" },
+                  { key: "is_active", header: "Status" },
+                  { key: "actions", header: "" },
+                ]}
+                data={renderTemplateRows(group.templates)}
+                emptyMessage="No templates in this scope."
+              />
+            </Card>
+          ))}
+        </div>
       )}
 
       {/* Create/Edit Modal */}
@@ -343,18 +466,34 @@ export default function DailyReportTemplatesPage(): React.ReactElement {
             />
           )}
 
-          <div className="flex items-center gap-3">
-            <label className="flex items-center gap-2 cursor-pointer">
+          <div className="flex flex-col gap-3">
+            <label className="flex items-start gap-2 cursor-pointer">
               <input
                 type="checkbox"
                 checked={formIsDefault}
                 onChange={(e) => setFormIsDefault(e.target.checked)}
-                className="w-4 h-4 rounded border-border bg-surface text-accent focus:ring-accent"
+                className="w-4 h-4 mt-0.5 rounded border-border bg-surface text-accent focus:ring-accent"
               />
               <span className="text-sm font-medium text-text-secondary">
                 Set as default template
               </span>
             </label>
+            {editingId && (
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={formIsActive}
+                  onChange={(e) => setFormIsActive(e.target.checked)}
+                  className="w-4 h-4 mt-0.5 rounded border-border bg-surface text-accent focus:ring-accent"
+                />
+                <span className="text-sm">
+                  <span className="font-medium text-text-secondary block">Active</span>
+                  <span className="text-xs text-text-muted">
+                    Inactive templates won&apos;t show up when creating reports.
+                  </span>
+                </span>
+              </label>
+            )}
           </div>
 
           {/* Sections editor */}
