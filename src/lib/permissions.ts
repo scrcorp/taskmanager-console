@@ -104,6 +104,11 @@ export const PERMISSIONS = {
   // ── Organization ──
   ORG_READ: "org:read",
   ORG_UPDATE: "org:update",
+  ORG_DELETE: "org:delete",
+
+  // ── Super Owner / Owner 임명 (조직 관리자 전용) ──
+  SUPER_OWNER_TRANSFER: "super_owner:transfer",
+  OWNER_ASSIGN: "owner:assign",
 
   // ── Attendance Devices ──
   ATTENDANCE_DEVICES_READ: "attendance_devices:read",
@@ -197,6 +202,7 @@ export const MENU_PERMISSIONS: Record<string, string> = {
  * 접근 제어는 hasPermission()을 우선 사용할 것.
  */
 export const ROLE_PRIORITY = {
+  SUPER_OWNER: 5,
   OWNER: 10,
   GM: 20,
   SV: 30,

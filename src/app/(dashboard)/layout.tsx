@@ -72,6 +72,13 @@ export default function DashboardLayout({
     }
   }, [user]);
 
+  // 초기 비밀번호 강제 변경 — Super Owner 발급 직후 첫 로그인 등
+  useEffect(() => {
+    if (user && user.must_change_password) {
+      router.replace("/change-password");
+    }
+  }, [user]);
+
   // Permission 기반 페이지 접근 제어 (Owner는 전체 bypass).
   // 권한 없으면 redirect 대신 ForbiddenScreen으로 main 영역 swap (URL 유지).
   useEffect(() => {
@@ -92,8 +99,8 @@ export default function DashboardLayout({
     setForbidden(!!requiredPerm && !userPerms.has(requiredPerm));
   }, [user, pathname]);
 
-  // user 로드 전 또는 이메일 미인증 → 로딩 화면 (대시보드 깜빡임 방지)
-  if (!user || !user.email_verified) {
+  // user 로드 전 / 이메일 미인증 / 비밀번호 강제 변경 대기 → 로딩 화면 (깜빡임 방지)
+  if (!user || !user.email_verified || user.must_change_password) {
     return (
       <div className="flex h-screen items-center justify-center bg-bg">
         <div className="animate-spin w-8 h-8 border-3 border-accent border-t-transparent rounded-full" />

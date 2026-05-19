@@ -8,8 +8,17 @@
  */
 
 import React, { useState, useEffect } from "react";
-import { Building2, Lock, Languages } from "lucide-react";
+import { Building2, Lock, Languages, ShieldCheck } from "lucide-react";
 import { useOrganization, useUpdateOrganization } from "@/hooks";
+import {
+  useSuperOwnerStatus,
+  useTransferSuperOwner,
+} from "@/hooks/useSuperOwner";
+import {
+  TransferSuperOwnerForm,
+  type TransferSuperOwnerResult,
+} from "@/components/settings/TransferSuperOwnerForm";
+import { parseApiError } from "@/lib/utils";
 import { useAuthStore } from "@/stores/authStore";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -38,9 +47,37 @@ export default function SettingsPage(): React.ReactElement {
   const updateOrg = useUpdateOrganization();
   const user = useAuthStore((s) => s.user);
   const tz = useTimezone();
-  const { hasPermission } = usePermissions();
+  const { hasPermission, isOwner } = usePermissions();
   const canEdit = hasPermission(PERMISSIONS.ORG_UPDATE);
+  const canTransferSuperOwner = hasPermission(PERMISSIONS.SUPER_OWNER_TRANSFER);
+  const logout = useAuthStore((s) => s.logout);
   const [isChangePasswordOpen, setIsChangePasswordOpen] = useState(false);
+
+  const { data: superOwnerStatus } = useSuperOwnerStatus();
+  const transferSuperOwner = useTransferSuperOwner();
+
+  const handleTransferSuperOwner = async (): Promise<void> => {
+    const result = await modal.open<TransferSuperOwnerResult | null>(
+      ({ close }) => <TransferSuperOwnerForm close={close} />,
+      { title: "Transfer Super Owner", size: "md", closeOnBackdrop: false },
+    );
+    if (!result) return;
+    try {
+      const data = await transferSuperOwner.mutateAsync(result);
+      await modal.alert({
+        type: "success",
+        title: "Transfer Complete",
+        message: `${data.message} You will be logged out now.`,
+      });
+      logout();
+    } catch (err) {
+      void modal.alert({
+        type: "error",
+        message: parseApiError(err, "Failed to transfer Super Owner"),
+      });
+    }
+  };
+
 
   const [timezone, setTimezone] = useState<string>("");
   const [defaultHourlyRate, setDefaultHourlyRate] = useState<string>("");
@@ -200,6 +237,42 @@ export default function SettingsPage(): React.ReactElement {
 
       {/* Alert Preferences 섹션 */}
       <AlertPreferencesSection />
+
+      {/* Super Owner 섹션 — Owner 이상에게 정보 표시, Super Owner 본인은 Transfer 가능 */}
+      {isOwner && (
+        <div className="bg-card border border-border rounded-xl p-6 max-w-lg mb-4">
+          <div className="flex items-center gap-2 mb-1">
+            <ShieldCheck className="h-5 w-5 text-accent" />
+            <h2 className="text-lg font-bold text-text">Super Owner</h2>
+          </div>
+          <p className="text-sm text-text-secondary mb-5">
+            Organization-level admin account, auto-created at setup (separate from store operations). One per organization. Only the Super Owner can transfer ownership or delete the organization.
+          </p>
+
+          <div className="flex items-center justify-between px-4 py-3 bg-surface rounded-lg">
+            <div>
+              <p className="text-sm font-semibold text-text">
+                {superOwnerStatus?.username ?? "—"}
+              </p>
+              <p className="text-xs text-text-muted mt-0.5">
+                {canTransferSuperOwner
+                  ? "You are the Super Owner."
+                  : "Auto-created at organization setup."}
+              </p>
+            </div>
+            {canTransferSuperOwner && (
+              <Button
+                variant="primary"
+                size="sm"
+                isLoading={transferSuperOwner.isPending}
+                onClick={handleTransferSuperOwner}
+              >
+                Transfer
+              </Button>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Account Security 섹션 */}
       <div className="bg-card border border-border rounded-xl p-6 max-w-lg">
