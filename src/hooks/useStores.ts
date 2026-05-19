@@ -65,11 +65,9 @@ interface CreateStoreData {
  *
  * @returns 매장 생성 뮤테이션 결과 (Store creation mutation result)
  */
-export const useCreateStore = (): UseMutationResult<
-  Store,
-  Error,
-  CreateStoreData
-> => {
+export const useCreateStore = (options?: {
+  silent?: boolean;
+}): UseMutationResult<Store, Error, CreateStoreData> => {
   const queryClient: QueryClient = useQueryClient();
   const { success, error } = useMutationToast();
   return useMutation<Store, Error, CreateStoreData>({
@@ -84,9 +82,9 @@ export const useCreateStore = (): UseMutationResult<
       queryClient.setQueryData<Store[]>(["stores"], (old) =>
         old ? [...old, newStore] : [newStore],
       );
-      success("Brand created.");
+      if (!options?.silent) success("Brand created.");
     },
-    onError: error("Failed to create brand"),
+    onError: options?.silent ? undefined : error("Failed to create brand"),
   });
 };
 

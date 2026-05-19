@@ -480,7 +480,9 @@ export const useUpdateProduct = (): UseMutationResult<
  * 제품 비활성화 훅 — soft delete (is_active=false).
  * Deactivate a product (soft delete — preserves history).
  */
-export const useDeactivateProduct = (): UseMutationResult<void, Error, string> => {
+export const useDeactivateProduct = (options?: {
+  silent?: boolean;
+}): UseMutationResult<void, Error, string> => {
   const queryClient: QueryClient = useQueryClient();
   const { success, error } = useMutationResult();
   return useMutation<void, Error, string>({
@@ -489,13 +491,15 @@ export const useDeactivateProduct = (): UseMutationResult<void, Error, string> =
     },
     onSuccess: (): void => {
       queryClient.invalidateQueries({ queryKey: ["inventory", "products"] });
-      success("Product deactivated.");
+      if (!options?.silent) success("Product deactivated.");
     },
-    onError: error("Couldn't deactivate product"),
+    onError: options?.silent ? undefined : error("Couldn't deactivate product"),
   });
 };
 
-export const useActivateProduct = (): UseMutationResult<InventoryProduct, Error, string> => {
+export const useActivateProduct = (options?: {
+  silent?: boolean;
+}): UseMutationResult<InventoryProduct, Error, string> => {
   const queryClient: QueryClient = useQueryClient();
   const { success, error } = useMutationResult();
   return useMutation<InventoryProduct, Error, string>({
@@ -505,13 +509,15 @@ export const useActivateProduct = (): UseMutationResult<InventoryProduct, Error,
     },
     onSuccess: (): void => {
       queryClient.invalidateQueries({ queryKey: ["inventory", "products"] });
-      success("Product activated.");
+      if (!options?.silent) success("Product activated.");
     },
-    onError: error("Couldn't activate product"),
+    onError: options?.silent ? undefined : error("Couldn't activate product"),
   });
 };
 
-export const useDeleteProduct = (): UseMutationResult<void, Error, string> => {
+export const useDeleteProduct = (options?: {
+  silent?: boolean;
+}): UseMutationResult<void, Error, string> => {
   const queryClient: QueryClient = useQueryClient();
   const { success, error } = useMutationResult();
   return useMutation<void, Error, string>({
@@ -520,9 +526,9 @@ export const useDeleteProduct = (): UseMutationResult<void, Error, string> => {
     },
     onSuccess: (): void => {
       queryClient.invalidateQueries({ queryKey: ["inventory", "products"] });
-      success("Product deleted.");
+      if (!options?.silent) success("Product deleted.");
     },
-    onError: error("Couldn't delete product"),
+    onError: options?.silent ? undefined : error("Couldn't delete product"),
   });
 };
 
@@ -663,6 +669,7 @@ export const useBulkAddStoreInventory = (
  */
 export const useUpdateStoreInventoryItem = (
   storeId: string,
+  options?: { silent?: boolean },
 ): UseMutationResult<StoreInventoryItem, Error, { id: string } & StoreInventoryItemUpdate> => {
   const queryClient: QueryClient = useQueryClient();
   const { success, error } = useMutationResult();
@@ -676,14 +683,15 @@ export const useUpdateStoreInventoryItem = (
     },
     onSuccess: (): void => {
       queryClient.invalidateQueries({ queryKey: ["inventory", "stores", storeId] });
-      success("Inventory item updated.");
+      if (!options?.silent) success("Inventory item updated.");
     },
-    onError: error("Couldn't update inventory item"),
+    onError: options?.silent ? undefined : error("Couldn't update inventory item"),
   });
 };
 
 export const useRemoveStoreInventoryItem = (
   storeId: string,
+  options?: { silent?: boolean },
 ): UseMutationResult<void, Error, string> => {
   const queryClient: QueryClient = useQueryClient();
   const { success, error } = useMutationResult();
@@ -693,9 +701,9 @@ export const useRemoveStoreInventoryItem = (
     },
     onSuccess: (): void => {
       queryClient.invalidateQueries({ queryKey: ["inventory", "stores", storeId] });
-      success("Inventory item removed.");
+      if (!options?.silent) success("Inventory item removed.");
     },
-    onError: error("Couldn't remove inventory item"),
+    onError: options?.silent ? undefined : error("Couldn't remove inventory item"),
   });
 };
 
@@ -737,6 +745,7 @@ export const useStoreTransactions = (
 export const useCreateTransaction = (
   storeId: string,
   inventoryItemId: string,
+  options?: { silent?: boolean },
 ): UseMutationResult<InventoryTransaction, Error, InventoryTransactionCreate> => {
   const queryClient: QueryClient = useQueryClient();
   const { success, error } = useMutationResult();
@@ -750,9 +759,9 @@ export const useCreateTransaction = (
     },
     onSuccess: (): void => {
       queryClient.invalidateQueries({ queryKey: ["inventory", "stores", storeId] });
-      success("Transaction recorded.");
+      if (!options?.silent) success("Transaction recorded.");
     },
-    onError: error("Couldn't record transaction"),
+    onError: options?.silent ? undefined : error("Couldn't record transaction"),
   });
 };
 

@@ -38,7 +38,7 @@ import { Select } from "@/components/ui/Select";
 import { Table, Badge, Modal } from "@/components/ui";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useModal } from "@/components/ui/imperative-modal";
-import { formatDate } from "@/lib/utils";
+import { formatDate, parseApiError } from "@/lib/utils";
 import { useTimezone } from "@/hooks/useTimezone";
 import { TIMEZONE_OPTIONS } from "@/lib/timezones";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -143,11 +143,12 @@ export default function StoresPage(): React.ReactElement {
 
   /** 매장 데이터 훅 / Store data hooks */
   const { data: stores, isLoading } = useStores();
-  const createStore = useCreateStore();
+  // 매장 생성/수정/삭제 — handleCreate 가 매장+shifts+positions chain 을 통합 결과 1번으로 표시하려고 silent 옵션 사용
+  const createStore = useCreateStore({ silent: true });
   const updateStore = useUpdateStore();
   const deleteStore = useDeleteStore();
-  const createShift = useCreateShift();
-  const createPosition = useCreatePosition();
+  const createShift = useCreateShift({ silent: true });
+  const createPosition = useCreatePosition({ silent: true });
 
   /** 검색어 상태 (URL-persisted) / Search query state */
   const [urlParams, setUrlParams] = usePersistedFilters("stores", { search: "" });
@@ -283,12 +284,13 @@ export default function StoresPage(): React.ReactElement {
       setCreateForm(INITIAL_FORM);
       setNewShiftName("");
       setNewPositionName("");
-    } catch {
-      // hook 이 자동으로 에러 모달
+      void modal.alert({ type: "success", message: "Brand created." });
+    } catch (err) {
+      void modal.alert({ type: "error", message: parseApiError(err, "Couldn't create brand") });
     } finally {
       setIsCreating(false);
     }
-  }, [createForm, createStore, createShift, createPosition]);
+  }, [createForm, createStore, createShift, createPosition, modal]);
 
   /** 수정 모달 열기 / Open edit modal */
   const handleOpenEdit = useCallback(

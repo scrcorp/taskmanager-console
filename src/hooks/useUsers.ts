@@ -353,8 +353,6 @@ interface SyncUserStoresData {
     store_id: string;
     is_manager: boolean;
     is_work_assignment: boolean;
-    primary_work_role_id?: string | null;
-    primary_position_id?: string | null;
   }[];
 }
 

@@ -48,11 +48,9 @@ interface CreatePositionData {
  *
  * @returns 포지션 생성 뮤테이션 결과 (Position creation mutation result)
  */
-export const useCreatePosition = (): UseMutationResult<
-  Position,
-  Error,
-  CreatePositionData
-> => {
+export const useCreatePosition = (options?: {
+  silent?: boolean;
+}): UseMutationResult<Position, Error, CreatePositionData> => {
   const queryClient: QueryClient = useQueryClient();
   const { success, error } = useMutationResult();
   return useMutation<Position, Error, CreatePositionData>({
@@ -76,9 +74,9 @@ export const useCreatePosition = (): UseMutationResult<
         (old) =>
           old ? { ...old, positions: [...old.positions, newPos] } : undefined,
       );
-      success("Position created.");
+      if (!options?.silent) success("Position created.");
     },
-    onError: error("Couldn't create position"),
+    onError: options?.silent ? undefined : error("Couldn't create position"),
   });
 };
 
@@ -97,11 +95,9 @@ interface UpdatePositionData {
  *
  * @returns 포지션 수정 뮤테이션 결과 (Position update mutation result)
  */
-export const useUpdatePosition = (): UseMutationResult<
-  Position,
-  Error,
-  UpdatePositionData
-> => {
+export const useUpdatePosition = (options?: {
+  silent?: boolean;
+}): UseMutationResult<Position, Error, UpdatePositionData> => {
   const queryClient: QueryClient = useQueryClient();
   const { success, error } = useMutationResult();
   return useMutation<Position, Error, UpdatePositionData>({
@@ -133,9 +129,9 @@ export const useUpdatePosition = (): UseMutationResult<
               }
             : undefined,
       );
-      success("Position updated.");
+      if (!options?.silent) success("Position updated.");
     },
-    onError: error("Couldn't update position"),
+    onError: options?.silent ? undefined : error("Couldn't update position"),
   });
 };
 
@@ -152,11 +148,9 @@ interface DeletePositionData {
  *
  * @returns 포지션 삭제 뮤테이션 결과 (Position deletion mutation result)
  */
-export const useDeletePosition = (): UseMutationResult<
-  void,
-  Error,
-  DeletePositionData
-> => {
+export const useDeletePosition = (options?: {
+  silent?: boolean;
+}): UseMutationResult<void, Error, DeletePositionData> => {
   const queryClient: QueryClient = useQueryClient();
   const { success, error } = useMutationResult();
   return useMutation<void, Error, DeletePositionData>({
@@ -181,8 +175,8 @@ export const useDeletePosition = (): UseMutationResult<
               }
             : undefined,
       );
-      success("Position deleted.");
+      if (!options?.silent) success("Position deleted.");
     },
-    onError: error("Couldn't delete position"),
+    onError: options?.silent ? undefined : error("Couldn't delete position"),
   });
 };

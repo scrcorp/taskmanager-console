@@ -29,8 +29,7 @@ import {
   useUserStores,
   useSyncUserStores,
 } from "@/hooks/useUsers";
-import { useStores, useStore } from "@/hooks/useStores";
-import { useWorkRoles } from "@/hooks/useWorkRoles";
+import { useStores } from "@/hooks/useStores";
 import { useRoles } from "@/hooks/useRoles";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -65,10 +64,6 @@ interface UserEditFormData {
 interface StoreCheckState {
   is_manager: boolean;
   is_work: boolean;
-  /** 매장별 주 work_role (LinkPicker 등에서 활용) */
-  primary_work_role_id?: string | null;
-  /** 매장별 주 position */
-  primary_position_id?: string | null;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -223,8 +218,6 @@ export default function UserDetailPage(): React.ReactElement {
       state[us.id] = {
         is_manager: us.is_manager,
         is_work: us.is_work_assignment,
-        primary_work_role_id: us.primary_work_role_id ?? null,
-        primary_position_id: us.primary_position_id ?? null,
       };
     }
     return state;
@@ -256,8 +249,6 @@ export default function UserDetailPage(): React.ReactElement {
       const srv = serverCheckState[id];
       if (cur.is_manager !== (srv?.is_manager ?? false)) return true;
       if (cur.is_work !== (srv?.is_work ?? true)) return true;
-      if ((cur.primary_work_role_id ?? null) !== (srv?.primary_work_role_id ?? null)) return true;
-      if ((cur.primary_position_id ?? null) !== (srv?.primary_position_id ?? null)) return true;
     }
     for (const id of serverIds) {
       if (!currentIds.has(id)) return true;
@@ -470,8 +461,6 @@ export default function UserDetailPage(): React.ReactElement {
         store_id: storeId,
         is_manager: v.is_manager,
         is_work_assignment: v.is_work,
-        primary_work_role_id: v.primary_work_role_id ?? null,
-        primary_position_id: v.primary_position_id ?? null,
       }));
     try {
       await syncUserStores.mutateAsync({ userId, assignments });
@@ -732,8 +721,6 @@ export default function UserDetailPage(): React.ReactElement {
                   <th className="text-left py-2 px-3 font-medium text-text-secondary">Store</th>
                   <th className="text-center py-2 px-3 font-medium text-text-secondary w-24">Manager</th>
                   <th className="text-center py-2 px-3 font-medium text-text-secondary w-24">Work</th>
-                  <th className="text-left py-2 px-3 font-medium text-text-secondary w-44">Primary role</th>
-                  <th className="text-left py-2 px-3 font-medium text-text-secondary w-44">Primary position</th>
                 </tr>
               </thead>
               <tbody>
@@ -741,7 +728,6 @@ export default function UserDetailPage(): React.ReactElement {
                   const check = storeChecks[store.id];
                   const isManaged = check?.is_manager ?? false;
                   const isWork = check?.is_work ?? false;
-                  const isAssigned = isManaged || isWork;
 
                   // 관리 체크박스 disabled 조건
                   const managerDisabled =
@@ -786,44 +772,6 @@ export default function UserDetailPage(): React.ReactElement {
                           disabled={workDisabled}
                           onChange={(e) => handleWorkToggle(store.id, e.target.checked)}
                           className="h-4 w-4 rounded border-border text-accent focus:ring-accent disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
-                        />
-                      </td>
-                      <td className="py-2.5 px-3">
-                        <PrimaryRoleCell
-                          storeId={store.id}
-                          value={check?.primary_work_role_id ?? null}
-                          assigned={isAssigned}
-                          editing={isStoreEditing}
-                          onChange={(roleId) =>
-                            setStoreChecks((prev) => ({
-                              ...prev,
-                              [store.id]: {
-                                is_manager: prev[store.id]?.is_manager ?? false,
-                                is_work: prev[store.id]?.is_work ?? false,
-                                primary_work_role_id: roleId,
-                                primary_position_id: prev[store.id]?.primary_position_id ?? null,
-                              },
-                            }))
-                          }
-                        />
-                      </td>
-                      <td className="py-2.5 px-3">
-                        <PrimaryPositionCell
-                          storeId={store.id}
-                          value={check?.primary_position_id ?? null}
-                          assigned={isAssigned}
-                          editing={isStoreEditing}
-                          onChange={(positionId) =>
-                            setStoreChecks((prev) => ({
-                              ...prev,
-                              [store.id]: {
-                                is_manager: prev[store.id]?.is_manager ?? false,
-                                is_work: prev[store.id]?.is_work ?? false,
-                                primary_work_role_id: prev[store.id]?.primary_work_role_id ?? null,
-                                primary_position_id: positionId,
-                              },
-                            }))
-                          }
                         />
                       </td>
                     </tr>
@@ -1297,90 +1245,3 @@ function ProfilePinRow({ userId }: ProfilePinRowProps): React.ReactElement {
   );
 }
 
-/* -------------------------------------------------------------------------- */
-/*  Primary role / position cells                                             */
-/* -------------------------------------------------------------------------- */
-
-interface PrimaryCellProps {
-  storeId: string;
-  value: string | null;
-  assigned: boolean;
-  editing: boolean;
-  onChange: (id: string | null) => void;
-}
-
-function PrimaryRoleCell({
-  storeId,
-  value,
-  assigned,
-  editing,
-  onChange,
-}: PrimaryCellProps): React.ReactElement {
-  // 배정된 매장이면 fetch (편집 안 해도 이름 표시 필요). React Query가 캐시함.
-  const shouldFetch = assigned;
-  const { data: workRoles } = useWorkRoles(shouldFetch ? storeId : undefined);
-
-  if (!assigned) {
-    return <span className="text-xs text-text-muted">—</span>;
-  }
-  if (!editing) {
-    const role = (workRoles ?? []).find((w) => w.id === value);
-    const fallback = value ? "(unknown)" : "—";
-    return (
-      <span className="text-xs text-text-secondary">
-        {role?.name ?? role?.position_name ?? fallback}
-      </span>
-    );
-  }
-  return (
-    <select
-      value={value ?? ""}
-      onChange={(e) => onChange(e.target.value || null)}
-      className="w-full bg-surface border border-border rounded-md px-2 py-1 text-xs text-text"
-    >
-      <option value="">— None —</option>
-      {(workRoles ?? []).map((w) => (
-        <option key={w.id} value={w.id}>
-          {w.name ?? w.position_name ?? "(unnamed)"}
-        </option>
-      ))}
-    </select>
-  );
-}
-
-function PrimaryPositionCell({
-  storeId,
-  value,
-  assigned,
-  editing,
-  onChange,
-}: PrimaryCellProps): React.ReactElement {
-  const shouldFetch = assigned;
-  const { data: storeDetail } = useStore(shouldFetch ? storeId : undefined);
-  const positions = storeDetail?.positions ?? [];
-
-  if (!assigned) {
-    return <span className="text-xs text-text-muted">—</span>;
-  }
-  if (!editing) {
-    const pos = positions.find((p) => p.id === value);
-    const fallback = value ? "(unknown)" : "—";
-    return (
-      <span className="text-xs text-text-secondary">{pos?.name ?? fallback}</span>
-    );
-  }
-  return (
-    <select
-      value={value ?? ""}
-      onChange={(e) => onChange(e.target.value || null)}
-      className="w-full bg-surface border border-border rounded-md px-2 py-1 text-xs text-text"
-    >
-      <option value="">— None —</option>
-      {positions.map((p) => (
-        <option key={p.id} value={p.id}>
-          {p.name}
-        </option>
-      ))}
-    </select>
-  );
-}

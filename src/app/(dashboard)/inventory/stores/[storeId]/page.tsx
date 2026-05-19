@@ -47,7 +47,7 @@ import {
   Pagination,
 } from "@/components/ui";
 import { useModal } from "@/components/ui/imperative-modal";
-import { formatDateTime } from "@/lib/utils";
+import { formatDateTime, parseApiError } from "@/lib/utils";
 import { cn } from "@/lib/utils";
 import { ProductForm, type ProductFormData } from "@/components/inventory/ProductForm";
 import type {
@@ -196,6 +196,8 @@ export default function StoreInventoryPage(): React.ReactElement {
 
   const bulkAdd = useBulkAddStoreInventory(storeId);
   const removeItem = useRemoveStoreInventoryItem(storeId);
+  // bulk remove (handleBulkRemove) 용 — for-loop 모달 N번 방지
+  const removeItemSilent = useRemoveStoreInventoryItem(storeId, { silent: true });
   const updateItem = useUpdateStoreInventoryItem(storeId);
   const createProduct = useCreateProduct();
 
@@ -560,18 +562,20 @@ export default function StoreInventoryPage(): React.ReactElement {
     let success = 0;
     for (const id of ids) {
       try {
-        await removeItem.mutateAsync(id);
+        await removeItemSilent.mutateAsync(id);
         success += 1;
       } catch {
-        // continue; final summary reports counts (hook also fires per-error modal).
+        // continue; final summary reports counts
       }
     }
     const failed = ids.length - success;
     if (failed > 0) {
       void modal.alert({ type: "error", message: `${success} removed, ${failed} failed.` });
+    } else {
+      void modal.alert({ type: "success", message: `${success} product(s) removed.` });
     }
     clearItemSelection();
-  }, [modal, removeItem, selectedItemIds]);
+  }, [modal, removeItemSilent, selectedItemIds]);
 
   // Server returns { total, normal, low, out }
   const rawSummary = summaryData ?? { total: 0, normal: 0, low: 0, out: 0 };
@@ -1101,8 +1105,9 @@ function EditItemModal({
   onClose: () => void;
 }): React.ReactElement {
   const modal = useModal();
-  const updateItem = useUpdateStoreInventoryItem(storeId);
-  const createTransaction = useCreateTransaction(storeId, item.id);
+  // min_qty 변경 + qty diff 가 동시에 일어나면 두 mutation 이 chain 되므로 silent 로 발사하고 통합 모달 1번만 띄움
+  const updateItem = useUpdateStoreInventoryItem(storeId, { silent: true });
+  const createTransaction = useCreateTransaction(storeId, item.id, { silent: true });
 
   const [minQty, setMinQty] = useState(String(item.min_quantity));
   const [currentQty, setCurrentQty] = useState(String(item.current_quantity));
@@ -1150,8 +1155,9 @@ function EditItemModal({
         });
       }
       onClose();
-    } catch {
-      // hook 자동 모달이 표시함.
+      void modal.alert({ type: "success", message: "Inventory updated." });
+    } catch (err) {
+      void modal.alert({ type: "error", message: parseApiError(err, "Couldn't update inventory") });
     } finally {
       setSaving(false);
     }

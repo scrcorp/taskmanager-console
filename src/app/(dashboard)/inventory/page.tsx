@@ -145,6 +145,10 @@ export default function InventoryPage(): React.ReactElement {
   const deactivateProduct = useDeactivateProduct();
   const activateProduct = useActivateProduct();
   const deleteProduct = useDeleteProduct();
+  // Bulk for-loop 에서 사용 — 각 항목 모달 N번 방지. 호출 측에서 합계 결과 모달 1번 발사
+  const deactivateProductSilent = useDeactivateProduct({ silent: true });
+  const activateProductSilent = useActivateProduct({ silent: true });
+  const deleteProductSilent = useDeleteProduct({ silent: true });
 
   const products: InventoryProduct[] = productsData?.items ?? [];
   const totalPages = productsData ? Math.ceil(productsData.total / productsData.per_page) : 1;
@@ -415,11 +419,11 @@ export default function InventoryPage(): React.ReactElement {
     for (const id of selectedIds) {
       try {
         if (action === "delete") {
-          await deleteProduct.mutateAsync(id);
+          await deleteProductSilent.mutateAsync(id);
         } else if (action === "deactivate") {
-          await deactivateProduct.mutateAsync(id);
+          await deactivateProductSilent.mutateAsync(id);
         } else if (action === "activate") {
-          await activateProduct.mutateAsync(id);
+          await activateProductSilent.mutateAsync(id);
         }
         successCount++;
       } catch {
@@ -427,13 +431,12 @@ export default function InventoryPage(): React.ReactElement {
       }
     }
     clearSelection();
-    // Bulk 결과는 페이지에서 직접 알림 (hook 자동 모달은 개별 요청마다 발사되므로 합계 알림이 별도 필요).
     if (errorCount === 0) {
       void modal.alert({ type: "success", message: `${successCount} product(s) ${actionLabelPast}.` });
     } else {
       void modal.alert({ type: "error", message: `${successCount} succeeded, ${errorCount} failed.` });
     }
-  }, [selectedIds, deleteProduct, deactivateProduct, activateProduct, modal]);
+  }, [selectedIds, deleteProductSilent, deactivateProductSilent, activateProductSilent, modal]);
 
   return (
     <div>

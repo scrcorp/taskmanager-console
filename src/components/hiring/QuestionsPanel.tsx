@@ -78,6 +78,8 @@ const newAttachment = (): AttachmentSlotDef => ({
 export function QuestionsPanel({ storeId }: Props) {
   const { data, isLoading } = useHiringForm(storeId);
   const saveDraft = useSaveHiringFormDraft(storeId);
+  // Publish 흐름에서 draft → publish chain 시 saveDraft 모달은 억제하고 publish 모달만 띄움
+  const saveDraftSilent = useSaveHiringFormDraft(storeId, { silent: true });
   const publish = usePublishHiringForm(storeId);
   const discardDraft = useDiscardHiringFormDraft(storeId);
   const { data: store } = useStore(storeId);
@@ -351,7 +353,7 @@ export function QuestionsPanel({ storeId }: Props) {
       return;
     }
     try {
-      if (isDirty) await saveDraft.mutateAsync(draft);
+      if (isDirty) await saveDraftSilent.mutateAsync(draft);
       await publish.mutateAsync();
     } catch {
       // hook 자동 모달

@@ -94,7 +94,9 @@ export const useOrgSettings = (): UseQueryResult<OrgSettingEntry[], Error> => {
   });
 };
 
-export const useUpsertOrgSetting = (): UseMutationResult<OrgSettingEntry, Error, { key: string; value: unknown; force_locked?: boolean }> => {
+export const useUpsertOrgSetting = (options?: {
+  silent?: boolean;
+}): UseMutationResult<OrgSettingEntry, Error, { key: string; value: unknown; force_locked?: boolean }> => {
   const qc = useQueryClient();
   const { success, error } = useMutationResult();
   return useMutation<OrgSettingEntry, Error, { key: string; value: unknown; force_locked?: boolean }>({
@@ -109,13 +111,15 @@ export const useUpsertOrgSetting = (): UseMutationResult<OrgSettingEntry, Error,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["settings", "org"] });
       qc.invalidateQueries({ queryKey: ["settings", "resolve"] });
-      success("Org setting saved.");
+      if (!options?.silent) success("Org setting saved.");
     },
-    onError: error("Couldn't save org setting"),
+    onError: options?.silent ? undefined : error("Couldn't save org setting"),
   });
 };
 
-export const useDeleteOrgSetting = (): UseMutationResult<void, Error, string> => {
+export const useDeleteOrgSetting = (options?: {
+  silent?: boolean;
+}): UseMutationResult<void, Error, string> => {
   const qc = useQueryClient();
   const { success, error } = useMutationResult();
   return useMutation<void, Error, string>({
@@ -123,9 +127,9 @@ export const useDeleteOrgSetting = (): UseMutationResult<void, Error, string> =>
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["settings", "org"] });
       qc.invalidateQueries({ queryKey: ["settings", "resolve"] });
-      success("Org setting deleted.");
+      if (!options?.silent) success("Org setting deleted.");
     },
-    onError: error("Couldn't delete org setting"),
+    onError: options?.silent ? undefined : error("Couldn't delete org setting"),
   });
 };
 
@@ -142,7 +146,10 @@ export const useStoreSettings = (storeId: string | undefined): UseQueryResult<St
   });
 };
 
-export const useUpsertStoreSetting = (storeId: string): UseMutationResult<StoreSettingEntry, Error, { key: string; value: unknown }> => {
+export const useUpsertStoreSetting = (
+  storeId: string,
+  options?: { silent?: boolean },
+): UseMutationResult<StoreSettingEntry, Error, { key: string; value: unknown }> => {
   const qc = useQueryClient();
   const { success, error } = useMutationResult();
   return useMutation<StoreSettingEntry, Error, { key: string; value: unknown }>({
@@ -153,13 +160,16 @@ export const useUpsertStoreSetting = (storeId: string): UseMutationResult<StoreS
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["settings", "store", storeId] });
       qc.invalidateQueries({ queryKey: ["settings", "resolve"] });
-      success("Store setting saved.");
+      if (!options?.silent) success("Store setting saved.");
     },
-    onError: error("Couldn't save store setting"),
+    onError: options?.silent ? undefined : error("Couldn't save store setting"),
   });
 };
 
-export const useDeleteStoreSetting = (storeId: string): UseMutationResult<void, Error, string> => {
+export const useDeleteStoreSetting = (
+  storeId: string,
+  options?: { silent?: boolean },
+): UseMutationResult<void, Error, string> => {
   const qc = useQueryClient();
   const { success, error } = useMutationResult();
   return useMutation<void, Error, string>({
@@ -167,9 +177,9 @@ export const useDeleteStoreSetting = (storeId: string): UseMutationResult<void, 
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["settings", "store", storeId] });
       qc.invalidateQueries({ queryKey: ["settings", "resolve"] });
-      success("Store setting deleted.");
+      if (!options?.silent) success("Store setting deleted.");
     },
-    onError: error("Couldn't delete store setting"),
+    onError: options?.silent ? undefined : error("Couldn't delete store setting"),
   });
 };
 

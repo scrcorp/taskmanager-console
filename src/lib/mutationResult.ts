@@ -1,11 +1,14 @@
 /**
  * Mutation result feedback — 사용자 행동 결과를 모달로 명확히 인지시키는 헬퍼.
  *
+ * 내부 구현: imperative-modal 시스템 (useModal.alert) 위에 얹혀 동작.
+ * 호출 측 (hook) 시그니처는 그대로 유지 — useMutationResult().success / .error.
+ *
  * ============================================================
  *  TOAST vs MODAL — 시스템 전반 정책 (반드시 따를 것)
  * ============================================================
  *
- * MODAL (ResultModal/AppModal) — 자동 dismiss 안 됨, 사용자가 OK 눌러야 닫힘:
+ * MODAL (useModal.alert) — 자동 dismiss 안 됨, 사용자가 OK 눌러야 닫힘:
  *   - 사용자가 명시적으로 트리거한 mutation 결과 (생성/수정/삭제/확정/취소/제출 등)
  *   - 폼 제출 결과 (입력값 손실 위험 있는 흐름)
  *   - 권한/인증/세션 만료 오류
@@ -28,24 +31,37 @@
  *   });
  */
 
-import { useResultModal } from "@/components/ui/ResultModal";
+import { useModal } from "@/components/ui/imperative-modal";
 import { parseApiError } from "@/lib/utils";
 
 export function useMutationResult() {
-  const { showSuccess, showError } = useResultModal();
+  const modal = useModal();
   return {
     /** 성공 모달 — message 는 "Schedule created." 같은 문장형 */
     success: (message: string, options?: { title?: string; details?: string[] }) => {
-      showSuccess(message, options);
+      void modal.alert({
+        type: "success",
+        title: options?.title,
+        message,
+        details: options?.details,
+      });
     },
     /** 에러 모달 — action 은 "Couldn't create schedule" 같은 문장형 */
     error: (action: string) => (err: unknown) => {
-      const detail = parseApiError(err, "Unexpected error");
-      showError(detail, { title: action });
+      void modal.alert({
+        type: "error",
+        title: action,
+        message: parseApiError(err, "Unexpected error"),
+      });
     },
     /** raw — 이미 가공한 메시지로 모달 직접 띄우기 */
     rawError: (message: string, options?: { title?: string; details?: string[] }) => {
-      showError(message, options);
+      void modal.alert({
+        type: "error",
+        title: options?.title,
+        message,
+        details: options?.details,
+      });
     },
   };
 }

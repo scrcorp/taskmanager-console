@@ -209,6 +209,8 @@ export default function StoreDetailPage(): React.ReactElement {
   /* ---- Shift CRUD -------------------------------------------------------- */
   const createShift = useCreateShift();
   const updateShift = useUpdateShift();
+  // reorder(drag-drop)는 한 번에 N개 mutation 발사 — 모달 N번 막으려고 silent variant
+  const updateShiftSilent = useUpdateShift({ silent: true });
   const deleteShift = useDeleteShift();
 
   const [isShiftCreateOpen, setIsShiftCreateOpen] = useState<boolean>(false);
@@ -222,6 +224,7 @@ export default function StoreDetailPage(): React.ReactElement {
   /* ---- Position CRUD ----------------------------------------------------- */
   const createPosition = useCreatePosition();
   const updatePosition = useUpdatePosition();
+  const updatePositionSilent = useUpdatePosition({ silent: true });
   const deletePosition = useDeletePosition();
 
   const [isPosCreateOpen, setIsPosCreateOpen] = useState<boolean>(false);
@@ -261,6 +264,7 @@ export default function StoreDetailPage(): React.ReactElement {
   /* ---- Checklist Item CRUD ----------------------------------------------- */
   const createItem = useCreateChecklistItem();
   const updateItem = useUpdateChecklistItem();
+  const updateItemSilent = useUpdateChecklistItem({ silent: true });
   const deleteItem = useDeleteChecklistItem();
 
   const { data: checklistItems, isLoading: itemsLoading } = useChecklistItems(
@@ -456,7 +460,7 @@ export default function StoreDetailPage(): React.ReactElement {
       try {
         await Promise.all(
           reordered.map((shift: Shift) =>
-            updateShift.mutateAsync({
+            updateShiftSilent.mutateAsync({
               storeId: storeId,
               id: shift.id,
               sort_order: shift.sort_order,
@@ -469,7 +473,7 @@ export default function StoreDetailPage(): React.ReactElement {
         queryClient.invalidateQueries({ queryKey: ["shifts", storeId] });
       }
     },
-    [updateShift, storeId, queryClient, toast],
+    [updateShiftSilent, storeId, queryClient, toast],
   );
 
   const handleOpenShiftDelete = useCallback(
@@ -542,7 +546,7 @@ export default function StoreDetailPage(): React.ReactElement {
       try {
         await Promise.all(
           reordered.map((position: Position) =>
-            updatePosition.mutateAsync({
+            updatePositionSilent.mutateAsync({
               storeId: storeId,
               id: position.id,
               sort_order: position.sort_order,
@@ -555,7 +559,7 @@ export default function StoreDetailPage(): React.ReactElement {
         queryClient.invalidateQueries({ queryKey: ["positions", storeId] });
       }
     },
-    [updatePosition, storeId, queryClient, toast],
+    [updatePositionSilent, storeId, queryClient, toast],
   );
 
   const handleOpenPosDelete = useCallback(
@@ -739,7 +743,7 @@ export default function StoreDetailPage(): React.ReactElement {
       try {
         await Promise.all(
           reordered.map((item: ChecklistItem) =>
-            updateItem.mutateAsync({
+            updateItemSilent.mutateAsync({
               id: item.id,
               templateId: expandedTemplateId,
               sort_order: item.sort_order,
@@ -756,7 +760,7 @@ export default function StoreDetailPage(): React.ReactElement {
         });
       }
     },
-    [updateItem, expandedTemplateId, queryClient, toast],
+    [updateItemSilent, expandedTemplateId, queryClient, toast],
   );
 
   /** sort_order 기준 정렬된 체크리스트 아이템 / Checklist items sorted by sort_order */

@@ -8,8 +8,7 @@ import {
 } from "@tanstack/react-query";
 import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
-import { useResultModal } from "@/components/ui/ResultModal";
-import { parseApiError } from "@/lib/utils";
+import { useMutationResult } from "@/lib/mutationResult";
 import type { Notice, PaginatedResponse } from "@/types";
 
 /**
@@ -80,7 +79,7 @@ export const useCreateNotice = (): UseMutationResult<
   CreateNoticeData
 > => {
   const queryClient: QueryClient = useQueryClient();
-  const { showSuccess, showError } = useResultModal();
+  const { success, error } = useMutationResult();
   return useMutation<Notice, Error, CreateNoticeData>({
     mutationFn: async (
       data: CreateNoticeData,
@@ -99,11 +98,9 @@ export const useCreateNotice = (): UseMutationResult<
           return { ...old, items: [newAnn, ...old.items], total: old.total + 1 };
         },
       );
-      showSuccess("Notice posted.");
+      success("Notice posted.");
     },
-    onError: (err) => {
-      showError(parseApiError(err, "Unexpected error"), { title: "Couldn't post notice" });
-    },
+    onError: error("Couldn't post notice"),
   });
 };
 
@@ -128,7 +125,7 @@ export const useUpdateNotice = (): UseMutationResult<
   UpdateNoticeData
 > => {
   const queryClient: QueryClient = useQueryClient();
-  const { showSuccess, showError } = useResultModal();
+  const { success, error } = useMutationResult();
   return useMutation<Notice, Error, UpdateNoticeData>({
     mutationFn: async ({
       id,
@@ -149,11 +146,9 @@ export const useUpdateNotice = (): UseMutationResult<
         },
       );
       queryClient.setQueryData<Notice>(["notices", variables.id], updated);
-      showSuccess("Notice updated.");
+      success("Notice updated.");
     },
-    onError: (err) => {
-      showError(parseApiError(err, "Unexpected error"), { title: "Couldn't update notice" });
-    },
+    onError: error("Couldn't update notice"),
   });
 };
 
@@ -170,7 +165,7 @@ export const useDeleteNotice = (): UseMutationResult<
   string
 > => {
   const queryClient: QueryClient = useQueryClient();
-  const { showSuccess, showError } = useResultModal();
+  const { success, error } = useMutationResult();
   return useMutation<void, Error, string>({
     mutationFn: async (id: string): Promise<void> => {
       await api.delete(`/console/notices/${id}`);
@@ -183,11 +178,9 @@ export const useDeleteNotice = (): UseMutationResult<
           return { ...old, items: old.items.filter((a) => a.id !== id), total: old.total - 1 };
         },
       );
-      showSuccess("Notice deleted.");
+      success("Notice deleted.");
     },
-    onError: (err) => {
-      showError(parseApiError(err, "Unexpected error"), { title: "Couldn't delete notice" });
-    },
+    onError: error("Couldn't delete notice"),
   });
 };
 

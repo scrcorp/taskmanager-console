@@ -191,6 +191,7 @@ export const useHiringForm = (
 /** Draft 저장 (upsert). 지원자에게는 영향 없음. */
 export const useSaveHiringFormDraft = (
   storeId: string,
+  options?: { silent?: boolean },
 ): UseMutationResult<
   { id: string; config: HiringFormConfig; updated_at: string },
   Error,
@@ -209,9 +210,9 @@ export const useSaveHiringFormDraft = (
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["hiring", "form", storeId] });
-      success("Draft saved.");
+      if (!options?.silent) success("Draft saved.");
     },
-    onError: error("Couldn't save draft"),
+    onError: options?.silent ? undefined : error("Couldn't save draft"),
   });
 };
 

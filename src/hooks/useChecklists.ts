@@ -403,11 +403,9 @@ interface UpdateChecklistItemData {
  *
  * @returns 체크리스트 항목 수정 뮤테이션 결과 (Checklist item update mutation result)
  */
-export const useUpdateChecklistItem = (): UseMutationResult<
-  ChecklistItem,
-  Error,
-  UpdateChecklistItemData
-> => {
+export const useUpdateChecklistItem = (options?: {
+  silent?: boolean;
+}): UseMutationResult<ChecklistItem, Error, UpdateChecklistItemData> => {
   const queryClient: QueryClient = useQueryClient();
   const { success, error } = useMutationResult();
   return useMutation<ChecklistItem, Error, UpdateChecklistItemData>({
@@ -430,9 +428,9 @@ export const useUpdateChecklistItem = (): UseMutationResult<
         ["checklist-items", variables.templateId],
         (old) => old?.map((item) => (item.id === variables.id ? updated : item)),
       );
-      success("Checklist item updated.");
+      if (!options?.silent) success("Checklist item updated.");
     },
-    onError: error("Couldn't update checklist item"),
+    onError: options?.silent ? undefined : error("Couldn't update checklist item"),
   });
 };
 

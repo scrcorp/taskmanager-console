@@ -419,29 +419,24 @@ export function LinkPicker({
           </p>
         ) : (
           <div className="border border-border rounded-md p-2 max-h-56 overflow-auto space-y-1 bg-surface">
-            {filteredUsers.map((u) => {
-              const role = u.primary_work_role_name_in_store ?? null;
-              const position = u.primary_position_name_in_store ?? null;
-              const meta = joinWithDot([u.role_name, role ?? position]);
-              return (
-                <label
-                  key={u.id}
-                  className="flex items-center gap-2 text-sm cursor-pointer hover:bg-surfaceHover px-2 py-1.5 rounded"
-                >
-                  <input
-                    type="checkbox"
-                    checked={isUserChecked(u.id)}
-                    onChange={() => toggleUser(u.id)}
-                    className="accent-accent"
-                  />
-                  <UserCircle2 className="w-3.5 h-3.5 text-textMuted shrink-0" />
-                  <span className="text-text">{u.full_name ?? u.username}</span>
-                  {meta && (
-                    <span className="text-xs text-textMuted">· {meta}</span>
-                  )}
-                </label>
-              );
-            })}
+            {filteredUsers.map((u) => (
+              <label
+                key={u.id}
+                className="flex items-center gap-2 text-sm cursor-pointer hover:bg-surfaceHover px-2 py-1.5 rounded"
+              >
+                <input
+                  type="checkbox"
+                  checked={isUserChecked(u.id)}
+                  onChange={() => toggleUser(u.id)}
+                  className="accent-accent"
+                />
+                <UserCircle2 className="w-3.5 h-3.5 text-textMuted shrink-0" />
+                <span className="text-text">{u.full_name ?? u.username}</span>
+                {u.role_name && (
+                  <span className="text-xs text-textMuted">· {u.role_name}</span>
+                )}
+              </label>
+            ))}
           </div>
         )}
       </div>

@@ -1,24 +1,23 @@
 import { useQuery, useMutation, useQueryClient, type UseQueryResult, type UseMutationResult } from "@tanstack/react-query";
 import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
-import { useResultModal } from "@/components/ui/ResultModal";
 import { useModal } from "@/components/ui/imperative-modal";
 import { parseApiError } from "@/lib/utils";
 import type { Schedule, ScheduleBulkCreate, ScheduleBulkResult, ScheduleCreate, ScheduleUpdate, ScheduleValidation, PaginatedResponse, BulkPreviewEntry, BulkPreviewResponse, BulkUpdateRequest, BulkUpdateResult, BulkDeleteRequest, BulkDeleteResult } from "@/types";
 
-/** mutation에 공통 onError(modal) 부착 — parseApiError 로 status code별 친화 메시지 사용 */
+/** mutation 공통 onError(modal) — parseApiError 로 status code별 친화 메시지 사용 */
 function useErrorToast() {
-  const { showError } = useResultModal();
+  const modal = useModal();
   return (action: string) => (err: unknown) => {
-    showError(parseApiError(err, "Unexpected error"), { title: action });
+    void modal.alert({ type: "error", title: action, message: parseApiError(err, "Unexpected error") });
   };
 }
 
 /** mutation 성공 시 일관된 결과 모달 띄우는 helper — 사용자가 직접 닫아 결과를 인지 */
 function useSuccessToast() {
-  const { showSuccess } = useResultModal();
+  const modal = useModal();
   return (message: string) => {
-    showSuccess(message);
+    void modal.alert({ type: "success", message });
   };
 }
 
@@ -83,7 +82,9 @@ export const useCreateSchedule = (): UseMutationResult<Schedule, Error, Schedule
   });
 };
 
-export const useBulkCreateSchedules = (): UseMutationResult<ScheduleBulkResult, Error, ScheduleBulkCreate> => {
+export const useBulkCreateSchedules = (options?: {
+  silent?: boolean;
+}): UseMutationResult<ScheduleBulkResult, Error, ScheduleBulkCreate> => {
   const qc = useQueryClient();
   const onErr = useErrorToast();
   const onOk = useSuccessToast();
@@ -94,10 +95,12 @@ export const useBulkCreateSchedules = (): UseMutationResult<ScheduleBulkResult, 
     },
     onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ["schedules"] });
-      const created = (result as { created?: number })?.created ?? 0;
-      onOk(`${created} schedule${created === 1 ? "" : "s"} created.`);
+      if (!options?.silent) {
+        const created = (result as { created?: number })?.created ?? 0;
+        onOk(`${created} schedule${created === 1 ? "" : "s"} created.`);
+      }
     },
-    onError: onErr("Failed to bulk create schedules"),
+    onError: options?.silent ? undefined : onErr("Failed to bulk create schedules"),
   });
 };
 
@@ -415,7 +418,9 @@ export const useBulkPreviewSchedules = (): UseMutationResult<BulkPreviewResponse
   });
 };
 
-export const useBulkUpdateSchedules = (): UseMutationResult<BulkUpdateResult, Error, BulkUpdateRequest> => {
+export const useBulkUpdateSchedules = (options?: {
+  silent?: boolean;
+}): UseMutationResult<BulkUpdateResult, Error, BulkUpdateRequest> => {
   const qc = useQueryClient();
   const onErr = useErrorToast();
   const onOk = useSuccessToast();
@@ -426,14 +431,18 @@ export const useBulkUpdateSchedules = (): UseMutationResult<BulkUpdateResult, Er
     },
     onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ["schedules"] });
-      const updated = (result as { updated?: number })?.updated ?? 0;
-      onOk(`${updated} schedule${updated === 1 ? "" : "s"} updated.`);
+      if (!options?.silent) {
+        const updated = (result as { updated?: number })?.updated ?? 0;
+        onOk(`${updated} schedule${updated === 1 ? "" : "s"} updated.`);
+      }
     },
-    onError: onErr("Bulk update failed"),
+    onError: options?.silent ? undefined : onErr("Bulk update failed"),
   });
 };
 
-export const useBulkDeleteSchedules = (): UseMutationResult<BulkDeleteResult, Error, BulkDeleteRequest> => {
+export const useBulkDeleteSchedules = (options?: {
+  silent?: boolean;
+}): UseMutationResult<BulkDeleteResult, Error, BulkDeleteRequest> => {
   const qc = useQueryClient();
   const onErr = useErrorToast();
   const onOk = useSuccessToast();
@@ -444,16 +453,18 @@ export const useBulkDeleteSchedules = (): UseMutationResult<BulkDeleteResult, Er
     },
     onSuccess: (result) => {
       qc.invalidateQueries({ queryKey: ["schedules"] });
-      const deleted = (result as { deleted?: number })?.deleted ?? 0;
-      onOk(`${deleted} schedule${deleted === 1 ? "" : "s"} deleted.`);
+      if (!options?.silent) {
+        const deleted = (result as { deleted?: number })?.deleted ?? 0;
+        onOk(`${deleted} schedule${deleted === 1 ? "" : "s"} deleted.`);
+      }
     },
-    onError: onErr("Bulk delete failed"),
+    onError: options?.silent ? undefined : onErr("Bulk delete failed"),
   });
 };
 
 export const useBulkConfirmSchedules = (): UseMutationResult<{ confirmed: number; errors: string[] }, Error, { store_id: string; date_from: string; date_to: string }> => {
   const qc = useQueryClient();
-  const { showSuccess, showError } = useResultModal();
+  const modal = useModal();
   const onErr = useErrorToast();
   return useMutation<{ confirmed: number; errors: string[] }, Error, { store_id: string; date_from: string; date_to: string }>({
     mutationFn: async (params) => {
@@ -465,15 +476,18 @@ export const useBulkConfirmSchedules = (): UseMutationResult<{ confirmed: number
       const errCount = result.errors?.length ?? 0;
       if (errCount > 0) {
         // 부분 성공 — error 모달에 details 로 실패 항목들 표시
-        showError(
-          `Confirmed ${result.confirmed} schedule${result.confirmed === 1 ? "" : "s"}, but ${errCount} failed.`,
-          { title: "Bulk confirm finished with issues", details: result.errors.slice(0, 5) },
-        );
+        void modal.alert({
+          type: "error",
+          title: "Bulk confirm finished with issues",
+          message: `Confirmed ${result.confirmed} schedule${result.confirmed === 1 ? "" : "s"}, but ${errCount} failed.`,
+          details: result.errors.slice(0, 5),
+        });
       } else {
-        showSuccess(
-          `${result.confirmed} schedule${result.confirmed === 1 ? "" : "s"} confirmed.`,
-          { title: "Confirmed" },
-        );
+        void modal.alert({
+          type: "success",
+          title: "Confirmed",
+          message: `${result.confirmed} schedule${result.confirmed === 1 ? "" : "s"} confirmed.`,
+        });
       }
     },
     onError: onErr("Couldn't bulk-confirm schedules"),

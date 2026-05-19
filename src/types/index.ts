@@ -63,12 +63,6 @@ export interface Store {
 export interface UserStoreAssignment extends Store {
   is_manager: boolean;
   is_work_assignment: boolean;
-  /** 매장별 주 work_role (issue report LinkPicker 등에서 활용) */
-  primary_work_role_id?: string | null;
-  primary_work_role_name?: string | null;
-  /** 매장별 주 position */
-  primary_position_id?: string | null;
-  primary_position_name?: string | null;
 }
 
 export interface StoreDetail extends Store {
@@ -163,11 +157,6 @@ export interface User {
   effective_hourly_rate?: number | null;
   is_active: boolean;
   created_at: string;
-  /** /console/users?store_id=X 호출 시에만 채워지는 매장별 정보 */
-  primary_work_role_id_in_store?: string | null;
-  primary_work_role_name_in_store?: string | null;
-  primary_position_id_in_store?: string | null;
-  primary_position_name_in_store?: string | null;
 }
 
 // Checklist

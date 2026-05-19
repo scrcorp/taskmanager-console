@@ -34,6 +34,7 @@ import {
   type StoreSettingEntry,
 } from "@/hooks/useSettings";
 import { WorkRolesPanel } from "@/components/schedules/WorkRolesPanel";
+import { parseApiError } from "@/lib/utils";
 
 interface Props {
   showCost?: boolean;
@@ -187,9 +188,10 @@ export function ScheduleSettings({ onBack }: Props) {
   }
 
   // ─── Save / Cancel ────────────────────────────────────
-  const upsertOrg = useUpsertOrgSetting();
-  const upsertStore = useUpsertStoreSetting(isStoreScope ? activeTab : "");
-  const deleteStoreSetting = useDeleteStoreSetting(isStoreScope ? activeTab : "");
+  // N개 설정을 한 번에 저장하므로 각 mutation 모달은 silent, 호출 측에서 통합 1번만 띄움
+  const upsertOrg = useUpsertOrgSetting({ silent: true });
+  const upsertStore = useUpsertStoreSetting(isStoreScope ? activeTab : "", { silent: true });
+  const deleteStoreSetting = useDeleteStoreSetting(isStoreScope ? activeTab : "", { silent: true });
 
   const isDirty = Object.keys(draft.values).length > 0 || draft.deletedKeys.length > 0;
 
@@ -250,9 +252,9 @@ export function ScheduleSettings({ onBack }: Props) {
       }
 
       setDraft(EMPTY_DRAFT);
-      // 결과 모달은 각 upsert/delete mutation hook 이 알아서 띄움 — 페이지에서 추가 모달 없음.
-    } catch {
-      // 에러 모달도 각 mutation hook 이 onError 에서 띄움 — 페이지에서 추가 모달 없음.
+      void modal.alert({ type: "success", message: "Settings saved." });
+    } catch (err) {
+      void modal.alert({ type: "error", message: parseApiError(err, "Couldn't save settings") });
     }
   }
 

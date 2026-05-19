@@ -48,11 +48,9 @@ interface CreateShiftData {
  *
  * @returns 시프트 생성 뮤테이션 결과 (Shift creation mutation result)
  */
-export const useCreateShift = (): UseMutationResult<
-  Shift,
-  Error,
-  CreateShiftData
-> => {
+export const useCreateShift = (options?: {
+  silent?: boolean;
+}): UseMutationResult<Shift, Error, CreateShiftData> => {
   const queryClient: QueryClient = useQueryClient();
   const { success, error } = useMutationResult();
   return useMutation<Shift, Error, CreateShiftData>({
@@ -76,9 +74,9 @@ export const useCreateShift = (): UseMutationResult<
         (old) =>
           old ? { ...old, shifts: [...old.shifts, newShift] } : undefined,
       );
-      success("Shift created.");
+      if (!options?.silent) success("Shift created.");
     },
-    onError: error("Couldn't create shift"),
+    onError: options?.silent ? undefined : error("Couldn't create shift"),
   });
 };
 
@@ -97,11 +95,9 @@ interface UpdateShiftData {
  *
  * @returns 시프트 수정 뮤테이션 결과 (Shift update mutation result)
  */
-export const useUpdateShift = (): UseMutationResult<
-  Shift,
-  Error,
-  UpdateShiftData
-> => {
+export const useUpdateShift = (options?: {
+  silent?: boolean;
+}): UseMutationResult<Shift, Error, UpdateShiftData> => {
   const queryClient: QueryClient = useQueryClient();
   const { success, error } = useMutationResult();
   return useMutation<Shift, Error, UpdateShiftData>({
@@ -133,9 +129,9 @@ export const useUpdateShift = (): UseMutationResult<
               }
             : undefined,
       );
-      success("Shift updated.");
+      if (!options?.silent) success("Shift updated.");
     },
-    onError: error("Couldn't update shift"),
+    onError: options?.silent ? undefined : error("Couldn't update shift"),
   });
 };
 
@@ -152,11 +148,9 @@ interface DeleteShiftData {
  *
  * @returns 시프트 삭제 뮤테이션 결과 (Shift deletion mutation result)
  */
-export const useDeleteShift = (): UseMutationResult<
-  void,
-  Error,
-  DeleteShiftData
-> => {
+export const useDeleteShift = (options?: {
+  silent?: boolean;
+}): UseMutationResult<void, Error, DeleteShiftData> => {
   const queryClient: QueryClient = useQueryClient();
   const { success, error } = useMutationResult();
   return useMutation<void, Error, DeleteShiftData>({
@@ -175,8 +169,8 @@ export const useDeleteShift = (): UseMutationResult<
             ? { ...old, shifts: old.shifts.filter((s) => s.id !== variables.id) }
             : undefined,
       );
-      success("Shift deleted.");
+      if (!options?.silent) success("Shift deleted.");
     },
-    onError: error("Couldn't delete shift"),
+    onError: options?.silent ? undefined : error("Couldn't delete shift"),
   });
 };
