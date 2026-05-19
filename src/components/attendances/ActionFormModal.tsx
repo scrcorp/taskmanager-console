@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { Button, Input } from "@/components/ui";
 import { ReasonPicker } from "./ReasonPicker";
+import { isoToLocalInputInTz, localInputToIsoInTz } from "@/lib/utils";
 
 /**
  * 단일 attendance 액션용 재사용 모달 본문.
@@ -39,14 +40,9 @@ interface ActionFormModalProps {
   danger?: boolean;
   /** submit 진행중 여부 — 외부 mutation 의 isPending 을 받음 */
   busy?: boolean;
+  /** 매장 timezone — time picker 의 wall clock 기준. browser local 영향 방지 (필수 권장). */
+  tz?: string;
   onClose: (payload?: ActionPayload) => void;
-}
-
-function localInputToIso(s: string): string | null {
-  if (!s) return null;
-  const d = new Date(s);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toISOString();
 }
 
 export function ActionFormModal({
@@ -58,6 +54,7 @@ export function ActionFormModal({
   submitLabel = "Confirm",
   danger = false,
   busy = false,
+  tz,
   onClose,
 }: ActionFormModalProps): React.ReactElement {
   const [time, setTime] = useState<string>(defaultTime);
@@ -71,7 +68,7 @@ export function ActionFormModal({
     if (!canSubmit) return;
     const payload: ActionPayload = { reason: reason.trim() };
     if (needsTime) {
-      const iso = localInputToIso(time);
+      const iso = localInputToIsoInTz(time, tz);
       if (!iso) return;
       payload.at = iso;
     }
@@ -117,18 +114,15 @@ export function ActionFormModal({
   );
 }
 
-/** ISO datetime 을 datetime-local input 의 기본값으로 변환. */
-export function isoToLocalInputValue(iso: string | null | undefined): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const pad = (n: number): string => n.toString().padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
-    d.getHours(),
-  )}:${pad(d.getMinutes())}`;
+/** ISO datetime 을 지정 timezone 의 datetime-local 기본값으로 변환. tz 미지정 시 browser local. */
+export function isoToLocalInputValue(
+  iso: string | null | undefined,
+  tz?: string,
+): string {
+  return isoToLocalInputInTz(iso, tz);
 }
 
-/** 지금 시각을 datetime-local 포맷으로 — 액션 모달 기본값 (clock_in/clock_out 등). */
-export function nowAsLocalInput(): string {
-  return isoToLocalInputValue(new Date().toISOString());
+/** 지금 시각을 지정 timezone 의 datetime-local 포맷으로 — 액션 모달 기본값. */
+export function nowAsLocalInput(tz?: string): string {
+  return isoToLocalInputInTz(new Date().toISOString(), tz);
 }

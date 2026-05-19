@@ -216,6 +216,75 @@ export function getWorkDate(
   return localDateStr;
 }
 
+/** UTC ISO 문자열을 지정 timezone 의 wall clock "YYYY-MM-DDTHH:mm" 으로 변환.
+ *  datetime-local input value 로 사용. timezone 미지정 시 browser local.
+ *  예: ("2026-05-18T16:00:00Z", "America/Los_Angeles") → "2026-05-18T09:00"
+ */
+export function isoToLocalInputInTz(
+  iso: string | null | undefined,
+  timezone?: string,
+): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const opts: Intl.DateTimeFormatOptions = {
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", hour12: false,
+  };
+  if (timezone) opts.timeZone = timezone;
+  const parts = new Intl.DateTimeFormat("en-CA", opts).formatToParts(d);
+  const get = (t: string): string => parts.find((p) => p.type === t)?.value ?? "00";
+  let hour = get("hour");
+  if (hour === "24") hour = "00"; // en-CA 가 자정을 "24"로 표시할 수 있음
+  return `${get("year")}-${get("month")}-${get("day")}T${hour}:${get("minute")}`;
+}
+
+// helper: 주어진 UTC ms 시점에 tz 의 wall time 을 UTC ms 로 표현 (offset 계산용)
+function wallMsFromTz(utcMs: number, timezone: string): number {
+  const d = new Date(utcMs);
+  const opts: Intl.DateTimeFormatOptions = {
+    timeZone: timezone,
+    year: "numeric", month: "2-digit", day: "2-digit",
+    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false,
+  };
+  const parts = new Intl.DateTimeFormat("en-CA", opts).formatToParts(d);
+  const get = (t: string): string => parts.find((p) => p.type === t)?.value ?? "00";
+  let hour = get("hour");
+  if (hour === "24") hour = "00";
+  return Date.UTC(
+    Number(get("year")), Number(get("month")) - 1, Number(get("day")),
+    Number(hour), Number(get("minute")), Number(get("second")),
+  );
+}
+
+/** datetime-local 값("YYYY-MM-DDTHH:mm")을 지정 timezone 의 wall clock 으로 해석해 UTC ISO 반환.
+ *  timezone 미지정 시 browser local fallback. DST 전환 시점에선 ±1h 오차 가능 (rare).
+ *  예: ("2026-05-18T09:00", "America/Los_Angeles") → "2026-05-18T16:00:00.000Z"
+ */
+export function localInputToIsoInTz(
+  input: string,
+  timezone?: string,
+): string | null {
+  if (!input) return null;
+  const m = input.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/);
+  if (!m) {
+    const d = new Date(input);
+    return Number.isNaN(d.getTime()) ? null : d.toISOString();
+  }
+  const [, y, mo, d, hh, mm] = m;
+  if (!timezone) {
+    const dd = new Date(input);
+    return Number.isNaN(dd.getTime()) ? null : dd.toISOString();
+  }
+  const naiveUtcMs = Date.UTC(
+    Number(y), Number(mo) - 1, Number(d), Number(hh), Number(mm), 0,
+  );
+  const tzWallMs = wallMsFromTz(naiveUtcMs, timezone);
+  const offsetMs = tzWallMs - naiveUtcMs;
+  const utcMs = naiveUtcMs - offsetMs;
+  return new Date(utcMs).toISOString();
+}
+
 /** Cross-midnight shift 시간 계산 (분 단위).
  *  end < start이면 자정 넘김으로 처리.
  *  예: "22:00" → "02:00" = 240분

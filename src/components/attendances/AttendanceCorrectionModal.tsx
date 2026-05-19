@@ -5,7 +5,7 @@ import { ArrowRight } from "lucide-react";
 import { Button, Input, Textarea } from "@/components/ui";
 import { useCorrectAttendance } from "@/hooks";
 import type { Attendance } from "@/types";
-import { formatDateTime } from "@/lib/utils";
+import { formatDateTime, isoToLocalInputInTz, localInputToIsoInTz } from "@/lib/utils";
 import { ReasonPicker } from "./ReasonPicker";
 
 /**
@@ -15,25 +15,10 @@ import { ReasonPicker } from "./ReasonPicker";
  * 여기서는 이미 기록된 시각이나 노트의 오타/오기록 정정 같이 status 가 안 바뀌는
  * 단순 보정만 다룬다. Reason 필수 + Before → After diff.
  *
+ * 시각 입출력은 매장 timezone(tz prop) 기준 wall clock. browser local tz 영향 없음.
+ *
  * useModal().open() 으로 띄울 것 — close(true) 면 성공, close() 면 취소.
  */
-
-function isoToLocalInput(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const pad = (n: number): string => n.toString().padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
-    d.getHours(),
-  )}:${pad(d.getMinutes())}`;
-}
-
-function localInputToIso(s: string): string | null {
-  if (!s) return null;
-  const d = new Date(s);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toISOString();
-}
 
 interface Draft {
   clock_in: string;
@@ -55,8 +40,8 @@ export function AttendanceCorrectionModal({
 }: AttendanceCorrectionModalProps): React.ReactElement {
   const original: Draft = useMemo(
     () => ({
-      clock_in: isoToLocalInput(attendance.clock_in),
-      clock_out: isoToLocalInput(attendance.clock_out),
+      clock_in: isoToLocalInputInTz(attendance.clock_in, tz),
+      clock_out: isoToLocalInputInTz(attendance.clock_out, tz),
       note: attendance.note ?? "",
     }),
     [attendance],
@@ -76,7 +61,7 @@ export function AttendanceCorrectionModal({
         label: "Clock In",
         before: attendance.clock_in ? formatDateTime(attendance.clock_in, tz) : "—",
         after: draft.clock_in
-          ? formatDateTime(localInputToIso(draft.clock_in) ?? "", tz)
+          ? formatDateTime(localInputToIsoInTz(draft.clock_in, tz) ?? "", tz)
           : "—",
       });
     }
@@ -86,7 +71,7 @@ export function AttendanceCorrectionModal({
         label: "Clock Out",
         before: attendance.clock_out ? formatDateTime(attendance.clock_out, tz) : "—",
         after: draft.clock_out
-          ? formatDateTime(localInputToIso(draft.clock_out) ?? "", tz)
+          ? formatDateTime(localInputToIsoInTz(draft.clock_out, tz) ?? "", tz)
           : "—",
       });
     }
@@ -108,12 +93,17 @@ export function AttendanceCorrectionModal({
     if (!canSave) return;
     const trimmedReason = reason.trim();
     try {
-      for (const f of changedFields) {
-        const value: string =
-          f.key === "clock_in" || f.key === "clock_out"
-            ? localInputToIso(draft[f.key]) ?? ""
-            : (draft[f.key] as string);
-        if (!value && (f.key === "clock_in" || f.key === "clock_out")) continue;
+      // 시간 무결성 순서로 정렬 — clock_in 먼저, clock_out 마지막 (server 가 field 별 순차 처리).
+      const order: Array<keyof Draft> = ["clock_in", "clock_out", "note"];
+      const sorted = [...changedFields].sort(
+        (a, b) => order.indexOf(a.key) - order.indexOf(b.key),
+      );
+      const timeFields: Set<keyof Draft> = new Set(["clock_in", "clock_out"]);
+      for (const f of sorted) {
+        const value: string = timeFields.has(f.key)
+          ? localInputToIsoInTz(draft[f.key], tz) ?? ""
+          : (draft[f.key] as string);
+        if (!value && timeFields.has(f.key)) continue;
         await correctAttendance.mutateAsync({
           id: attendance.id,
           data: {
@@ -129,20 +119,42 @@ export function AttendanceCorrectionModal({
     }
   };
 
+  const scheduledLine: string | null = (() => {
+    const s = attendance.scheduled_start_display;
+    const e = attendance.scheduled_end_display;
+    if (!s && !e) return null;
+    return `${s ?? "—"} ~ ${e ?? "—"}`;
+  })();
+
   return (
     <div className="flex flex-col gap-5">
-      <div className="text-xs text-text-muted">
-        {attendance.user_name} · {attendance.store_name} · {attendance.work_date}
-        <span className="ml-2 text-text-muted">
+      <div className="text-xs text-text-muted space-y-0.5">
+        <div>
+          {attendance.user_name} · {attendance.store_name} · {attendance.work_date}
+        </div>
+        {scheduledLine && (
+          <div>
+            <span className="text-text-secondary">Scheduled:</span> {scheduledLine}
+          </div>
+        )}
+        <div className="text-text-muted">
           (Status changes use the action buttons on the page.)
-        </span>
+        </div>
       </div>
 
-      <ReasonPicker
-        value={reason}
-        onChange={setReason}
-        hint="Required. Choose a preset or pick Other to describe."
-      />
+      <div>
+        <label className="block text-sm font-medium text-text mb-1.5">
+          Reason <span className="text-danger">*</span>
+        </label>
+        <ReasonPicker
+          value={reason}
+          onChange={setReason}
+          hint="Required. Choose a preset or pick Other to describe."
+        />
+        {!reasonValid && (
+          <p className="text-xs text-danger mt-1">Reason is required.</p>
+        )}
+      </div>
 
       <div className="grid grid-cols-2 gap-3">
         <Input

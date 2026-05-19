@@ -294,7 +294,9 @@ export default function SchedulesCalendarView() {
     return getWeekStart(new Date());
   }, [params.week]);
   const weekDates = useMemo(() => buildWeekDates(weekStart), [weekStart]);
-  const selectedDay = params.day || (weekDates[0]?.date ?? "");
+  // day 는 transient 라 페이지 재방문 시 비는데, daily 뷰일 땐 weekDates[0] (일요일) 대신
+  // 오늘로 fallback (사용자가 daily 토글 처음 누를 때와 동일한 의도).
+  const selectedDay = params.day || (view === "daily" ? todayInTimezone() : (weekDates[0]?.date ?? ""));
   const monthYear = useMemo(() => {
     if (params.my) {
       const [y, m] = params.my.split("-").map(Number);

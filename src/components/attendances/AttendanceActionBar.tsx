@@ -40,10 +40,13 @@ import {
 
 interface AttendanceActionBarProps {
   attendance: Attendance;
+  /** 매장 timezone — time picker / wall clock 변환 기준. 미지정 시 browser local. */
+  tz?: string;
 }
 
 export function AttendanceActionBar({
   attendance,
+  tz,
 }: AttendanceActionBarProps): React.ReactElement {
   const modal = useModal();
   const clockIn = useClockInAction();
@@ -66,7 +69,8 @@ export function AttendanceActionBar({
           title="Clock In"
           description={`Record when ${attendance.user_name ?? "the employee"} actually clocked in.`}
           needsTime
-          defaultTime={nowAsLocalInput()}
+          defaultTime={nowAsLocalInput(tz)}
+          tz={tz}
           timeLabel="Clock-in time"
           submitLabel="Clock in"
           busy={clockIn.isPending}
@@ -93,7 +97,8 @@ export function AttendanceActionBar({
               : "Record the end of this shift."
           }
           needsTime
-          defaultTime={nowAsLocalInput()}
+          defaultTime={nowAsLocalInput(tz)}
+          tz={tz}
           timeLabel="Clock-out time"
           submitLabel="Clock out"
           busy={clockOut.isPending}
@@ -119,7 +124,8 @@ export function AttendanceActionBar({
           title={`Start ${label}`}
           description={`Record when the break started. Status will change to "On break".`}
           needsTime
-          defaultTime={nowAsLocalInput()}
+          defaultTime={nowAsLocalInput(tz)}
+          tz={tz}
           breakType={breakType}
           timeLabel="Break start time"
           submitLabel={`Start ${breakType === "paid_10min" ? "10-min break" : "meal break"}`}
@@ -147,7 +153,8 @@ export function AttendanceActionBar({
           title="End Break"
           description="Record when the break actually ended."
           needsTime
-          defaultTime={nowAsLocalInput()}
+          defaultTime={nowAsLocalInput(tz)}
+          tz={tz}
           timeLabel="Break end time"
           submitLabel="End break"
           busy={endBreak.isPending}
