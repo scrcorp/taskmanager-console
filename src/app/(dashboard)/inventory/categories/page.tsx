@@ -22,9 +22,8 @@ import {
 } from "@/hooks/useInventory";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@/lib/permissions";
-import { Button, Card, Modal, Input, ConfirmDialog } from "@/components/ui";
-import { useResultModal } from "@/components/ui/ResultModal";
-import { parseApiError } from "@/lib/utils";
+import { Button, Card, Modal, Input } from "@/components/ui";
+import { useModal } from "@/components/ui/imperative-modal";
 import type { InventoryCategory, InventorySubUnit } from "@/types";
 
 // ─── Tab types ────────────────────────────────────────────────────────────────
@@ -40,7 +39,7 @@ interface EditingCategory {
 }
 
 function CategoriesTab({ canManage }: { canManage: boolean }): React.ReactElement {
-  const { showSuccess, showError } = useResultModal();
+  const modal = useModal();
   const { data: categoriesRaw, isLoading } = useCategories();
   const createCategory = useCreateCategory();
   const updateCategory = useUpdateCategory();
@@ -52,7 +51,6 @@ function CategoriesTab({ canManage }: { canManage: boolean }): React.ReactElemen
   const [addName, setAddName] = useState("");
   const [editTarget, setEditTarget] = useState<EditingCategory | null>(null);
   const [editName, setEditName] = useState("");
-  const [deleteTarget, setDeleteTarget] = useState<InventoryCategory | null>(null);
 
   const topLevel: InventoryCategory[] = (categoriesRaw ?? []).filter((c) => !c.parent_id);
   const allCategories: InventoryCategory[] = categoriesRaw ?? [];
@@ -83,23 +81,19 @@ function CategoriesTab({ canManage }: { canManage: boolean }): React.ReactElemen
 
   const handleAddSubmit = useCallback(() => {
     if (!addName.trim()) {
-      showError("Category name is required.");
+      void modal.alert({ type: "error", message: "Category name is required." });
       return;
     }
     createCategory.mutate(
       { name: addName.trim(), parent_id: addParentId },
       {
         onSuccess: () => {
-          showSuccess("Category created.");
           setIsAddOpen(false);
           if (addParentId) setExpanded((prev) => new Set([...prev, addParentId]));
         },
-        onError: (err) => {
-          showError(parseApiError(err, "Failed to create category."));
-        },
       },
     );
-  }, [addName, addParentId, createCategory, showSuccess, showError]);
+  }, [addName, addParentId, createCategory, modal]);
 
   const handleOpenEdit = (category: InventoryCategory) => {
     setEditTarget({ id: category.id, name: category.name, parent_id: category.parent_id });
@@ -112,28 +106,22 @@ function CategoriesTab({ canManage }: { canManage: boolean }): React.ReactElemen
       { id: editTarget.id, name: editName.trim() },
       {
         onSuccess: () => {
-          showSuccess("Category updated.");
           setEditTarget(null);
-        },
-        onError: (err) => {
-          showError(parseApiError(err, "Failed to update category."));
         },
       },
     );
-  }, [editTarget, editName, updateCategory, showSuccess, showError]);
+  }, [editTarget, editName, updateCategory]);
 
-  const handleDeleteConfirm = useCallback(() => {
-    if (!deleteTarget) return;
-    deleteCategory.mutate(deleteTarget.id, {
-      onSuccess: () => {
-        showSuccess("Category deleted.");
-        setDeleteTarget(null);
-      },
-      onError: (err) => {
-        showError(parseApiError(err, "Failed to delete category."));
-      },
+  const handleDeleteCategory = useCallback(async (category: InventoryCategory) => {
+    const ok = await modal.confirm({
+      title: "Delete Category",
+      message: `Are you sure you want to delete "${category.name}"? This action cannot be undone.`,
+      confirmLabel: "Delete",
+      variant: "danger",
     });
-  }, [deleteTarget, deleteCategory, showSuccess, showError]);
+    if (!ok) return;
+    deleteCategory.mutate(category.id);
+  }, [deleteCategory, modal]);
 
   return (
     <>
@@ -216,7 +204,7 @@ function CategoriesTab({ canManage }: { canManage: boolean }): React.ReactElemen
                       <button
                         type="button"
                         disabled={!canDelete(parent)}
-                        onClick={() => canDelete(parent) && setDeleteTarget(parent)}
+                        onClick={() => canDelete(parent) && void handleDeleteCategory(parent)}
                         className={`p-1.5 rounded transition-colors ${
                           canDelete(parent)
                             ? "text-text-muted hover:text-danger hover:bg-danger-muted cursor-pointer"
@@ -270,7 +258,7 @@ function CategoriesTab({ canManage }: { canManage: boolean }): React.ReactElemen
                               <button
                                 type="button"
                                 disabled={!canDelete(child)}
-                                onClick={() => canDelete(child) && setDeleteTarget(child)}
+                                onClick={() => canDelete(child) && void handleDeleteCategory(child)}
                                 className={`p-1.5 rounded transition-colors ${
                                   canDelete(child)
                                     ? "text-text-muted hover:text-danger hover:bg-danger-muted cursor-pointer"
@@ -364,16 +352,6 @@ function CategoriesTab({ canManage }: { canManage: boolean }): React.ReactElemen
         </div>
       </Modal>
 
-      {/* Delete Confirm */}
-      <ConfirmDialog
-        isOpen={deleteTarget !== null}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={handleDeleteConfirm}
-        title="Delete Category"
-        message={`Are you sure you want to delete "${deleteTarget?.name}"? This action cannot be undone.`}
-        confirmLabel="Delete"
-        isLoading={deleteCategory.isPending}
-      />
     </>
   );
 }
@@ -381,7 +359,7 @@ function CategoriesTab({ canManage }: { canManage: boolean }): React.ReactElemen
 // ─── Sub Units section ────────────────────────────────────────────────────────
 
 function SubUnitsTab({ canManage }: { canManage: boolean }): React.ReactElement {
-  const { showSuccess, showError } = useResultModal();
+  const modal = useModal();
   const { data: subUnits, isLoading } = useSubUnits();
   const createSubUnit = useCreateSubUnit();
   const updateSubUnit = useUpdateSubUnit();
@@ -391,27 +369,22 @@ function SubUnitsTab({ canManage }: { canManage: boolean }): React.ReactElement 
   const [addName, setAddName] = useState("");
   const [editTarget, setEditTarget] = useState<InventorySubUnit | null>(null);
   const [editName, setEditName] = useState("");
-  const [deleteTarget, setDeleteTarget] = useState<InventorySubUnit | null>(null);
 
   const handleAddSubmit = useCallback(() => {
     if (!addName.trim()) {
-      showError("Sub unit name is required.");
+      void modal.alert({ type: "error", message: "Sub unit name is required." });
       return;
     }
     createSubUnit.mutate(
       { name: addName.trim(), code: addName.trim().toLowerCase().replace(/\s+/g, "_") },
       {
         onSuccess: () => {
-          showSuccess("Sub unit created.");
           setIsAddOpen(false);
           setAddName("");
         },
-        onError: (err) => {
-          showError(parseApiError(err, "Failed to create sub unit."));
-        },
       },
     );
-  }, [addName, createSubUnit, showSuccess, showError]);
+  }, [addName, createSubUnit, modal]);
 
   const handleOpenEdit = (unit: InventorySubUnit) => {
     setEditTarget(unit);
@@ -424,28 +397,22 @@ function SubUnitsTab({ canManage }: { canManage: boolean }): React.ReactElement 
       { id: editTarget.id, name: editName.trim() },
       {
         onSuccess: () => {
-          showSuccess("Sub unit updated.");
           setEditTarget(null);
-        },
-        onError: (err) => {
-          showError(parseApiError(err, "Failed to update sub unit."));
         },
       },
     );
-  }, [editTarget, editName, updateSubUnit, showSuccess, showError]);
+  }, [editTarget, editName, updateSubUnit]);
 
-  const handleDeleteConfirm = useCallback(() => {
-    if (!deleteTarget) return;
-    deleteSubUnit.mutate(deleteTarget.id, {
-      onSuccess: () => {
-        showSuccess("Sub unit deleted.");
-        setDeleteTarget(null);
-      },
-      onError: (err) => {
-        showError(parseApiError(err, "Failed to delete sub unit. It may still be in use by products."));
-      },
+  const handleDeleteSubUnit = useCallback(async (unit: InventorySubUnit) => {
+    const ok = await modal.confirm({
+      title: "Delete Sub Unit",
+      message: `Are you sure you want to delete "${unit.name}"? This action cannot be undone.`,
+      confirmLabel: "Delete",
+      variant: "danger",
     });
-  }, [deleteTarget, deleteSubUnit, showSuccess, showError]);
+    if (!ok) return;
+    deleteSubUnit.mutate(unit.id);
+  }, [deleteSubUnit, modal]);
 
   const items: InventorySubUnit[] = subUnits ?? [];
 
@@ -501,7 +468,7 @@ function SubUnitsTab({ canManage }: { canManage: boolean }): React.ReactElement 
                     <button
                       type="button"
                       disabled={unit.product_count > 0}
-                      onClick={() => unit.product_count === 0 && setDeleteTarget(unit)}
+                      onClick={() => unit.product_count === 0 && void handleDeleteSubUnit(unit)}
                       className={`p-1.5 rounded transition-colors ${
                         unit.product_count === 0
                           ? "text-text-muted hover:text-danger hover:bg-danger-muted cursor-pointer"
@@ -590,16 +557,6 @@ function SubUnitsTab({ canManage }: { canManage: boolean }): React.ReactElement 
         </div>
       </Modal>
 
-      {/* Delete Confirm */}
-      <ConfirmDialog
-        isOpen={deleteTarget !== null}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={handleDeleteConfirm}
-        title="Delete Sub Unit"
-        message={`Are you sure you want to delete "${deleteTarget?.name}"? This action cannot be undone.`}
-        confirmLabel="Delete"
-        isLoading={deleteSubUnit.isPending}
-      />
     </>
   );
 }

@@ -7,9 +7,12 @@ import type { NextRequest } from "next/server";
  *   console  : console.hermesops.site / stg-console.hermesops.site (+ vercel.app preview)
  *   public   : hermesops.site / stg.hermesops.site
  *
- * - console host에서는 기존 동작 유지 — 모든 페이지 OK, /login + 토큰 있으면 / 로.
- * - public host에서는 /join/* 만 노출. 그 외 모든 path는 /coming-soon
- *   페이지로 rewrite (URL은 사용자가 친 그대로, 콘텐츠만 준비중).
+ * - console host: 모든 경로 통과. 인증은 클라이언트(localStorage) 에서 처리.
+ * - public host: /join/* 만 노출. 그 외 모든 path 는 /coming-soon 으로 rewrite.
+ *
+ * NOTE: 이전에는 cookie 기반 token 체크로 /login 리다이렉트를 시도했으나,
+ * 토큰은 localStorage 에만 저장되므로 미들웨어에서 읽을 수 없어 dead code 였다.
+ * /login → / 리다이렉트는 클라이언트 측 useAuthStore 에서 처리한다.
  */
 
 const CONSOLE_HOST_PREFIX = "console.";
@@ -33,16 +36,12 @@ function pathMatches(pathname: string, prefixes: string[]): boolean {
 export function middleware(request: NextRequest) {
   const host = request.headers.get("host") ?? "";
   const { pathname } = request.nextUrl;
-  const token = request.cookies.get("taskmanager_access_token")?.value;
 
   if (pathMatches(pathname, ALWAYS_ALLOWED_PREFIXES)) {
     return NextResponse.next();
   }
 
   if (isConsoleHost(host)) {
-    if (pathname === "/login" && token) {
-      return NextResponse.redirect(new URL("/", request.url));
-    }
     return NextResponse.next();
   }
 

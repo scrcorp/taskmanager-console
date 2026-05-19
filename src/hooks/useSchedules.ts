@@ -2,6 +2,7 @@ import { useQuery, useMutation, useQueryClient, type UseQueryResult, type UseMut
 import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
 import { useResultModal } from "@/components/ui/ResultModal";
+import { useModal } from "@/components/ui/imperative-modal";
 import { parseApiError } from "@/lib/utils";
 import type { Schedule, ScheduleBulkCreate, ScheduleBulkResult, ScheduleCreate, ScheduleUpdate, ScheduleValidation, PaginatedResponse, BulkPreviewEntry, BulkPreviewResponse, BulkUpdateRequest, BulkUpdateResult, BulkDeleteRequest, BulkDeleteResult } from "@/types";
 
@@ -134,6 +135,37 @@ export const useDeleteSchedule = (): UseMutationResult<void, Error, string> => {
     onError: onErr("Failed to delete schedule"),
   });
 };
+
+/**
+ * "스케줄 삭제하시겠습니까?" confirm 모달 + delete mutation 을 하나로 묶은 흐름.
+ *
+ * 어디서 호출되든 confirm 메시지/톤/시스템이 동일 — Edit Modal, Detail page, Calendar view 모두 같은 UX.
+ *
+ * 사용:
+ *   const deleteFlow = useDeleteScheduleFlow();
+ *   await deleteFlow(id, () => router.push("/schedules"));
+ *
+ * @returns Promise<boolean> — true: 사용자가 confirm 후 mutation 시작 / false: 취소 (mutation 안 함)
+ *
+ * 주의: 반환값 true 는 "확정"을 의미할 뿐 mutation 성공이 아님.
+ * mutation 의 결과 모달은 hook 의 onSuccess/onError 가 알아서 띄움.
+ * 성공 후 페이지 이동/refetch 같은 후처리는 onDone 콜백으로.
+ */
+export function useDeleteScheduleFlow() {
+  const modal = useModal();
+  const deleteMutation = useDeleteSchedule();
+  return async (id: string, onDone?: () => void): Promise<boolean> => {
+    const ok = await modal.confirm({
+      title: "Delete Schedule",
+      message: "This schedule will be permanently deleted. This action cannot be undone.",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!ok) return false;
+    deleteMutation.mutate(id, { onSuccess: onDone });
+    return true;
+  };
+}
 
 export const useGenerateFromRequests = (): UseMutationResult<Schedule[], Error, string> => {
   const qc = useQueryClient();

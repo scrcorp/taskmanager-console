@@ -62,7 +62,9 @@ export const PERMISSIONS = {
   // ── Checklist Log ──
   CHECKLIST_LOG_READ: "checklist_log:read",
 
-  // ── Tasks ──
+  // ── Tasks (work items — promoted from issue reports or directly created) ──
+  // 명명 변경 이력: additional_tasks → issues → tasks. 같은 permission code 가
+  // legacy additional_tasks 와 신규 work-item 양쪽에서 공통 사용됨.
   TASKS_READ: "tasks:read",
   TASKS_CREATE: "tasks:create",
   TASKS_UPDATE: "tasks:update",
@@ -74,11 +76,17 @@ export const PERMISSIONS = {
   EVALUATIONS_UPDATE: "evaluations:update",
   EVALUATIONS_DELETE: "evaluations:delete",
 
-  // ── Daily Reports ──
+  // ── Daily Reports (legacy) ──
   DAILY_REPORTS_READ: "daily_reports:read",
   DAILY_REPORTS_CREATE: "daily_reports:create",
   DAILY_REPORTS_UPDATE: "daily_reports:update",
   DAILY_REPORTS_DELETE: "daily_reports:delete",
+
+  // ── Reports (multi-type: daily, issue, ...) ──
+  REPORTS_READ: "reports:read",
+  REPORTS_CREATE: "reports:create",
+  REPORTS_UPDATE: "reports:update",
+  REPORTS_DELETE: "reports:delete",
 
   // ── Dashboard ──
   DASHBOARD_READ: "dashboard:read",
@@ -96,6 +104,11 @@ export const PERMISSIONS = {
   // ── Organization ──
   ORG_READ: "org:read",
   ORG_UPDATE: "org:update",
+  ORG_DELETE: "org:delete",
+
+  // ── Super Owner / Owner 임명 (조직 관리자 전용) ──
+  SUPER_OWNER_TRANSFER: "super_owner:transfer",
+  OWNER_ASSIGN: "owner:assign",
 
   // ── Attendance Devices ──
   ATTENDANCE_DEVICES_READ: "attendance_devices:read",
@@ -140,9 +153,14 @@ export const PAGE_PERMISSIONS: Record<string, string> = {
   "/checklists/instances": PERMISSIONS.CHECKLIST_REVIEW_READ,
   "/checklists/log": PERMISSIONS.CHECKLIST_LOG_READ,
   "/tasks": PERMISSIONS.TASKS_READ,
+  "/tasks/new": PERMISSIONS.TASKS_CREATE,
   "/notices": PERMISSIONS.ANNOUNCEMENTS_READ,
   "/evaluations": PERMISSIONS.EVALUATIONS_READ,
   "/daily-reports": PERMISSIONS.DAILY_REPORTS_READ,
+  "/reports": PERMISSIONS.REPORTS_READ,
+  "/reports/issues": PERMISSIONS.REPORTS_READ,
+  "/reports/issues/new": PERMISSIONS.REPORTS_CREATE,
+  "/reports/issues/templates": PERMISSIONS.REPORTS_UPDATE,
   "/inventory": PERMISSIONS.INVENTORY_READ,
   "/settings/roles": PERMISSIONS.ROLES_READ,
   "/settings/attendance-devices": PERMISSIONS.ATTENDANCE_DEVICES_READ,
@@ -168,6 +186,7 @@ export const MENU_PERMISSIONS: Record<string, string> = {
   "/notices": PERMISSIONS.ANNOUNCEMENTS_READ,
   "/evaluations": PERMISSIONS.EVALUATIONS_READ,
   "/daily-reports": PERMISSIONS.DAILY_REPORTS_READ,
+  "/reports/issues": PERMISSIONS.REPORTS_READ,
   "/inventory": PERMISSIONS.INVENTORY_READ,
   "/settings": PERMISSIONS.ORG_READ,
   "/settings/roles": PERMISSIONS.ROLES_READ,
@@ -183,6 +202,7 @@ export const MENU_PERMISSIONS: Record<string, string> = {
  * 접근 제어는 hasPermission()을 우선 사용할 것.
  */
 export const ROLE_PRIORITY = {
+  SUPER_OWNER: 5,
   OWNER: 10,
   GM: 20,
   SV: 30,

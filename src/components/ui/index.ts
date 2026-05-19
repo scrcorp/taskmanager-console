@@ -15,8 +15,6 @@ export { Badge } from "./Badge";
 export { ToastProvider, useToast } from "./Toast";
 export { Tabs } from "./Tabs";
 export { Pagination } from "./Pagination";
-export { ConfirmDialog } from "./ConfirmDialog";
-export { ErrorModal } from "./ErrorModal";
 export { ResultModalProvider, useResultModal } from "./ResultModal";
 export type { ResultType } from "./ResultModal";
 export { EmptyState } from "./EmptyState";

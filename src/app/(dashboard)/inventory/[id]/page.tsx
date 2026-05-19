@@ -19,11 +19,9 @@ import {
   Table,
   Badge,
   Modal,
-  ConfirmDialog,
   LoadingSpinner,
 } from "@/components/ui";
-import { useResultModal } from "@/components/ui/ResultModal";
-import { parseApiError, formatDateTime } from "@/lib/utils";
+import { useModal } from "@/components/ui/imperative-modal";
 import { ProductForm, type ProductFormData } from "@/components/inventory/ProductForm";
 import type { StoreInventoryItem, StoreInventoryBrief } from "@/types";
 
@@ -39,14 +37,12 @@ export default function ProductDetailPage(): React.ReactElement {
   const params = useParams<{ id: string }>();
   const productId = params.id;
 
-  const { showSuccess, showError } = useResultModal();
+  const modal = useModal();
   const { hasPermission } = usePermissions();
   const canUpdate = hasPermission(PERMISSIONS.INVENTORY_UPDATE);
   const canDelete = hasPermission(PERMISSIONS.INVENTORY_DELETE);
 
   const [isEditOpen, setIsEditOpen] = useState(false);
-  const [isDeactivateOpen, setIsDeactivateOpen] = useState(false);
-  const [isDeleteOpen, setIsDeleteOpen] = useState(false);
   const [editFormData, setEditFormData] = useState<ProductFormData | null>(null);
 
   const { data: product, isLoading } = useProduct(productId);
@@ -122,56 +118,52 @@ export default function ProductDetailPage(): React.ReactElement {
       },
       {
         onSuccess: () => {
-          showSuccess("Product updated.");
           setIsEditOpen(false);
-        },
-        onError: (err) => {
-          showError(parseApiError(err, "Failed to update product."));
         },
       },
     );
-  }, [editFormData, product, updateProduct, showSuccess, showError]);
+  }, [editFormData, product, updateProduct]);
 
-  const handleDeactivate = useCallback(() => {
+  const handleDeactivate = useCallback(async () => {
     if (!product) return;
+    const ok = await modal.confirm({
+      title: "Deactivate Product",
+      message: "Are you sure you want to deactivate this product? Store inventory records will be preserved.",
+      confirmLabel: "Deactivate",
+      variant: "danger",
+    });
+    if (!ok) return;
     deactivateProduct.mutate(product.id, {
       onSuccess: () => {
-        showSuccess("Product deactivated.");
-        setIsDeactivateOpen(false);
         router.push("/inventory");
       },
-      onError: (err) => {
-        showError(parseApiError(err, "Failed to deactivate."));
-      },
     });
-  }, [product, deactivateProduct, showSuccess, showError, router]);
+  }, [product, deactivateProduct, modal, router]);
 
   const handleActivate = useCallback(() => {
     if (!product) return;
     activateProduct.mutate(product.id, {
       onSuccess: () => {
-        showSuccess("Product activated.");
         router.refresh();
       },
-      onError: (err) => {
-        showError(parseApiError(err, "Failed to activate."));
-      },
     });
-  }, [product, activateProduct, showSuccess, showError, router]);
+  }, [product, activateProduct, router]);
 
-  const handleDelete = useCallback(() => {
+  const handleDelete = useCallback(async () => {
     if (!product) return;
+    const ok = await modal.confirm({
+      title: "Permanently Delete Product",
+      message: "This will permanently delete this product and ALL related data including store inventory, stock in/out history, and audit records. This action CANNOT be undone.",
+      confirmLabel: "Delete Permanently",
+      variant: "danger",
+    });
+    if (!ok) return;
     deleteProduct.mutate(product.id, {
       onSuccess: () => {
-        showSuccess("Product permanently deleted.");
-        setIsDeleteOpen(false);
         router.push("/inventory");
       },
-      onError: (err) => {
-        showError(parseApiError(err, "Failed to delete."));
-      },
     });
-  }, [product, deleteProduct, showSuccess, showError, router]);
+  }, [product, deleteProduct, modal, router]);
 
   if (isLoading) {
     return (
@@ -218,7 +210,8 @@ export default function ProductDetailPage(): React.ReactElement {
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => setIsDeactivateOpen(true)}
+            onClick={() => void handleDeactivate()}
+            isLoading={deactivateProduct.isPending}
           >
             <Power size={14} />
             Deactivate
@@ -238,7 +231,8 @@ export default function ProductDetailPage(): React.ReactElement {
           <Button
             variant="danger"
             size="sm"
-            onClick={() => setIsDeleteOpen(true)}
+            onClick={() => void handleDelete()}
+            isLoading={deleteProduct.isPending}
           >
             Delete
           </Button>
@@ -368,26 +362,6 @@ export default function ProductDetailPage(): React.ReactElement {
         </div>
       </Modal>
 
-      {/* Deactivate Confirm */}
-      <ConfirmDialog
-        isOpen={isDeactivateOpen}
-        onClose={() => setIsDeactivateOpen(false)}
-        onConfirm={handleDeactivate}
-        title="Deactivate Product"
-        message="Are you sure you want to deactivate this product? Store inventory records will be preserved."
-        confirmLabel="Deactivate"
-        isLoading={deactivateProduct.isPending}
-      />
-
-      <ConfirmDialog
-        isOpen={isDeleteOpen}
-        onClose={() => setIsDeleteOpen(false)}
-        onConfirm={handleDelete}
-        title="Permanently Delete Product"
-        message="This will permanently delete this product and ALL related data including store inventory, stock in/out history, and audit records. This action CANNOT be undone."
-        confirmLabel="Delete Permanently"
-        isLoading={deleteProduct.isPending}
-      />
     </div>
   );
 }

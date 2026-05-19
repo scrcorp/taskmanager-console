@@ -20,8 +20,7 @@ import { Input } from "@/components/ui/Input";
 import { Table, Badge, Modal, Select, MultiSelectFilter } from "@/components/ui";
 import type { Column } from "@/components/ui/Table";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
-import { useToast } from "@/components/ui/Toast";
-import { formatDate, parseApiError } from "@/lib/utils";
+import { formatDate } from "@/lib/utils";
 import { useTimezone } from "@/hooks/useTimezone";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS, ROLE_PRIORITY } from "@/lib/permissions";
@@ -67,7 +66,6 @@ const INITIAL_FORM: UserFormData = {
 
 export default function UsersPage(): React.ReactElement {
   const router = useRouter();
-  const { toast } = useToast();
   const { hasPermission } = usePermissions();
   const tz = useTimezone();
   const canManageUsers = hasPermission(PERMISSIONS.USERS_CREATE);
@@ -279,13 +277,12 @@ export default function UsersPage(): React.ReactElement {
         hourly_rate: parsedRate ? Number(parsedRate) : null,
         store_assignments: store_assignments.length > 0 ? store_assignments : undefined,
       });
-      toast({ type: "success", message: "Staff member created successfully!" });
       setIsCreateOpen(false);
       setCreateForm(INITIAL_FORM);
-    } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to create staff member.") });
+    } catch {
+      // hook 자동 모달
     }
-  }, [createForm, createUser, toast]);
+  }, [createForm, createUser]);
 
   /** 행 클릭으로 상세 페이지 이동 / Navigate to detail on row click */
   const handleRowClick = useCallback(

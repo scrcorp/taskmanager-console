@@ -25,11 +25,10 @@ import {
   Modal,
   Badge,
   Pagination,
-  ConfirmDialog,
   LoadingSpinner,
 } from "@/components/ui";
-import { useResultModal } from "@/components/ui/ResultModal";
-import { formatDate, parseApiError } from "@/lib/utils";
+import { useModal } from "@/components/ui/imperative-modal";
+import { formatDate } from "@/lib/utils";
 import { useTimezone } from "@/hooks/useTimezone";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@/lib/permissions";
@@ -38,7 +37,7 @@ import type { EvalTemplate, Evaluation as EvalType } from "@/types";
 const PER_PAGE: number = 20;
 
 export default function EvaluationsPage(): React.ReactElement {
-  const { showSuccess, showError } = useResultModal();
+  const modal = useModal();
   const { hasPermission } = usePermissions();
   const tz = useTimezone();
   const isGMOrAbove = hasPermission(PERMISSIONS.EVALUATIONS_CREATE);
@@ -53,7 +52,6 @@ export default function EvaluationsPage(): React.ReactElement {
   const [templateName, setTemplateName] = useState("");
   const [templateTargetRole, setTemplateTargetRole] = useState("");
   const [templateEvalType, setTemplateEvalType] = useState("adhoc");
-  const [deleteTemplateId, setDeleteTemplateId] = useState<string | null>(null);
 
   // Data hooks
   const { data: templatesData, isLoading: templatesLoading } = useEvalTemplates(templatePage, PER_PAGE);
@@ -74,35 +72,33 @@ export default function EvaluationsPage(): React.ReactElement {
         target_role: templateTargetRole || null,
         eval_type: templateEvalType,
       });
-      showSuccess("Template created");
       setIsTemplateFormOpen(false);
       setTemplateName("");
       setTemplateTargetRole("");
       setTemplateEvalType("adhoc");
-    } catch (err) {
-      showError(parseApiError(err, "Failed to create template"));
+    } catch {
+      // hook 자동 모달이 표시함.
     }
-  }, [templateName, templateTargetRole, templateEvalType, createTemplate, showSuccess, showError]);
+  }, [templateName, templateTargetRole, templateEvalType, createTemplate]);
 
-  const handleDeleteTemplate = useCallback(async () => {
-    if (!deleteTemplateId) return;
-    try {
-      await deleteTemplate.mutateAsync(deleteTemplateId);
-      showSuccess("Template deleted");
-      setDeleteTemplateId(null);
-    } catch (err) {
-      showError(parseApiError(err, "Failed to delete template"));
-    }
-  }, [deleteTemplateId, deleteTemplate, showSuccess, showError]);
+  const handleDeleteTemplate = useCallback(async (id: string) => {
+    const ok = await modal.confirm({
+      title: "Delete Template",
+      message: "Are you sure you want to delete this evaluation template? This action cannot be undone.",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!ok) return;
+    deleteTemplate.mutate(id);
+  }, [deleteTemplate, modal]);
 
   const handleSubmitEval = useCallback(async (evalId: string) => {
     try {
       await submitEvaluation.mutateAsync(evalId);
-      showSuccess("Evaluation submitted");
-    } catch (err) {
-      showError(parseApiError(err, "Failed to submit evaluation"));
+    } catch {
+      // hook 자동 모달이 표시함.
     }
-  }, [submitEvaluation, showSuccess, showError]);
+  }, [submitEvaluation]);
 
   const isLoading = activeTab === "templates" ? templatesLoading : evalsLoading;
 
@@ -172,7 +168,7 @@ export default function EvaluationsPage(): React.ReactElement {
                 ? {
                     actions: (
                       <button
-                        onClick={() => setDeleteTemplateId(t.id)}
+                        onClick={() => void handleDeleteTemplate(t.id)}
                         className="text-text-muted hover:text-danger transition-colors"
                       >
                         <Trash2 className="h-4 w-4" />
@@ -284,16 +280,6 @@ export default function EvaluationsPage(): React.ReactElement {
         </div>
       </Modal>
 
-      {/* Delete Template Confirm */}
-      <ConfirmDialog
-        isOpen={!!deleteTemplateId}
-        onClose={() => setDeleteTemplateId(null)}
-        onConfirm={handleDeleteTemplate}
-        title="Delete Template"
-        message="Are you sure you want to delete this evaluation template? This action cannot be undone."
-        confirmLabel="Delete"
-        isLoading={deleteTemplate.isPending}
-      />
     </div>
   );
 }

@@ -9,9 +9,8 @@
 import React, { useState, useEffect } from "react";
 import { AlertTriangle, Send } from "lucide-react";
 import { Card, Button } from "@/components/ui";
-import { useResultModal } from "@/components/ui/ResultModal";
+import { useModal } from "@/components/ui/imperative-modal";
 import { useUpdateScore, useSendReport } from "@/hooks/useChecklistInstances";
-import { parseApiError } from "@/lib/utils";
 import type { ChecklistInstance } from "@/types";
 
 interface ScoreSectionProps {
@@ -19,7 +18,7 @@ interface ScoreSectionProps {
 }
 
 export function ScoreSection({ instance }: ScoreSectionProps): React.ReactElement {
-  const { showSuccess, showError } = useResultModal();
+  const modal = useModal();
   const updateScore = useUpdateScore();
   const sendReport = useSendReport();
 
@@ -39,7 +38,7 @@ export function ScoreSection({ instance }: ScoreSectionProps): React.ReactElemen
 
   const handleSaveScore = async () => {
     if (!isValidScore) {
-      showError("Score must be between 0 and 100.");
+      void modal.alert({ type: "error", message: "Score must be between 0 and 100." });
       return;
     }
     try {
@@ -48,18 +47,16 @@ export function ScoreSection({ instance }: ScoreSectionProps): React.ReactElemen
         score: parsedScore,
         score_note: noteInput || undefined,
       });
-      showSuccess("Score saved.");
-    } catch (err) {
-      showError(parseApiError(err, "Failed to save score."));
+    } catch {
+      // hook handles error modal
     }
   };
 
   const handleSendReport = async () => {
     try {
       await sendReport.mutateAsync({ instanceId: instance.id });
-      showSuccess("Report sent.");
-    } catch (err) {
-      showError(parseApiError(err, "Failed to send report."));
+    } catch {
+      // hook handles error modal
     }
   };
 

@@ -12,9 +12,13 @@ import { useMutationResult } from "@/lib/mutationResult";
 import type {
   Attendance,
   AttendanceBreakItem,
+  AttendanceBreakStartRequest,
+  AttendanceClockActionRequest,
   AttendanceCorrection,
   AttendanceCorrectionRequest,
+  AttendanceCorrectionUpdateRequest,
   AttendanceFilters,
+  AttendanceReasonOnlyRequest,
   BreakSessionCreateRequest,
   BreakSessionUpdateRequest,
   QRCode,
@@ -115,6 +119,40 @@ export const useCorrectAttendance = (): UseMutationResult<
       success("Attendance corrected.");
     },
     onError: error("Couldn't correct attendance"),
+  });
+};
+
+/**
+ * 기존 correction 의 reason 만 수정. History 카드 인라인 편집에서 사용.
+ * Update the reason of an existing correction record (history inline edit).
+ */
+export const useUpdateCorrectionReason = (): UseMutationResult<
+  AttendanceCorrection,
+  Error,
+  { attendanceId: string; correctionId: string; data: AttendanceCorrectionUpdateRequest }
+> => {
+  const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
+  return useMutation<
+    AttendanceCorrection,
+    Error,
+    { attendanceId: string; correctionId: string; data: AttendanceCorrectionUpdateRequest }
+  >({
+    mutationFn: async ({ attendanceId, correctionId, data }) => {
+      const res: AxiosResponse<AttendanceCorrection> = await api.patch(
+        `/console/attendances/${attendanceId}/corrections/${correctionId}`,
+        data,
+      );
+      return res.data;
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["attendances"] });
+      queryClient.invalidateQueries({
+        queryKey: ["attendances", variables.attendanceId],
+      });
+      success("Reason updated.");
+    },
+    onError: error("Couldn't update reason"),
   });
 };
 
@@ -292,5 +330,188 @@ export const useRegenerateQRCode = (): UseMutationResult<
       success("Regenerated.");
     },
     onError: error("Couldn't regenerate QR code"),
+  });
+};
+
+// ────────────────────────────────────────────────────────────────────
+// Attendance state-machine actions — meaningful transitions only.
+// Each hook calls a /actions/* endpoint that enforces invariants on
+// the server (auto-close open break, recalculate totals, etc.).
+// ────────────────────────────────────────────────────────────────────
+
+/** 공통 invalidation 헬퍼. */
+function invalidateAttendance(
+  queryClient: QueryClient,
+  attendanceId: string,
+): void {
+  queryClient.invalidateQueries({ queryKey: ["attendances"] });
+  queryClient.invalidateQueries({ queryKey: ["attendances", attendanceId] });
+}
+
+/** Clock-in 액션 — 시각 + 사유 필수. status → working/late 자동 판정. */
+export const useClockInAction = (): UseMutationResult<
+  Attendance,
+  Error,
+  { attendanceId: string; data: AttendanceClockActionRequest }
+> => {
+  const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
+  return useMutation<Attendance, Error, { attendanceId: string; data: AttendanceClockActionRequest }>({
+    mutationFn: async ({ attendanceId, data }) => {
+      const res: AxiosResponse<Attendance> = await api.post(
+        `/console/attendances/${attendanceId}/actions/clock-in`,
+        data,
+      );
+      return res.data;
+    },
+    onSuccess: (_, v) => {
+      invalidateAttendance(queryClient, v.attendanceId);
+      success("Clocked in.");
+    },
+    onError: error("Couldn't clock in"),
+  });
+};
+
+/** Clock-out 액션 — 진행중 break 자동 종료 + total_work_minutes 재계산. */
+export const useClockOutAction = (): UseMutationResult<
+  Attendance,
+  Error,
+  { attendanceId: string; data: AttendanceClockActionRequest }
+> => {
+  const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
+  return useMutation<Attendance, Error, { attendanceId: string; data: AttendanceClockActionRequest }>({
+    mutationFn: async ({ attendanceId, data }) => {
+      const res: AxiosResponse<Attendance> = await api.post(
+        `/console/attendances/${attendanceId}/actions/clock-out`,
+        data,
+      );
+      return res.data;
+    },
+    onSuccess: (_, v) => {
+      invalidateAttendance(queryClient, v.attendanceId);
+      success("Clocked out.");
+    },
+    onError: error("Couldn't clock out"),
+  });
+};
+
+/** Break 시작 — break_type 필수. working/late 일 때만 허용. */
+export const useStartBreakAction = (): UseMutationResult<
+  Attendance,
+  Error,
+  { attendanceId: string; data: AttendanceBreakStartRequest }
+> => {
+  const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
+  return useMutation<Attendance, Error, { attendanceId: string; data: AttendanceBreakStartRequest }>({
+    mutationFn: async ({ attendanceId, data }) => {
+      const res: AxiosResponse<Attendance> = await api.post(
+        `/console/attendances/${attendanceId}/actions/start-break`,
+        data,
+      );
+      return res.data;
+    },
+    onSuccess: (_, v) => {
+      invalidateAttendance(queryClient, v.attendanceId);
+      success("Break started.");
+    },
+    onError: error("Couldn't start break"),
+  });
+};
+
+/** Break 종료 — open break 의 ended_at 설정 + status=working. */
+export const useEndBreakAction = (): UseMutationResult<
+  Attendance,
+  Error,
+  { attendanceId: string; data: AttendanceClockActionRequest }
+> => {
+  const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
+  return useMutation<Attendance, Error, { attendanceId: string; data: AttendanceClockActionRequest }>({
+    mutationFn: async ({ attendanceId, data }) => {
+      const res: AxiosResponse<Attendance> = await api.post(
+        `/console/attendances/${attendanceId}/actions/end-break`,
+        data,
+      );
+      return res.data;
+    },
+    onSuccess: (_, v) => {
+      invalidateAttendance(queryClient, v.attendanceId);
+      success("Break ended.");
+    },
+    onError: error("Couldn't end break"),
+  });
+};
+
+/** No-show 표시 — 시간 기록이 있으면 거부. */
+export const useMarkNoShowAction = (): UseMutationResult<
+  Attendance,
+  Error,
+  { attendanceId: string; data: AttendanceReasonOnlyRequest }
+> => {
+  const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
+  return useMutation<Attendance, Error, { attendanceId: string; data: AttendanceReasonOnlyRequest }>({
+    mutationFn: async ({ attendanceId, data }) => {
+      const res: AxiosResponse<Attendance> = await api.post(
+        `/console/attendances/${attendanceId}/actions/mark-no-show`,
+        data,
+      );
+      return res.data;
+    },
+    onSuccess: (_, v) => {
+      invalidateAttendance(queryClient, v.attendanceId);
+      success("Marked as no-show.");
+    },
+    onError: error("Couldn't mark no-show"),
+  });
+};
+
+/** Cancel — clock_in 전 shift 만 취소 가능. */
+export const useCancelAction = (): UseMutationResult<
+  Attendance,
+  Error,
+  { attendanceId: string; data: AttendanceReasonOnlyRequest }
+> => {
+  const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
+  return useMutation<Attendance, Error, { attendanceId: string; data: AttendanceReasonOnlyRequest }>({
+    mutationFn: async ({ attendanceId, data }) => {
+      const res: AxiosResponse<Attendance> = await api.post(
+        `/console/attendances/${attendanceId}/actions/cancel`,
+        data,
+      );
+      return res.data;
+    },
+    onSuccess: (_, v) => {
+      invalidateAttendance(queryClient, v.attendanceId);
+      success("Cancelled.");
+    },
+    onError: error("Couldn't cancel"),
+  });
+};
+
+/** Reopen — clocked_out/no_show/cancelled 되돌리기. */
+export const useReopenAction = (): UseMutationResult<
+  Attendance,
+  Error,
+  { attendanceId: string; data: AttendanceReasonOnlyRequest }
+> => {
+  const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
+  return useMutation<Attendance, Error, { attendanceId: string; data: AttendanceReasonOnlyRequest }>({
+    mutationFn: async ({ attendanceId, data }) => {
+      const res: AxiosResponse<Attendance> = await api.post(
+        `/console/attendances/${attendanceId}/actions/reopen`,
+        data,
+      );
+      return res.data;
+    },
+    onSuccess: (_, v) => {
+      invalidateAttendance(queryClient, v.attendanceId);
+      success("Reopened.");
+    },
+    onError: error("Couldn't reopen"),
   });
 };

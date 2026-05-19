@@ -11,10 +11,11 @@
  * Multi-tenant 비활성화 상태: 회사코드 입력 UI 없음, 서버가 단일 organization 자동 매칭.
  */
 
-import { Suspense, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useAuthStore } from "@/stores/authStore";
+import { isAuthenticated } from "@/lib/auth";
 import { AxiosError } from "axios";
 
 /** 로그인 페이지 — Suspense 래퍼 (useSearchParams용) */
@@ -34,6 +35,15 @@ function LoginContent() {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+
+  // 이미 인증된 상태로 /login 진입 시 returnUrl 또는 / 로 리다이렉트.
+  // (이전엔 middleware 가 cookie 로 시도했으나 token 은 localStorage 라 무용지물이었다.)
+  useEffect(() => {
+    if (isAuthenticated()) {
+      const returnUrl = searchParams.get("returnUrl") || "/";
+      router.replace(returnUrl);
+    }
+  }, [router, searchParams]);
 
   /** 로그인 폼 제출 — 입력값 검증 후 authStore.login 호출 */
   const handleSubmit = async (e: React.FormEvent) => {

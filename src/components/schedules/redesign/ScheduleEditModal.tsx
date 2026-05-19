@@ -6,10 +6,10 @@
 
 import { useState, useEffect, useRef, useMemo } from "react";
 import { useWorkRoles } from "@/hooks/useWorkRoles";
-import { ConfirmDialog } from "./ConfirmDialog";
 import { useUserStores } from "@/hooks/useUsers";
 import { useResolveSetting } from "@/hooks/useSettings";
-import { useValidateSchedule } from "@/hooks/useSchedules";
+import { useValidateSchedule, useDeleteScheduleFlow } from "@/hooks/useSchedules";
+import { useModal } from "@/components/ui/imperative-modal";
 import { useAuthStore } from "@/stores/authStore";
 import { todayInTimezone } from "@/lib/utils";
 import type { Schedule, User, WorkRole, Store } from "@/types";
@@ -61,7 +61,12 @@ interface Props {
   onDismissError?: () => void;
   onClose: () => void;
   onSave: (payload: ScheduleEditPayload) => void;
-  onDelete?: () => void;
+  /**
+   * 삭제 성공 후 부모에게 통지하는 콜백.
+   * confirm 모달과 mutation 자체는 이 컴포넌트가 책임 — 부모는 후처리만 (예: 페이지 이동/리스트 refetch).
+   * 옵셔널 — 안 넘기면 삭제 버튼 자체가 숨겨짐.
+   */
+  onDeleted?: (id: string) => void;
   isSaving?: boolean;
 }
 
@@ -120,7 +125,19 @@ function computeAutoBreak(startHHMM: string, endHHMM: string, breakMin: number):
   return { start: minutesToTime(mid), end: minutesToTime(mid + breakMin) };
 }
 
-export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefilledDate, prefilledStartTime, users, storeId, stores, selectedStoreIds, inheritedRate, inheritedRateSource, showCost = true, errorMessage, onDismissError, onClose, onSave, onDelete, isSaving }: Props) {
+export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefilledDate, prefilledStartTime, users, storeId, stores, selectedStoreIds, inheritedRate, inheritedRateSource, showCost = true, errorMessage, onDismissError, onClose, onSave, onDeleted, isSaving }: Props) {
+  // Delete 흐름은 공유 hook 사용 — confirm 메시지/톤/시스템이 Detail/Calendar 어디서 호출되든 동일.
+  // hook 이 confirm + mutation 까지 처리하고, 우리는 성공 후 후처리(onClose/onDeleted)만 콜백으로 전달.
+  const deleteFlow = useDeleteScheduleFlow();
+
+  const handleDeleteClick = (): void => {
+    if (!schedule) return;
+    void deleteFlow(schedule.id, () => {
+      onClose();
+      onDeleted?.(schedule.id);
+    });
+  };
+
   // 매장 또는 조직 timezone 기준으로 "오늘" 계산 — DB가 UTC라 toISOString()을 쓰면 미국 저녁이 다음날로 잡힘.
   const orgTimezone = useAuthStore((s) => s.user?.organization_timezone) ?? undefined;
   const initialStore = stores?.find((s) => s.id === storeId);
@@ -136,8 +153,7 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
   const [notes, setNotes] = useState("");
   // hourly rate input as string ("" = clear/null)
   const [hourlyRateInput, setHourlyRateInput] = useState<string>("");
-  // Discard confirmation (dirty & 닫기 시도 시)
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const modal = useModal();
   // Edit 모드 원본 값 스냅샷 — 변경 여부 비교용
   const originalRef = useRef<{
     userId: string; storeId: string; date: string;
@@ -295,27 +311,32 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
     );
 
   // Cancel/ESC/backdrop 공통 close 경로 — dirty면 확인 먼저
-  function tryClose() {
-    if (isDirty) setConfirmDiscard(true);
-    else onClose();
+  async function tryClose(): Promise<void> {
+    if (!isDirty) { onClose(); return; }
+    const ok = await modal.confirm({
+      title: "Discard changes?",
+      message: "You have unsaved changes in this schedule. Close without saving?",
+      confirmLabel: "Discard",
+      variant: "danger",
+    });
+    if (ok) onClose();
   }
 
   // ESC key handling
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && !confirmDiscard) {
+      if (e.key === "Escape") {
         e.preventDefault();
-        tryClose();
+        void tryClose();
       }
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, isDirty, confirmDiscard]);
+  }, [open, isDirty]);
 
   const validateSchedule = useValidateSchedule();
-  const [warningPrompt, setWarningPrompt] = useState<{ warnings: string[]; payload: ScheduleEditPayload } | null>(null);
 
   if (!open) return null;
 
@@ -432,7 +453,13 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
         note: payload.notes || null,
       });
       if (res.warnings.length > 0) {
-        setWarningPrompt({ warnings: res.warnings, payload });
+        const ok = await modal.confirm({
+          title: "Confirm schedule",
+          message: res.warnings.join("\n"),
+          confirmLabel: "Save anyway",
+          variant: "danger",
+        });
+        if (ok) onSave({ ...payload, force: true });
         return;
       }
     } catch {
@@ -754,10 +781,10 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
         </div>
         {/* Footer (sticky) */}
         <div className="shrink-0 px-5 py-4 border-t border-[var(--color-border)] flex items-center gap-2 bg-[var(--color-surface)]">
-          {mode === "edit" && onDelete && (
+          {mode === "edit" && schedule && onDeleted && (
             <button
               type="button"
-              onClick={onDelete}
+              onClick={handleDeleteClick}
               className="px-3.5 py-2 rounded-lg text-[12px] font-semibold text-[var(--color-danger)] hover:bg-[var(--color-danger-muted)]"
             >
               Delete
@@ -783,36 +810,7 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
         </div>
       </div>
 
-      {/* Discard confirmation — dirty 상태에서 backdrop/ESC/Cancel 시도 시 */}
-      <ConfirmDialog
-        open={confirmDiscard}
-        title="Discard changes?"
-        message="You have unsaved changes in this schedule. Close without saving?"
-        confirmLabel="Discard"
-        confirmVariant="danger"
-        onConfirm={() => {
-          setConfirmDiscard(false);
-          onClose();
-        }}
-        onCancel={() => setConfirmDiscard(false)}
-      />
-
-      {/* Overtime / max-shift-hours 경고 — 저장 전 최종 확인 */}
-      <ConfirmDialog
-        open={warningPrompt !== null}
-        title="Confirm schedule"
-        message={warningPrompt ? warningPrompt.warnings.join("\n") : ""}
-        confirmLabel="Save anyway"
-        confirmVariant="danger"
-        onConfirm={() => {
-          if (warningPrompt) {
-            const forced: ScheduleEditPayload = { ...warningPrompt.payload, force: true };
-            onSave(forced);
-          }
-          setWarningPrompt(null);
-        }}
-        onCancel={() => setWarningPrompt(null)}
-      />
+      {/* Discard / warning confirm 은 useModal imperative API 로 inline 처리됨 */}
     </div>
   );
 }

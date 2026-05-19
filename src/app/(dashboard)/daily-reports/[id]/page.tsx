@@ -10,9 +10,9 @@ import React, { useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { ChevronLeft, MapPin, User, Calendar, Clock, Send, Trash2 } from "lucide-react";
 import { useDailyReport, useAddDailyReportComment, useDeleteDailyReport } from "@/hooks/useDailyReports";
-import { Button, Card, Badge, LoadingSpinner, EmptyState, ConfirmDialog } from "@/components/ui";
-import { useToast } from "@/components/ui/Toast";
-import { formatDate, formatFixedDate, parseApiError } from "@/lib/utils";
+import { Button, Card, Badge, LoadingSpinner, EmptyState } from "@/components/ui";
+import { useModal } from "@/components/ui/imperative-modal";
+import { formatDate, formatFixedDate } from "@/lib/utils";
 import { useTimezone } from "@/hooks/useTimezone";
 import type { DailyReportSection, DailyReportComment } from "@/types";
 
@@ -29,7 +29,7 @@ const periodLabel: Record<string, string> = {
 export default function DailyReportDetailPage(): React.ReactElement {
   const params = useParams();
   const router = useRouter();
-  const { toast } = useToast();
+  const modal = useModal();
   const tz = useTimezone();
 
   const reportId: string = params.id as string;
@@ -38,28 +38,32 @@ export default function DailyReportDetailPage(): React.ReactElement {
   const deleteMutation = useDeleteDailyReport();
 
   const [commentText, setCommentText] = useState<string>("");
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const handleAddComment = useCallback(async () => {
     if (!commentText.trim()) return;
     try {
       await addComment.mutateAsync({ reportId, content: commentText.trim() });
-      toast({ type: "success", message: "Comment added" });
       setCommentText("");
-    } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to add comment") });
+    } catch {
+      // hook 자동 모달이 표시함.
     }
-  }, [reportId, commentText, addComment, toast]);
+  }, [reportId, commentText, addComment]);
 
   const handleDelete = useCallback(async () => {
+    const ok = await modal.confirm({
+      title: "Delete Report",
+      message: "Are you sure you want to delete this daily report? This action cannot be undone.",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!ok) return;
     try {
       await deleteMutation.mutateAsync(reportId);
-      toast({ type: "success", message: "Report deleted" });
       router.push("/daily-reports");
-    } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to delete report") });
+    } catch {
+      // hook 자동 모달이 표시함.
     }
-  }, [reportId, deleteMutation, toast, router]);
+  }, [reportId, deleteMutation, modal, router]);
 
   if (isLoading) {
     return (
@@ -122,7 +126,8 @@ export default function DailyReportDetailPage(): React.ReactElement {
           <Button
             variant="danger"
             size="sm"
-            onClick={() => setShowDeleteConfirm(true)}
+            onClick={() => void handleDelete()}
+            isLoading={deleteMutation.isPending}
           >
             <Trash2 size={14} className="mr-1" />
             Delete
@@ -233,16 +238,6 @@ export default function DailyReportDetailPage(): React.ReactElement {
         </div>
       </Card>
 
-      {/* Delete confirm */}
-      <ConfirmDialog
-        isOpen={showDeleteConfirm}
-        onClose={() => setShowDeleteConfirm(false)}
-        onConfirm={handleDelete}
-        title="Delete Report"
-        message="Are you sure you want to delete this daily report? This action cannot be undone."
-        confirmLabel="Delete"
-        isLoading={deleteMutation.isPending}
-      />
     </div>
   );
 }

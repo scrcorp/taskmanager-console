@@ -19,7 +19,6 @@ import {
   mockTemplates,
   mockChecklistItems,
   mockNotices,
-  mockTasks,
   mockAlerts,
 } from "./data";
 import type { PaginatedResponse } from "@/types";
@@ -340,41 +339,6 @@ export async function handleMockRequest(
     if (method === "put") {
       const body = JSON.parse(config.data as string);
       const existing = mockNotices.find((a) => a.id === annId);
-      return mockResponse({ ...existing, ...body }, config);
-    }
-    if (method === "delete") {
-      return mockResponse(null, config);
-    }
-  }
-
-  // ─── Tasks ─────────────────────────────────────
-
-  if (url.endsWith("/console/additional-tasks") && method === "get") {
-    let filtered = [...mockTasks];
-    if (params.status) filtered = filtered.filter((t) => t.status === params.status);
-    if (params.priority) filtered = filtered.filter((t) => t.priority === params.priority);
-    const page: number = parseInt(params.page ?? "1", 10);
-    const perPage: number = parseInt(params.per_page ?? "20", 10);
-    return mockResponse(paginate(filtered, page, perPage), config);
-  }
-
-  if (url.endsWith("/console/additional-tasks") && method === "post") {
-    const body = JSON.parse(config.data as string);
-    return mockResponse(
-      { id: newId(), ...body, store_name: null, created_by_name: "Admin User", assignee_names: [], status: "pending", created_at: new Date().toISOString() },
-      config,
-    );
-  }
-
-  const taskMatch: RegExpMatchArray | null = url.match(/\/admin\/additional-tasks\/([^/]+)$/);
-  if (taskMatch) {
-    const taskId: string = taskMatch[1];
-    if (method === "get") {
-      return mockResponse(mockTasks.find((t) => t.id === taskId) ?? mockTasks[0], config);
-    }
-    if (method === "put") {
-      const body = JSON.parse(config.data as string);
-      const existing = mockTasks.find((t) => t.id === taskId);
       return mockResponse({ ...existing, ...body }, config);
     }
     if (method === "delete") {

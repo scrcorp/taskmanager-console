@@ -1,14 +1,18 @@
 "use client";
 
 /**
- * 근태 상세 페이지 — inline edit 모드로 시간/상태를 한꺼번에 수정.
+ * 근태 상세 페이지 — 읽기 화면 + audit 모달로 보정.
  *
- * Attendance detail page with inline edit mode. Edit toggles all time
- * fields and status into editable inputs with current values prefilled.
- * Optional reason at save time. Each changed field is logged separately.
+ * Attendance detail page. The page itself is read-only summary; clicking
+ * "Make Correction" opens a focused modal where status/time/note can be
+ * adjusted with a required reason. Break sessions remain inline editable
+ * (each row is its own mutation, not part of the correction batch).
+ *
+ * History 카드의 Reason 은 인라인으로 수정 가능 — 급한 보정 후 사유를
+ * 나중에 채워 넣는 케이스 지원.
  */
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
@@ -25,16 +29,17 @@ import {
   Check,
   Plus,
   Trash2,
+  Pencil,
 } from "lucide-react";
 import {
   useAttendance,
-  useCorrectAttendance,
   useAddBreakSession,
   useUpdateBreakSession,
   useDeleteBreakSession,
+  useUpdateCorrectionReason,
 } from "@/hooks";
 import { useTimezone } from "@/hooks/useTimezone";
-import type { Attendance, AttendanceBreakItem, AttendanceCorrection } from "@/types";
+import type { Attendance, AttendanceBreakItem } from "@/types";
 import {
   Button,
   Card,
@@ -43,8 +48,11 @@ import {
   Select,
   LoadingSpinner,
 } from "@/components/ui";
-import { useToast } from "@/components/ui/Toast";
-import { formatDateTime, formatFixedDate, timeAgo, parseApiError } from "@/lib/utils";
+import { useModal } from "@/components/ui/imperative-modal";
+import { formatDateTime, formatFixedDate, timeAgo } from "@/lib/utils";
+import { AttendanceCorrectionModal } from "@/components/attendances/AttendanceCorrectionModal";
+import { AttendanceActionBar } from "@/components/attendances/AttendanceActionBar";
+import { ReasonPicker } from "@/components/attendances/ReasonPicker";
 
 type StatusKey =
   | "upcoming"
@@ -56,7 +64,6 @@ type StatusKey =
   | "no_show"
   | "cancelled";
 
-/** 상태별 배지 색상 매핑 — 새로 늘어난 상태들도 모두 매핑 (BUG fix). */
 const statusBadge: Record<
   StatusKey,
   { label: string; variant: "success" | "warning" | "default" | "danger" | "accent" }
@@ -71,19 +78,6 @@ const statusBadge: Record<
   cancelled: { label: "Cancelled", variant: "default" },
 };
 
-/** Status select 에 노출할 화이트리스트. */
-const statusOptions: Array<{ value: StatusKey; label: string }> = [
-  { value: "upcoming", label: "Upcoming" },
-  { value: "soon", label: "Soon" },
-  { value: "late", label: "Late" },
-  { value: "working", label: "Working" },
-  { value: "on_break", label: "On Break" },
-  { value: "clocked_out", label: "Clocked Out" },
-  { value: "no_show", label: "No Show" },
-  { value: "cancelled", label: "Cancelled" },
-];
-
-/** 분을 시:분 형식으로 변환합니다. */
 function formatMinutes(minutes: number | null): string {
   if (minutes == null) return "-";
   const h: number = Math.floor(minutes / 60);
@@ -91,8 +85,6 @@ function formatMinutes(minutes: number | null): string {
   return `${h}h ${m.toString().padStart(2, "0")}m`;
 }
 
-/** ISO datetime 문자열을 `<input type="datetime-local">` 가 받을 수 있는
- *  "YYYY-MM-DDTHH:mm" 로 변환. null/빈 값이면 "" 반환. */
 function isoToLocalInput(iso: string | null): string {
   if (!iso) return "";
   const d = new Date(iso);
@@ -103,8 +95,6 @@ function isoToLocalInput(iso: string | null): string {
   )}:${pad(d.getMinutes())}`;
 }
 
-
-/** local input 문자열 → ISO 문자열. 빈 문자열은 null. */
 function localInputToIso(s: string): string | null {
   if (!s) return null;
   const d = new Date(s);
@@ -112,49 +102,16 @@ function localInputToIso(s: string): string | null {
   return d.toISOString();
 }
 
-interface DraftState {
-  clock_in: string;
-  clock_out: string;
-  status: StatusKey;
-  note: string;
-}
-
-/** 값이 있으면 그대로 input 형식으로, 없으면 빈 문자열.
- *  사용자가 의도적으로 입력하지 않은 시간이 저장되지 않도록 prefill 안 함. */
-function buildDraft(att: Attendance): DraftState {
-  return {
-    clock_in: isoToLocalInput(att.clock_in),
-    clock_out: isoToLocalInput(att.clock_out),
-    status: att.status as StatusKey,
-    note: att.note ?? "",
-  };
-}
-
 export default function AttendanceDetailPage(): React.ReactElement {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { toast } = useToast();
+  const modal = useModal();
   const tz = useTimezone();
 
   const { data: attendance, isLoading } = useAttendance(id);
-  const correctAttendance = useCorrectAttendance();
 
-  const [editing, setEditing] = useState<boolean>(false);
-  const [draft, setDraft] = useState<DraftState | null>(null);
-  // 편집 시작 시 snapshot — 사용자가 prefill 된 값을 그대로 두면 변경으로 잡지 않기 위해.
-  const [initialDraft, setInitialDraft] = useState<DraftState | null>(null);
-  const [reason, setReason] = useState<string>("");
-
-  // attendance 가 로드되면 draft 초기화 (read-only 표시용)
-  useEffect(() => {
-    if (attendance && draft === null) {
-      setDraft(buildDraft(attendance));
-    }
-  }, [attendance, draft]);
-
-  /** 보던 날짜로 돌아가기 — ?from=YYYY-MM-DD 가 있으면 그 날짜로,
-   *  없으면 attendance.work_date, 그것도 없으면 attendances 기본 페이지. */
+  /** 보던 날짜로 돌아가기 — ?from=YYYY-MM-DD 우선, 없으면 work_date. */
   const goBack = (): void => {
     const from = searchParams.get("from");
     const fallback = attendance?.work_date;
@@ -163,132 +120,24 @@ export default function AttendanceDetailPage(): React.ReactElement {
     else router.push("/attendances");
   };
 
-  /** 편집 시작: 현재 값으로 prefill, reason 비움. snapshot 저장. */
-  const enterEdit = (): void => {
+  /** Correction modal — Status/Clock In/Out/Note + 필수 Reason. */
+  const openCorrectionModal = (): void => {
     if (!attendance) return;
-    const d = buildDraft(attendance);
-    setDraft(d);
-    setInitialDraft(d);
-    setReason("");
-    setEditing(true);
-  };
-
-  /** 편집 취소: 변경 내용 폐기. */
-  const cancelEdit = (): void => {
-    if (attendance) setDraft(buildDraft(attendance));
-    setInitialDraft(null);
-    setReason("");
-    setEditing(false);
-  };
-
-  /** 변경된 필드만 추려서 correction 요청을 순차 실행.
-   *  initialDraft (편집 시작 시 snapshot) 와 비교해 사용자가 실제로 변경한 필드만 보냄.
-   *  → prefill 한 값만 그대로 두면 저장되지 않음. */
-  const handleSave = async (): Promise<void> => {
-    if (!attendance || !draft || !initialDraft) return;
-
-    const trimmedReason = reason.trim() || null;
-    const calls: Array<{ field: string; value: string }> = [];
-
-    const timeFields: Array<keyof Pick<DraftState, "clock_in" | "clock_out">> = [
-      "clock_in",
-      "clock_out",
-    ];
-    for (const f of timeFields) {
-      if (draft[f] !== initialDraft[f]) {
-        const iso = localInputToIso(draft[f]);
-        if (iso) calls.push({ field: f, value: iso });
-      }
-    }
-    if (draft.status !== initialDraft.status) {
-      calls.push({ field: "status", value: draft.status });
-    }
-    if (draft.note !== initialDraft.note) {
-      calls.push({ field: "note", value: draft.note });
-    }
-
-    if (calls.length === 0) {
-      toast({ type: "info", message: "No changes" });
-      setEditing(false);
-      return;
-    }
-
-    try {
-      // 순차 호출 — 시간 재계산이 누적되도록 (서버가 매 요청마다 total_work_minutes 갱신)
-      for (const call of calls) {
-        await correctAttendance.mutateAsync({
-          id,
-          data: {
-            field_name: call.field,
-            corrected_value: call.value,
-            reason: trimmedReason,
-          },
-        });
-      }
-      toast({
-        type: "success",
-        message: `Updated ${calls.length} field${calls.length > 1 ? "s" : ""}`,
-      });
-      setEditing(false);
-      setInitialDraft(null);
-      setReason("");
-    } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Correction failed") });
-    }
-  };
-
-  // hook 순서 안정화 — attendance 가 없을 때도 동일 호출.
-  // 편집 시작 시 snapshot (initialDraft) 와 비교 — 안 건드린 필드는 변경 없음.
-  const hasChanges: boolean = useMemo<boolean>(() => {
-    if (!draft || !initialDraft) return false;
-    return (
-      draft.clock_in !== initialDraft.clock_in ||
-      draft.clock_out !== initialDraft.clock_out ||
-      draft.status !== initialDraft.status ||
-      draft.note !== initialDraft.note
+    void modal.open<boolean>(
+      ({ close }) => (
+        <AttendanceCorrectionModal
+          attendance={attendance}
+          tz={tz}
+          onClose={close}
+        />
+      ),
+      { title: "Make Correction", size: "lg", closeOnBackdrop: false },
     );
-  }, [draft, initialDraft]);
+  };
 
-  // 같은 시점 (±2s) + 같은 actor 의 corrections 를 한 카드로 묶음 — 매니저가
-  // 한 번에 status + 시간 둘 다 바꿔도 한 group 으로 보임.
-  // attendance early-return 보다 먼저 호출되어야 hook 순서 안정.
-  const correctionGroups: ActivityGroup[] = useMemo(() => {
-    const corrections = attendance?.corrections ?? [];
-    if (corrections.length === 0) return [];
-    const sorted = [...corrections].sort((a, b) =>
-      a.created_at < b.created_at ? 1 : -1,
-    );
-    const groups: ActivityGroup[] = [];
-    for (const c of sorted) {
-      const last = groups[groups.length - 1];
-      const sameBucket =
-        last !== undefined &&
-        last.tag === c.field_name &&
-        last.actor === (c.corrected_by_name || "Unknown") &&
-        Math.abs(
-          new Date(last.createdAt).getTime() - new Date(c.created_at).getTime(),
-        ) < 2000;
-      const entry: ActivityEntry = {
-        before: humanizeValue(c.original_value, tz),
-        after: humanizeValue(c.corrected_value, tz),
-        label: undefined,
-      };
-      if (sameBucket) {
-        last!.entries.push(entry);
-        if (!last!.reason && c.reason) last!.reason = c.reason;
-      } else {
-        groups.push({
-          id: c.id,
-          tag: c.field_name,
-          actor: c.corrected_by_name || "Unknown",
-          createdAt: c.created_at,
-          entries: [entry],
-          reason: c.reason ?? null,
-        });
-      }
-    }
-    return groups;
-  }, [attendance, tz]);
+  // 같은 시점 (±2s) + 같은 actor 의 corrections 를 한 카드로 묶음.
+  // attendance early-return 보다 먼저 hook 실행되어야 hook 순서 안정.
+  const correctionGroups: ActivityGroup[] = useCorrectionGroups(attendance, tz);
 
   if (isLoading) return <LoadingSpinner size="lg" className="mt-32" />;
   if (!attendance) {
@@ -304,7 +153,7 @@ export default function AttendanceDetailPage(): React.ReactElement {
   return (
     <div>
       {/* 헤더 */}
-      <div className="flex items-center gap-3 mb-6">
+      <div className="flex items-center gap-3 mb-3">
         <button
           onClick={goBack}
           className="p-1.5 rounded-lg hover:bg-surface-hover text-text-secondary transition-colors"
@@ -315,48 +164,23 @@ export default function AttendanceDetailPage(): React.ReactElement {
         <h1 className="text-xl md:text-2xl font-extrabold flex-1 min-w-0 truncate">
           Attendance Detail
         </h1>
-        {editing ? (
-          <>
-            <Button variant="secondary" size="sm" onClick={cancelEdit}>
-              <X size={14} className="mr-1" /> Cancel
-            </Button>
-            <Button
-              size="sm"
-              onClick={handleSave}
-              isLoading={correctAttendance.isPending}
-              disabled={!hasChanges}
-            >
-              <Check size={14} className="mr-1" /> Save
-            </Button>
-          </>
-        ) : (
-          <Button variant="secondary" size="sm" onClick={enterEdit}>
-            <Edit2 size={14} className="mr-1" /> Edit
-          </Button>
-        )}
+        <Button variant="ghost" size="sm" onClick={openCorrectionModal}>
+          <Edit2 size={14} className="mr-1" /> Edit times / note
+        </Button>
       </div>
 
-      {/* 상세 카드 */}
+      {/* 상태 기반 액션 바 — Status 변경은 모두 여기를 거친다 (state machine). */}
+      <div className="mb-6">
+        <AttendanceActionBar attendance={attendance} />
+      </div>
+
+      {/* 상세 카드 — 전부 읽기 전용. 시간/상태/노트 수정은 모달 사용. */}
       <Card className="p-6 space-y-5">
-        {/* 상태 배지 / 편집 시 select */}
         <div className="flex items-center gap-3">
-          {editing && draft ? (
-            <div className="min-w-[180px]">
-              <Select
-                label="Status"
-                value={draft.status}
-                onChange={(e) =>
-                  setDraft({ ...draft, status: e.target.value as StatusKey })
-                }
-                options={statusOptions}
-              />
-            </div>
-          ) : (
-            <Badge variant={badge.variant}>{badge.label}</Badge>
-          )}
+          <Badge variant={badge.variant}>{badge.label}</Badge>
         </div>
 
-        {/* 메타 정보 — 편집 불가 (사용자/매장/날짜) */}
+        {/* 메타 */}
         <div className="grid grid-cols-2 md:grid-cols-3 gap-4 text-sm">
           <div>
             <div className="text-xs text-text-muted mb-0.5">
@@ -385,38 +209,28 @@ export default function AttendanceDetailPage(): React.ReactElement {
           </div>
         </div>
 
-        {/* 시간 정보 — Clock In / Out 만 편집. Break 는 다중 세션이라 아래 Break Sessions 영역에서 별도 관리 (현재 read-only). */}
+        {/* Clock In/Out */}
         <div className="grid grid-cols-2 gap-4 text-sm pt-3 border-t border-border">
           {[
-            { key: "clock_in" as const, label: "Clock In", icon: LogIn, value: attendance.clock_in, tzName: attendance.clock_in_timezone },
-            { key: "clock_out" as const, label: "Clock Out", icon: LogOut, value: attendance.clock_out, tzName: attendance.clock_out_timezone },
-          ].map(({ key, label, icon: Icon, value, tzName }) => (
-            <div key={key}>
+            { label: "Clock In", icon: LogIn, value: attendance.clock_in, tzName: attendance.clock_in_timezone },
+            { label: "Clock Out", icon: LogOut, value: attendance.clock_out, tzName: attendance.clock_out_timezone },
+          ].map(({ label, icon: Icon, value, tzName }) => (
+            <div key={label}>
               <div className="text-xs text-text-muted mb-0.5">
                 <Icon size={12} className="inline mr-1" />
                 {label}
               </div>
-              {editing && draft ? (
-                <Input
-                  type="datetime-local"
-                  value={draft[key]}
-                  onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}
-                />
-              ) : (
-                <>
-                  <div className="text-text">
-                    {value ? formatDateTime(value, tz) : "-"}
-                  </div>
-                  {tzName && (
-                    <div className="text-[10px] text-text-muted">{tzName}</div>
-                  )}
-                </>
+              <div className="text-text">
+                {value ? formatDateTime(value, tz) : "-"}
+              </div>
+              {tzName && (
+                <div className="text-[10px] text-text-muted">{tzName}</div>
               )}
             </div>
           ))}
         </div>
 
-        {/* 합계 — 편집 모드에서도 그대로 (서버가 재계산) */}
+        {/* 합계 */}
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm pt-3 border-t border-border">
           <div>
             <div className="text-xs text-text-muted mb-0.5">
@@ -456,50 +270,22 @@ export default function AttendanceDetailPage(): React.ReactElement {
           </div>
         </div>
 
-        {/* 휴식 세션 — 편집 모드면 row 별 추가/수정/삭제, 아니면 read-only 타임라인. */}
+        {/* 휴식 세션 — 항상 inline 편집 가능 (각 row 가 자체 mutation). */}
         <div className="pt-3 border-t border-border">
           <BreakSessionsEditor
             attendanceId={id}
             workDate={attendance.work_date}
             sessions={attendance.breaks ?? []}
             tz={tz}
-            editable={editing}
           />
         </div>
 
-        {/* 메모 — 매니저 자유 메모 영역. 편집 모드에서 직접 수정 가능. */}
-        {(editing || attendance.note) && (
+        {/* 메모 — 읽기 전용. 수정은 Correction modal 에서. */}
+        {attendance.note && (
           <div className="pt-3 border-t border-border">
             <div className="text-xs text-text-muted mb-1">Note</div>
-            {editing && draft ? (
-              <textarea
-                value={draft.note}
-                onChange={(e) =>
-                  setDraft({ ...draft, note: e.target.value })
-                }
-                rows={3}
-                placeholder="Manager memo (optional). Edits are logged in correction history."
-                className="w-full px-3 py-2 rounded-md bg-surface border border-border text-sm text-text outline-none focus:border-accent"
-              />
-            ) : (
-              <p className="text-sm text-text-secondary whitespace-pre-wrap">
-                {attendance.note}
-              </p>
-            )}
-          </div>
-        )}
-
-        {/* 편집 모드: 저장 시점 optional reason */}
-        {editing && (
-          <div className="pt-3 border-t border-border">
-            <Input
-              label="Reason (optional)"
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="Why is this correction needed?"
-            />
-            <p className="text-xs text-text-muted mt-1">
-              Each changed field is logged separately in correction history.
+            <p className="text-sm text-text-secondary whitespace-pre-wrap">
+              {attendance.note}
             </p>
           </div>
         )}
@@ -521,64 +307,14 @@ export default function AttendanceDetailPage(): React.ReactElement {
           </div>
         ) : (
           <div className="space-y-3">
-            {correctionGroups.map((group) => {
-              const tag = activityTagInfo(group.tag);
-              return (
-                <div
-                  key={group.id}
-                  className="p-3 rounded-lg bg-surface-hover border border-border"
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="flex items-center gap-2">
-                      <span
-                        className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold ${tag.cls}`}
-                      >
-                        {tag.label}
-                      </span>
-                      <span className="text-xs text-text-muted">
-                        by {group.actor}
-                      </span>
-                    </div>
-                    <span
-                      className="text-xs text-text-muted"
-                      title={formatDateTime(group.createdAt, tz)}
-                    >
-                      {timeAgo(group.createdAt)}
-                    </span>
-                  </div>
-                  {group.entries.map((e, idx) => (
-                    <div key={idx} className={idx > 0 ? "mt-2 pt-2 border-t border-border" : ""}>
-                      {e.before !== null && e.before !== undefined ? (
-                        <div className="grid grid-cols-2 gap-3 text-sm">
-                          <div>
-                            <div className="text-xs text-text-muted">Before</div>
-                            <div className="text-text-secondary">{e.before}</div>
-                          </div>
-                          <div>
-                            <div className="text-xs text-text-muted">After</div>
-                            <div className="text-text">{e.after}</div>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="text-sm">
-                          <span className="text-xs text-text-muted">Set: </span>
-                          <span className="text-text">{e.after}</span>
-                        </div>
-                      )}
-                      {e.label && (
-                        <div className="text-xs text-text-muted mt-1">{e.label}</div>
-                      )}
-                    </div>
-                  ))}
-                  {group.reason && (
-                  <div className="mt-2">
-                    <div className="text-xs text-text-muted">Reason</div>
-                    <p className="text-sm text-text-secondary">{group.reason}</p>
-                  </div>
-                )}
-              </div>
-              );
-            })}
+            {correctionGroups.map((group) => (
+              <CorrectionGroupCard
+                key={group.id}
+                attendanceId={id}
+                group={group}
+                tz={tz}
+              />
+            ))}
           </div>
         )}
       </Card>
@@ -586,12 +322,11 @@ export default function AttendanceDetailPage(): React.ReactElement {
   );
 }
 
-// ─── Activity history helpers ───────────────────────────────────────────
+// ─── Activity history ──────────────────────────────────────────────────────
 
 interface ActivityEntry {
   before?: string | null;
   after: string;
-  /** optional 보조 라벨 (예: "Clock-in time:") */
   label?: string;
 }
 
@@ -601,7 +336,50 @@ interface ActivityGroup {
   actor: string;
   createdAt: string;
   entries: ActivityEntry[];
-  reason: string | null;
+  reason: string;
+}
+
+function useCorrectionGroups(
+  attendance: Attendance | undefined,
+  tz: string | undefined,
+): ActivityGroup[] {
+  return React.useMemo(() => {
+    const corrections = attendance?.corrections ?? [];
+    if (corrections.length === 0) return [];
+    const sorted = [...corrections].sort((a, b) =>
+      a.created_at < b.created_at ? 1 : -1,
+    );
+    const groups: ActivityGroup[] = [];
+    for (const c of sorted) {
+      const last = groups[groups.length - 1];
+      const sameBucket =
+        last !== undefined &&
+        last.tag === c.field_name &&
+        last.actor === (c.corrected_by_name || "Unknown") &&
+        Math.abs(
+          new Date(last.createdAt).getTime() - new Date(c.created_at).getTime(),
+        ) < 2000;
+      const entry: ActivityEntry = {
+        before: humanizeValue(c.original_value, tz),
+        after: humanizeValue(c.corrected_value, tz),
+        label: undefined,
+      };
+      if (sameBucket) {
+        last!.entries.push(entry);
+        if (last!.reason === "(no reason)" && c.reason) last!.reason = c.reason;
+      } else {
+        groups.push({
+          id: c.id,
+          tag: c.field_name,
+          actor: c.corrected_by_name || "Unknown",
+          createdAt: c.created_at,
+          entries: [entry],
+          reason: c.reason ?? "(no reason)",
+        });
+      }
+    }
+    return groups;
+  }, [attendance, tz]);
 }
 
 function activityTagInfo(tag: string): { label: string; cls: string } {
@@ -615,7 +393,7 @@ function activityTagInfo(tag: string): { label: string; cls: string } {
     case "break_end":
       return { label: "Break end", cls: "bg-success-muted text-success" };
     case "modify":
-    case "status": // legacy
+    case "status":
       return { label: "Modify", cls: "bg-accent-muted text-accent" };
     case "note":
       return { label: "Note", cls: "bg-accent-muted text-accent" };
@@ -626,14 +404,12 @@ function activityTagInfo(tag: string): { label: string; cls: string } {
   }
 }
 
-/** ISO datetime 이면 store tz 기준 "May 13, 02:25 AM" 형태로, status enum 이면 그대로 사람이 읽을 수 있게. */
 function humanizeValue(raw: string | null | undefined, tz?: string): string {
   if (raw === null || raw === undefined) return "—";
   const v = raw.trim();
   if (!v || v === "(none)" || v === "(empty)") return "—";
   if (v === "(cleared)") return "Cleared";
   if (v === "(set)") return "Set";
-  // ISO datetime 패턴 검사
   if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v)) {
     try {
       const d = new Date(v);
@@ -649,7 +425,6 @@ function humanizeValue(raw: string | null | undefined, tz?: string): string {
       return v;
     }
   }
-  // status enum
   const statusLabels: Record<string, string> = {
     upcoming: "Upcoming",
     soon: "Soon",
@@ -663,9 +438,142 @@ function humanizeValue(raw: string | null | undefined, tz?: string): string {
   return statusLabels[v] ?? v;
 }
 
-// ─── Break Sessions Editor ────────────────────────────────────────────────
-// 편집 모드: row 별 type/시작/종료 입력 + 삭제 버튼, 하단에 "Add break session"
-// 읽기 모드: 기존 타임라인 그대로.
+interface CorrectionGroupCardProps {
+  attendanceId: string;
+  group: ActivityGroup;
+  tz: string | undefined;
+}
+
+function CorrectionGroupCard({
+  attendanceId,
+  group,
+  tz,
+}: CorrectionGroupCardProps): React.ReactElement {
+  const tag = activityTagInfo(group.tag);
+  const [editingReason, setEditingReason] = useState<boolean>(false);
+  const [reasonDraft, setReasonDraft] = useState<string>(group.reason);
+  const updateReason = useUpdateCorrectionReason();
+
+  // 외부 group.reason 이 바뀌면 (다른 곳에서 invalidate) draft 도 sync
+  useEffect(() => {
+    if (!editingReason) setReasonDraft(group.reason);
+  }, [group.reason, editingReason]);
+
+  const handleSaveReason = async (): Promise<void> => {
+    const trimmed = reasonDraft.trim();
+    if (!trimmed || trimmed === group.reason) {
+      setEditingReason(false);
+      return;
+    }
+    try {
+      await updateReason.mutateAsync({
+        attendanceId,
+        correctionId: group.id,
+        data: { reason: trimmed },
+      });
+      setEditingReason(false);
+    } catch {
+      // hook 자동 모달
+    }
+  };
+
+  return (
+    <div className="p-3 rounded-lg bg-surface-hover border border-border">
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <span
+            className={`inline-flex items-center px-2 py-0.5 rounded text-[11px] font-bold ${tag.cls}`}
+          >
+            {tag.label}
+          </span>
+          <span className="text-xs text-text-muted">by {group.actor}</span>
+        </div>
+        <span
+          className="text-xs text-text-muted"
+          title={formatDateTime(group.createdAt, tz)}
+        >
+          {timeAgo(group.createdAt)}
+        </span>
+      </div>
+      {group.entries.map((e, idx) => (
+        <div key={idx} className={idx > 0 ? "mt-2 pt-2 border-t border-border" : ""}>
+          {e.before !== null && e.before !== undefined ? (
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div>
+                <div className="text-xs text-text-muted">Before</div>
+                <div className="text-text-secondary">{e.before}</div>
+              </div>
+              <div>
+                <div className="text-xs text-text-muted">After</div>
+                <div className="text-text">{e.after}</div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-sm">
+              <span className="text-xs text-text-muted">Set: </span>
+              <span className="text-text">{e.after}</span>
+            </div>
+          )}
+          {e.label && (
+            <div className="text-xs text-text-muted mt-1">{e.label}</div>
+          )}
+        </div>
+      ))}
+      <div className="mt-2">
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-xs text-text-muted">Reason</div>
+          {!editingReason && (
+            <button
+              type="button"
+              onClick={() => {
+                setReasonDraft(group.reason === "(no reason)" ? "" : group.reason);
+                setEditingReason(true);
+              }}
+              className="text-xs text-text-muted hover:text-text inline-flex items-center gap-1"
+              aria-label="Edit reason"
+            >
+              <Pencil size={11} /> Edit
+            </button>
+          )}
+        </div>
+        {editingReason ? (
+          <div className="mt-1 space-y-2">
+            <ReasonPicker
+              value={reasonDraft}
+              onChange={setReasonDraft}
+              compact
+              autoFocus
+            />
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setReasonDraft(group.reason);
+                  setEditingReason(false);
+                }}
+              >
+                <X size={12} className="mr-1" /> Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleSaveReason}
+                disabled={!reasonDraft.trim() || reasonDraft.trim() === group.reason}
+                isLoading={updateReason.isPending}
+              >
+                <Check size={12} className="mr-1" /> Save
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <p className="text-sm text-text-secondary">{group.reason}</p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Break Sessions Editor — 항상 편집 가능. 각 row 가 자체 mutation 트리거. ───
 
 type BreakType = "paid_10min" | "unpaid_meal";
 
@@ -674,7 +582,6 @@ const breakTypeOptions: Array<{ value: BreakType; label: string }> = [
   { value: "unpaid_meal", label: "Meal Break (Unpaid)" },
 ];
 
-// 레거시 paid_short/unpaid_long 도 dual-read 인식. write 는 항상 신규 값.
 function isPaidBreak(t: string): boolean {
   return t === "paid_10min" || t === "paid_short";
 }
@@ -695,7 +602,6 @@ interface BreakSessionsEditorProps {
   workDate: string;
   sessions: AttendanceBreakItem[];
   tz: string | undefined;
-  editable: boolean;
 }
 
 function BreakSessionsEditor({
@@ -703,18 +609,17 @@ function BreakSessionsEditor({
   workDate,
   sessions,
   tz,
-  editable,
 }: BreakSessionsEditorProps): React.ReactElement {
-  const { toast } = useToast();
+  const modal = useModal();
   const addBreak = useAddBreakSession();
   const updateBreak = useUpdateBreakSession();
   const deleteBreak = useDeleteBreakSession();
 
-  // "추가" 폼은 토글 가능. 기본 닫힘.
   const [showAddForm, setShowAddForm] = useState<boolean>(false);
   const [draftStart, setDraftStart] = useState<string>("");
   const [draftEnd, setDraftEnd] = useState<string>("");
   const [draftType, setDraftType] = useState<BreakType>("paid_10min");
+  const [editingRowId, setEditingRowId] = useState<string | null>(null);
 
   const resetAddForm = (): void => {
     setShowAddForm(false);
@@ -725,13 +630,13 @@ function BreakSessionsEditor({
 
   const handleAdd = async (): Promise<void> => {
     if (!draftStart) {
-      toast({ type: "error", message: "Start time is required" });
+      void modal.alert({ type: "error", message: "Start time is required" });
       return;
     }
     const startedIso = localInputToIso(draftStart);
     const endedIso = draftEnd ? localInputToIso(draftEnd) : null;
     if (!startedIso) {
-      toast({ type: "error", message: "Invalid start time" });
+      void modal.alert({ type: "error", message: "Invalid start time" });
       return;
     }
     try {
@@ -743,20 +648,24 @@ function BreakSessionsEditor({
           break_type: draftType,
         },
       });
-      toast({ type: "success", message: "Break added" });
       resetAddForm();
-    } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to add break") });
+    } catch {
+      // hook 자동 모달
     }
   };
 
   const handleDelete = async (breakId: string): Promise<void> => {
-    if (!window.confirm("Delete this break session?")) return;
+    const ok = await modal.confirm({
+      title: "Delete Break Session",
+      message: "Delete this break session?",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!ok) return;
     try {
       await deleteBreak.mutateAsync({ attendanceId, breakId });
-      toast({ type: "success", message: "Break deleted" });
-    } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to delete break") });
+    } catch {
+      // hook 자동 모달
     }
   };
 
@@ -775,13 +684,30 @@ function BreakSessionsEditor({
           clear_ended_at: patch.ended_at === null,
         },
       });
-    } catch (err) {
-      toast({ type: "error", message: parseApiError(err, "Failed to update break") });
+      setEditingRowId(null);
+    } catch {
+      // hook 자동 모달
     }
   };
 
-  // 비편집 + 데이터 없음이면 영역 숨김
-  if (!editable && sessions.length === 0) return <></>;
+  if (sessions.length === 0 && !showAddForm) {
+    return (
+      <div>
+        <div className="text-xs text-text-muted mb-2 flex items-center gap-1">
+          <Coffee size={12} className="inline" />
+          Break Sessions
+        </div>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => setShowAddForm(true)}
+          type="button"
+        >
+          <Plus size={14} className="mr-1" /> Add break session
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div>
@@ -790,107 +716,124 @@ function BreakSessionsEditor({
         Break Sessions
       </div>
 
-      {sessions.length === 0 && !editable && (
-        <div className="text-sm text-text-muted">No break sessions.</div>
-      )}
-
-      {!editable ? (
-        <ul className="space-y-1.5">
-          {sessions.map((br) => {
-            const paid = isPaidBreak(br.break_type);
-            const typeLabel = breakTypeLabel(br.break_type);
-            const accent = paid
-              ? "text-[var(--color-success)]"
-              : "text-[var(--color-warning)]";
-            const dot = paid ? "bg-[var(--color-success)]" : "bg-[var(--color-warning)]";
-            const started = formatDateTime(br.started_at, tz);
-            const ended = br.ended_at ? formatDateTime(br.ended_at, tz) : "in progress";
-            const dur = br.duration_minutes != null ? `${br.duration_minutes} min` : "—";
-            return (
-              <li key={br.id} className="flex items-center gap-2 text-sm tabular-nums">
-                <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
-                <span className="text-text">
-                  {started} – {ended}
-                </span>
-                <span className="text-text-muted">·</span>
-                <span className={accent}>{typeLabel}</span>
-                <span className="text-text-muted">·</span>
-                <span className="text-text-secondary">{dur}</span>
-              </li>
-            );
-          })}
-        </ul>
-      ) : (
-        <div className="space-y-2">
-          {sessions.map((br) => (
+      <div className="space-y-1.5">
+        {sessions.map((br) =>
+          editingRowId === br.id ? (
             <BreakSessionRow
               key={br.id}
               session={br}
               onSave={(patch) => handleSessionUpdate(br.id, patch)}
+              onCancel={() => setEditingRowId(null)}
               onDelete={() => handleDelete(br.id)}
               busy={updateBreak.isPending || deleteBreak.isPending}
             />
-          ))}
-          {showAddForm ? (
-            <div className="grid grid-cols-12 gap-2 items-end p-2 rounded-lg bg-surface-hover border border-border">
-              <div className="col-span-3">
-                <Select
-                  label="Type"
-                  value={draftType}
-                  onChange={(e) =>
-                    setDraftType(e.target.value as BreakType)
-                  }
-                  options={breakTypeOptions}
-                />
-              </div>
-              <div className="col-span-4">
-                <Input
-                  label="Start"
-                  type="datetime-local"
-                  value={draftStart}
-                  onChange={(e) => setDraftStart(e.target.value)}
-                  placeholder={`${workDate}T00:00`}
-                />
-              </div>
-              <div className="col-span-4">
-                <Input
-                  label="End (optional)"
-                  type="datetime-local"
-                  value={draftEnd}
-                  onChange={(e) => setDraftEnd(e.target.value)}
-                />
-              </div>
-              <div className="col-span-1 flex gap-1 justify-end">
-                <Button
-                  variant="secondary"
-                  size="sm"
-                  onClick={resetAddForm}
-                  type="button"
-                >
-                  <X size={14} />
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={handleAdd}
-                  isLoading={addBreak.isPending}
-                  type="button"
-                >
-                  <Check size={14} />
-                </Button>
-              </div>
-            </div>
           ) : (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setShowAddForm(true)}
-              type="button"
-            >
-              <Plus size={14} className="mr-1" /> Add break session
-            </Button>
-          )}
-        </div>
-      )}
+            <BreakSessionReadRow
+              key={br.id}
+              session={br}
+              tz={tz}
+              onEdit={() => setEditingRowId(br.id)}
+            />
+          ),
+        )}
+      </div>
+
+      <div className="mt-2">
+        {showAddForm ? (
+          <div className="grid grid-cols-12 gap-2 items-end p-2 rounded-lg bg-surface-hover border border-border">
+            <div className="col-span-3">
+              <Select
+                label="Type"
+                value={draftType}
+                onChange={(e) => setDraftType(e.target.value as BreakType)}
+                options={breakTypeOptions}
+              />
+            </div>
+            <div className="col-span-4">
+              <Input
+                label="Start"
+                type="datetime-local"
+                value={draftStart}
+                onChange={(e) => setDraftStart(e.target.value)}
+                placeholder={`${workDate}T00:00`}
+              />
+            </div>
+            <div className="col-span-4">
+              <Input
+                label="End (optional)"
+                type="datetime-local"
+                value={draftEnd}
+                onChange={(e) => setDraftEnd(e.target.value)}
+              />
+            </div>
+            <div className="col-span-1 flex gap-1 justify-end">
+              <Button variant="secondary" size="sm" onClick={resetAddForm} type="button">
+                <X size={14} />
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleAdd}
+                isLoading={addBreak.isPending}
+                type="button"
+              >
+                <Check size={14} />
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setShowAddForm(true)}
+            type="button"
+          >
+            <Plus size={14} className="mr-1" /> Add break session
+          </Button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+interface BreakSessionReadRowProps {
+  session: AttendanceBreakItem;
+  tz: string | undefined;
+  onEdit: () => void;
+}
+
+function BreakSessionReadRow({
+  session,
+  tz,
+  onEdit,
+}: BreakSessionReadRowProps): React.ReactElement {
+  const paid = isPaidBreak(session.break_type);
+  const typeLabel = breakTypeLabel(session.break_type);
+  const accent = paid
+    ? "text-[var(--color-success)]"
+    : "text-[var(--color-warning)]";
+  const dot = paid ? "bg-[var(--color-success)]" : "bg-[var(--color-warning)]";
+  const started = formatDateTime(session.started_at, tz);
+  const ended = session.ended_at ? formatDateTime(session.ended_at, tz) : "in progress";
+  const dur = session.duration_minutes != null ? `${session.duration_minutes} min` : "—";
+
+  return (
+    <div className="group flex items-center gap-2 text-sm tabular-nums px-2 py-1 rounded hover:bg-surface-hover">
+      <span className={`w-1.5 h-1.5 rounded-full ${dot}`} />
+      <span className="text-text">
+        {started} – {ended}
+      </span>
+      <span className="text-text-muted">·</span>
+      <span className={accent}>{typeLabel}</span>
+      <span className="text-text-muted">·</span>
+      <span className="text-text-secondary">{dur}</span>
+      <button
+        type="button"
+        onClick={onEdit}
+        className="ml-auto opacity-0 group-hover:opacity-100 text-xs text-text-muted hover:text-text inline-flex items-center gap-1"
+        aria-label="Edit break"
+      >
+        <Pencil size={11} /> Edit
+      </button>
     </div>
   );
 }
@@ -902,6 +845,7 @@ interface BreakSessionRowProps {
     ended_at?: string | null;
     break_type?: BreakType;
   }) => Promise<void>;
+  onCancel: () => void;
   onDelete: () => Promise<void>;
   busy: boolean;
 }
@@ -909,19 +853,13 @@ interface BreakSessionRowProps {
 function BreakSessionRow({
   session,
   onSave,
+  onCancel,
   onDelete,
   busy,
 }: BreakSessionRowProps): React.ReactElement {
   const [start, setStart] = useState<string>(isoToLocalInput(session.started_at));
   const [end, setEnd] = useState<string>(isoToLocalInput(session.ended_at));
   const [type, setType] = useState<BreakType>(toCanonicalBreakType(session.break_type));
-
-  // 외부에서 session prop 이 바뀌면 (mutation 후 invalidate) 로컬 state 갱신
-  useEffect(() => {
-    setStart(isoToLocalInput(session.started_at));
-    setEnd(isoToLocalInput(session.ended_at));
-    setType(toCanonicalBreakType(session.break_type));
-  }, [session.started_at, session.ended_at, session.break_type]);
 
   const dirty =
     start !== isoToLocalInput(session.started_at) ||
@@ -976,8 +914,24 @@ function BreakSessionRow({
         >
           <Trash2 size={14} />
         </Button>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={onCancel}
+          disabled={busy}
+          type="button"
+          aria-label="Cancel"
+        >
+          <X size={14} />
+        </Button>
         {dirty && (
-          <Button size="sm" onClick={handleSave} isLoading={busy} type="button" aria-label="Save break">
+          <Button
+            size="sm"
+            onClick={handleSave}
+            isLoading={busy}
+            type="button"
+            aria-label="Save break"
+          >
             <Check size={14} />
           </Button>
         )}
@@ -985,4 +939,3 @@ function BreakSessionRow({
     </div>
   );
 }
-

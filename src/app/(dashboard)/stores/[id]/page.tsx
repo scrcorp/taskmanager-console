@@ -61,12 +61,11 @@ import {
   Badge,
   Modal,
   Select,
-  ConfirmDialog,
 } from "@/components/ui";
 import { SortableList } from "@/components/ui/SortableList";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useToast } from "@/components/ui/Toast";
-import { useResultModal } from "@/components/ui/ResultModal";
+import { useModal } from "@/components/ui/imperative-modal";
 import { cn, parseApiError } from "@/lib/utils";
 import { TIMEZONE_OPTIONS } from "@/lib/timezones";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -183,7 +182,7 @@ export default function StoreDetailPage(): React.ReactElement {
   const params = useParams();
   const storeId: string = params.id as string;
   const { toast } = useToast();
-  const { show, showSuccess, showError } = useResultModal();
+  const modal = useModal();
   const queryClient = useQueryClient();
   const { hasPermission } = usePermissions();
   const canManageStoreConfig = hasPermission(PERMISSIONS.STORES_UPDATE);
@@ -219,9 +218,6 @@ export default function StoreDetailPage(): React.ReactElement {
   const [shiftEditForm, setShiftEditForm] =
     useState<ShiftPositionFormData>(INITIAL_SHIFT_FORM);
   const [editingShiftId, setEditingShiftId] = useState<string | null>(null);
-  const [isShiftDeleteOpen, setIsShiftDeleteOpen] = useState<boolean>(false);
-  const [deletingShiftId, setDeletingShiftId] = useState<string | null>(null);
-  const [deletingShiftName, setDeletingShiftName] = useState<string>("");
 
   /* ---- Position CRUD ----------------------------------------------------- */
   const createPosition = useCreatePosition();
@@ -235,9 +231,6 @@ export default function StoreDetailPage(): React.ReactElement {
   const [posEditForm, setPosEditForm] =
     useState<ShiftPositionFormData>(INITIAL_SHIFT_FORM);
   const [editingPosId, setEditingPosId] = useState<string | null>(null);
-  const [isPosDeleteOpen, setIsPosDeleteOpen] = useState<boolean>(false);
-  const [deletingPosId, setDeletingPosId] = useState<string | null>(null);
-  const [deletingPosName, setDeletingPosName] = useState<string>("");
 
   /* ---- Checklist Template CRUD ------------------------------------------- */
   const createTemplate = useCreateChecklistTemplate();
@@ -255,13 +248,6 @@ export default function StoreDetailPage(): React.ReactElement {
   const [editingTemplateId, setEditingTemplateId] = useState<string | null>(
     null,
   );
-  const [isTemplateDeleteOpen, setIsTemplateDeleteOpen] =
-    useState<boolean>(false);
-  const [deletingTemplateId, setDeletingTemplateId] = useState<string | null>(
-    null,
-  );
-  const [deletingTemplateName, setDeletingTemplateName] =
-    useState<string>("");
 
   /** 체크리스트 필터 상태 / Checklist filter state */
   const [filterShiftId, setFilterShiftId] = useState<string>("");
@@ -288,9 +274,6 @@ export default function StoreDetailPage(): React.ReactElement {
   const [itemEditForm, setItemEditForm] =
     useState<ItemFormData>(INITIAL_ITEM_FORM);
   const [editingItemId, setEditingItemId] = useState<string | null>(null);
-  const [isItemDeleteOpen, setIsItemDeleteOpen] = useState<boolean>(false);
-  const [deletingItemId, setDeletingItemId] = useState<string | null>(null);
-  const [deletingItemTitle, setDeletingItemTitle] = useState<string>("");
 
   /* ---- Settings: Store Update -------------------------------------------- */
   const updateStore = useUpdateStore();
@@ -315,9 +298,6 @@ export default function StoreDetailPage(): React.ReactElement {
 
   const [isPresetCreateOpen, setIsPresetCreateOpen] = useState<boolean>(false);
   const [presetCreateForm, setPresetCreateForm] = useState<PresetFormData>(INITIAL_PRESET_FORM);
-  const [isPresetDeleteOpen, setIsPresetDeleteOpen] = useState<boolean>(false);
-  const [deletingPresetId, setDeletingPresetId] = useState<string | null>(null);
-  const [deletingPresetName, setDeletingPresetName] = useState<string>("");
 
   /* ---- Settings: Labor Law ----------------------------------------------- */
   const { data: laborLaw, isLoading: laborLawLoading } = useLaborLaw(storeId);
@@ -439,13 +419,11 @@ export default function StoreDetailPage(): React.ReactElement {
         name: shiftCreateForm.name.trim(),
         sort_order: nextOrder,
       });
-      showSuccess("Shift created successfully!");
       setIsShiftCreateOpen(false);
       setShiftCreateForm(INITIAL_SHIFT_FORM);
     } catch (err) {
-      showError(parseApiError(err, "Failed to create shift."));
     }
-  }, [shiftCreateForm, createShift, storeId, showSuccess, showError, shiftList]);
+  }, [shiftCreateForm, createShift, storeId, shiftList]);
 
   const handleOpenShiftEdit = useCallback(
     (shift: Shift, e: React.MouseEvent): void => {
@@ -465,14 +443,12 @@ export default function StoreDetailPage(): React.ReactElement {
         id: editingShiftId,
         name: shiftEditForm.name.trim(),
       });
-      showSuccess("Shift updated successfully!");
       setIsShiftEditOpen(false);
       setEditingShiftId(null);
       setShiftEditForm(INITIAL_SHIFT_FORM);
     } catch (err) {
-      showError(parseApiError(err, "Failed to update shift."));
     }
-  }, [editingShiftId, shiftEditForm, updateShift, storeId, showSuccess, showError]);
+  }, [editingShiftId, shiftEditForm, updateShift, storeId]);
 
   /** 시프트 드래그앤드롭 정렬 / Shift drag-and-drop reorder */
   const handleReorderShifts = useCallback(
@@ -499,25 +475,19 @@ export default function StoreDetailPage(): React.ReactElement {
   const handleOpenShiftDelete = useCallback(
     (shift: Shift, e: React.MouseEvent): void => {
       e.stopPropagation();
-      setDeletingShiftId(shift.id);
-      setDeletingShiftName(shift.name);
-      setIsShiftDeleteOpen(true);
+      void (async () => {
+        const ok = await modal.confirm({
+          title: "Delete Shift",
+          message: `Are you sure you want to delete "${shift.name}"? This action cannot be undone.`,
+          confirmLabel: "Delete",
+          variant: "danger",
+        });
+        if (!ok) return;
+        deleteShift.mutate({ storeId, id: shift.id });
+      })();
     },
-    [],
+    [modal, deleteShift, storeId],
   );
-
-  const handleDeleteShift = useCallback(async (): Promise<void> => {
-    if (!deletingShiftId) return;
-    try {
-      await deleteShift.mutateAsync({ storeId: storeId, id: deletingShiftId });
-      showSuccess("Shift deleted successfully!");
-      setIsShiftDeleteOpen(false);
-      setDeletingShiftId(null);
-      setDeletingShiftName("");
-    } catch (err) {
-      showError(parseApiError(err, "Failed to delete shift."));
-    }
-  }, [deletingShiftId, deleteShift, storeId, showSuccess, showError]);
 
   /* ======================================================================== */
   /*  Position Handlers                                                       */
@@ -535,13 +505,11 @@ export default function StoreDetailPage(): React.ReactElement {
         name: posCreateForm.name.trim(),
         sort_order: nextOrder,
       });
-      showSuccess("Position created successfully!");
       setIsPosCreateOpen(false);
       setPosCreateForm(INITIAL_SHIFT_FORM);
     } catch (err) {
-      showError(parseApiError(err, "Failed to create position."));
     }
-  }, [posCreateForm, createPosition, storeId, showSuccess, showError, positionList]);
+  }, [posCreateForm, createPosition, storeId, positionList]);
 
   const handleOpenPosEdit = useCallback(
     (position: Position, e: React.MouseEvent): void => {
@@ -561,14 +529,12 @@ export default function StoreDetailPage(): React.ReactElement {
         id: editingPosId,
         name: posEditForm.name.trim(),
       });
-      showSuccess("Position updated successfully!");
       setIsPosEditOpen(false);
       setEditingPosId(null);
       setPosEditForm(INITIAL_SHIFT_FORM);
     } catch (err) {
-      showError(parseApiError(err, "Failed to update position."));
     }
-  }, [editingPosId, posEditForm, updatePosition, storeId, showSuccess, showError]);
+  }, [editingPosId, posEditForm, updatePosition, storeId]);
 
   /** 포지션 드래그앤드롭 정렬 / Position drag-and-drop reorder */
   const handleReorderPositions = useCallback(
@@ -595,25 +561,19 @@ export default function StoreDetailPage(): React.ReactElement {
   const handleOpenPosDelete = useCallback(
     (position: Position, e: React.MouseEvent): void => {
       e.stopPropagation();
-      setDeletingPosId(position.id);
-      setDeletingPosName(position.name);
-      setIsPosDeleteOpen(true);
+      void (async () => {
+        const ok = await modal.confirm({
+          title: "Delete Position",
+          message: `Are you sure you want to delete "${position.name}"? This action cannot be undone.`,
+          confirmLabel: "Delete",
+          variant: "danger",
+        });
+        if (!ok) return;
+        deletePosition.mutate({ storeId, id: position.id });
+      })();
     },
-    [],
+    [modal, deletePosition, storeId],
   );
-
-  const handleDeletePosition = useCallback(async (): Promise<void> => {
-    if (!deletingPosId) return;
-    try {
-      await deletePosition.mutateAsync({ storeId: storeId, id: deletingPosId });
-      showSuccess("Position deleted successfully!");
-      setIsPosDeleteOpen(false);
-      setDeletingPosId(null);
-      setDeletingPosName("");
-    } catch (err) {
-      showError(parseApiError(err, "Failed to delete position."));
-    }
-  }, [deletingPosId, deletePosition, storeId, showSuccess, showError]);
 
   /* ======================================================================== */
   /*  Checklist Template Handlers                                             */
@@ -633,13 +593,11 @@ export default function StoreDetailPage(): React.ReactElement {
         shift_id: templateCreateForm.shift_id,
         position_id: templateCreateForm.position_id,
       });
-      showSuccess("Checklist template created!");
       setIsTemplateCreateOpen(false);
       setTemplateCreateForm(INITIAL_TEMPLATE_FORM);
     } catch (err) {
-      showError(parseApiError(err, "Failed to create checklist template."));
     }
-  }, [templateCreateForm, createTemplate, storeId, showSuccess, showError]);
+  }, [templateCreateForm, createTemplate, storeId]);
 
   const handleOpenTemplateEdit = useCallback(
     (template: ChecklistTemplate, e: React.MouseEvent): void => {
@@ -664,40 +622,33 @@ export default function StoreDetailPage(): React.ReactElement {
         shift_id: templateEditForm.shift_id,
         position_id: templateEditForm.position_id,
       });
-      showSuccess("Checklist template updated!");
       setIsTemplateEditOpen(false);
       setEditingTemplateId(null);
       setTemplateEditForm(INITIAL_TEMPLATE_FORM);
     } catch (err) {
-      showError(parseApiError(err, "Failed to update checklist template."));
     }
-  }, [editingTemplateId, templateEditForm, updateTemplate, showSuccess, showError]);
+  }, [editingTemplateId, templateEditForm, updateTemplate]);
 
   const handleOpenTemplateDelete = useCallback(
     (template: ChecklistTemplate, e: React.MouseEvent): void => {
       e.stopPropagation();
-      setDeletingTemplateId(template.id);
-      setDeletingTemplateName(template.title);
-      setIsTemplateDeleteOpen(true);
+      void (async () => {
+        const ok = await modal.confirm({
+          title: "Delete Checklist Template",
+          message: `Are you sure you want to delete "${template.title}"? All items within this template will also be deleted.`,
+          confirmLabel: "Delete",
+          variant: "danger",
+        });
+        if (!ok) return;
+        deleteTemplate.mutate(template.id, {
+          onSuccess: () => {
+            if (expandedTemplateId === template.id) setExpandedTemplateId(null);
+          },
+        });
+      })();
     },
-    [],
+    [modal, deleteTemplate, expandedTemplateId],
   );
-
-  const handleDeleteTemplate = useCallback(async (): Promise<void> => {
-    if (!deletingTemplateId) return;
-    try {
-      await deleteTemplate.mutateAsync(deletingTemplateId);
-      showSuccess("Checklist template deleted!");
-      setIsTemplateDeleteOpen(false);
-      setDeletingTemplateId(null);
-      setDeletingTemplateName("");
-      if (expandedTemplateId === deletingTemplateId) {
-        setExpandedTemplateId(null);
-      }
-    } catch (err) {
-      showError(parseApiError(err, "Failed to delete checklist template."));
-    }
-  }, [deletingTemplateId, deleteTemplate, expandedTemplateId, showSuccess, showError]);
 
   /** 템플릿 펼치기/접기 토글 / Toggle template expansion */
   const toggleTemplateExpand = useCallback(
@@ -727,13 +678,11 @@ export default function StoreDetailPage(): React.ReactElement {
         verification_type: itemCreateForm.verification_type,
         sort_order: nextOrder,
       });
-      showSuccess("Checklist item created!");
       setIsItemCreateOpen(false);
       setItemCreateForm(INITIAL_ITEM_FORM);
     } catch (err) {
-      showError(parseApiError(err, "Failed to create checklist item."));
     }
-  }, [expandedTemplateId, itemCreateForm, createItem, showSuccess, showError, itemList]);
+  }, [expandedTemplateId, itemCreateForm, createItem, itemList]);
 
   const handleOpenItemEdit = useCallback(
     (item: ChecklistItem, e: React.MouseEvent): void => {
@@ -759,37 +708,29 @@ export default function StoreDetailPage(): React.ReactElement {
         description: itemEditForm.description.trim() || undefined,
         verification_type: itemEditForm.verification_type,
       });
-      showSuccess("Checklist item updated!");
       setIsItemEditOpen(false);
       setEditingItemId(null);
       setItemEditForm(INITIAL_ITEM_FORM);
     } catch (err) {
-      showError(parseApiError(err, "Failed to update checklist item."));
     }
-  }, [editingItemId, itemEditForm, updateItem, expandedTemplateId, showSuccess, showError]);
+  }, [editingItemId, itemEditForm, updateItem, expandedTemplateId]);
 
   const handleOpenItemDelete = useCallback(
     (item: ChecklistItem, e: React.MouseEvent): void => {
       e.stopPropagation();
-      setDeletingItemId(item.id);
-      setDeletingItemTitle(item.title);
-      setIsItemDeleteOpen(true);
+      void (async () => {
+        const ok = await modal.confirm({
+          title: "Delete Checklist Item",
+          message: `Are you sure you want to delete "${item.title}"?`,
+          confirmLabel: "Delete",
+          variant: "danger",
+        });
+        if (!ok) return;
+        deleteItem.mutate({ id: item.id, templateId: expandedTemplateId || "" });
+      })();
     },
-    [],
+    [modal, deleteItem, expandedTemplateId],
   );
-
-  const handleDeleteItem = useCallback(async (): Promise<void> => {
-    if (!deletingItemId) return;
-    try {
-      await deleteItem.mutateAsync({ id: deletingItemId, templateId: expandedTemplateId || "" });
-      showSuccess("Checklist item deleted!");
-      setIsItemDeleteOpen(false);
-      setDeletingItemId(null);
-      setDeletingItemTitle("");
-    } catch (err) {
-      showError(parseApiError(err, "Failed to delete checklist item."));
-    }
-  }, [deletingItemId, deleteItem, expandedTemplateId, showSuccess, showError]);
 
   /** 체크리스트 아이템 드래그앤드롭 정렬 / Checklist item drag-and-drop reorder */
   const handleReorderItems = useCallback(
@@ -882,42 +823,36 @@ export default function StoreDetailPage(): React.ReactElement {
   const handleSaveMaxWorkHours = useCallback(async (): Promise<void> => {
     const val = maxWorkHoursWeekly.trim() === "" ? null : Number(maxWorkHoursWeekly);
     if (val !== null && (isNaN(val) || val <= 0)) {
-      showError("Please enter a valid number.");
+      void modal.alert({ type: "error", message: "Please enter a valid number." });
       return;
     }
     try {
       await updateStore.mutateAsync({ id: storeId, max_work_hours_weekly: val });
-      showSuccess("Max work hours updated!");
     } catch (err) {
-      showError(parseApiError(err, "Failed to update max work hours."));
     }
-  }, [maxWorkHoursWeekly, updateStore, storeId, showSuccess, showError]);
+  }, [maxWorkHoursWeekly, updateStore, storeId]);
 
   /** 매장 타임존 저장 / Save store timezone */
   const handleSaveTimezone = useCallback(async (): Promise<void> => {
     try {
       await updateStore.mutateAsync({ id: storeId, timezone: storeTimezone || null });
-      showSuccess("Timezone updated!");
     } catch (err) {
-      showError(parseApiError(err, "Failed to update timezone."));
     }
-  }, [storeTimezone, updateStore, storeId, showSuccess, showError]);
+  }, [storeTimezone, updateStore, storeId]);
 
   /** 매장 기본 시급 저장 / Save store default hourly rate */
   const handleSaveDefaultHourlyRate = useCallback(async (): Promise<void> => {
     const rateStr = storeDefaultHourlyRate.trim();
     const val = rateStr === "" ? null : Number(rateStr);
     if (val !== null && (isNaN(val) || val < 0)) {
-      showError("Please enter a valid hourly rate.");
+      void modal.alert({ type: "error", message: "Please enter a valid hourly rate." });
       return;
     }
     try {
       await updateStore.mutateAsync({ id: storeId, default_hourly_rate: val });
-      showSuccess("Default hourly rate updated!");
     } catch (err) {
-      showError(parseApiError(err, "Failed to update hourly rate."));
     }
-  }, [storeDefaultHourlyRate, updateStore, storeId, showSuccess, showError]);
+  }, [storeDefaultHourlyRate, updateStore, storeId]);
 
   /** 영업일 경계 시각 저장 / Save day start time */
   const handleSaveDayStartTime = useCallback(async (): Promise<void> => {
@@ -925,11 +860,9 @@ export default function StoreDetailPage(): React.ReactElement {
       dayStartMode === "all" ? { all: dayStartAll } : { ...dayStartPerDay };
     try {
       await updateStore.mutateAsync({ id: storeId, day_start_time: payload });
-      showSuccess("Day start time updated!");
     } catch (err) {
-      showError(parseApiError(err, "Failed to update day start time."));
     }
-  }, [dayStartMode, dayStartAll, dayStartPerDay, updateStore, storeId, showSuccess, showError]);
+  }, [dayStartMode, dayStartAll, dayStartPerDay, updateStore, storeId]);
 
   /** 시프트 프리셋 생성 / Create shift preset */
   const handleCreatePreset = useCallback(async (): Promise<void> => {
@@ -942,13 +875,11 @@ export default function StoreDetailPage(): React.ReactElement {
         start_time: presetCreateForm.start_time,
         end_time: presetCreateForm.end_time,
       });
-      showSuccess("Shift preset created!");
       setIsPresetCreateOpen(false);
       setPresetCreateForm(INITIAL_PRESET_FORM);
     } catch (err) {
-      showError(parseApiError(err, "Failed to create shift preset."));
     }
-  }, [presetCreateForm, createPreset, storeId, showSuccess, showError]);
+  }, [presetCreateForm, createPreset, storeId]);
 
   /** 시프트 프리셋 활성/비활성 토글 / Toggle shift preset active status */
   const handleTogglePresetActive = useCallback(
@@ -959,37 +890,28 @@ export default function StoreDetailPage(): React.ReactElement {
           storeId,
           is_active: !preset.is_active,
         });
-        showSuccess(`Preset ${preset.is_active ? "deactivated" : "activated"}!`);
       } catch (err) {
-        showError(parseApiError(err, "Failed to update preset."));
       }
     },
-    [updatePreset, storeId, showSuccess, showError],
+    [updatePreset, storeId],
   );
 
   /** 시프트 프리셋 삭제 확인 열기 / Open preset delete confirmation */
   const handleOpenPresetDelete = useCallback(
     (preset: ShiftPreset): void => {
-      setDeletingPresetId(preset.id);
-      setDeletingPresetName(preset.name);
-      setIsPresetDeleteOpen(true);
+      void (async () => {
+        const ok = await modal.confirm({
+          title: "Delete Shift Preset",
+          message: `Are you sure you want to delete "${preset.name}"? This action cannot be undone.`,
+          confirmLabel: "Delete",
+          variant: "danger",
+        });
+        if (!ok) return;
+        deletePreset.mutate({ id: preset.id, storeId });
+      })();
     },
-    [],
+    [modal, deletePreset, storeId],
   );
-
-  /** 시프트 프리셋 삭제 / Delete shift preset */
-  const handleDeletePreset = useCallback(async (): Promise<void> => {
-    if (!deletingPresetId) return;
-    try {
-      await deletePreset.mutateAsync({ id: deletingPresetId, storeId });
-      showSuccess("Shift preset deleted!");
-      setIsPresetDeleteOpen(false);
-      setDeletingPresetId(null);
-      setDeletingPresetName("");
-    } catch (err) {
-      showError(parseApiError(err, "Failed to delete shift preset."));
-    }
-  }, [deletingPresetId, deletePreset, storeId, showSuccess, showError]);
 
   /** 노동법 설정 저장 / Save labor law settings */
   const handleSaveLaborLaw = useCallback(async (): Promise<void> => {
@@ -1001,11 +923,9 @@ export default function StoreDetailPage(): React.ReactElement {
         store_max_weekly: laborForm.store_max_weekly ? Number(laborForm.store_max_weekly) : null,
         overtime_threshold_daily: laborForm.overtime_threshold_daily ? Number(laborForm.overtime_threshold_daily) : null,
       });
-      showSuccess("Labor law settings saved!");
     } catch (err) {
-      showError(parseApiError(err, "Failed to save labor law settings."));
     }
-  }, [laborForm, upsertLaborLaw, storeId, showSuccess, showError]);
+  }, [laborForm, upsertLaborLaw, storeId]);
 
   /* ======================================================================== */
   /*  Loading State                                                           */
@@ -1104,7 +1024,7 @@ export default function StoreDetailPage(): React.ReactElement {
                   size="sm"
                   onClick={() => {
                     if (!canCreateStoreConfig) {
-                      show({ type: "info", title: "Permission required", message: "Only the Owner can create shifts. Please contact your Owner." });
+                      void modal.alert({ type: "info", title: "Permission required", message: "Only the Owner can create shifts. Please contact your Owner." });
                       return;
                     }
                     setIsShiftCreateOpen(true);
@@ -1136,7 +1056,7 @@ export default function StoreDetailPage(): React.ReactElement {
                   size="sm"
                   onClick={() => {
                     if (!canCreateStoreConfig) {
-                      show({ type: "info", title: "Permission required", message: "Only the Owner can create positions. Please contact your Owner." });
+                      void modal.alert({ type: "info", title: "Permission required", message: "Only the Owner can create positions. Please contact your Owner." });
                       return;
                     }
                     setIsPosCreateOpen(true);
@@ -1248,20 +1168,7 @@ export default function StoreDetailPage(): React.ReactElement {
             </div>
           </Modal>
 
-          {/* Delete Shift Dialog */}
-          <ConfirmDialog
-            isOpen={isShiftDeleteOpen}
-            onClose={() => {
-              setIsShiftDeleteOpen(false);
-              setDeletingShiftId(null);
-              setDeletingShiftName("");
-            }}
-            onConfirm={handleDeleteShift}
-            title="Delete Shift"
-            message={`Are you sure you want to delete "${deletingShiftName}"? This action cannot be undone.`}
-            confirmLabel="Delete"
-            isLoading={deleteShift.isPending}
-          />
+          {/* Delete shift confirm 은 handleOpenShiftDelete 안의 modal.confirm 으로 inline 처리 */}
 
           {/* Create Position Modal */}
           <Modal
@@ -1353,20 +1260,7 @@ export default function StoreDetailPage(): React.ReactElement {
             </div>
           </Modal>
 
-          {/* Delete Position Dialog */}
-          <ConfirmDialog
-            isOpen={isPosDeleteOpen}
-            onClose={() => {
-              setIsPosDeleteOpen(false);
-              setDeletingPosId(null);
-              setDeletingPosName("");
-            }}
-            onConfirm={handleDeletePosition}
-            title="Delete Position"
-            message={`Are you sure you want to delete "${deletingPosName}"? This action cannot be undone.`}
-            confirmLabel="Delete"
-            isLoading={deletePosition.isPending}
-          />
+          {/* Delete position confirm 은 handleOpenPosDelete 안의 modal.confirm 으로 inline 처리 */}
         </div>
       )}
 
@@ -1710,20 +1604,7 @@ export default function StoreDetailPage(): React.ReactElement {
             </div>
           </Modal>
 
-          {/* Delete Template Dialog */}
-          <ConfirmDialog
-            isOpen={isTemplateDeleteOpen}
-            onClose={() => {
-              setIsTemplateDeleteOpen(false);
-              setDeletingTemplateId(null);
-              setDeletingTemplateName("");
-            }}
-            onConfirm={handleDeleteTemplate}
-            title="Delete Checklist Template"
-            message={`Are you sure you want to delete "${deletingTemplateName}"? All items within this template will also be deleted.`}
-            confirmLabel="Delete"
-            isLoading={deleteTemplate.isPending}
-          />
+          {/* Delete template confirm 은 handleOpenTemplateDelete 안의 modal.confirm 으로 inline 처리 */}
 
           {/* Create Item Modal */}
           <Modal
@@ -1917,20 +1798,7 @@ export default function StoreDetailPage(): React.ReactElement {
             </div>
           </Modal>
 
-          {/* Delete Item Dialog */}
-          <ConfirmDialog
-            isOpen={isItemDeleteOpen}
-            onClose={() => {
-              setIsItemDeleteOpen(false);
-              setDeletingItemId(null);
-              setDeletingItemTitle("");
-            }}
-            onConfirm={handleDeleteItem}
-            title="Delete Checklist Item"
-            message={`Are you sure you want to delete "${deletingItemTitle}"?`}
-            confirmLabel="Delete"
-            isLoading={deleteItem.isPending}
-          />
+          {/* Delete item confirm 은 handleOpenItemDelete 안의 modal.confirm 으로 inline 처리 */}
         </div>
       )}
 
@@ -2357,20 +2225,7 @@ export default function StoreDetailPage(): React.ReactElement {
             </div>
           </Modal>
 
-          {/* Delete Preset Dialog */}
-          <ConfirmDialog
-            isOpen={isPresetDeleteOpen}
-            onClose={() => {
-              setIsPresetDeleteOpen(false);
-              setDeletingPresetId(null);
-              setDeletingPresetName("");
-            }}
-            onConfirm={handleDeletePreset}
-            title="Delete Shift Preset"
-            message={`Are you sure you want to delete "${deletingPresetName}"? This action cannot be undone.`}
-            confirmLabel="Delete"
-            isLoading={deletePreset.isPending}
-          />
+          {/* Delete preset confirm 은 handleOpenPresetDelete 안의 modal.confirm 으로 inline 처리 */}
         </div>
       )}
     </div>

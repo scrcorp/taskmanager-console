@@ -46,9 +46,9 @@ import { useShifts } from "@/hooks/useShifts";
 import { usePositions } from "@/hooks/usePositions";
 import { useStore } from "@/hooks/useStores";
 import { useChecklistTemplates, useChecklistItems } from "@/hooks/useChecklists";
-import { Modal, Select, Badge, ConfirmDialog } from "@/components/ui";
+import { Modal, Select, Badge } from "@/components/ui";
 import { useToast } from "@/components/ui/Toast";
-import { useResultModal } from "@/components/ui/ResultModal";
+import { useModal } from "@/components/ui/imperative-modal";
 import { parseApiError } from "@/lib/utils";
 import type { WorkRole, WorkRoleUpdate, ChecklistItem } from "@/types";
 
@@ -205,7 +205,7 @@ interface WorkRolesPanelProps {
 
 export function WorkRolesPanel({ storeId }: WorkRolesPanelProps): React.ReactElement {
   const { toast } = useToast();
-  const { showSuccess, showError } = useResultModal();
+  const modal = useModal();
 
   const { data: store } = useStore(storeId);
   const { data: workRoles, isLoading } = useWorkRoles(storeId);
@@ -220,7 +220,6 @@ export function WorkRolesPanel({ storeId }: WorkRolesPanelProps): React.ReactEle
 
   const [modalOpen, setModalOpen] = useState(false);
   const [editingRole, setEditingRole] = useState<WorkRole | null>(null);
-  const [deleteTarget, setDeleteTarget] = useState<WorkRole | null>(null);
 
   // Form state (edit modal only)
   const [startTime, setStartTime] = useState("");
@@ -344,9 +343,9 @@ export function WorkRolesPanel({ storeId }: WorkRolesPanelProps): React.ReactEle
           sort_order: maxOrder + 1,
         },
       });
-      showSuccess("Work role registered");
-    } catch (err) {
-      showError(parseApiError(err, "Failed to register work role"));
+      // 결과 모달은 mutation hook 이 자동 발사 — 페이지에서 추가 모달 없음.
+    } catch {
+      // 에러 모달도 hook 이 onError 에서 띄움.
     }
   };
 
@@ -391,22 +390,21 @@ export function WorkRolesPanel({ storeId }: WorkRolesPanelProps): React.ReactEle
         is_active: isActive,
       };
       await updateMut.mutateAsync({ id: editingRole.id, data, storeId });
-      showSuccess("Work role updated");
       setModalOpen(false);
-    } catch (err) {
-      showError(parseApiError(err, "Failed to save work role"));
+    } catch {
+      // hook 자동 모달
     }
   };
 
-  const handleDelete = async () => {
-    if (!deleteTarget) return;
-    try {
-      await deleteMut.mutateAsync({ id: deleteTarget.id, storeId });
-      showSuccess("Work role deleted");
-      setDeleteTarget(null);
-    } catch (err) {
-      showError(parseApiError(err, "Failed to delete work role"));
-    }
+  const handleDelete = async (role: WorkRole) => {
+    const ok = await modal.confirm({
+      title: "Delete Work Role",
+      message: `Delete "${role.shift_name} · ${role.position_name}"? This action cannot be undone.`,
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!ok) return;
+    deleteMut.mutate({ id: role.id, storeId });
   };
 
   // Drag & drop
@@ -475,7 +473,7 @@ export function WorkRolesPanel({ storeId }: WorkRolesPanelProps): React.ReactEle
                         breakLabel={getBreakLabel(role)}
                         storeId={storeId}
                         onEdit={openEdit}
-                        onDelete={setDeleteTarget}
+                        onDelete={handleDelete}
                       />
                     ))}
                   </div>
@@ -660,16 +658,7 @@ export function WorkRolesPanel({ storeId }: WorkRolesPanelProps): React.ReactEle
         )}
       </Modal>
 
-      {/* Delete Confirm */}
-      <ConfirmDialog
-        isOpen={!!deleteTarget}
-        onClose={() => setDeleteTarget(null)}
-        onConfirm={handleDelete}
-        title="Delete Work Role"
-        message={`Delete "${deleteTarget?.shift_name} · ${deleteTarget?.position_name}"? This action cannot be undone.`}
-        confirmLabel="Delete"
-        isLoading={deleteMut.isPending}
-      />
+      {/* Delete confirm 은 handleDelete 안에서 modal.confirm 으로 inline 처리 */}
     </div>
   );
 }

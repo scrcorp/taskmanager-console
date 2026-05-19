@@ -21,7 +21,7 @@ import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import { todayInTimezone } from "@/lib/utils";
 import { ROLE_PRIORITY } from "@/lib/permissions";
 import { DiffDisplay } from "@/components/schedules/redesign/DiffDisplay";
-import { ConfirmDialog } from "@/components/schedules/redesign/ConfirmDialog";
+import { useModal } from "@/components/ui/imperative-modal";
 import type { User } from "@/types";
 
 const EVENT_TYPES = [
@@ -181,7 +181,17 @@ export default function ScheduleHistoryPage() {
   const setDateTo = (v: string): void => setParams({ to: v === today ? null : v, page: null });
   const setPage = (n: number): void => setParams({ page: n === 1 ? null : String(n) });
 
-  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const modal = useModal();
+  const handleDeleteEntry = async (id: string): Promise<void> => {
+    const ok = await modal.confirm({
+      title: "Delete History Entry",
+      message: "This will permanently remove the audit log entry. This action cannot be undone.",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!ok) return;
+    deleteHistoryMutation.mutate(id);
+  };
 
   const storesQ = useStores();
   const usersQ = useUsers();
@@ -381,7 +391,7 @@ export default function ScheduleHistoryPage() {
                     key={item.id}
                     item={item}
                     users={usersQ.data ?? []}
-                    onDelete={isOwner ? (id) => setPendingDeleteId(id) : undefined}
+                    onDelete={isOwner ? handleDeleteEntry : undefined}
                   />
                 ))}
               </tbody>
@@ -390,18 +400,6 @@ export default function ScheduleHistoryPage() {
         </div>
       </div>
 
-      <ConfirmDialog
-        open={pendingDeleteId !== null}
-        title="Delete History Entry"
-        message="This will permanently remove the audit log entry. This action cannot be undone."
-        confirmLabel="Delete"
-        confirmVariant="danger"
-        onConfirm={() => {
-          if (pendingDeleteId) deleteHistoryMutation.mutate(pendingDeleteId);
-          setPendingDeleteId(null);
-        }}
-        onCancel={() => setPendingDeleteId(null)}
-      />
     </div>
   );
 }

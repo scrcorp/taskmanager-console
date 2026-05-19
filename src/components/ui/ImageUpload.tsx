@@ -16,6 +16,8 @@ interface ImageUploadProps {
   onRemove?: () => void;
   /** compact 모드: 아이콘 버튼만 표시 */
   compact?: boolean;
+  /** S3/로컬 storage 하위 폴더. default "reviews" (legacy). task 등은 "tasks". */
+  folder?: string;
 }
 
 function isVideo(url: string): boolean {
@@ -27,6 +29,7 @@ export function ImageUpload({
   onUpload,
   onRemove,
   compact = false,
+  folder,
 }: ImageUploadProps): React.ReactElement {
   const inputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -38,6 +41,7 @@ export function ImageUpload({
       const { upload_url, file_url } = await presignedUrl.mutateAsync({
         filename: file.name,
         content_type: file.type,
+        folder,
       });
 
       await fetch(upload_url, {

@@ -17,14 +17,15 @@ import {
   EmptyState,
   LoadingSpinner,
 } from "@/components/ui";
-import { useToast } from "@/components/ui/Toast";
-import { timeAgo, parseApiError } from "@/lib/utils";
+import { timeAgo } from "@/lib/utils";
 import type { Alert } from "@/types";
 
 /** reference_type → admin 경로 매핑.
  *
- * 서버가 보내는 reference_type 값:
- * - additional_task          → /tasks/{id}
+ * 서버가 보내는 reference_type 값 (모두 → /tasks/{id} 로 라우팅):
+ * - task                     → /tasks/{id} (현재)
+ * - issue                    → /tasks/{id} (legacy: issues 시절 알림)
+ * - additional_task          → /tasks/{id} (legacy: additional_tasks 시절 알림)
  * - notice             → /notices/{id}
  * - schedule                 → /schedules/{id}
  * - attendance               → /attendances/{id}
@@ -32,10 +33,13 @@ import type { Alert } from "@/types";
  * - cl_instance_items        → /checklists/instances/{id} (item 단위 라우트 없음, 인스턴스로)
  * - checklist_review         → /checklists/instances/{id} (reply 알림: instance id 들어옴)
  * - daily_report             → /daily-reports/{id}
+ * - issue_report             → /reports/issues/{id}
  */
 function getAlertHref(referenceType: string | null, referenceId: string | null): string | null {
   if (!referenceType || !referenceId) return null;
   switch (referenceType) {
+    case "task":
+    case "issue":
     case "additional_task":
       return `/tasks/${referenceId}`;
     case "notice":
@@ -50,6 +54,8 @@ function getAlertHref(referenceType: string | null, referenceId: string | null):
       return `/checklists/instances/${referenceId}`;
     case "daily_report":
       return `/daily-reports/${referenceId}`;
+    case "issue_report":
+      return `/reports/issues/${referenceId}`;
     default:
       return null;
   }
@@ -61,7 +67,6 @@ function getAlertHref(referenceType: string | null, referenceId: string | null):
  */
 export default function AlertsPage() {
   const router = useRouter();
-  const { toast } = useToast();
   const [urlParams, setUrlParams] = usePersistedFilters("alerts", { page: "1" });
   const page = Math.max(1, Number(urlParams.page) || 1);
   const setPage = (next: number): void => setUrlParams({ page: next === 1 ? null : String(next) });
@@ -80,19 +85,13 @@ export default function AlertsPage() {
   /** 단일 알림을 읽음 처리합니다.
    *  Mark a single alert as read. */
   const handleMarkRead = (alertId: string): void => {
-    markRead.mutate(alertId, {
-      onError: (err) => toast({ type: "error", message: parseApiError(err, "읽음 처리 실패 (Mark read failed)") }),
-    });
+    markRead.mutate(alertId);
   };
 
   /** 모든 읽지 않은 알림을 읽음 처리합니다.
    *  Mark all unread alerts as read. */
   const handleMarkAllRead = (): void => {
-    markAllRead.mutate(undefined, {
-      onSuccess: () =>
-        toast({ type: "success", message: "모든 알림이 읽음 처리되었습니다 (All marked as read)" }),
-      onError: (err) => toast({ type: "error", message: parseApiError(err, "전체 읽음 처리 실패 (Mark all read failed)") }),
-    });
+    markAllRead.mutate();
   };
 
   /** 알림 타입에 따른 배지를 반환합니다.

@@ -31,6 +31,7 @@ import {
   ShieldCheck,
   Tablet,
   UserPlus,
+  AlertTriangle,
   Wallet,
   Coins,
 } from "lucide-react";
@@ -87,11 +88,12 @@ const navItems: NavItem[] = [
   { href: "/notices", label: "Notices", icon: Megaphone },
   { href: "/evaluations", label: "Evaluations", icon: Star },
   {
-    href: "/daily-reports",
-    label: "Daily Reports",
+    href: "/reports",
+    label: "Reports",
     icon: FileText,
     children: [
-      { href: "/daily-reports/templates", label: "Templates", icon: Settings },
+      { href: "/reports", label: "Reports", icon: FileText },
+      { href: "/reports/templates", label: "Templates", icon: Settings },
     ],
   },
   {

@@ -349,7 +349,13 @@ export const useRemoveUserStore = (): UseMutationResult<
 /** 매장 배정 일괄 저장 요청 데이터 */
 interface SyncUserStoresData {
   userId: string;
-  assignments: { store_id: string; is_manager: boolean; is_work_assignment: boolean }[];
+  assignments: {
+    store_id: string;
+    is_manager: boolean;
+    is_work_assignment: boolean;
+    primary_work_role_id?: string | null;
+    primary_position_id?: string | null;
+  }[];
 }
 
 /** 매장 배정 일괄 저장 훅 */

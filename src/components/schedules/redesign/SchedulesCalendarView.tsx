@@ -13,7 +13,7 @@ import api from "@/lib/api";
 import { parseApiError, todayInTimezone } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 import { usePersistedFilters } from "@/hooks/usePersistedFilters";
-import { useSchedules, useConfirmSchedule, useRejectSchedule, useDeleteSchedule, useSubmitSchedule, useRevertSchedule, useCancelSchedule, useCreateSchedule, useUpdateSchedule, useSwitchSchedule } from "@/hooks/useSchedules";
+import { useSchedules, useConfirmSchedule, useRejectSchedule, useDeleteScheduleFlow, useSubmitSchedule, useRevertSchedule, useCancelSchedule, useCreateSchedule, useUpdateSchedule, useSwitchSchedule } from "@/hooks/useSchedules";
 import { useUsers } from "@/hooks/useUsers";
 import { ROLE_PRIORITY } from "@/lib/permissions";
 import { useStores } from "@/hooks/useStores";
@@ -29,7 +29,7 @@ import { HistoryPanel } from "./HistoryPanel";
 import { SwapModal } from "./SwapModal";
 import { ChangeStaffModal } from "./ChangeStaffModal";
 import { ScheduleEditModal, type ScheduleEditPayload } from "./ScheduleEditModal";
-import { ConfirmDialog } from "./ConfirmDialog";
+import { useModal } from "@/components/ui/imperative-modal";
 import { FilterBar, type FilterState, type EmptyStaffSort } from "./FilterBar";
 import { LegendModal } from "./LegendModal";
 import { MonthlyGrid } from "./MonthlyGrid";
@@ -38,7 +38,6 @@ import { useMidnightRefresh } from "@/hooks/useMidnightRefresh";
 import { useWorkRoles } from "@/hooks/useWorkRoles";
 import { useBulkCreateSchedules, useBulkUpdateSchedules, useBulkDeleteSchedules } from "@/hooks/useSchedules";
 import BulkScheduleView, { type SavePayload } from "./BulkScheduleView";
-import { useResultModal } from "@/components/ui/ResultModal";
 
 type ViewMode = "weekly" | "daily" | "monthly";
 type SortState = "none" | "confirmed" | "requested";
@@ -256,9 +255,9 @@ function StoreMultiSelect({ stores, selectedStores, onChange }: {
 
 export default function SchedulesCalendarView() {
   const router = useRouter();
-  // 'store' (외부 진입 link) 와 'edit' (스케줄 deeplink) 만 추가로 읽는다 — 그 외 모든 페이지 state 는 usePersistedFilters 가 관리.
+  // 'edit' (스케줄 deeplink) 만 추가로 읽는다 — 그 외 모든 페이지 state 는 usePersistedFilters 가 관리.
+  // legacy 'store' (단수) deeplink 는 제거됨 — cross-page leak 원인이라 무시. `?stores=` 만 사용.
   const rawSearchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : new URLSearchParams();
-  const urlStoreParam = rawSearchParams.get("store") ?? "";
   const urlEditParam = rawSearchParams.get("edit") ?? "";
 
   // URL + localStorage + 서버 영속 — 1계정 1데이터 (다른 디바이스에서도 동일).
@@ -373,10 +372,7 @@ export default function SchedulesCalendarView() {
   const [changeStaffSourceId, setChangeStaffSourceId] = useState<string | null>(null);
   const [editModal, setEditModal] = useState<{ open: boolean; mode: "add" | "edit"; blockId?: string; staffId?: string; date?: string; startTime?: string }>({ open: false, mode: "add" });
   const [editModalError, setEditModalError] = useState<string | null>(null);
-  const [bulkSaveError, setBulkSaveError] = useState<{ phase: string; details: string; partial: { created: number; updated: number; deleted: number } } | null>(null);
-  /** 체크리스트 conflict 확인 (reset_checklist 플래그 동의 유도) */
-  const [clResetPrompt, setClResetPrompt] = useState<{ payload: ScheduleEditPayload; blockId: string; message: string } | null>(null);
-  const [confirmDialog, setConfirmDialog] = useState<{ open: boolean; type: "delete" | "revert" | "reject" | "cancel" | "confirm"; blockId?: string }>({ open: false, type: "delete" });
+  const modal = useModal();
   const filters: FilterState = useMemo(
     () => ({
       staffIds: params.staff ? params.staff.split(",").filter(Boolean) : [],
@@ -401,7 +397,6 @@ export default function SchedulesCalendarView() {
 
   // ─── Bulk mode ─────────────────────────────────────
   const [bulkMode, setBulkMode] = useState(false);
-  const { showSuccess } = useResultModal();
   const bulkCreateMutation = useBulkCreateSchedules();
   const bulkUpdateMutation = useBulkUpdateSchedules();
   const bulkDeleteMutation = useBulkDeleteSchedules();
@@ -452,14 +447,14 @@ export default function SchedulesCalendarView() {
         await bulkDeleteMutation.mutateAsync({ ids: payload.deletes });
         deleted = payload.deletes.length;
       }
-      showSuccess(`Saved: ${created} created, ${updated} updated, ${deleted} deleted`);
+      // bulk hook 들이 각자 자동으로 결과 모달 띄움 — 페이지에서 또 띄우지 않음 (중복 방지)
       setBulkMode(false);
     } catch (err) {
       // 부분 실패 가능 — 어디서 멈췄는지 + 에러 메시지를 모달로 명확히 표시
-      setBulkSaveError({
-        phase,
-        details: parseApiError(err, "Unknown error"),
-        partial: { created, updated, deleted },
+      void modal.alert({
+        type: "error",
+        title: "Bulk Save Partially Failed",
+        message: `Failed during "${phase}" phase. Completed so far — created: ${created}, updated: ${updated}, deleted: ${deleted}. Error: ${parseApiError(err, "Unknown error")}`,
       });
     }
   }
@@ -504,24 +499,12 @@ export default function SchedulesCalendarView() {
   const shiftsQ = useShifts(isSingleStore ? selectedStores[0] : undefined);
   const monthlyWorkRolesQ = useWorkRoles(isSingleStore ? selectedStores[0] : undefined);
 
-  // 외부 deeplink 호환 — `?store=<id>` 또는 `?store=all` 로 들어왔을 때 1회 동기화.
-  // (usePersistedFilters 는 'stores' 키를 쓰지만 기존 deeplink 는 'store' 단수 사용)
-  const legacyStoreSyncedRef = useRef(false);
-  useEffect(() => {
-    if (legacyStoreSyncedRef.current) return;
-    if (stores.length === 0) return;
-    if (!urlStoreParam) return;
-    legacyStoreSyncedRef.current = true;
-    if (urlStoreParam === "all") {
-      if (selectedStores.length > 0) setSelectedStores([]);
-      return;
-    }
-    const ids = urlStoreParam.split(",").filter((id) => stores.some((s) => s.id === id));
-    if (ids.length === 0) return;
-    const same = ids.length === selectedStores.length && ids.every((id) => selectedStores.includes(id));
-    if (!same) setSelectedStores(ids);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [stores, urlStoreParam]);
+  // legacy `?store=` (단수) deeplink 는 deprecated.
+  // 이전에는 URL ?store= 를 받아 영속 stores (복수) 를 덮어썼는데, 다른 페이지
+  // (attendance 등) 에서 URL query 가 carry over 되면 사용자의 multi-select 영속이
+  // 단일 매장으로 덮어쓰여지는 cross-page leak 문제가 있었다.
+  // 이제는 ?store= 를 무시 — 사용자의 영속 stores 그대로 유지. (외부 deeplink 필요하면
+  // `?stores=<id>` (복수) 사용.)
 
   // selectedDay가 현재 weekDates 밖으로 나가면 weekStart 자동 동기화
   useEffect(() => {
@@ -552,7 +535,7 @@ export default function SchedulesCalendarView() {
   const rejectMutation = useRejectSchedule();
   const revertMutation = useRevertSchedule();
   const cancelMutation = useCancelSchedule();
-  const deleteMutation = useDeleteSchedule();
+  const deleteFlow = useDeleteScheduleFlow();
   const createMutation = useCreateSchedule();
   const updateMutation = useUpdateSchedule();
   const switchMutation = useSwitchSchedule();
@@ -1030,7 +1013,7 @@ export default function SchedulesCalendarView() {
     setContextMenu({ anchorEl: e.currentTarget as HTMLElement, blockId: sched.id, status: sched.status });
   }
 
-  function handleContextAction(action: string) {
+  async function handleContextAction(action: string): Promise<void> {
     if (!contextMenu) return;
     const blockId = contextMenu.blockId;
     if (action === "history") {
@@ -1052,11 +1035,49 @@ export default function SchedulesCalendarView() {
       const block = schedules.find((s) => s.id === blockId);
       if (block) setEditModal({ open: true, mode: "add", staffId: block.user_id, date: block.work_date });
     }
-    if (action === "revert") setConfirmDialog({ open: true, type: "revert", blockId });
-    if (action === "delete") setConfirmDialog({ open: true, type: "delete", blockId });
-    if (action === "reject") setConfirmDialog({ open: true, type: "reject", blockId });
-    if (action === "cancel") setConfirmDialog({ open: true, type: "cancel", blockId });
-    if (action === "confirm") setConfirmDialog({ open: true, type: "confirm", blockId });
+    if (action === "revert") {
+      const target = schedules.find((s) => s.id === blockId);
+      const cfg = target?.status === "cancelled"
+        ? { title: "Restore Schedule?", message: "This cancelled schedule will be restored to requested status and will need to be re-confirmed.", confirmLabel: "Restore" }
+        : { title: "Revert to Requested?", message: "This confirmed schedule will be reverted to requested status and will need to be re-confirmed.", confirmLabel: "Revert" };
+      const ok = await modal.confirm(cfg);
+      if (!ok) return;
+      revertMutation.mutate(blockId);
+    }
+    if (action === "delete") void deleteFlow(blockId);
+    if (action === "reject") {
+      const reason = await modal.confirm({
+        title: "Reject Schedule",
+        message: "This will mark the schedule as rejected. You can optionally provide a reason.",
+        confirmLabel: "Reject",
+        variant: "danger",
+        requiresReason: true,
+        reasonLabel: "Rejection reason (optional)",
+      });
+      if (reason === undefined) return;
+      rejectMutation.mutate({ id: blockId, rejection_reason: reason || undefined });
+    }
+    if (action === "cancel") {
+      const reason = await modal.confirm({
+        title: "Cancel Confirmed Schedule",
+        message: "This will cancel the confirmed schedule. You can optionally provide a reason.",
+        confirmLabel: "Cancel Schedule",
+        variant: "danger",
+        requiresReason: true,
+        reasonLabel: "Cancellation reason (optional)",
+      });
+      if (reason === undefined) return;
+      cancelMutation.mutate({ id: blockId, cancellation_reason: reason || undefined });
+    }
+    if (action === "confirm") {
+      const ok = await modal.confirm({
+        title: "Confirm Schedule?",
+        message: "This will mark the schedule as confirmed and notify the staff member.",
+        confirmLabel: "Confirm",
+      });
+      if (!ok) return;
+      confirmMutation.mutate(blockId);
+    }
     if (action === "sync-rate") {
       const block = schedules.find((s) => s.id === blockId);
       if (!block) return;
@@ -1132,11 +1153,17 @@ export default function SchedulesCalendarView() {
       },
     }, {
       onSuccess: closeEditModal,
-      onError: (err) => {
+      onError: async (err) => {
         const msg = parseApiError(err, "Failed to update schedule");
         // 서버가 "Checklist is in_progress/completed..." 400으로 거절 → 확인 후 재전송
         if (/reset_checklist=true/.test(msg)) {
-          setClResetPrompt({ payload, blockId, message: msg });
+          const ok = await modal.confirm({
+            title: "Checklist in progress",
+            message: msg + "\n\nReset the checklist with the new setup? Existing progress will be lost.",
+            confirmLabel: "Reset & save",
+            variant: "danger",
+          });
+          if (ok) submitEditMutation(blockId, payload, true);
           return;
         }
         setEditModalError(msg);
@@ -1336,98 +1363,16 @@ export default function SchedulesCalendarView() {
             onClose={closeEditModal}
             onSave={handleScheduleEditSave}
             isSaving={createMutation.isPending || updateMutation.isPending}
-            onDelete={editModal.mode === "edit" && editModal.blockId
-              ? () => {
-                  const id = editModal.blockId!;
-                  closeEditModal();
-                  setConfirmDialog({ open: true, type: "delete", blockId: id });
-                }
-              : undefined}
+            onDeleted={editModal.mode === "edit" ? () => { /* hook 이 cache invalidate → grid 자동 refetch */ } : undefined}
           />
         );
       })()}
 
-      {/* Confirm Dialog */}
-      {(() => {
-        const t = confirmDialog.type;
-        // revert 는 confirmed/cancelled 양쪽 모두에서 호출됨 → 현재 schedule status 로 문구 선택
-        const targetBlock = confirmDialog.blockId
-          ? schedules.find((s) => s.id === confirmDialog.blockId)
-          : undefined;
-        const revertingCancelled = t === "revert" && targetBlock?.status === "cancelled";
-        const revertCfg = revertingCancelled
-          ? { title: "Restore Schedule?", message: "This cancelled schedule will be restored to requested status and will need to be re-confirmed.", label: "Restore" }
-          : { title: "Revert to Requested?", message: "This confirmed schedule will be reverted to requested status and will need to be re-confirmed.", label: "Revert" };
-        const cfg: Record<typeof t, { title: string; message: string; label: string; variant: "danger" | "primary"; reason: boolean; reasonLabel?: string }> = {
-          delete:  { title: "Delete Schedule?", message: "This schedule will be permanently deleted. This action cannot be undone.", label: "Delete", variant: "danger", reason: false },
-          revert:  { ...revertCfg, variant: "primary", reason: false },
-          reject:  { title: "Reject Schedule", message: "This will mark the schedule as rejected. You can optionally provide a reason.", label: "Reject", variant: "danger", reason: true, reasonLabel: "Rejection reason (optional)" },
-          cancel:  { title: "Cancel Confirmed Schedule", message: "This will cancel the confirmed schedule. You can optionally provide a reason.", label: "Cancel Schedule", variant: "danger", reason: true, reasonLabel: "Cancellation reason (optional)" },
-          confirm: { title: "Confirm Schedule?", message: "This will mark the schedule as confirmed and notify the staff member.", label: "Confirm", variant: "primary", reason: false },
-        };
-        const c = cfg[t];
-        const close = () => setConfirmDialog({ open: false, type: "delete" });
-        const handle = (reason?: string) => {
-          const id = confirmDialog.blockId;
-          if (!id) { close(); return; }
-          if (t === "delete") deleteMutation.mutate(id);
-          else if (t === "revert") revertMutation.mutate(id);
-          else if (t === "confirm") confirmMutation.mutate(id);
-          else if (t === "reject") rejectMutation.mutate({ id, rejection_reason: reason });
-          else if (t === "cancel") cancelMutation.mutate({ id, cancellation_reason: reason });
-          close();
-        };
-        return (
-          <ConfirmDialog
-            open={confirmDialog.open}
-            title={c.title}
-            message={c.message}
-            confirmLabel={c.label}
-            confirmVariant={c.variant}
-            requiresReason={c.reason}
-            reasonLabel={c.reasonLabel}
-            onConfirm={handle}
-            onCancel={close}
-          />
-        );
-      })()}
+      {/* 모든 confirm 흐름이 useModal imperative API 로 이관됨 — handleContextAction / submitEditMutation 안 inline */}
 
       {/* Legend Modal */}
       <LegendModal open={legendOpen} onClose={() => setLegendOpen(false)} />
 
-      {/* 체크리스트 진행 중 → reset 동의 확인 */}
-      <ConfirmDialog
-        open={clResetPrompt !== null}
-        title="Checklist in progress"
-        message={
-          (clResetPrompt?.message ?? "") +
-          "\n\nReset the checklist with the new setup? Existing progress will be lost."
-        }
-        confirmLabel="Reset & save"
-        confirmVariant="danger"
-        onConfirm={() => {
-          if (clResetPrompt) submitEditMutation(clResetPrompt.blockId, clResetPrompt.payload, true);
-          setClResetPrompt(null);
-        }}
-        onCancel={() => setClResetPrompt(null)}
-      />
-
-      {/* Bulk Save 부분 실패 모달 */}
-      <ConfirmDialog
-        open={bulkSaveError !== null}
-        title="Bulk Save Partially Failed"
-        message={
-          bulkSaveError
-            ? `Failed during "${bulkSaveError.phase}" phase. ` +
-              `Completed so far — created: ${bulkSaveError.partial.created}, updated: ${bulkSaveError.partial.updated}, deleted: ${bulkSaveError.partial.deleted}. ` +
-              `Error: ${bulkSaveError.details}`
-            : ""
-        }
-        confirmLabel="Close"
-        confirmVariant="danger"
-        onConfirm={() => setBulkSaveError(null)}
-        onCancel={() => setBulkSaveError(null)}
-      />
 
 
       <div className="px-3 sm:px-4 lg:px-6 pb-4">

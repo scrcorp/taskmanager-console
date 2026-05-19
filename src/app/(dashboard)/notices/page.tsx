@@ -27,11 +27,9 @@ import {
   Modal,
   Badge,
   Pagination,
-  ConfirmDialog,
-  LoadingSpinner,
 } from "@/components/ui";
-import { useResultModal } from "@/components/ui/ResultModal";
-import { formatDate, parseApiError } from "@/lib/utils";
+import { useModal } from "@/components/ui/imperative-modal";
+import { formatDate } from "@/lib/utils";
 import { useTimezone } from "@/hooks/useTimezone";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@/lib/permissions";
@@ -41,7 +39,7 @@ const PER_PAGE: number = 20;
 
 export default function NoticesPage(): React.ReactElement {
   const router = useRouter();
-  const { showSuccess, showError } = useResultModal();
+  const modal = useModal();
   const { hasPermission } = usePermissions();
   const tz = useTimezone();
   const canManageNotices = hasPermission(PERMISSIONS.ANNOUNCEMENTS_CREATE);
@@ -56,9 +54,6 @@ export default function NoticesPage(): React.ReactElement {
   const [formTitle, setFormTitle] = useState<string>("");
   const [formContent, setFormContent] = useState<string>("");
   const [formStoreId, setFormStoreId] = useState<string>("");
-
-  // -- Delete state --
-  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   // -- Data hooks --
   const { data: noticesData, isLoading } = useNotices(page, PER_PAGE);
@@ -129,7 +124,7 @@ export default function NoticesPage(): React.ReactElement {
                   type="button"
                   onClick={(e: React.MouseEvent<HTMLButtonElement>) => {
                     e.stopPropagation();
-                    setDeleteId(item.id);
+                    void handleDelete(item.id);
                   }}
                   className="p-1.5 rounded-lg text-text-muted hover:text-danger hover:bg-danger-muted transition-colors cursor-pointer"
                   title="Delete"
@@ -171,7 +166,7 @@ export default function NoticesPage(): React.ReactElement {
 
   const handleFormSubmit: () => void = useCallback((): void => {
     if (!formTitle.trim() || !formContent.trim()) {
-      showError("Title and content are required.");
+      void modal.alert({ type: "error", message: "Title and content are required." });
       return;
     }
 
@@ -186,39 +181,32 @@ export default function NoticesPage(): React.ReactElement {
         { id: editingId, ...payload },
         {
           onSuccess: (): void => {
-            showSuccess("Notice updated successfully.");
             setIsFormOpen(false);
-          },
-          onError: (err): void => {
-            showError(parseApiError(err, "Failed to update notice."));
           },
         },
       );
     } else {
       createNotice.mutate(payload, {
         onSuccess: (): void => {
-          showSuccess("Notice created successfully.");
           setIsFormOpen(false);
-        },
-        onError: (err): void => {
-          showError(parseApiError(err, "Failed to create notice."));
         },
       });
     }
-  }, [formTitle, formContent, formStoreId, editingId, createNotice, updateNotice, showSuccess, showError]);
+  }, [formTitle, formContent, formStoreId, editingId, createNotice, updateNotice, modal]);
 
-  const handleDelete: () => void = useCallback((): void => {
-    if (!deleteId) return;
-    deleteNotice.mutate(deleteId, {
-      onSuccess: (): void => {
-        showSuccess("Notice deleted successfully.");
-        setDeleteId(null);
-      },
-      onError: (err): void => {
-        showError(parseApiError(err, "Failed to delete notice."));
-      },
-    });
-  }, [deleteId, deleteNotice, showSuccess, showError]);
+  const handleDelete = useCallback(
+    async (id: string): Promise<void> => {
+      const ok = await modal.confirm({
+        title: "Delete Notice",
+        message: "Are you sure you want to delete this notice? This action cannot be undone.",
+        confirmLabel: "Delete",
+        variant: "danger",
+      });
+      if (!ok) return;
+      deleteNotice.mutate(id);
+    },
+    [deleteNotice, modal],
+  );
 
   const isSubmitting: boolean = createNotice.isPending || updateNotice.isPending;
 
@@ -300,17 +288,6 @@ export default function NoticesPage(): React.ReactElement {
           </div>
         </div>
       </Modal>
-
-      {/* Delete Confirm Dialog */}
-      <ConfirmDialog
-        isOpen={deleteId !== null}
-        onClose={() => setDeleteId(null)}
-        onConfirm={handleDelete}
-        title="Delete Notice"
-        message="Are you sure you want to delete this notice? This action cannot be undone."
-        confirmLabel="Delete"
-        isLoading={deleteNotice.isPending}
-      />
     </div>
   );
 }

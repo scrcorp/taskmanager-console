@@ -38,7 +38,7 @@ import {
   useEvaluationSummary,
 } from "@/hooks";
 import { Card, Select, Badge, LoadingSpinner, Button } from "@/components/ui";
-import { useResultModal } from "@/components/ui/ResultModal";
+import { useModal } from "@/components/ui/imperative-modal";
 import api from "@/lib/api";
 import { cn, formatDate, parseApiError, todayInTimezone } from "@/lib/utils";
 import { useTimezone } from "@/hooks/useTimezone";
@@ -181,7 +181,7 @@ function StatusRow({
 export default function DashboardPage(): React.ReactElement {
   const router = useRouter();
   useAuthStore();
-  const { showSuccess, showError } = useResultModal();
+  const modal = useModal();
   const tz = useTimezone();
   // 자정이 지나면 자동으로 재계산 — 페이지를 24h 이상 켜둬도 stale today 안 됨.
   const today: string = useMidnightRefresh(() => todayInTimezone(tz), [tz]);
@@ -325,13 +325,13 @@ export default function DashboardPage(): React.ReactElement {
       link.download = `dashboard_${exportDate}.xlsx`;
       link.click();
       window.URL.revokeObjectURL(url);
-      showSuccess("Dashboard exported.");
+      void modal.alert({ type: "success", message: "Dashboard exported." });
     } catch (err) {
-      showError(parseApiError(err, "Failed to export dashboard."));
+      void modal.alert({ type: "error", message: parseApiError(err, "Failed to export dashboard.") });
     } finally {
       setIsExporting(false);
     }
-  }, [showSuccess, showError, tz]);
+  }, [modal, tz]);
 
   // ─── Date range button handler ────────────────────
   const handleDateRange = useCallback((range: DateRange) => {

@@ -89,6 +89,9 @@ api.interceptors.response.use(
           failedQueue.push({
             resolve: (token) => {
               originalRequest.headers.Authorization = `Bearer ${token}`;
+              // 재시도 요청에도 _retry 플래그 부착 — 재시도가 또 401 일 때
+              // mutex 무한 재진입 차단 (즉시 호출 측에 reject 전파).
+              originalRequest._retry = true;
               resolve(api(originalRequest));
             },
             reject,

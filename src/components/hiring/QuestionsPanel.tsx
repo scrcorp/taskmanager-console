@@ -30,10 +30,9 @@ import {
 } from "@/hooks/useHiring";
 import { useStore } from "@/hooks/useStores";
 import { FormPreview } from "./FormPreview";
-import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
-import { useResultModal } from "@/components/ui/ResultModal";
+import { useModal } from "@/components/ui/imperative-modal";
 
 interface Props {
   storeId: string;
@@ -83,7 +82,7 @@ export function QuestionsPanel({ storeId }: Props) {
   const discardDraft = useDiscardHiringFormDraft(storeId);
   const { data: store } = useStore(storeId);
   const [previewMode, setPreviewMode] = useState<"now" | "saved">("now");
-  const { show, showSuccess, showError } = useResultModal();
+  const modal = useModal();
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 4 } }),
   );
@@ -94,9 +93,7 @@ export function QuestionsPanel({ storeId }: Props) {
     attachments: [],
   });
   const [savedAt, setSavedAt] = useState<number | null>(null);
-  const [showCancelDialog, setShowCancelDialog] = useState(false);
   const [showPublishDialog, setShowPublishDialog] = useState(false);
-  const [showDiscardDialog, setShowDiscardDialog] = useState(false);
   const [showAddMenu, setShowAddMenu] = useState(false);
 
   // 옛 'text' type을 short_text로 정규화 (구버전 폼 호환)
@@ -335,43 +332,37 @@ export function QuestionsPanel({ storeId }: Props) {
   const handleSaveDraft = async () => {
     const err = validateForSave();
     if (err) {
-      showError(err);
+      void modal.alert({ type: "error", message: err });
       return;
     }
     try {
       await saveDraft.mutateAsync(draft);
       setSavedAt(Date.now());
-      showSuccess("Saved as draft");
       setTimeout(() => setSavedAt(null), 2000);
-    } catch (e) {
-      const err = e as { response?: { data?: { detail?: { message?: string } } } };
-      showError(`Save failed: ${err.response?.data?.detail?.message ?? "unknown"}`);
+    } catch {
+      // hook 자동 모달
     }
   };
 
   const handlePublish = async () => {
     const err = validateForSave();
     if (err) {
-      showError(err);
+      void modal.alert({ type: "error", message: err });
       return;
     }
     try {
       if (isDirty) await saveDraft.mutateAsync(draft);
       await publish.mutateAsync();
-      showSuccess("Form published — applicants now see it");
-    } catch (e) {
-      const err = e as { response?: { data?: { detail?: { message?: string } } } };
-      showError(`Publish failed: ${err.response?.data?.detail?.message ?? "unknown"}`);
+    } catch {
+      // hook 자동 모달
     }
   };
 
   const handleDiscardDraft = async () => {
     try {
       await discardDraft.mutateAsync();
-      show({ type: "info", title: "Draft discarded", message: "Draft discarded" });
-    } catch (e) {
-      const err = e as { response?: { data?: { detail?: { message?: string } } } };
-      showError(`Discard failed: ${err.response?.data?.detail?.message ?? "unknown"}`);
+    } catch {
+      // hook 자동 모달
     }
   };
 
@@ -923,7 +914,16 @@ export function QuestionsPanel({ storeId }: Props) {
           {hasServerDraft && (
             <button
               type="button"
-              onClick={() => setShowDiscardDialog(true)}
+              onClick={async () => {
+                const ok = await modal.confirm({
+                  title: "Discard draft?",
+                  message: "The saved draft will be removed. The applicant-facing form keeps using the published version.",
+                  confirmLabel: "Discard draft",
+                  variant: "danger",
+                });
+                if (!ok) return;
+                await handleDiscardDraft();
+              }}
               disabled={discardDraft.isPending}
               className="rounded-lg border border-[#E2E4EA] bg-white px-3 py-2 text-[12.5px] font-medium text-[#64748B] hover:bg-[#F0F1F5] disabled:opacity-50"
             >
@@ -932,7 +932,16 @@ export function QuestionsPanel({ storeId }: Props) {
           )}
           <button
             type="button"
-            onClick={() => setShowCancelDialog(true)}
+            onClick={async () => {
+              const ok = await modal.confirm({
+                title: "Discard changes?",
+                message: "Your unsaved edits to this form will be lost. The applicant-facing form will keep using the last saved version.",
+                confirmLabel: "Discard changes",
+                variant: "danger",
+              });
+              if (!ok) return;
+              resetDraftToServer();
+            }}
             disabled={!isDirty || saveDraft.isPending}
             className="rounded-lg border border-[#E2E4EA] bg-white px-3 py-2 text-[12.5px] font-medium text-[#64748B] hover:bg-[#F0F1F5] disabled:opacity-50"
           >
@@ -992,31 +1001,6 @@ export function QuestionsPanel({ storeId }: Props) {
           storeName={store?.name ?? "Your store"}
         />
       </div>
-
-      <ConfirmDialog
-        isOpen={showCancelDialog}
-        onClose={() => setShowCancelDialog(false)}
-        onConfirm={() => {
-          resetDraftToServer();
-          setShowCancelDialog(false);
-        }}
-        title="Discard changes?"
-        message="Your unsaved edits to this form will be lost. The applicant-facing form will keep using the last saved version."
-        confirmLabel="Discard changes"
-      />
-
-      <ConfirmDialog
-        isOpen={showDiscardDialog}
-        onClose={() => setShowDiscardDialog(false)}
-        onConfirm={async () => {
-          await handleDiscardDraft();
-          setShowDiscardDialog(false);
-        }}
-        title="Discard draft?"
-        message="The saved draft will be removed. The applicant-facing form keeps using the published version."
-        confirmLabel="Discard draft"
-        isLoading={discardDraft.isPending}
-      />
 
       <Modal
         isOpen={showPublishDialog}

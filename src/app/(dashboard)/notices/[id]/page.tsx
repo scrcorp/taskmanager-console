@@ -24,19 +24,18 @@ import {
   Card,
   Badge,
   Modal,
-  ConfirmDialog,
   LoadingSpinner,
   EmptyState,
 } from "@/components/ui";
-import { useResultModal } from "@/components/ui/ResultModal";
-import { formatDate, parseApiError } from "@/lib/utils";
+import { useModal } from "@/components/ui/imperative-modal";
+import { formatDate } from "@/lib/utils";
 import { useTimezone } from "@/hooks/useTimezone";
 import type { Notice, Store } from "@/types";
 
 export default function NoticeDetailPage(): React.ReactElement {
   const params = useParams();
   const router = useRouter();
-  const { showSuccess, showError } = useResultModal();
+  const modal = useModal();
   const tz = useTimezone();
 
   const noticeId: string = params.id as string;
@@ -51,9 +50,6 @@ export default function NoticeDetailPage(): React.ReactElement {
   const [formTitle, setFormTitle] = useState<string>("");
   const [formContent, setFormContent] = useState<string>("");
   const [formStoreId, setFormStoreId] = useState<string>("");
-
-  // -- Delete state --
-  const [isDeleteOpen, setIsDeleteOpen] = useState<boolean>(false);
 
   const storeOptions: { value: string; label: string }[] = [
     { value: "", label: "All Stores" },
@@ -70,7 +66,7 @@ export default function NoticeDetailPage(): React.ReactElement {
 
   const handleEditSubmit: () => void = useCallback((): void => {
     if (!formTitle.trim() || !formContent.trim()) {
-      showError("Title and content are required.");
+      void modal.alert({ type: "error", message: "Title and content are required." });
       return;
     }
 
@@ -83,27 +79,26 @@ export default function NoticeDetailPage(): React.ReactElement {
       },
       {
         onSuccess: (): void => {
-          showSuccess("Notice updated successfully.");
           setIsEditOpen(false);
-        },
-        onError: (err): void => {
-          showError(parseApiError(err, "Failed to update notice."));
         },
       },
     );
-  }, [noticeId, formTitle, formContent, formStoreId, updateNotice, showSuccess, showError]);
+  }, [noticeId, formTitle, formContent, formStoreId, updateNotice, modal]);
 
-  const handleDelete: () => void = useCallback((): void => {
+  const handleDelete = useCallback(async (): Promise<void> => {
+    const ok = await modal.confirm({
+      title: "Delete Notice",
+      message: "Are you sure you want to delete this notice? This action cannot be undone.",
+      confirmLabel: "Delete",
+      variant: "danger",
+    });
+    if (!ok) return;
     deleteNotice.mutate(noticeId, {
       onSuccess: (): void => {
-        showSuccess("Notice deleted successfully.");
         router.push("/notices");
       },
-      onError: (err): void => {
-        showError(parseApiError(err, "Failed to delete notice."));
-      },
     });
-  }, [noticeId, deleteNotice, showSuccess, showError, router]);
+  }, [noticeId, deleteNotice, modal, router]);
 
   if (isLoading) {
     return (
@@ -163,7 +158,7 @@ export default function NoticeDetailPage(): React.ReactElement {
               <Edit size={14} />
               Edit
             </Button>
-            <Button variant="danger" size="sm" onClick={() => setIsDeleteOpen(true)}>
+            <Button variant="danger" size="sm" onClick={() => void handleDelete()}>
               <Trash2 size={14} />
               Delete
             </Button>
@@ -251,17 +246,6 @@ export default function NoticeDetailPage(): React.ReactElement {
           </div>
         </div>
       </Modal>
-
-      {/* Delete Confirm Dialog */}
-      <ConfirmDialog
-        isOpen={isDeleteOpen}
-        onClose={() => setIsDeleteOpen(false)}
-        onConfirm={handleDelete}
-        title="Delete Notice"
-        message="Are you sure you want to delete this notice? This action cannot be undone."
-        confirmLabel="Delete"
-        isLoading={deleteNotice.isPending}
-      />
     </div>
   );
 }

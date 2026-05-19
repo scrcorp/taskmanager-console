@@ -338,16 +338,18 @@ export function useDeleteReviewContent(): UseMutationResult<
 export function usePresignedUrl(): UseMutationResult<
   { upload_url: string; file_url: string; key: string },
   Error,
-  { filename: string; content_type: string }
+  { filename: string; content_type: string; folder?: string }
 > {
   return useMutation({
     mutationFn: async ({
       filename,
       content_type,
+      folder,
     }): Promise<{ upload_url: string; file_url: string; key: string }> => {
       const response = await api.post("/console/storage/presigned-url", {
         filename,
         content_type,
+        ...(folder ? { folder } : {}),
       });
       return response.data;
     },
