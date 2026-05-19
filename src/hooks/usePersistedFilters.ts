@@ -148,10 +148,10 @@ export function usePersistedFilters<K extends string>(
       return;
     }
 
-    const hasAnyInUrl = (Object.keys(defaultsRef.current) as K[]).some(
-      (k) => searchParams.get(k) !== null,
-    );
-    if (hasAnyInUrl) return; // URL 값이 source of truth — 그대로 두고 localStorage 덮어쓰지 않음
+    // Per-key hydration:
+    //   - URL 에 있는 키는 source of truth (그대로 둠).
+    //   - URL 에 없는 키만 localStorage 에서 복원.
+    //   detail → list 같이 일부 키만 전달되는 navigation 에서도 누락된 store/filter 가 복원됨.
 
     const stored = readPageWithCleanup(storageKey, defaultsRef.current);
     if (!stored) return;
@@ -171,6 +171,7 @@ export function usePersistedFilters<K extends string>(
     let dirty = false;
     for (const k of Object.keys(defaultsRef.current) as K[]) {
       if (transientRef.current.has(k)) continue;
+      if (searchParams.get(k) !== null) continue; // URL 에 있으면 그대로 두고 덮어쓰지 않음
       const v = stored.values[k];
       if (v && v !== defaultsRef.current[k]) {
         next.set(k, v);

@@ -49,7 +49,13 @@ import {
   LoadingSpinner,
 } from "@/components/ui";
 import { useModal } from "@/components/ui/imperative-modal";
-import { formatDateTime, formatFixedDate, timeAgo } from "@/lib/utils";
+import {
+  formatDateTime,
+  formatFixedDate,
+  isoToLocalInputInTz,
+  localInputToIsoInTz,
+  timeAgo,
+} from "@/lib/utils";
 import { AttendanceCorrectionModal } from "@/components/attendances/AttendanceCorrectionModal";
 import { AttendanceActionBar } from "@/components/attendances/AttendanceActionBar";
 import { ReasonPicker } from "@/components/attendances/ReasonPicker";
@@ -85,22 +91,7 @@ function formatMinutes(minutes: number | null): string {
   return `${h}h ${m.toString().padStart(2, "0")}m`;
 }
 
-function isoToLocalInput(iso: string | null): string {
-  if (!iso) return "";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "";
-  const pad = (n: number): string => n.toString().padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(
-    d.getHours(),
-  )}:${pad(d.getMinutes())}`;
-}
-
-function localInputToIso(s: string): string | null {
-  if (!s) return null;
-  const d = new Date(s);
-  if (Number.isNaN(d.getTime())) return null;
-  return d.toISOString();
-}
+// 시간 변환 헬퍼는 lib/utils 의 isoToLocalInputInTz / localInputToIsoInTz 사용 (매장 tz 인식).
 
 export default function AttendanceDetailPage(): React.ReactElement {
   const { id } = useParams<{ id: string }>();
@@ -171,7 +162,7 @@ export default function AttendanceDetailPage(): React.ReactElement {
 
       {/* 상태 기반 액션 바 — Status 변경은 모두 여기를 거친다 (state machine). */}
       <div className="mb-6">
-        <AttendanceActionBar attendance={attendance} />
+        <AttendanceActionBar attendance={attendance} tz={tz} />
       </div>
 
       {/* 상세 카드 — 전부 읽기 전용. 시간/상태/노트 수정은 모달 사용. */}
@@ -209,7 +200,31 @@ export default function AttendanceDetailPage(): React.ReactElement {
           </div>
         </div>
 
-        {/* Clock In/Out */}
+        {/* Scheduled In/Out (원본 스케줄 — 참고용) */}
+        {(attendance.scheduled_start_display || attendance.scheduled_end_display) && (
+          <div className="grid grid-cols-2 gap-4 text-sm pt-3 border-t border-border">
+            <div>
+              <div className="text-xs text-text-muted mb-0.5">
+                <Clock size={12} className="inline mr-1" />
+                Scheduled In
+              </div>
+              <div className="text-text-secondary">
+                {attendance.scheduled_start_display ?? "—"}
+              </div>
+            </div>
+            <div>
+              <div className="text-xs text-text-muted mb-0.5">
+                <Clock size={12} className="inline mr-1" />
+                Scheduled Out
+              </div>
+              <div className="text-text-secondary">
+                {attendance.scheduled_end_display ?? "—"}
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Clock In/Out (실제 출퇴근) */}
         <div className="grid grid-cols-2 gap-4 text-sm pt-3 border-t border-border">
           {[
             { label: "Clock In", icon: LogIn, value: attendance.clock_in, tzName: attendance.clock_in_timezone },
@@ -280,15 +295,17 @@ export default function AttendanceDetailPage(): React.ReactElement {
           />
         </div>
 
-        {/* 메모 — 읽기 전용. 수정은 Correction modal 에서. */}
-        {attendance.note && (
-          <div className="pt-3 border-t border-border">
-            <div className="text-xs text-text-muted mb-1">Note</div>
+        {/* 메모 — 읽기 전용. 수정은 Correction modal 에서. 비어 있어도 자리 유지. */}
+        <div className="pt-3 border-t border-border">
+          <div className="text-xs text-text-muted mb-1">Note</div>
+          {attendance.note ? (
             <p className="text-sm text-text-secondary whitespace-pre-wrap">
               {attendance.note}
             </p>
-          </div>
-        )}
+          ) : (
+            <p className="text-sm text-text-muted italic">No note</p>
+          )}
+        </div>
       </Card>
 
       {/* 활동 이력 */}
@@ -633,8 +650,8 @@ function BreakSessionsEditor({
       void modal.alert({ type: "error", message: "Start time is required" });
       return;
     }
-    const startedIso = localInputToIso(draftStart);
-    const endedIso = draftEnd ? localInputToIso(draftEnd) : null;
+    const startedIso = localInputToIsoInTz(draftStart, tz);
+    const endedIso = draftEnd ? localInputToIsoInTz(draftEnd, tz) : null;
     if (!startedIso) {
       void modal.alert({ type: "error", message: "Invalid start time" });
       return;
@@ -722,6 +739,7 @@ function BreakSessionsEditor({
             <BreakSessionRow
               key={br.id}
               session={br}
+              tz={tz}
               onSave={(patch) => handleSessionUpdate(br.id, patch)}
               onCancel={() => setEditingRowId(null)}
               onDelete={() => handleDelete(br.id)}
@@ -840,6 +858,7 @@ function BreakSessionReadRow({
 
 interface BreakSessionRowProps {
   session: AttendanceBreakItem;
+  tz: string | undefined;
   onSave: (patch: {
     started_at?: string;
     ended_at?: string | null;
@@ -852,24 +871,25 @@ interface BreakSessionRowProps {
 
 function BreakSessionRow({
   session,
+  tz,
   onSave,
   onCancel,
   onDelete,
   busy,
 }: BreakSessionRowProps): React.ReactElement {
-  const [start, setStart] = useState<string>(isoToLocalInput(session.started_at));
-  const [end, setEnd] = useState<string>(isoToLocalInput(session.ended_at));
+  const [start, setStart] = useState<string>(isoToLocalInputInTz(session.started_at, tz));
+  const [end, setEnd] = useState<string>(isoToLocalInputInTz(session.ended_at, tz));
   const [type, setType] = useState<BreakType>(toCanonicalBreakType(session.break_type));
 
   const dirty =
-    start !== isoToLocalInput(session.started_at) ||
-    end !== isoToLocalInput(session.ended_at) ||
+    start !== isoToLocalInputInTz(session.started_at, tz) ||
+    end !== isoToLocalInputInTz(session.ended_at, tz) ||
     type !== toCanonicalBreakType(session.break_type);
 
   const handleSave = async (): Promise<void> => {
-    const startIso = start ? localInputToIso(start) : null;
+    const startIso = start ? localInputToIsoInTz(start, tz) : null;
     if (!startIso) return;
-    const endIso = end ? localInputToIso(end) : null;
+    const endIso = end ? localInputToIsoInTz(end, tz) : null;
     await onSave({
       started_at: startIso,
       ended_at: endIso,
