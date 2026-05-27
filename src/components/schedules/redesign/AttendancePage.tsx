@@ -10,6 +10,8 @@ import { usePersistedFilters } from '@/hooks/usePersistedFilters'
 import { todayInTimezone } from '@/lib/utils'
 import { useMidnightRefresh } from '@/hooks/useMidnightRefresh'
 import type { AttendanceBreakItem } from '@/types'
+import { Download } from 'lucide-react'
+import { usePermissions } from '@/hooks/usePermissions'
 import { AttendanceWeeklyView } from './AttendanceWeeklyView'
 import { WeekPickerCalendar, DatePickerCalendar, getWeekStart } from './WeekPickerCalendar'
 import {
@@ -281,6 +283,7 @@ function computeLateMinutes(clockInIso?: string | null, scheduledIso?: string | 
 
 export function AttendancePage() {
   const router = useRouter()
+  const { isGMPlus } = usePermissions()
   // 매장/조직 timezone 기준 오늘 + 자정 자동 갱신.
   const orgTimezone = useAuthStore((s) => s.user?.organization_timezone) ?? undefined
   const today = useMidnightRefresh(
@@ -425,6 +428,17 @@ export function AttendancePage() {
           {stores.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
         </select>
         <span className="text-[12px] text-[var(--color-text-muted)]">Live attendance tracking</span>
+        {isGMPlus && (
+          <a
+            href="/htma-download"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-[12px] font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors"
+          >
+            <Download className="w-3.5 h-3.5" />
+            Download APK
+          </a>
+        )}
       </div>
 
       <div className="flex items-center justify-between py-2 gap-3 flex-wrap">
