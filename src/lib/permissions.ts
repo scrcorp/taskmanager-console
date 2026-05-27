@@ -145,6 +145,7 @@ export const PAGE_PERMISSIONS: Record<string, string> = {
   "/stores": PERMISSIONS.STORES_READ,
   "/hiring": PERMISSIONS.HIRING_READ,
   "/users": PERMISSIONS.USERS_READ,
+  "/users/bulk": PERMISSIONS.USERS_UPDATE,
   "/schedules": PERMISSIONS.SCHEDULES_READ,
   "/schedules/history": PERMISSIONS.SCHEDULE_HISTORY_READ,
   "/schedules/settings": PERMISSIONS.SCHEDULE_SETTINGS_MANAGE,

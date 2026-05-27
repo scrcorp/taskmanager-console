@@ -84,6 +84,8 @@ interface CreateUserData {
   role_id: string;
   store_ids?: string[];
   hourly_rate?: number | null;
+  /** FOH/BOH 분류 — null/생략 시 미지정 */
+  department?: "FOH" | "BOH" | null;
   /** 생성 직후 Store Assignment 상세 (각 매장별 Manager/Work 플래그) */
   store_assignments?: { store_id: string; is_manager: boolean; is_work_assignment: boolean }[];
 }
@@ -136,6 +138,8 @@ interface UpdateUserData {
   role_id?: string;
   password?: string;
   hourly_rate?: number | null;
+  /** FOH/BOH 분류 — null이면 미지정으로 해제 */
+  department?: "FOH" | "BOH" | null;
 }
 
 /**
@@ -170,6 +174,45 @@ export const useUpdateUser = (): UseMutationResult<
       );
       queryClient.setQueryData<User>(["users", variables.id], updated);
       success("Staff updated.");
+    },
+    onError: error("Failed to update staff"),
+  });
+};
+
+/** 일괄 변경 요청 데이터 (Bulk update request) — 보낸 필드만 적용됨 */
+interface BulkUpdateUsersData {
+  user_ids: string[];
+  /** FOH/BOH/null(미지정 해제) — 키가 있으면 적용 */
+  department?: "FOH" | "BOH" | null;
+  /** 활성/비활성 일괄 — 키가 있으면 적용 */
+  is_active?: boolean;
+  /** 시급 일괄 — null 이면 상속으로 해제 */
+  hourly_rate?: number | null;
+}
+
+/**
+ * 직원 필드 일괄 변경 훅 -- 여러 직원의 여러 필드를 한 번에 변경.
+ *
+ * Mutation hook to bulk-update fields for multiple users (only sent fields apply).
+ */
+export const useBulkUpdateUsers = (): UseMutationResult<
+  { updated_count: number },
+  Error,
+  BulkUpdateUsersData
+> => {
+  const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationToast();
+  return useMutation<{ updated_count: number }, Error, BulkUpdateUsersData>({
+    mutationFn: async (data: BulkUpdateUsersData): Promise<{ updated_count: number }> => {
+      const response: AxiosResponse<{ updated_count: number }> = await api.patch(
+        "/console/users/bulk",
+        data,
+      );
+      return response.data;
+    },
+    onSuccess: (res: { updated_count: number }): void => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      success(`Updated department for ${res.updated_count} staff.`);
     },
     onError: error("Failed to update staff"),
   });
