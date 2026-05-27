@@ -155,6 +155,8 @@ export interface User {
   hourly_rate: number | null;
   /** effective 시급 — user.hourly_rate ?? organization.default_hourly_rate. 서버에서 계산. */
   effective_hourly_rate?: number | null;
+  /** FOH/BOH 분류 — null이면 미지정 (오너·매니저 등) */
+  department?: "FOH" | "BOH" | null;
   is_active: boolean;
   created_at: string;
 }
@@ -288,6 +290,8 @@ export interface UserCreate {
   email?: string | null;
   phone?: string | null;
   role_id: string;
+  /** FOH/BOH 분류 — null/생략 시 미지정 */
+  department?: "FOH" | "BOH" | null;
 }
 
 /** 사용자 수정 요청 타입.
@@ -299,6 +303,8 @@ export interface UserUpdate {
   role_id?: string;
   is_active?: boolean;
   hourly_rate?: number | null;
+  /** FOH/BOH 분류 — null이면 미지정으로 해제 */
+  department?: "FOH" | "BOH" | null;
 }
 
 /** 시간대 생성 요청 타입.
@@ -1020,6 +1026,8 @@ export interface Schedule {
   request_id: string | null;
   user_id: string;
   user_name: string | null;
+  /** 배정 직원의 FOH/BOH 분류 (스케줄 필터용, null=미지정) */
+  user_department?: "FOH" | "BOH" | null;
   store_id: string;
   store_name: string | null;
   work_role_id: string | null;

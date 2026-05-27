@@ -10,7 +10,7 @@
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, Layers } from "lucide-react";
 import { useUsers, useCreateUser } from "@/hooks/useUsers";
 import { useRoles } from "@/hooks/useRoles";
 import { useStores } from "@/hooks/useStores";
@@ -49,6 +49,8 @@ interface UserFormData {
   phone: string;
   role_id: string;
   hourly_rate: string;
+  /** FOH/BOH 분류 — "" = 미지정 */
+  department: "" | "FOH" | "BOH";
   store_checks: Record<string, StoreCheck>;
 }
 
@@ -61,8 +63,16 @@ const INITIAL_FORM: UserFormData = {
   phone: "",
   role_id: "",
   hourly_rate: "",
+  department: "",
   store_checks: {},
 };
+
+/** Department 필터 옵션 — 값 "FOH" | "BOH" | "unassigned" */
+const DEPARTMENT_FILTER_OPTIONS = [
+  { id: "FOH", label: "FOH" },
+  { id: "BOH", label: "BOH" },
+  { id: "unassigned", label: "Unassigned" },
+];
 
 export default function UsersPage(): React.ReactElement {
   const router = useRouter();
@@ -76,6 +86,7 @@ export default function UsersPage(): React.ReactElement {
     staff: "",
     role: "",
     store: "",
+    dept: "",
     email: "all",
     sort: "",
     dir: "asc",
@@ -84,6 +95,7 @@ export default function UsersPage(): React.ReactElement {
   const searchQuery = params.q;
   const selectedStaffIds = useMemo(() => csvToArr(params.staff), [params.staff]);
   const selectedRoles = useMemo(() => csvToArr(params.role), [params.role]);
+  const selectedDepartments = useMemo(() => csvToArr(params.dept), [params.dept]);
   const selectedStoreIds = useMemo(() => csvToArr(params.store), [params.store]);
   const emailFilter = (params.email || "all") as "all" | "verified" | "unverified";
   const sortKey: string | null = params.sort || null;
@@ -100,6 +112,9 @@ export default function UsersPage(): React.ReactElement {
   const toggleStoreId = useCallback((id: string) => {
     setParams({ store: arrToCsv(selectedStoreIds.includes(id) ? selectedStoreIds.filter((x) => x !== id) : [...selectedStoreIds, id]) });
   }, [selectedStoreIds, setParams]);
+  const toggleDepartment = useCallback((d: string) => {
+    setParams({ dept: arrToCsv(selectedDepartments.includes(d) ? selectedDepartments.filter((x) => x !== d) : [...selectedDepartments, d]) });
+  }, [selectedDepartments, setParams]);
   const setEmailFilter = useCallback((v: "all" | "verified" | "unverified") => {
     setParams({ email: v === "all" ? null : v });
   }, [setParams]);
@@ -206,6 +221,13 @@ export default function UsersPage(): React.ReactElement {
       );
     }
 
+    // Department 멀티 필터 — 미지정(null)은 "unassigned" 로 매칭
+    if (selectedDepartments.length > 0) {
+      result = result.filter(
+        (user: User) => selectedDepartments.includes(user.department ?? "unassigned"),
+      );
+    }
+
     // Email verified 필터
     if (emailFilter === "verified") {
       result = result.filter((user: User) => user.email_verified);
@@ -245,9 +267,9 @@ export default function UsersPage(): React.ReactElement {
     }
 
     return result;
-  }, [userList, searchQuery, selectedStaffIds, selectedRoles, emailFilter, showInactive, sortKey, sortDirection]);
+  }, [userList, searchQuery, selectedStaffIds, selectedRoles, selectedDepartments, emailFilter, showInactive, sortKey, sortDirection]);
 
-  const totalFilterCount = selectedStaffIds.length + selectedRoles.length + selectedStoreIds.length + (emailFilter !== "all" ? 1 : 0);
+  const totalFilterCount = selectedStaffIds.length + selectedRoles.length + selectedDepartments.length + selectedStoreIds.length + (emailFilter !== "all" ? 1 : 0);
 
   /** 사용자 생성 핸들러 / Handle user creation */
   const handleCreate = useCallback(async (): Promise<void> => {
@@ -275,6 +297,7 @@ export default function UsersPage(): React.ReactElement {
         phone: createForm.phone.trim() || undefined,
         role_id: createForm.role_id,
         hourly_rate: parsedRate ? Number(parsedRate) : null,
+        department: createForm.department || undefined,
         store_assignments: store_assignments.length > 0 ? store_assignments : undefined,
       });
       setIsCreateOpen(false);
@@ -335,6 +358,19 @@ export default function UsersPage(): React.ReactElement {
             {user.role_name}
           </Badge>
         ),
+      },
+      {
+        key: "department",
+        header: "Department",
+        sortable: true,
+        render: (user: User) =>
+          user.department ? (
+            <Badge variant={user.department === "FOH" ? "info" : "warning"}>
+              {user.department}
+            </Badge>
+          ) : (
+            <span className="text-text-muted text-xs">—</span>
+          ),
       },
       {
         key: "email",
@@ -410,13 +446,22 @@ export default function UsersPage(): React.ReactElement {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-extrabold text-text">Staff</h1>
         {canManageUsers && (
-          <Button
-            variant="primary"
-            onClick={() => setIsCreateOpen(true)}
-          >
-            <Plus className="h-4 w-4" />
-            Add Staff
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => router.push("/users/bulk/edit")}
+            >
+              <Layers className="h-4 w-4" />
+              Bulk Edit
+            </Button>
+            <Button
+              variant="primary"
+              onClick={() => setIsCreateOpen(true)}
+            >
+              <Plus className="h-4 w-4" />
+              Add Staff
+            </Button>
+          </div>
         )}
       </div>
 
@@ -498,6 +543,17 @@ export default function UsersPage(): React.ReactElement {
             width={200}
             open={openFilter === "role"}
             onOpenChange={(o) => setOpenFilter(o ? "role" : null)}
+          />
+
+          <MultiSelectFilter
+            label="Department"
+            options={DEPARTMENT_FILTER_OPTIONS}
+            selected={selectedDepartments}
+            onToggle={toggleDepartment}
+            onClearAll={() => setParams({ dept: null })}
+            width={200}
+            open={openFilter === "department"}
+            onOpenChange={(o) => setOpenFilter(o ? "department" : null)}
           />
 
           <MultiSelectFilter
@@ -593,6 +649,12 @@ export default function UsersPage(): React.ReactElement {
               <span key={`r${r}`} className="inline-flex items-center gap-1 px-2.5 py-1 bg-accent-muted text-accent rounded-full text-[11px] font-semibold">
                 {r}
                 <button type="button" onClick={() => toggleRole(r)} className="opacity-60 hover:opacity-100 ml-0.5">×</button>
+              </span>
+            ))}
+            {selectedDepartments.map((d) => (
+              <span key={`d${d}`} className="inline-flex items-center gap-1 px-2.5 py-1 bg-accent-muted text-accent rounded-full text-[11px] font-semibold">
+                {DEPARTMENT_FILTER_OPTIONS.find((x) => x.id === d)?.label ?? d}
+                <button type="button" onClick={() => toggleDepartment(d)} className="opacity-60 hover:opacity-100 ml-0.5">×</button>
               </span>
             ))}
             {selectedStoreIds.map((id) => {
@@ -730,6 +792,21 @@ export default function UsersPage(): React.ReactElement {
               setCreateForm((prev: UserFormData) => ({
                 ...prev,
                 role_id: e.target.value,
+              }))
+            }
+          />
+          <Select
+            label="Department (optional)"
+            options={[
+              { value: "", label: "Unassigned" },
+              { value: "FOH", label: "FOH (Front of House)" },
+              { value: "BOH", label: "BOH (Back of House)" },
+            ]}
+            value={createForm.department}
+            onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
+              setCreateForm((prev: UserFormData) => ({
+                ...prev,
+                department: e.target.value as "" | "FOH" | "BOH",
               }))
             }
           />

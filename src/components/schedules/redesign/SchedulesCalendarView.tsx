@@ -275,6 +275,7 @@ export default function SchedulesCalendarView() {
       statuses: "",
       positions: "",
       shifts: "",
+      departments: "",
       wsc: "-1",
       wss: "none",
       dsc: "-1",
@@ -382,8 +383,9 @@ export default function SchedulesCalendarView() {
       statuses: params.statuses ? params.statuses.split(",").filter(Boolean) : [],
       positions: params.positions ? params.positions.split(",").filter(Boolean) : [],
       shifts: params.shifts ? params.shifts.split(",").filter(Boolean) : [],
+      departments: params.departments ? params.departments.split(",").filter(Boolean) : [],
     }),
-    [params.staff, params.roles, params.statuses, params.positions, params.shifts],
+    [params.staff, params.roles, params.statuses, params.positions, params.shifts, params.departments],
   );
   const setFilters = useCallback(
     (next: FilterState) => setParams({
@@ -392,6 +394,7 @@ export default function SchedulesCalendarView() {
       statuses: next.statuses.length === 0 ? null : next.statuses.join(","),
       positions: next.positions.length === 0 ? null : next.positions.join(","),
       shifts: next.shifts.length === 0 ? null : next.shifts.join(","),
+      departments: next.departments.length === 0 ? null : next.departments.join(","),
     }),
     [setParams],
   );
@@ -760,6 +763,10 @@ export default function SchedulesCalendarView() {
     if (filters.roles.length > 0) {
       result = result.filter((u) => filters.roles.includes(rolePriorityToBadge(u.role_priority).toLowerCase()));
     }
+    if (filters.departments.length > 0) {
+      // department 는 user 속성 — 미지정(null)은 "unassigned" 로 매칭
+      result = result.filter((u) => filters.departments.includes(u.department ?? "unassigned"));
+    }
     if (filters.statuses.length > 0) {
       result = result.filter((u) => {
         const userScheds = schedules.filter((s) => s.user_id === u.id);
@@ -954,7 +961,7 @@ export default function SchedulesCalendarView() {
   const totals = view === "monthly" ? monthlyTotals : view === "weekly" ? weeklyTotals : dailyTotals;
 
   // 활성 필터 합계: FilterBar로 좁혀진 staff/status/position/shift만 합산.
-  const totalActiveFilters = filters.staffIds.length + filters.roles.length + filters.statuses.length + filters.positions.length + filters.shifts.length;
+  const totalActiveFilters = filters.staffIds.length + filters.roles.length + filters.statuses.length + filters.positions.length + filters.shifts.length + filters.departments.length;
   const filteredTotals = useMemo(() => {
     if (totalActiveFilters === 0) return null;
     const userIdSet = new Set(filteredUsers.map((u) => u.id));
@@ -1562,6 +1569,7 @@ export default function SchedulesCalendarView() {
           users={users}
           schedules={schedules}
           selectedStoreId={selectedStore}
+          showDepartment
           emptyStaffSort={emptyStaffSort}
           onEmptyStaffSortChange={setEmptyStaffSort}
           emptyStaffHide={emptyStaffHide}

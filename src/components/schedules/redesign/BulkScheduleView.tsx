@@ -122,7 +122,7 @@ export default function BulkScheduleView({
   const [storeId, setStoreId] = useState(initialStoreId);
   const [weekStart, setWeekStart] = useState<Date>(initialWeekStart);
   const weekDates = useMemo(() => buildWeekDates(weekStart), [weekStart]);
-  const [filters, setFilters] = useState<FilterState>({ staffIds: [], roles: [], statuses: [], positions: [], shifts: [] });
+  const [filters, setFilters] = useState<FilterState>({ staffIds: [], roles: [], statuses: [], positions: [], shifts: [], departments: [] });
 
   // Selection
   const [selectionMode, setSelectionMode] = useState<"add" | "edit">("add");

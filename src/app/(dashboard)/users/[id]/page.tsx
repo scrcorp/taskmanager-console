@@ -617,8 +617,8 @@ export default function UserDetailPage(): React.ReactElement {
         </div>
       </div>
 
-      {/* Role & Pay — two separate cards side by side */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+      {/* Role / Department / Pay — separate cards side by side */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         {/* Role Card */}
         <div className="bg-card border border-border rounded-xl p-5">
           <RoleEditor
@@ -638,6 +638,22 @@ export default function UserDetailPage(): React.ReactElement {
               if (!ok) return;
               try {
                 await updateUser.mutateAsync({ id: userId, role_id: roleId });
+              } catch {
+                // hook 자동 모달
+              }
+            }}
+            isSaving={updateUser.isPending}
+          />
+        </div>
+
+        {/* Department Card */}
+        <div className="bg-card border border-border rounded-xl p-5">
+          <DepartmentEditor
+            value={user.department}
+            canEdit={canManageUsers}
+            onSave={async (department) => {
+              try {
+                await updateUser.mutateAsync({ id: userId, department });
               } catch {
                 // hook 자동 모달
               }
@@ -1056,6 +1072,105 @@ function RoleEditor({ currentRoleName, roleList, myPriority, canEdit, onSave, is
             }`}
           >
             {r.name}
+          </button>
+        ))}
+      </div>
+    </>
+  );
+}
+
+// ─── Department Editor ──────────────────────────────────────────────────────
+
+interface DepartmentEditorProps {
+  value: "FOH" | "BOH" | null | undefined;
+  canEdit: boolean;
+  onSave: (department: "FOH" | "BOH" | null) => Promise<void>;
+  isSaving: boolean;
+}
+
+const DEPARTMENT_OPTIONS: { value: "FOH" | "BOH" | null; label: string }[] = [
+  { value: "FOH", label: "FOH" },
+  { value: "BOH", label: "BOH" },
+  { value: null, label: "Unassigned" },
+];
+
+function DepartmentBadge({ value }: { value: "FOH" | "BOH" | null | undefined }): React.ReactElement {
+  if (!value) return <span className="text-text-muted text-sm">Unassigned</span>;
+  return <Badge variant={value === "FOH" ? "info" : "warning"}>{value}</Badge>;
+}
+
+function DepartmentEditor({ value, canEdit, onSave, isSaving }: DepartmentEditorProps): React.ReactElement {
+  const [isEditing, setIsEditing] = useState(false);
+  const [selected, setSelected] = useState<"FOH" | "BOH" | null>(value ?? null);
+
+  if (!canEdit) {
+    return (
+      <>
+        <h3 className="text-sm font-bold text-text mb-3">Department</h3>
+        <DepartmentBadge value={value} />
+      </>
+    );
+  }
+
+  if (!isEditing) {
+    return (
+      <>
+        <div className="flex items-center justify-between mb-3">
+          <h3 className="text-sm font-bold text-text">Department</h3>
+          <button
+            type="button"
+            onClick={() => { setSelected(value ?? null); setIsEditing(true); }}
+            className="text-xs text-accent hover:text-accent-light font-medium transition-colors"
+          >
+            Edit
+          </button>
+        </div>
+        <DepartmentBadge value={value} />
+      </>
+    );
+  }
+
+  const currentValue = value ?? null;
+  return (
+    <>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-sm font-bold text-text">Department</h3>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            disabled={isSaving || selected === currentValue}
+            onClick={async () => {
+              if (selected === currentValue) return;
+              await onSave(selected);
+              setIsEditing(false);
+            }}
+            className="text-xs text-accent hover:text-accent-light font-semibold transition-colors disabled:opacity-50"
+          >
+            {isSaving ? "Saving..." : "Save"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setIsEditing(false)}
+            className="text-xs text-text-muted hover:text-text font-medium transition-colors"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+      <div className="flex gap-1.5 flex-wrap">
+        {DEPARTMENT_OPTIONS.map((opt) => (
+          <button
+            key={opt.label}
+            type="button"
+            onClick={() => setSelected(opt.value)}
+            disabled={isSaving}
+            className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+              selected === opt.value
+                ? "bg-accent text-white"
+                : "bg-surface text-text-secondary hover:text-text hover:bg-surface-hover"
+            }`}
+          >
+            {opt.label}
           </button>
         ))}
       </div>

@@ -19,6 +19,8 @@ export interface FilterState {
   statuses: string[];
   positions: string[];
   shifts: string[];
+  /** FOH/BOH 분류 필터 — 값: "FOH" | "BOH" | "unassigned" */
+  departments: string[];
 }
 
 /** 빈 직원 정렬 차원 — bottom(기본) / top / in-order */
@@ -32,6 +34,8 @@ interface Props {
   selectedStoreId: string;
   /** 필터 row 우측 끝에 추가로 노출할 컨트롤 */
   rightSlot?: React.ReactNode;
+  /** FOH/BOH department 필터 드롭다운 노출 여부 (스케줄 뷰에서만 사용) */
+  showDepartment?: boolean;
   /** 빈 직원 정렬 (bottom 기본). hide=true면 무시 */
   emptyStaffSort?: EmptyStaffSort;
   onEmptyStaffSortChange?: (sort: EmptyStaffSort) => void;
@@ -61,6 +65,12 @@ const ALL_ROLES = [
   { id: "staff", label: "Staff" },
 ];
 
+const ALL_DEPARTMENTS = [
+  { id: "FOH", label: "FOH" },
+  { id: "BOH", label: "BOH" },
+  { id: "unassigned", label: "Unassigned" },
+];
+
 function rolePriorityToBadge(p: number): string {
   if (p <= ROLE_PRIORITY.OWNER) return "owner";
   if (p <= ROLE_PRIORITY.GM) return "gm";
@@ -82,7 +92,7 @@ function getInitials(name: string | null | undefined): string {
   return ((parts[0]![0] ?? "") + (parts[parts.length - 1]![0] ?? "")).toUpperCase();
 }
 
-export function FilterBar({ filters, onChange, users, schedules, selectedStoreId, rightSlot, emptyStaffSort, onEmptyStaffSortChange, emptyStaffHide, onEmptyStaffHideChange }: Props) {
+export function FilterBar({ filters, onChange, users, schedules, selectedStoreId, rightSlot, showDepartment, emptyStaffSort, onEmptyStaffSortChange, emptyStaffHide, onEmptyStaffHideChange }: Props) {
   // 5개 multi-select + empty-staff 가 상호배타적으로 열리도록 부모 state 로 제어.
   const [openMenu, setOpenMenu] = useState<string | null>(null);
   const emptyStaffRef = useRef<HTMLDivElement>(null);
@@ -133,7 +143,7 @@ export function FilterBar({ filters, onChange, users, schedules, selectedStoreId
     return set;
   }, [schedules, selectedStoreId]);
 
-  const totalActive = filters.staffIds.length + filters.roles.length + filters.statuses.length + filters.positions.length + filters.shifts.length;
+  const totalActive = filters.staffIds.length + filters.roles.length + filters.statuses.length + filters.positions.length + filters.shifts.length + filters.departments.length;
 
   function toggle<K extends keyof FilterState>(key: K, value: string) {
     const current = filters[key] as string[];
@@ -142,7 +152,7 @@ export function FilterBar({ filters, onChange, users, schedules, selectedStoreId
   }
 
   function clearAll() {
-    onChange({ staffIds: [], roles: [], statuses: [], positions: [], shifts: [] });
+    onChange({ staffIds: [], roles: [], statuses: [], positions: [], shifts: [], departments: [] });
     setOpenMenu(null);
   }
 
@@ -212,6 +222,19 @@ export function FilterBar({ filters, onChange, users, schedules, selectedStoreId
           open={openMenu === "role"}
           onOpenChange={handleOpenChange("role")}
         />
+
+        {showDepartment && (
+          <MultiSelectFilter
+            label="Department"
+            options={ALL_DEPARTMENTS.map((d) => ({ id: d.id, label: d.label }))}
+            selected={filters.departments}
+            onToggle={(id) => toggle("departments", id)}
+            onClearAll={() => onChange({ ...filters, departments: [] })}
+            width={200}
+            open={openMenu === "department"}
+            onOpenChange={handleOpenChange("department")}
+          />
+        )}
 
         <MultiSelectFilter
           label="Status"
@@ -385,6 +408,12 @@ export function FilterBar({ filters, onChange, users, schedules, selectedStoreId
             <span key={`sh${sh}`} className="inline-flex items-center gap-1 px-2.5 py-1 bg-[var(--color-warning-muted)] text-[var(--color-warning)] rounded-full text-[11px] font-semibold">
               {sh}
               <button type="button" onClick={() => toggle("shifts", sh)} className="opacity-60 hover:opacity-100 ml-0.5">×</button>
+            </span>
+          ))}
+          {filters.departments.map((d) => (
+            <span key={`d${d}`} className="inline-flex items-center gap-1 px-2.5 py-1 bg-[var(--color-accent-muted)] text-[var(--color-accent)] rounded-full text-[11px] font-semibold">
+              {ALL_DEPARTMENTS.find((x) => x.id === d)?.label ?? d}
+              <button type="button" onClick={() => toggle("departments", d)} className="opacity-60 hover:opacity-100 ml-0.5">×</button>
             </span>
           ))}
         </div>
