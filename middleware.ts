@@ -21,7 +21,7 @@ const CONSOLE_HOST_PREFIX = "console.";
 const ALWAYS_ALLOWED_PREFIXES = ["/_next", "/api", "/favicon", "/icon", "/apple-icon"];
 
 /** public host 에서만 허용되는 path. */
-const PUBLIC_ALLOWED_PREFIXES = ["/join", "/coming-soon"];
+const PUBLIC_ALLOWED_PREFIXES = ["/join", "/coming-soon", "/htma-download"];
 
 function isConsoleHost(host: string): boolean {
   if (host.startsWith("localhost") || host.startsWith("127.")) return true;
