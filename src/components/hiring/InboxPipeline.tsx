@@ -1,16 +1,19 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
-  useApplications,
+  useApplicationsInbox,
   usePatchApplication,
-  type ApplicationListItem,
+  type InboxApplicationItem,
   type ApplicationStage,
 } from "@/hooks/useHiring";
+import { useModal } from "@/components/ui/imperative-modal";
 import { ApplicantDetailDrawer } from "./ApplicantDetailDrawer";
+import { StoreBadge } from "./StoreBadge";
 
 interface Props {
   storeId: string;
+  q: string;
 }
 
 const STAGES: { key: ApplicationStage; label: string; tone: string }[] = [
@@ -22,47 +25,52 @@ const STAGES: { key: ApplicationStage; label: string; tone: string }[] = [
   { key: "rejected", label: "Rejected", tone: "bg-[rgba(239,68,68,0.1)] text-[#EF4444]" },
 ];
 
-export function PipelinePanel({ storeId }: Props) {
-  const { data, isLoading } = useApplications(storeId);
+export function InboxPipeline({ storeId, q }: Props) {
+  const { data, isLoading } = useApplicationsInbox({
+    storeId: storeId || undefined,
+    q: q || undefined,
+    perPage: 200,
+  });
+  // storeId 는 캐시 무효화용으로만 쓰임 — cross-store 패치는 inbox 무효화에 의존.
   const patch = usePatchApplication(storeId);
+  const modal = useModal();
   const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<{ id: string; storeId: string } | null>(null);
 
-  const items = useMemo(() => data?.items ?? [], [data]);
+  const items = data?.items ?? [];
+  const showStore = !storeId;
 
-  const handleDrop = (stage: ApplicationStage, app: ApplicationListItem) => {
+  const handleDrop = (stage: ApplicationStage, app: InboxApplicationItem) => {
+    if (stage === "pending_form") return;
     if (stage === "hired") {
-      alert("To hire, click the applicant and use 'Hire — create staff account'.");
-      return;
-    }
-    if (stage === "pending_form") {
-      // pending_form 은 지원자가 폼 작성 중인 상태. 매니저가 강제 진입 불가.
+      void modal.alert({
+        type: "error",
+        message: "To hire, open the applicant and use 'Hire — create staff account'.",
+      });
       return;
     }
     if (app.stage === "pending_form") {
-      // 폼 미제출 카드는 매니저가 stage 변경 불가 (지원자가 제출해야 'new' 로 자동 전환).
-      alert(
-        "This applicant hasn't submitted their application yet. Wait for them to complete the form.",
-      );
+      void modal.alert({
+        type: "error",
+        message: "This applicant hasn't submitted their application yet.",
+      });
       return;
     }
     if (app.stage === stage) return;
-    // Withdrawn은 지원자 본인 의사. 매니저가 drag로 다른 컬럼 이동 시 그 카드는
-    // 그대로 rejected 컬럼 안에 유지 (drag 무시).
     if (app.stage === "withdrawn") {
-      alert(
-        "Withdrawn is set by the applicant. Open the card and use the stage buttons if you need to override.",
-      );
+      void modal.alert({
+        type: "error",
+        message: "Withdrawn is set by the applicant. Open the card to override.",
+      });
       return;
     }
     patch.mutate({ applicationId: app.id, patch: { stage } });
   };
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <div className="grid grid-cols-6 gap-3">
         {STAGES.map((stage) => {
-          // Rejected 컬럼에는 withdrawn(지원자 본인 철회)도 함께 노출.
           const cards = items.filter((a) =>
             stage.key === "rejected"
               ? a.stage === "rejected" || a.stage === "withdrawn"
@@ -90,16 +98,12 @@ export function PipelinePanel({ storeId }: Props) {
                 >
                   {stage.label}
                 </span>
-                <span className="text-[10.5px] font-medium text-[#64748B]">
-                  {cards.length}
-                </span>
+                <span className="text-[10.5px] font-medium text-[#64748B]">{cards.length}</span>
               </div>
 
               <div className="flex flex-1 flex-col gap-2">
                 {isLoading ? (
-                  <div className="text-center text-[11px] text-[#94A3B8]">
-                    …
-                  </div>
+                  <div className="text-center text-[11px] text-[#94A3B8]">…</div>
                 ) : cards.length === 0 ? (
                   <div className="flex flex-1 items-center justify-center rounded-lg border border-dashed border-[#CBD5E1] px-3 py-6 text-center text-[11px] text-[#94A3B8]">
                     No one here
@@ -114,7 +118,7 @@ export function PipelinePanel({ storeId }: Props) {
                         setDraggingId(a.id);
                       }}
                       onDragEnd={() => setDraggingId(null)}
-                      onClick={() => setSelectedId(a.id)}
+                      onClick={() => setSelected({ id: a.id, storeId: a.store_id })}
                       className={[
                         "cursor-grab rounded-lg bg-white p-2.5 ring-1 ring-[#E2E4EA] transition-shadow hover:shadow-sm",
                         draggingId === a.id ? "opacity-50" : "",
@@ -143,8 +147,12 @@ export function PipelinePanel({ storeId }: Props) {
                           </span>
                         )}
                       </div>
-                      <div className="mt-2 flex items-center justify-between text-[10.5px] text-[#64748B]">
-                        <span>{a.submitted_at.slice(0, 10)}</span>
+                      <div className="mt-2 flex items-center justify-between gap-2 text-[10.5px] text-[#64748B]">
+                        {showStore ? (
+                          <StoreBadge name={a.store.name} id={a.store.id} variant="chip" />
+                        ) : (
+                          <span>{a.submitted_at.slice(0, 10)}</span>
+                        )}
                         {a.score !== null && (
                           <span className="rounded bg-[#F0F1F5] px-1.5 py-0.5 font-mono font-semibold tabular-nums text-[#1A1D27]">
                             {a.score}
@@ -161,15 +169,15 @@ export function PipelinePanel({ storeId }: Props) {
       </div>
 
       <p className="px-1 text-[11px] text-[#94A3B8]">
-        Drag a card between columns to change its stage. Click a card for details.
-        For "Hired", open the card and use the green Hire button.
+        Drag a card between columns to change its stage. Click a card for details. For
+        &quot;Hired&quot;, open the card and use the green Hire button.
       </p>
 
-      {selectedId && (
+      {selected && (
         <ApplicantDetailDrawer
-          storeId={storeId}
-          applicationId={selectedId}
-          onClose={() => setSelectedId(null)}
+          storeId={selected.storeId}
+          applicationId={selected.id}
+          onClose={() => setSelected(null)}
         />
       )}
     </div>

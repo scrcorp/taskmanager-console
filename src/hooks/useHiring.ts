@@ -332,6 +332,55 @@ export const useApplications = (
   });
 };
 
+// ────────────────────────────────────────────────────────────────
+// Cross-store aggregate (Inbox) — 접근 가능한 모든 매장 가로질러 조회.
+// 스코프는 서버가 권한 기반 자동 한정 (Owner=전체, GM=관리 매장).
+// ────────────────────────────────────────────────────────────────
+export interface InboxApplicationItem extends ApplicationListItem {
+  store: { id: string; name: string; code: string | null };
+}
+
+export interface InboxApplicationsResponse {
+  items: InboxApplicationItem[];
+  total: number;
+  page: number;
+  per_page: number;
+  pages: number;
+  counts: Record<ApplicationStage, number>;
+}
+
+export interface InboxParams {
+  storeId?: string;
+  stage?: string;
+  q?: string;
+  sort?: "recent" | "updated";
+  page?: number;
+  perPage?: number;
+}
+
+export const useApplicationsInbox = (
+  p: InboxParams = {},
+): UseQueryResult<InboxApplicationsResponse, Error> => {
+  const { storeId, stage, q, sort, page, perPage } = p;
+  return useQuery({
+    queryKey: ["hiring", "inbox", { storeId, stage, q, sort, page, perPage }],
+    queryFn: async () => {
+      const res = await api.get(`/console/hiring/applications`, {
+        params: {
+          ...(storeId ? { store_id: storeId } : {}),
+          ...(stage && stage !== "all" ? { stage } : {}),
+          ...(q ? { q } : {}),
+          ...(sort ? { sort } : {}),
+          ...(page ? { page } : {}),
+          ...(perPage ? { per_page: perPage } : {}),
+        },
+      });
+      return res.data as InboxApplicationsResponse;
+    },
+    placeholderData: (prev) => prev,
+  });
+};
+
 export interface ApplicationDetail extends ApplicationListItem {
   data: {
     answers: Array<{ question_id: string; label: string; type: string; value: unknown }>;
@@ -390,6 +439,7 @@ export const useUpsertMyReview = (
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["hiring", "application", applicationId] });
       qc.invalidateQueries({ queryKey: ["hiring", "applications"] });
+      qc.invalidateQueries({ queryKey: ["hiring", "inbox"] });
       success("Review saved.");
     },
     onError: error("Couldn't save review"),
@@ -410,6 +460,7 @@ export const useDeleteMyReview = (
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["hiring", "application", applicationId] });
       qc.invalidateQueries({ queryKey: ["hiring", "applications"] });
+      qc.invalidateQueries({ queryKey: ["hiring", "inbox"] });
       success("Review deleted.");
     },
     onError: error("Couldn't delete review"),
@@ -452,6 +503,7 @@ export const usePatchApplication = (
     },
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["hiring", "applications", storeId] });
+      qc.invalidateQueries({ queryKey: ["hiring", "inbox"] });
       qc.invalidateQueries({ queryKey: ["hiring", "application", vars.applicationId] });
       success("Application updated.");
     },
@@ -482,6 +534,7 @@ export const useHireApplication = (
     },
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["hiring", "applications", storeId] });
+      qc.invalidateQueries({ queryKey: ["hiring", "inbox"] });
       qc.invalidateQueries({ queryKey: ["hiring", "application", vars.applicationId] });
       qc.invalidateQueries({ queryKey: ["users"] });
       success("Applicant hired.");
@@ -512,6 +565,7 @@ export const useUnhireApplication = (
     },
     onSuccess: (_data, applicationId) => {
       qc.invalidateQueries({ queryKey: ["hiring", "applications", storeId] });
+      qc.invalidateQueries({ queryKey: ["hiring", "inbox"] });
       qc.invalidateQueries({ queryKey: ["hiring", "application", applicationId] });
       qc.invalidateQueries({ queryKey: ["users"] });
       success("Hire reverted.");
@@ -544,6 +598,7 @@ export const useBlockApplication = (
     onSuccess: (_data, vars) => {
       qc.invalidateQueries({ queryKey: ["hiring", "application", vars.applicationId] });
       qc.invalidateQueries({ queryKey: ["hiring", "applications", storeId] });
+      qc.invalidateQueries({ queryKey: ["hiring", "inbox"] });
       success("Applicant blocked.");
     },
     onError: error("Couldn't block applicant"),
@@ -565,6 +620,7 @@ export const useUnblockApplication = (
     onSuccess: (_data, applicationId) => {
       qc.invalidateQueries({ queryKey: ["hiring", "application", applicationId] });
       qc.invalidateQueries({ queryKey: ["hiring", "applications", storeId] });
+      qc.invalidateQueries({ queryKey: ["hiring", "inbox"] });
       success("Applicant unblocked.");
     },
     onError: error("Couldn't unblock applicant"),

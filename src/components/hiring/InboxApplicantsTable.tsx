@@ -1,37 +1,18 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Inbox } from "lucide-react";
-import {
-  useApplications,
-  type ApplicationStage,
-} from "@/hooks/useHiring";
+import { useApplicationsInbox } from "@/hooks/useHiring";
 import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import { ApplicantDetailDrawer } from "./ApplicantDetailDrawer";
+import { StageBadge } from "./StageBadge";
+import { StoreBadge } from "./StoreBadge";
 
 interface Props {
+  /** "" = all accessible stores */
   storeId: string;
+  q: string;
 }
-
-const STAGE_LABEL: Record<ApplicationStage, string> = {
-  pending_form: "Filling out",
-  new: "New",
-  reviewing: "Reviewing",
-  interview: "Interview",
-  hired: "Hired",
-  rejected: "Rejected",
-  withdrawn: "Withdrawn",
-};
-
-const STAGE_STYLE: Record<ApplicationStage, string> = {
-  pending_form: "bg-[#F0F1F5] text-[#94A3B8] ring-[#E2E4EA]",
-  new: "bg-[rgba(108,92,231,0.1)] text-[#6C5CE7] ring-[rgba(108,92,231,0.2)]",
-  reviewing: "bg-[rgba(240,165,0,0.12)] text-[#C28100] ring-[rgba(240,165,0,0.25)]",
-  interview: "bg-[rgba(59,141,217,0.12)] text-[#3B8DD9] ring-[rgba(59,141,217,0.25)]",
-  hired: "bg-[rgba(0,184,148,0.12)] text-[#00B894] ring-[rgba(0,184,148,0.25)]",
-  rejected: "bg-[rgba(239,68,68,0.1)] text-[#EF4444] ring-[rgba(239,68,68,0.25)]",
-  withdrawn: "bg-[#F0F1F5] text-[#64748B] ring-[#E2E4EA]",
-};
 
 const STAGE_FILTERS: { key: string; label: string }[] = [
   { key: "all", label: "All" },
@@ -45,36 +26,51 @@ const STAGE_FILTERS: { key: string; label: string }[] = [
   { key: "withdrawn", label: "Withdrawn" },
 ];
 
-export function ApplicantsPanel({ storeId }: Props) {
-  // 1계정 1데이터 — 매장 바꿔도 stage 필터는 그대로 유지. URL + localStorage + 서버 영속.
-  const [params, setParams] = usePersistedFilters("hiring.applicants", {
-    stage: "all",
+const PER_PAGE = 25;
+
+export function InboxApplicantsTable({ storeId, q }: Props) {
+  const [params, setParams] = usePersistedFilters("hiring.inbox", {
+    stage: "active",
   });
   const stageFilter = params.stage;
-  const setStageFilter = (v: string): void => setParams({ stage: v === "all" ? null : v });
-  const { data, isLoading } = useApplications(
-    storeId,
-    stageFilter === "all" ? undefined : stageFilter,
-  );
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const setStageFilter = (v: string): void =>
+    setParams({ stage: v === "active" ? null : v });
 
-  const items = useMemo(() => data?.items ?? [], [data]);
+  const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState<{ id: string; storeId: string } | null>(null);
+
+  const { data, isLoading, isFetching } = useApplicationsInbox({
+    storeId: storeId || undefined,
+    stage: stageFilter,
+    q: q || undefined,
+    page,
+    perPage: PER_PAGE,
+  });
+
+  const items = data?.items ?? [];
+  const total = data?.total ?? 0;
+  const pages = data?.pages ?? 0;
+  const showStoreCol = !storeId; // 단일 매장 필터 중엔 STORE 컬럼 숨김
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4">
       <div className="overflow-hidden rounded-2xl border border-[#E2E4EA] bg-white">
         <div className="flex items-center justify-between border-b border-[#E2E4EA] px-5 py-3.5">
           <div>
             <h3 className="text-[13.5px] font-semibold text-[#1A1D27]">
-              {items.length} applicants
+              {total} applicant{total === 1 ? "" : "s"}
+              {isFetching && <span className="ml-2 text-[11px] font-normal text-[#94A3B8]">updating…</span>}
             </h3>
             <p className="mt-0.5 text-[11.5px] text-[#64748B]">
-              Click a row to review details, change stage, or hire.
+              Across all stores you manage. Click a row to review, change stage, or hire.
             </p>
           </div>
           <select
             value={stageFilter}
-            onChange={(e) => setStageFilter(e.target.value)}
+            onChange={(e) => {
+              setStageFilter(e.target.value);
+              setPage(1);
+            }}
             className="rounded-lg border border-[#E2E4EA] bg-white px-2.5 py-1.5 text-[12px] outline-none focus:border-[#6C5CE7]"
           >
             {STAGE_FILTERS.map((f) => (
@@ -86,23 +82,19 @@ export function ApplicantsPanel({ storeId }: Props) {
         </div>
 
         {isLoading ? (
-          <div className="px-5 py-10 text-center text-[12px] text-[#94A3B8]">
-            Loading…
-          </div>
+          <div className="px-5 py-10 text-center text-[12px] text-[#94A3B8]">Loading…</div>
         ) : items.length === 0 ? (
           <div className="px-5 py-12 text-center">
             <Inbox className="mx-auto text-[#CBD5E1]" size={32} />
-            <p className="mt-2 text-[12.5px] text-[#94A3B8]">
-              No applicants in this view.
-            </p>
+            <p className="mt-2 text-[12.5px] text-[#94A3B8]">No applicants in this view.</p>
           </div>
         ) : (
           <table className="w-full">
             <thead>
               <tr className="border-b border-[#E2E4EA] bg-[#F5F6FA] text-[10.5px] font-semibold uppercase tracking-wider text-[#64748B]">
                 <th className="px-5 py-2.5 text-left">Applicant</th>
+                {showStoreCol && <th className="px-3 py-2.5 text-left">Store</th>}
                 <th className="px-3 py-2.5 text-left">Applied</th>
-                <th className="px-3 py-2.5 text-left">Attempt</th>
                 <th className="px-3 py-2.5 text-left">Stage</th>
                 <th className="px-3 py-2.5 text-right">Score</th>
               </tr>
@@ -111,7 +103,7 @@ export function ApplicantsPanel({ storeId }: Props) {
               {items.map((a) => (
                 <tr
                   key={a.id}
-                  onClick={() => setSelectedId(a.id)}
+                  onClick={() => setSelected({ id: a.id, storeId: a.store_id })}
                   className="cursor-pointer transition-colors hover:bg-[#F5F6FA]"
                 >
                   <td className="px-5 py-3">
@@ -128,27 +120,20 @@ export function ApplicantsPanel({ storeId }: Props) {
                         <p className="truncate text-[13px] font-medium text-[#1A1D27]">
                           {a.candidate.full_name}
                         </p>
-                        <p className="truncate text-[11px] text-[#94A3B8]">
-                          {a.candidate.email}
-                        </p>
+                        <p className="truncate text-[11px] text-[#94A3B8]">{a.candidate.email}</p>
                       </div>
                     </div>
                   </td>
+                  {showStoreCol && (
+                    <td className="px-3 py-3">
+                      <StoreBadge name={a.store.name} id={a.store.id} variant="chip" />
+                    </td>
+                  )}
                   <td className="px-3 py-3 text-[12px] text-[#64748B]">
                     {a.submitted_at.slice(0, 10)}
                   </td>
-                  <td className="px-3 py-3 text-[12px] text-[#64748B]">
-                    {a.attempt_no > 1 ? `#${a.attempt_no}` : "—"}
-                  </td>
                   <td className="px-3 py-3">
-                    <span
-                      className={[
-                        "inline-flex rounded-full px-2 py-0.5 text-[10.5px] font-semibold ring-1",
-                        STAGE_STYLE[a.stage],
-                      ].join(" ")}
-                    >
-                      {STAGE_LABEL[a.stage]}
-                    </span>
+                    <StageBadge stage={a.stage} />
                   </td>
                   <td className="px-3 py-3 text-right">
                     {a.stage !== "pending_form" && a.score !== null ? (
@@ -164,13 +149,39 @@ export function ApplicantsPanel({ storeId }: Props) {
             </tbody>
           </table>
         )}
+
+        {pages > 1 && (
+          <div className="flex items-center justify-between border-t border-[#E2E4EA] px-5 py-2.5">
+            <span className="text-[11.5px] text-[#94A3B8]">
+              Page {page} of {pages}
+            </span>
+            <div className="flex gap-1.5">
+              <button
+                type="button"
+                disabled={page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                className="rounded-lg border border-[#E2E4EA] px-2.5 py-1 text-[12px] font-medium text-[#64748B] disabled:opacity-40 enabled:hover:bg-[#F5F6FA]"
+              >
+                Prev
+              </button>
+              <button
+                type="button"
+                disabled={page >= pages}
+                onClick={() => setPage((p) => Math.min(pages, p + 1))}
+                className="rounded-lg border border-[#E2E4EA] px-2.5 py-1 text-[12px] font-medium text-[#64748B] disabled:opacity-40 enabled:hover:bg-[#F5F6FA]"
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        )}
       </div>
 
-      {selectedId && (
+      {selected && (
         <ApplicantDetailDrawer
-          storeId={storeId}
-          applicationId={selectedId}
-          onClose={() => setSelectedId(null)}
+          storeId={selected.storeId}
+          applicationId={selected.id}
+          onClose={() => setSelected(null)}
         />
       )}
     </div>
