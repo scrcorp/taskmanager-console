@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { X, CalendarClock, Check, Pencil } from "lucide-react";
+import { X, CalendarClock, Check, Pencil, Link2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUsers } from "@/hooks/useUsers";
 import {
@@ -11,6 +11,7 @@ import {
   useCancelInterview,
   useUpdateInterviewer,
   useCompleteInterview,
+  useIssueInterviewToken,
 } from "@/hooks/useInterviews";
 import { InterviewStepper, type InterviewSubstatus } from "./InterviewStepper";
 import { SlotCalendarPicker } from "./SlotCalendarPicker";
@@ -45,8 +46,10 @@ export function InterviewConfirmModal({ applicationId, candidateName, onClose, i
   const cancel = useCancelInterview(applicationId);
   const updateInterviewer = useUpdateInterviewer(applicationId);
   const complete = useCompleteInterview(applicationId);
+  const issueToken = useIssueInterviewToken(applicationId);
 
   const [slotId, setSlotId] = useState<string>("");
+  const [linkCopied, setLinkCopied] = useState(false);
   const [interviewerId, setInterviewerId] = useState<string>("");
   const [showAll, setShowAll] = useState(false);
   const [reviewing, setReviewing] = useState(false);
@@ -121,6 +124,19 @@ export function InterviewConfirmModal({ applicationId, candidateName, onClose, i
       /* hook surfaces error */
     }
   };
+  // 지원자용 스케줄 링크 복사 — 토큰 발급(회전) 후 현재 origin 기준 링크 조립.
+  // 회전이므로 이전에 메일로 나간 링크는 무효화됨 (title 로 안내).
+  const copyLink = async () => {
+    try {
+      const { token } = await issueToken.mutateAsync();
+      const link = `${window.location.origin}/interview/${token}`;
+      await navigator.clipboard.writeText(link);
+      setLinkCopied(true);
+      setTimeout(() => setLinkCopied(false), 2000);
+    } catch {
+      /* hook surfaces error */
+    }
+  };
 
   const inner = (
     <>
@@ -147,6 +163,20 @@ export function InterviewConfirmModal({ applicationId, candidateName, onClose, i
               }
             />
           </div>
+        )}
+
+        {/* 지원자용 스케줄 링크 복사 — 메일 미수신/분실 시 직접 전달용. 모든 substate 에서 노출 */}
+        {iv && (
+          <button
+            type="button"
+            onClick={copyLink}
+            disabled={issueToken.isPending}
+            title="Copy this applicant's unique scheduling link. A fresh link is generated — any link sent earlier will stop working."
+            className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg border border-[#E2E4EA] bg-white px-3 py-2 text-[12px] font-semibold text-[#64748B] transition-colors hover:bg-[#F5F6FA] disabled:opacity-50"
+          >
+            {linkCopied ? <Check size={13} className="text-[#00997A]" /> : <Link2 size={13} />}
+            {issueToken.isPending ? "Generating…" : linkCopied ? "Link copied" : "Copy interview link"}
+          </button>
         )}
 
         {isLoading || !iv ? (
