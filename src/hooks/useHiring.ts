@@ -268,8 +268,9 @@ export const useDiscardHiringFormDraft = (
 export type ApplicationStage =
   | "pending_form"
   | "new"
-  | "reviewing"
+  | "screen"
   | "interview"
+  | "review"
   | "hired"
   | "rejected"
   | "withdrawn";
@@ -338,6 +339,8 @@ export const useApplications = (
 // ────────────────────────────────────────────────────────────────
 export interface InboxApplicationItem extends ApplicationListItem {
   store: { id: string; name: string; code: string | null };
+  interview_substatus?: "not_requested" | "requested" | "picked" | "confirmed";
+  interviewer_name?: string | null;
 }
 
 export interface InboxApplicationsResponse {
@@ -347,6 +350,7 @@ export interface InboxApplicationsResponse {
   per_page: number;
   pages: number;
   counts: Record<ApplicationStage, number>;
+  org_timezone?: string;
 }
 
 export interface InboxParams {
@@ -401,9 +405,18 @@ export interface ApplicationDetail extends ApplicationListItem {
     submitted_at: string;
   }>;
   audit_log: Array<{
-    action: "stage" | "score" | "notes" | "interview_at";
+    action:
+      | "stage"
+      | "score"
+      | "notes"
+      | "interview_at"
+      | "interview_confirmed"
+      | "interview_rescheduled"
+      | "interview_cancelled"
+      | "interviewer";
     before: unknown;
     after: unknown;
+    interviewer?: string | null;
     by_user_id: string | null;
     by_username: string;
     by_full_name: string;

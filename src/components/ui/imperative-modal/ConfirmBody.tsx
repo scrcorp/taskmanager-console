@@ -48,6 +48,7 @@ export function ConfirmBody({
 }: ConfirmBodyProps): ReactNode {
   const [reason, setReason] = useState("");
   const isDanger = variant === "danger";
+  const isWarning = variant === "warning";
 
   /**
    * reason 검증.
@@ -77,11 +78,11 @@ export function ConfirmBody({
   return (
     <div className="flex flex-col gap-4">
       <div className="flex items-start gap-3">
-        {/* 아이콘 — danger 면 경고, 아니면 질문 */}
+        {/* 아이콘 — danger=빨강 경고, warning=노랑 경고, 그 외 질문 */}
         <div
-          className={`flex-shrink-0 mt-0.5 ${isDanger ? "text-danger" : "text-accent"}`}
+          className={`flex-shrink-0 mt-0.5 ${isDanger ? "text-danger" : isWarning ? "text-[#E0950A]" : "text-accent"}`}
         >
-          {isDanger ? (
+          {isDanger || isWarning ? (
             <AlertTriangle className="h-5 w-5" />
           ) : (
             <HelpCircle className="h-5 w-5" />

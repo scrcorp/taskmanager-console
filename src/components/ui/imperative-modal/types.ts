@@ -81,8 +81,8 @@ export interface ConfirmProps {
   confirmLabel?: string;
   /** Cancel 버튼 라벨. 기본 "Cancel" */
   cancelLabel?: string;
-  /** "danger" = 빨강 톤 + 경고 아이콘. 기본 "primary" */
-  variant?: "primary" | "danger";
+  /** "danger" = 빨강 톤 + 경고 아이콘, "warning" = 노랑 경고 아이콘(버튼은 일반). 기본 "primary" */
+  variant?: "primary" | "danger" | "warning";
   /** true 면 textarea 노출, 반환 타입이 string | undefined 로 바뀜 */
   requiresReason?: boolean;
   /** reason 입력을 필수로 강제 (빈 값 시 Confirm 버튼 비활성). requiresReason 와 같이 사용 */

@@ -19,8 +19,9 @@ interface Props {
 const STAGES: { key: ApplicationStage; label: string; tone: string }[] = [
   { key: "pending_form", label: "Filling out", tone: "bg-[#F0F1F5] text-[#64748B]" },
   { key: "new", label: "New", tone: "bg-[rgba(108,92,231,0.1)] text-[#6C5CE7]" },
-  { key: "reviewing", label: "Reviewing", tone: "bg-[rgba(240,165,0,0.12)] text-[#C28100]" },
+  { key: "screen", label: "Screen", tone: "bg-[rgba(240,165,0,0.12)] text-[#C28100]" },
   { key: "interview", label: "Interview", tone: "bg-[rgba(59,141,217,0.12)] text-[#3B8DD9]" },
+  { key: "review", label: "Review", tone: "bg-[rgba(139,92,246,0.12)] text-[#7C3AED]" },
   { key: "hired", label: "Hired", tone: "bg-[rgba(0,184,148,0.12)] text-[#00B894]" },
   { key: "rejected", label: "Rejected", tone: "bg-[rgba(239,68,68,0.1)] text-[#EF4444]" },
 ];
@@ -69,7 +70,7 @@ export function InboxPipeline({ storeId, q }: Props) {
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-6 gap-3">
+      <div className="grid grid-cols-7 gap-3">
         {STAGES.map((stage) => {
           const cards = items.filter((a) =>
             stage.key === "rejected"

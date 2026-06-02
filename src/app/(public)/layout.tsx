@@ -17,8 +17,8 @@ export default function PublicLayout({
 }) {
   return (
     <SignupI18nProvider>
-      <div className="min-h-[100dvh] bg-slate-100 text-slate-900">
-        <div className="mx-auto min-h-[100dvh] w-full max-w-[480px] bg-white shadow-sm md:my-6 md:min-h-[calc(100dvh-3rem)] md:rounded-3xl md:shadow-lg">
+      <div className="min-h-[100dvh] bg-slate-100 text-slate-900 md:py-6">
+        <div className="mx-auto min-h-[100dvh] w-full max-w-[480px] bg-white shadow-sm md:min-h-[calc(100dvh-3rem)] md:rounded-3xl md:shadow-lg">
           {children}
         </div>
       </div>

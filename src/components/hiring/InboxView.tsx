@@ -8,7 +8,7 @@ import { useApplicationsInbox, type ApplicationStage } from "@/hooks/useHiring";
 import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import { InboxApplicantsTable } from "./InboxApplicantsTable";
 import { InboxPipeline } from "./InboxPipeline";
-import { InboxInterviews } from "./InboxInterviews";
+import { InterviewsView } from "./InterviewsView";
 
 type InboxTab = "applicants" | "pipeline" | "interviews";
 
@@ -21,9 +21,9 @@ const SUB_TABS: { key: InboxTab; label: string; icon: typeof Users }[] = [
 // summary strip — 한눈에 들어오는 단계별 카운트.
 const SUMMARY: { stage: ApplicationStage; label: string; dot: string; text: string }[] = [
   { stage: "new", label: "New", dot: "bg-[#6C5CE7]", text: "text-[#6C5CE7]" },
-  { stage: "reviewing", label: "Reviewing", dot: "bg-[#C28100]", text: "text-[#C28100]" },
+  { stage: "screen", label: "Screen", dot: "bg-[#C28100]", text: "text-[#C28100]" },
   { stage: "interview", label: "Interview", dot: "bg-[#3B8DD9]", text: "text-[#3B8DD9]" },
-  { stage: "hired", label: "Hired", dot: "bg-[#00B894]", text: "text-[#00B894]" },
+  { stage: "review", label: "Review", dot: "bg-[#7C3AED]", text: "text-[#7C3AED]" },
 ];
 
 interface Props {
@@ -140,7 +140,7 @@ export function InboxView({ stores }: Props) {
       ) : sub === "pipeline" ? (
         <InboxPipeline storeId={storeFilter} q={q} />
       ) : (
-        <InboxInterviews storeId={storeFilter} q={q} />
+        <InterviewsView storeId={storeFilter} q={q} />
       )}
     </div>
   );

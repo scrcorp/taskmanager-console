@@ -24,6 +24,7 @@ import {
 } from "@/hooks/useHiring";
 import { useModal } from "@/components/ui/imperative-modal";
 import { StageBadge } from "./StageBadge";
+import { InterviewSchedulingCard } from "./InterviewSchedulingCard";
 import api from "@/lib/api";
 
 interface Props {
@@ -69,13 +70,13 @@ export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPag
   // 모든 단계 변경은 confirm 을 거친다 — 누가/언제/무엇은 서버 audit_log 에 자동 기록됨.
   const requestStage = async (
     toStage: ApplicationStage,
-    opts: { title: string; message: string; confirmLabel: string; danger?: boolean },
+    opts: { title: string; message: string; confirmLabel: string; danger?: boolean; warning?: boolean },
   ) => {
     const ok = await modal.confirm({
       title: opts.title,
       message: opts.message,
       confirmLabel: opts.confirmLabel,
-      ...(opts.danger ? { variant: "danger" as const } : {}),
+      ...(opts.danger ? { variant: "danger" as const } : opts.warning ? { variant: "warning" as const } : {}),
     });
     if (!ok) return;
     patch.mutate({ applicationId, patch: { stage: toStage } });
@@ -89,10 +90,10 @@ export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPag
   const reviewStarted = !!data && data.stage !== "new" && data.stage !== "pending_form";
 
   const startReview = () =>
-    requestStage("reviewing", {
+    requestStage("screen", {
       title: "Start review?",
       message:
-        "You'll be recorded as the reviewer, and the applicant's details will open. Stage moves New → Reviewing.",
+        "You'll be recorded as the reviewer, and the applicant's details will open. Stage moves New → Screen.",
       confirmLabel: "Start review",
     });
 
@@ -304,8 +305,8 @@ export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPag
                 <h3 className="text-[14px] font-semibold text-[#1A1D27]">Review not started</h3>
                 <p className="mx-auto mt-1 max-w-[340px] text-[12px] leading-relaxed text-[#64748B]">
                   The applicant&apos;s answers, attachments and contact stay hidden until you
-                  start the review. Whoever starts it is recorded as the reviewer — so
-                  &quot;Reviewing&quot; always means someone has taken it on.
+                  start the review. Whoever starts it is recorded as the reviewer — so once
+                  it&apos;s in Screen, someone has taken it on.
                 </p>
                 <button
                   type="button"
@@ -361,7 +362,7 @@ export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPag
               </div>
             )}
 
-            {/* Stage — New(gate)는 위에서 처리. pending_form/reviewing/interview/hired/rejected/withdrawn */}
+            {/* Stage — New(gate)는 위에서 처리. pending_form/screen/interview/review/hired/rejected/withdrawn */}
             {data.stage !== "new" && (
               <div className="rounded-2xl border border-[#E2E4EA] bg-white p-4">
                 <h3 className="text-[12.5px] font-semibold uppercase tracking-wider text-[#94A3B8]">
@@ -377,7 +378,7 @@ export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPag
                   <div className="mt-2 space-y-3">
                     <StageBadge stage={data.stage} />
                     <div className="flex flex-wrap gap-2">
-                      {data.stage === "reviewing" && (
+                      {data.stage === "screen" && (
                         <>
                           <button
                             type="button"
@@ -411,12 +412,49 @@ export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPag
                         </>
                       )}
                       {data.stage === "interview" && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const passed = !!data.interview_at && new Date(data.interview_at).getTime() < Date.now();
+                              requestStage("review", {
+                                title: "Move to Review?",
+                                message: passed
+                                  ? `Move ${data.candidate.full_name} to final review after the interview. Make the hire/reject decision there.`
+                                  : `The interview time hasn't passed yet. Move ${data.candidate.full_name} to final review anyway? You'll make the hire/reject decision there.`,
+                                confirmLabel: "Move to Review",
+                                warning: !passed,
+                              });
+                            }}
+                            disabled={patch.isPending}
+                            className="rounded-lg bg-[#6C5CE7] px-3.5 py-2 text-[12.5px] font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                          >
+                            Move to Review
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              requestStage("rejected", {
+                                title: "Reject this applicant?",
+                                message: `Reject ${data.candidate.full_name} after interview. This is recorded.`,
+                                confirmLabel: "Reject",
+                                danger: true,
+                              })
+                            }
+                            disabled={patch.isPending}
+                            className="rounded-lg border border-[#E2E4EA] px-3.5 py-2 text-[12.5px] font-semibold text-[#EF4444] hover:bg-[rgba(239,68,68,0.06)] disabled:opacity-50"
+                          >
+                            Reject
+                          </button>
+                        </>
+                      )}
+                      {data.stage === "review" && (
                         <button
                           type="button"
                           onClick={() =>
                             requestStage("rejected", {
                               title: "Reject this applicant?",
-                              message: `Reject ${data.candidate.full_name} after interview. This is recorded.`,
+                              message: `Reject ${data.candidate.full_name} at final review. This is recorded.`,
                               confirmLabel: "Reject",
                               danger: true,
                             })
@@ -431,16 +469,16 @@ export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPag
                         <button
                           type="button"
                           onClick={() =>
-                            requestStage("reviewing", {
+                            requestStage("screen", {
                               title: "Reopen this applicant?",
-                              message: `Reopen ${data.candidate.full_name} and move them back to Reviewing.`,
+                              message: `Reopen ${data.candidate.full_name} and move them back to Screen.`,
                               confirmLabel: "Reopen",
                             })
                           }
                           disabled={patch.isPending}
                           className="rounded-lg border border-[#E2E4EA] px-3.5 py-2 text-[12.5px] font-semibold text-[#64748B] hover:bg-[#F0F1F5] disabled:opacity-50"
                         >
-                          Reopen to Reviewing
+                          Reopen to Screen
                         </button>
                       )}
                       {data.stage === "hired" && (
@@ -462,11 +500,16 @@ export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPag
               </div>
             )}
 
+            {/* 인터뷰 단계 — 상세에서도 일정 잡기/관리 */}
+            {data.stage === "interview" && (
+              <InterviewSchedulingCard applicationId={data.id} candidateName={data.candidate.full_name} />
+            )}
+
             {/* Audit log — stage/score/notes 변경 이력 */}
             {data.audit_log && data.audit_log.length > 0 && (
               <div className="rounded-2xl border border-[#E2E4EA] bg-white p-4">
                 <h3 className="flex items-center gap-1.5 text-[12.5px] font-semibold uppercase tracking-wider text-[#94A3B8]">
-                  <Clock size={12} /> Activity
+                  <Clock size={12} /> History
                 </h3>
                 <ul className="mt-2 space-y-2">
                   {data.audit_log.map((entry, i) => (
@@ -489,6 +532,18 @@ export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPag
                                 ? String(entry.after).replace("T", " ").slice(0, 16)
                                 : "—"}
                             </>
+                          )}
+                          {entry.action === "interview_confirmed" && (
+                            <>confirmed interview: {String(entry.after ?? "—")}{entry.interviewer ? ` · ${entry.interviewer}` : ""}</>
+                          )}
+                          {entry.action === "interview_rescheduled" && (
+                            <>rescheduled interview: {String(entry.before ?? "—")} → {String(entry.after ?? "—")}</>
+                          )}
+                          {entry.action === "interview_cancelled" && (
+                            <>cancelled interview{entry.before ? ` (was ${String(entry.before)})` : ""}</>
+                          )}
+                          {entry.action === "interviewer" && (
+                            <>changed interviewer: {String(entry.before ?? "—")} → {String(entry.after ?? "Not assigned")}</>
                           )}
                         </span>
                       </p>
@@ -583,7 +638,7 @@ export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPag
                   >
                     Undo hire
                   </button>
-                ) : data.stage === "reviewing" || data.stage === "interview" ? (
+                ) : data.stage === "interview" || data.stage === "review" ? (
                   <button
                     type="button"
                     onClick={openHireDialog}
@@ -619,7 +674,7 @@ export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPag
             </p>
             <ul className="mt-1 list-disc space-y-0.5 pl-5 text-[12.5px] leading-relaxed text-[#1A1D27]">
               <li>Remove this staff from this store&apos;s roster</li>
-              <li>Move the application back to <span className="font-semibold">Reviewing</span></li>
+              <li>Move the application back to <span className="font-semibold">Review</span></li>
             </ul>
             <p className="mt-2 text-[11.5px] leading-relaxed text-[#94A3B8]">
               The user account itself stays (so they keep access to any other
@@ -796,7 +851,8 @@ function ReviewsBlock({
     );
   }
 
-  const scoreLocked = stage !== "interview" && stage !== "hired" && stage !== "rejected";
+  const scoreLocked =
+    stage !== "interview" && stage !== "review" && stage !== "hired" && stage !== "rejected";
   const handleSave = async () => {
     const n = scoreStr.trim();
     const score = n === "" ? null : Number(n);

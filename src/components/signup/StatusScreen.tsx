@@ -28,7 +28,7 @@ function useTimeline(hasForm: boolean): Stage[] {
           },
         ]
       : []),
-    { key: "reviewing" as const, label: t("statusStageReviewLabel"), sub: t("statusStageReviewSub") },
+    { key: "screen" as const, label: t("statusStageReviewLabel"), sub: t("statusStageReviewSub") },
     { key: "interview" as const, label: t("statusStageInterviewLabel"), sub: t("statusStageInterviewSub") },
     { key: "hired" as const, label: t("statusStageHiredLabel"), sub: t("statusStageHiredSub") },
   ];
@@ -50,7 +50,7 @@ function stageIndex(
     return {
       active: hasForm
         ? stages.findIndex((s) => s.key === "submit")
-        : stages.findIndex((s) => s.key === "reviewing"),
+        : stages.findIndex((s) => s.key === "screen"),
       failed: false,
       withdrawn: false,
     };
@@ -58,19 +58,19 @@ function stageIndex(
   if (stage === "new") {
     // 제출 완료 → Submit application Done, 현재 active 는 Manager review
     return {
-      active: stages.findIndex((s) => s.key === "reviewing"),
+      active: stages.findIndex((s) => s.key === "screen"),
       failed: false,
       withdrawn: false,
     };
   }
-  if (stage === "reviewing") {
+  if (stage === "screen") {
     return {
-      active: stages.findIndex((s) => s.key === "reviewing"),
+      active: stages.findIndex((s) => s.key === "screen"),
       failed: false,
       withdrawn: false,
     };
   }
-  if (stage === "interview") {
+  if (stage === "interview" || stage === "review") {
     return {
       active: stages.findIndex((s) => s.key === "interview"),
       failed: false,
@@ -118,13 +118,14 @@ export function StatusScreen({
   const isActiveStage =
     stage === "pending_form" ||
     stage === "new" ||
-    stage === "reviewing" ||
+    stage === "screen" ||
+    stage === "review" ||
     stage === "interview";
 
   // pending_form 은 제출 전이라 자진 철회 불필요 — 그냥 안 만들면 끝.
   // 제출 완료된 application 만 withdraw 노출.
   const canWithdraw =
-    stage === "new" || stage === "reviewing" || stage === "interview";
+    stage === "new" || stage === "screen" || stage === "review" || stage === "interview";
 
   // 헤드라인 — stage 별 title/sub 키 매핑
   let headlineTitle: string;
@@ -142,7 +143,8 @@ export function StatusScreen({
       headlineTitle = t("statusHeadlineNewTitle");
       headlineSub = t("statusHeadlineNewSub");
       break;
-    case "reviewing":
+    case "screen":
+    case "review":
       headlineTitle = t("statusHeadlineReviewingTitle");
       headlineSub = t("statusHeadlineReviewingSub");
       break;
