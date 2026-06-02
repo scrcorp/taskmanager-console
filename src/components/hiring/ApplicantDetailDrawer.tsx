@@ -22,6 +22,9 @@ import {
   useUpsertMyReview,
   type ApplicationStage,
 } from "@/hooks/useHiring";
+import { useModal } from "@/components/ui/imperative-modal";
+import { StageBadge } from "./StageBadge";
+import { InterviewSchedulingCard } from "./InterviewSchedulingCard";
 import api from "@/lib/api";
 
 interface Props {
@@ -32,17 +35,12 @@ interface Props {
   fullPage?: boolean;
 }
 
-// Withdrawn은 지원자 본인이 결정하는 상태이므로 매니저 dropdown에서 제외.
-// (Pipeline의 Rejected 컬럼에 함께 표시되어 visibility는 유지.)
-const STAGE_OPTIONS: { value: ApplicationStage; label: string }[] = [
-  { value: "new", label: "New" },
-  { value: "reviewing", label: "Reviewing" },
-  { value: "interview", label: "Interview" },
-  { value: "rejected", label: "Rejected" },
-];
+// 단계 변경은 신중하게 — 즉시 칩 클릭이 아니라 단계별 forward 액션 + confirm 으로.
+// New 로 되돌리기는 의도적으로 없음 (전진 only). Withdrawn 은 지원자 본인 결정이라 매니저 액션 없음.
 
 export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPage = false }: Props) {
   const { data, isLoading, error } = useApplicationDetail(applicationId);
+  const modal = useModal();
   const patch = usePatchApplication(storeId);
   const hire = useHireApplication(storeId);
   const unhire = useUnhireApplication(storeId);
@@ -69,12 +67,35 @@ export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPag
     }
   };
 
-  const handleStageChange = (stage: ApplicationStage) => {
-    patch.mutate({ applicationId, patch: { stage } });
+  // 모든 단계 변경은 confirm 을 거친다 — 누가/언제/무엇은 서버 audit_log 에 자동 기록됨.
+  const requestStage = async (
+    toStage: ApplicationStage,
+    opts: { title: string; message: string; confirmLabel: string; danger?: boolean; warning?: boolean },
+  ) => {
+    const ok = await modal.confirm({
+      title: opts.title,
+      message: opts.message,
+      confirmLabel: opts.confirmLabel,
+      ...(opts.danger ? { variant: "danger" as const } : opts.warning ? { variant: "warning" as const } : {}),
+    });
+    if (!ok) return;
+    patch.mutate({ applicationId, patch: { stage: toStage } });
   };
 
   const [pendingUserId, setPendingUserId] = useState<string>("");
   const [pendingPin, setPendingPin] = useState<string>("");
+
+  // 리뷰 시작 전(new)·미제출(pending_form)에는 지원자 상세를 가린다 — "리뷰하기"를
+  // 눌러야(= 리뷰어로 기록되며) 답변/첨부/연락처/리뷰가 열린다.
+  const reviewStarted = !!data && data.stage !== "new" && data.stage !== "pending_form";
+
+  const startReview = () =>
+    requestStage("screen", {
+      title: "Start review?",
+      message:
+        "You'll be recorded as the reviewer, and the applicant's details will open. Stage moves New → Screen.",
+      confirmLabel: "Start review",
+    });
 
   const openHireDialog = async () => {
     setHireUsername(data?.candidate.username ?? "");
@@ -244,19 +265,28 @@ export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPag
               <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-2 text-[12.5px]">
                 <dt className="text-[#94A3B8]">ID</dt>
                 <dd className="text-[#1A1D27]">{data.candidate.username}</dd>
-                <dt className="text-[#94A3B8]">Email</dt>
-                <dd className="break-all text-[#1A1D27]">
-                  {data.candidate.email}
-                  {data.candidate.email_verified && (
-                    <span className="ml-1.5 inline-flex items-center gap-0.5 text-[10px] text-[#00B894]">
-                      <Check size={10} /> verified
-                    </span>
-                  )}
-                </dd>
-                {data.candidate.phone && (
+                {reviewStarted ? (
                   <>
-                    <dt className="text-[#94A3B8]">Phone</dt>
-                    <dd className="text-[#1A1D27]">{data.candidate.phone}</dd>
+                    <dt className="text-[#94A3B8]">Email</dt>
+                    <dd className="break-all text-[#1A1D27]">
+                      {data.candidate.email}
+                      {data.candidate.email_verified && (
+                        <span className="ml-1.5 inline-flex items-center gap-0.5 text-[10px] text-[#00B894]">
+                          <Check size={10} /> verified
+                        </span>
+                      )}
+                    </dd>
+                    {data.candidate.phone && (
+                      <>
+                        <dt className="text-[#94A3B8]">Phone</dt>
+                        <dd className="text-[#1A1D27]">{data.candidate.phone}</dd>
+                      </>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <dt className="text-[#94A3B8]">Contact</dt>
+                    <dd className="italic text-[#94A3B8]">Hidden until review starts</dd>
                   </>
                 )}
                 <dt className="text-[#94A3B8]">Submitted</dt>
@@ -266,8 +296,31 @@ export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPag
               </dl>
             </div>
 
+            {/* Gate — New 단계: 리뷰를 시작해야(=리뷰어로 기록) 상세가 열린다 */}
+            {data.stage === "new" && (
+              <div className="rounded-2xl border border-dashed border-[#CBD5E1] bg-white px-5 py-8 text-center">
+                <div className="mx-auto mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-[#F0F1F5]">
+                  <Eye className="text-[#94A3B8]" size={18} />
+                </div>
+                <h3 className="text-[14px] font-semibold text-[#1A1D27]">Review not started</h3>
+                <p className="mx-auto mt-1 max-w-[340px] text-[12px] leading-relaxed text-[#64748B]">
+                  The applicant&apos;s answers, attachments and contact stay hidden until you
+                  start the review. Whoever starts it is recorded as the reviewer — so once
+                  it&apos;s in Screen, someone has taken it on.
+                </p>
+                <button
+                  type="button"
+                  onClick={startReview}
+                  disabled={patch.isPending}
+                  className="mt-4 rounded-lg bg-[#6C5CE7] px-5 py-2.5 text-[13px] font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                >
+                  Start review
+                </button>
+              </div>
+            )}
+
             {/* Answers */}
-            {data.data.answers.length > 0 && (
+            {reviewStarted && data.data.answers.length > 0 && (
               <div className="rounded-2xl border border-[#E2E4EA] bg-white p-4">
                 <h3 className="text-[12.5px] font-semibold uppercase tracking-wider text-[#94A3B8]">
                   Answers
@@ -290,7 +343,7 @@ export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPag
             )}
 
             {/* Attachments */}
-            {data.data.attachments.length > 0 && (
+            {reviewStarted && data.data.attachments.length > 0 && (
               <div className="rounded-2xl border border-[#E2E4EA] bg-white p-4">
                 <h3 className="text-[12.5px] font-semibold uppercase tracking-wider text-[#94A3B8]">
                   Attachments
@@ -309,57 +362,154 @@ export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPag
               </div>
             )}
 
-            {/* Stage */}
-            <div className="rounded-2xl border border-[#E2E4EA] bg-white p-4">
-              <h3 className="text-[12.5px] font-semibold uppercase tracking-wider text-[#94A3B8]">
-                Stage
-              </h3>
-              {data.stage === "pending_form" ? (
-                <p className="mt-2 text-[12px] text-[#94A3B8]">
-                  This applicant signed up but hasn&apos;t submitted the form
-                  yet — wait for them to complete it. Stage is locked until
-                  submission.
-                </p>
-              ) : (
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {STAGE_OPTIONS.map((s) => (
-                    <button
-                      key={s.value}
-                      type="button"
-                      onClick={() => handleStageChange(s.value)}
-                      disabled={data.stage === s.value || data.stage === "hired"}
-                      className={[
-                        "rounded-md px-2.5 py-1 text-[11.5px] font-medium ring-1",
-                        data.stage === s.value
-                          ? "bg-[#6C5CE7] text-white ring-[#6C5CE7]"
-                          : "bg-white text-[#64748B] ring-[#E2E4EA] hover:bg-[#F0F1F5]",
-                      ].join(" ")}
-                    >
-                      {s.label}
-                    </button>
-                  ))}
-                  <span
-                    className={[
-                      "rounded-md px-2.5 py-1 text-[11.5px] font-semibold ring-1",
-                      data.stage === "hired"
-                        ? "bg-[#00B894] text-white ring-[#00B894]"
-                        : "bg-[#F0F1F5] text-[#94A3B8] ring-[#E2E4EA]",
-                    ].join(" ")}
-                  >
-                    Hired (use button below)
-                  </span>
-                </div>
-              )}
+            {/* Stage — New(gate)는 위에서 처리. pending_form/screen/interview/review/hired/rejected/withdrawn */}
+            {data.stage !== "new" && (
+              <div className="rounded-2xl border border-[#E2E4EA] bg-white p-4">
+                <h3 className="text-[12.5px] font-semibold uppercase tracking-wider text-[#94A3B8]">
+                  Stage
+                </h3>
+                {data.stage === "pending_form" ? (
+                  <p className="mt-2 text-[12px] text-[#94A3B8]">
+                    This applicant signed up but hasn&apos;t submitted the form
+                    yet — wait for them to complete it. Stage is locked until
+                    submission.
+                  </p>
+                ) : (
+                  <div className="mt-2 space-y-3">
+                    <StageBadge stage={data.stage} />
+                    <div className="flex flex-wrap gap-2">
+                      {data.stage === "screen" && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              requestStage("interview", {
+                                title: "Move to Interview?",
+                                message: `Move ${data.candidate.full_name} to the interview stage. They'll be lined up for scheduling.`,
+                                confirmLabel: "Move to Interview",
+                              })
+                            }
+                            disabled={patch.isPending}
+                            className="rounded-lg bg-[#6C5CE7] px-3.5 py-2 text-[12.5px] font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                          >
+                            Move to Interview
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              requestStage("rejected", {
+                                title: "Reject this applicant?",
+                                message: `Reject ${data.candidate.full_name}. This is recorded in the activity log.`,
+                                confirmLabel: "Reject",
+                                danger: true,
+                              })
+                            }
+                            disabled={patch.isPending}
+                            className="rounded-lg border border-[#E2E4EA] px-3.5 py-2 text-[12.5px] font-semibold text-[#EF4444] hover:bg-[rgba(239,68,68,0.06)] disabled:opacity-50"
+                          >
+                            Reject
+                          </button>
+                        </>
+                      )}
+                      {data.stage === "interview" && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const passed = !!data.interview_at && new Date(data.interview_at).getTime() < Date.now();
+                              requestStage("review", {
+                                title: "Move to Review?",
+                                message: passed
+                                  ? `Move ${data.candidate.full_name} to final review after the interview. Make the hire/reject decision there.`
+                                  : `The interview time hasn't passed yet. Move ${data.candidate.full_name} to final review anyway? You'll make the hire/reject decision there.`,
+                                confirmLabel: "Move to Review",
+                                warning: !passed,
+                              });
+                            }}
+                            disabled={patch.isPending}
+                            className="rounded-lg bg-[#6C5CE7] px-3.5 py-2 text-[12.5px] font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                          >
+                            Move to Review
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() =>
+                              requestStage("rejected", {
+                                title: "Reject this applicant?",
+                                message: `Reject ${data.candidate.full_name} after interview. This is recorded.`,
+                                confirmLabel: "Reject",
+                                danger: true,
+                              })
+                            }
+                            disabled={patch.isPending}
+                            className="rounded-lg border border-[#E2E4EA] px-3.5 py-2 text-[12.5px] font-semibold text-[#EF4444] hover:bg-[rgba(239,68,68,0.06)] disabled:opacity-50"
+                          >
+                            Reject
+                          </button>
+                        </>
+                      )}
+                      {data.stage === "review" && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            requestStage("rejected", {
+                              title: "Reject this applicant?",
+                              message: `Reject ${data.candidate.full_name} at final review. This is recorded.`,
+                              confirmLabel: "Reject",
+                              danger: true,
+                            })
+                          }
+                          disabled={patch.isPending}
+                          className="rounded-lg border border-[#E2E4EA] px-3.5 py-2 text-[12.5px] font-semibold text-[#EF4444] hover:bg-[rgba(239,68,68,0.06)] disabled:opacity-50"
+                        >
+                          Reject
+                        </button>
+                      )}
+                      {data.stage === "rejected" && (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            requestStage("screen", {
+                              title: "Reopen this applicant?",
+                              message: `Reopen ${data.candidate.full_name} and move them back to Screen.`,
+                              confirmLabel: "Reopen",
+                            })
+                          }
+                          disabled={patch.isPending}
+                          className="rounded-lg border border-[#E2E4EA] px-3.5 py-2 text-[12.5px] font-semibold text-[#64748B] hover:bg-[#F0F1F5] disabled:opacity-50"
+                        >
+                          Reopen to Screen
+                        </button>
+                      )}
+                      {data.stage === "hired" && (
+                        <span className="text-[12px] text-[#94A3B8]">
+                          Hired. Use &quot;Undo hire&quot; below to reverse.
+                        </span>
+                      )}
+                      {data.stage === "withdrawn" && (
+                        <span className="text-[12px] text-[#94A3B8]">
+                          Applicant withdrew — no manager actions.
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )}
 
-              {/* Reviews — 평가자별 점수+코멘트. 평균만 list 에 노출. */}
-              <ReviewsBlock applicationId={data.id} stage={data.stage} reviews={data.reviews} avgScore={data.score} />
-            </div>
+                {/* Reviews — 평가자별 점수+코멘트. 평균만 list 에 노출. */}
+                <ReviewsBlock applicationId={data.id} stage={data.stage} reviews={data.reviews} avgScore={data.score} />
+              </div>
+            )}
+
+            {/* 인터뷰 단계 — 상세에서도 일정 잡기/관리 */}
+            {data.stage === "interview" && (
+              <InterviewSchedulingCard applicationId={data.id} candidateName={data.candidate.full_name} />
+            )}
 
             {/* Audit log — stage/score/notes 변경 이력 */}
             {data.audit_log && data.audit_log.length > 0 && (
               <div className="rounded-2xl border border-[#E2E4EA] bg-white p-4">
                 <h3 className="flex items-center gap-1.5 text-[12.5px] font-semibold uppercase tracking-wider text-[#94A3B8]">
-                  <Clock size={12} /> Activity
+                  <Clock size={12} /> History
                 </h3>
                 <ul className="mt-2 space-y-2">
                   {data.audit_log.map((entry, i) => (
@@ -382,6 +532,18 @@ export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPag
                                 ? String(entry.after).replace("T", " ").slice(0, 16)
                                 : "—"}
                             </>
+                          )}
+                          {entry.action === "interview_confirmed" && (
+                            <>confirmed interview: {String(entry.after ?? "—")}{entry.interviewer ? ` · ${entry.interviewer}` : ""}</>
+                          )}
+                          {entry.action === "interview_rescheduled" && (
+                            <>rescheduled interview: {String(entry.before ?? "—")} → {String(entry.after ?? "—")}</>
+                          )}
+                          {entry.action === "interview_cancelled" && (
+                            <>cancelled interview{entry.before ? ` (was ${String(entry.before)})` : ""}</>
+                          )}
+                          {entry.action === "interviewer" && (
+                            <>changed interviewer: {String(entry.before ?? "—")} → {String(entry.after ?? "Not assigned")}</>
                           )}
                         </span>
                       </p>
@@ -423,8 +585,8 @@ export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPag
           </div>
         )}
 
-        {/* Action bar */}
-        {data && (
+        {/* Action bar — gate(new)·미제출(pending_form)에는 숨김 */}
+        {data && data.stage !== "new" && data.stage !== "pending_form" && (
           <div className="border-t border-[#E2E4EA] bg-white px-5 py-3">
             {showBlockBox ? (
               <div className="flex items-center gap-2">
@@ -476,7 +638,7 @@ export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPag
                   >
                     Undo hire
                   </button>
-                ) : (
+                ) : data.stage === "interview" || data.stage === "review" ? (
                   <button
                     type="button"
                     onClick={openHireDialog}
@@ -485,6 +647,8 @@ export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPag
                   >
                     {hire.isPending ? "Hiring…" : "Hire — create staff account"}
                   </button>
+                ) : (
+                  <span />
                 )}
               </div>
             )}
@@ -510,7 +674,7 @@ export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPag
             </p>
             <ul className="mt-1 list-disc space-y-0.5 pl-5 text-[12.5px] leading-relaxed text-[#1A1D27]">
               <li>Remove this staff from this store&apos;s roster</li>
-              <li>Move the application back to <span className="font-semibold">Reviewing</span></li>
+              <li>Move the application back to <span className="font-semibold">Review</span></li>
             </ul>
             <p className="mt-2 text-[11.5px] leading-relaxed text-[#94A3B8]">
               The user account itself stays (so they keep access to any other
@@ -687,7 +851,8 @@ function ReviewsBlock({
     );
   }
 
-  const scoreLocked = stage !== "interview" && stage !== "hired" && stage !== "rejected";
+  const scoreLocked =
+    stage !== "interview" && stage !== "review" && stage !== "hired" && stage !== "rejected";
   const handleSave = async () => {
     const n = scoreStr.trim();
     const score = n === "" ? null : Number(n);

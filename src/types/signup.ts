@@ -13,8 +13,9 @@ export type SignupStep =
 export type ApplicationStageClient =
   | "pending_form"
   | "new"
-  | "reviewing"
+  | "screen"
   | "interview"
+  | "review"
   | "hired"
   | "rejected"
   | "withdrawn";
