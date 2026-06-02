@@ -149,6 +149,32 @@ export const useCompleteInterview = (
   });
 };
 
+/**
+ * 인터뷰 링크 토큰 발급(회전) → raw 토큰 반환.
+ * 어드민이 지원자에게 스케줄 링크를 직접 전달할 때 사용 (메일 미수신/분실 대비).
+ * 주의: 호출할 때마다 토큰이 회전되어 이전에 발급된 링크(메일 포함)는 무효화된다.
+ * 성공 시 결과 모달을 띄우지 않음 — 호출 측에서 클립보드 복사 + 인라인 피드백 처리.
+ */
+export const useIssueInterviewToken = (
+  applicationId: string,
+): UseMutationResult<{ token: string }, Error, void> => {
+  const qc = useQueryClient();
+  const { error } = useMutationResult();
+  return useMutation<{ token: string }, Error, void>({
+    mutationFn: async () => {
+      const res = await api.post(
+        `/console/hiring/applications/${applicationId}/interview/issue-token`,
+      );
+      return res.data;
+    },
+    onSuccess: () => {
+      // has_token 갱신 (이전 토큰 무효화됨)
+      qc.invalidateQueries({ queryKey: ["hiring", "application-interview", applicationId] });
+    },
+    onError: error("Couldn't generate interview link"),
+  });
+};
+
 export const useCancelInterview = (
   applicationId: string,
 ): UseMutationResult<unknown, Error, void> => {

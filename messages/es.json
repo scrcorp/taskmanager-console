@@ -129,6 +129,8 @@
     "statusHeadlineReviewingSub": "El gerente está revisando tu solicitud.",
     "statusHeadlineInterviewTitle": "Etapa de entrevista",
     "statusHeadlineInterviewSub": "Se está coordinando una entrevista. Revisa tu correo.",
+    "statusInterviewScheduledLabel": "Entrevista agendada",
+    "statusInterviewWith": "con {name}",
     "statusHeadlineHiredTitle": "¡Bienvenido al equipo!",
     "statusHeadlineHiredSub": "Estás contratado. Abre la app de empleado para empezar a trabajar.",
     "statusHeadlineRejectedTitle": "Esta vez no fue posible",

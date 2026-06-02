@@ -66,6 +66,13 @@ export function InterviewSchedulePage({ token }: { token: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
+  // 브라우저 탭 제목 — 지원자가 여러 매장에 지원했을 때 구분되도록 매장명 포함
+  useEffect(() => {
+    document.title = data?.store.name
+      ? `[HTM] Interview Schedule | ${data.store.name}`
+      : "[HTM] Interview Schedule";
+  }, [data?.store.name]);
+
   const tz = data?.store.timezone ?? "";
   const max = data?.max_picks ?? 3;
 

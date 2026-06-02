@@ -7,6 +7,7 @@ import type {
   AccountFormState,
   ApplicationStageClient,
   EmailFormState,
+  InterviewStatusInfo,
   LinkErrorCode,
   SignupContext,
   SignupStep,
@@ -73,6 +74,7 @@ export function SignupFlow({ encoded }: Props) {
   const [applicationId, setApplicationId] = useState<string | null>(null);
   // status screen 에서 보여줄 application stage (signup 완료 후 갱신)
   const [appStage, setAppStage] = useState<ApplicationStageClient>("pending_form");
+  const [interviewInfo, setInterviewInfo] = useState<InterviewStatusInfo | null>(null);
   // 이미 가입된 이메일 안내 모달
   const [showEmailInUseModal, setShowEmailInUseModal] = useState(false);
 
@@ -173,7 +175,12 @@ export function SignupFlow({ encoded }: Props) {
         email: string;
         full_name: string;
         verification_token: string;
-        pending_application: { id: string; store_id: string; stage: string } | null;
+        pending_application: {
+          id: string;
+          store_id: string;
+          stage: string;
+          interview: InterviewStatusInfo | null;
+        } | null;
       }>("/app/applications/login", {
         encoded,
         username: loginUsername,
@@ -198,6 +205,7 @@ export function SignupFlow({ encoded }: Props) {
         // 버튼으로 form 진입, 다른 stage 면 진행 상황 확인.
         setApplicationId(pending.id);
         setAppStage(pending.stage as ApplicationStageClient);
+        setInterviewInfo(pending.interview);
         if (pending.stage === "pending_form" && !hasForm) {
           // 폼 없는 매장에서 pending_form 으로 남아있는 비정상 케이스 — 자동 complete
           await completePendingApplication(pending.id);
@@ -543,6 +551,7 @@ export function SignupFlow({ encoded }: Props) {
           fullName={account.fullName}
           username={account.username}
           stage={appStage}
+          interview={interviewInfo}
           hasForm={hasForm}
           onContinueForm={
             hasForm && appStage === "pending_form"
@@ -584,6 +593,7 @@ export function SignupFlow({ encoded }: Props) {
                         id: string;
                         store_id: string;
                         stage: ApplicationStageClient;
+                        interview: InterviewStatusInfo | null;
                       } | null;
                     }>("/app/applications/login", {
                       encoded,
@@ -591,7 +601,10 @@ export function SignupFlow({ encoded }: Props) {
                       password: account.password,
                     });
                     const pa = res.data.pending_application;
-                    if (pa) setAppStage(pa.stage);
+                    if (pa) {
+                      setAppStage(pa.stage);
+                      setInterviewInfo(pa.interview);
+                    }
                   } catch {
                     // no-op
                   }
