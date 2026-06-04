@@ -13,11 +13,20 @@ export type SignupStep =
 export type ApplicationStageClient =
   | "pending_form"
   | "new"
-  | "reviewing"
+  | "screen"
   | "interview"
+  | "review"
   | "hired"
   | "rejected"
   | "withdrawn";
+
+/** 확정된 인터뷰 정보 — 지원자 상태화면에 표시 (store-local 라벨). */
+export interface InterviewStatusInfo {
+  /** "Mon, Jul 6 · 10:00 AM PDT" */
+  at_label: string;
+  /** "Mina Park (GM)" — 미배정이면 null */
+  interviewer: string | null;
+}
 
 export interface SignupStore {
   id: string;

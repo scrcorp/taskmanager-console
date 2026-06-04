@@ -4,6 +4,7 @@ import { useState } from "react";
 import { useTranslations } from "next-intl";
 import type {
   ApplicationStageClient,
+  InterviewStatusInfo,
   SignupContext,
 } from "@/types/signup";
 
@@ -28,7 +29,7 @@ function useTimeline(hasForm: boolean): Stage[] {
           },
         ]
       : []),
-    { key: "reviewing" as const, label: t("statusStageReviewLabel"), sub: t("statusStageReviewSub") },
+    { key: "screen" as const, label: t("statusStageReviewLabel"), sub: t("statusStageReviewSub") },
     { key: "interview" as const, label: t("statusStageInterviewLabel"), sub: t("statusStageInterviewSub") },
     { key: "hired" as const, label: t("statusStageHiredLabel"), sub: t("statusStageHiredSub") },
   ];
@@ -50,7 +51,7 @@ function stageIndex(
     return {
       active: hasForm
         ? stages.findIndex((s) => s.key === "submit")
-        : stages.findIndex((s) => s.key === "reviewing"),
+        : stages.findIndex((s) => s.key === "screen"),
       failed: false,
       withdrawn: false,
     };
@@ -58,19 +59,19 @@ function stageIndex(
   if (stage === "new") {
     // 제출 완료 → Submit application Done, 현재 active 는 Manager review
     return {
-      active: stages.findIndex((s) => s.key === "reviewing"),
+      active: stages.findIndex((s) => s.key === "screen"),
       failed: false,
       withdrawn: false,
     };
   }
-  if (stage === "reviewing") {
+  if (stage === "screen") {
     return {
-      active: stages.findIndex((s) => s.key === "reviewing"),
+      active: stages.findIndex((s) => s.key === "screen"),
       failed: false,
       withdrawn: false,
     };
   }
-  if (stage === "interview") {
+  if (stage === "interview" || stage === "review") {
     return {
       active: stages.findIndex((s) => s.key === "interview"),
       failed: false,
@@ -92,6 +93,8 @@ interface Props {
   fullName: string;
   username: string;
   stage: ApplicationStageClient;
+  /** 확정된 인터뷰 정보 (있으면 interview 단계에서 일정 카드 표시) */
+  interview?: InterviewStatusInfo | null;
   hasForm: boolean;
   onContinueForm?: () => void; // pending_form + hasForm
   onWithdraw?: () => void;
@@ -104,6 +107,7 @@ export function StatusScreen({
   fullName,
   username,
   stage,
+  interview,
   hasForm,
   onContinueForm,
   onWithdraw,
@@ -118,13 +122,14 @@ export function StatusScreen({
   const isActiveStage =
     stage === "pending_form" ||
     stage === "new" ||
-    stage === "reviewing" ||
+    stage === "screen" ||
+    stage === "review" ||
     stage === "interview";
 
   // pending_form 은 제출 전이라 자진 철회 불필요 — 그냥 안 만들면 끝.
   // 제출 완료된 application 만 withdraw 노출.
   const canWithdraw =
-    stage === "new" || stage === "reviewing" || stage === "interview";
+    stage === "new" || stage === "screen" || stage === "review" || stage === "interview";
 
   // 헤드라인 — stage 별 title/sub 키 매핑
   let headlineTitle: string;
@@ -142,7 +147,8 @@ export function StatusScreen({
       headlineTitle = t("statusHeadlineNewTitle");
       headlineSub = t("statusHeadlineNewSub");
       break;
-    case "reviewing":
+    case "screen":
+    case "review":
       headlineTitle = t("statusHeadlineReviewingTitle");
       headlineSub = t("statusHeadlineReviewingSub");
       break;
@@ -228,6 +234,23 @@ export function StatusScreen({
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 pb-4">
+        {/* 확정된 인터뷰 일정 — interview/review 단계에서 확정됐을 때만 */}
+        {interview && (stage === "interview" || stage === "review") && (
+          <div className="mb-4 rounded-2xl border border-blue-200 bg-blue-50 p-4">
+            <p className="text-[10.5px] font-semibold uppercase tracking-[0.14em] text-blue-600">
+              {t("statusInterviewScheduledLabel")}
+            </p>
+            <p className="mt-1.5 text-[17px] font-semibold leading-snug text-slate-900">
+              {interview.at_label}
+            </p>
+            {interview.interviewer && (
+              <p className="mt-1 text-[12.5px] text-slate-600">
+                {t("statusInterviewWith", { name: interview.interviewer })}
+              </p>
+            )}
+          </div>
+        )}
+
         {/* Hired stage banner */}
         {stage === "hired" && (
           <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4">

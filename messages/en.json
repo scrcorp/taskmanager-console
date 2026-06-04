@@ -129,6 +129,8 @@
     "statusHeadlineReviewingSub": "The manager is reviewing your application.",
     "statusHeadlineInterviewTitle": "Interview stage",
     "statusHeadlineInterviewSub": "An interview is being arranged. Watch for an email.",
+    "statusInterviewScheduledLabel": "Interview scheduled",
+    "statusInterviewWith": "with {name}",
     "statusHeadlineHiredTitle": "Welcome aboard!",
     "statusHeadlineHiredSub": "You're hired. Open the staff app to start working.",
     "statusHeadlineRejectedTitle": "Not a match this time",
