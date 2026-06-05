@@ -57,6 +57,7 @@ export interface Store {
   max_work_hours_weekly: number | null;
   timezone: string | null;
   default_hourly_rate: number | null;
+  accepting_signups: boolean;
   created_at: string;
 }
 
