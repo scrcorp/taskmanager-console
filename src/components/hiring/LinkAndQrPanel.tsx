@@ -35,7 +35,7 @@ export function LinkAndQrPanel({ storeId }: Props) {
 
   const [copied, setCopied] = useState(false);
   const [directCopied, setDirectCopied] = useState(false);
-  const accepting = (store as { accepting_signups?: boolean } | undefined)?.accepting_signups ?? true;
+  const accepting = store?.accepting_signups ?? true;
   const qrRef = useRef<QrCanvasHandle>(null);
   const directQrRef = useRef<QrCanvasHandle>(null);
 
