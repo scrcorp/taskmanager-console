@@ -76,9 +76,9 @@ export const mockRoles: Role[] = [
 // ─── Stores ───────────────────────────────────────────
 
 export const mockStores: Store[] = [
-  { id: STORE_IDS[0], organization_id: ORG_ID, name: "Seoul Station Branch", address: "서울특별시 중구 세종대로 12", is_active: true, operating_hours: null, day_start_time: null, max_work_hours_weekly: null, timezone: null, default_hourly_rate: null, created_at: "2025-06-01T09:00:00Z" },
-  { id: STORE_IDS[1], organization_id: ORG_ID, name: "Gangnam Branch", address: "서울특별시 강남구 테헤란로 123", is_active: true, operating_hours: null, day_start_time: null, max_work_hours_weekly: null, timezone: null, default_hourly_rate: null, created_at: "2025-07-15T10:00:00Z" },
-  { id: STORE_IDS[2], organization_id: ORG_ID, name: "Busan Branch", address: "부산광역시 해운대구 센텀로 45", is_active: false, operating_hours: null, day_start_time: null, max_work_hours_weekly: null, timezone: null, default_hourly_rate: null, created_at: "2025-08-20T11:00:00Z" },
+  { id: STORE_IDS[0], organization_id: ORG_ID, name: "Seoul Station Branch", address: "서울특별시 중구 세종대로 12", is_active: true, operating_hours: null, day_start_time: null, max_work_hours_weekly: null, timezone: null, default_hourly_rate: null, accepting_signups: true, created_at: "2025-06-01T09:00:00Z" },
+  { id: STORE_IDS[1], organization_id: ORG_ID, name: "Gangnam Branch", address: "서울특별시 강남구 테헤란로 123", is_active: true, operating_hours: null, day_start_time: null, max_work_hours_weekly: null, timezone: null, default_hourly_rate: null, accepting_signups: true, created_at: "2025-07-15T10:00:00Z" },
+  { id: STORE_IDS[2], organization_id: ORG_ID, name: "Busan Branch", address: "부산광역시 해운대구 센텀로 45", is_active: false, operating_hours: null, day_start_time: null, max_work_hours_weekly: null, timezone: null, default_hourly_rate: null, accepting_signups: true, created_at: "2025-08-20T11:00:00Z" },
 ];
 
 // ─── Shifts ───────────────────────────────────────────
