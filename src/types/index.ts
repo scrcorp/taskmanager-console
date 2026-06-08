@@ -683,73 +683,21 @@ export interface BreakSessionUpdateRequest {
   clear_ended_at?: boolean;
 }
 
-// Evaluation
-export interface EvalTemplate {
-  id: string;
-  name: string;
-  target_role: string | null;
-  eval_type: string;
-  cycle_weeks: number | null;
-  item_count: number;
-  items: EvalTemplateItem[];
-  created_at: string;
-  updated_at: string;
-}
-
-export interface EvalTemplateItem {
-  id: string;
-  title: string;
-  type: string;
-  max_score: number;
-  sort_order: number;
-}
-
-export interface Evaluation {
-  id: string;
-  evaluator_id: string;
-  evaluator_name: string | null;
-  evaluatee_id: string;
-  evaluatee_name: string | null;
-  template_id: string | null;
-  template_name: string | null;
-  store_id: string | null;
-  store_name: string | null;
-  status: "draft" | "submitted";
-  responses: EvalResponseItem[];
-  created_at: string;
-  submitted_at: string | null;
-}
-
-export interface EvalResponseItem {
-  id: string;
-  template_item_id: string;
-  item_title: string | null;
-  score: number | null;
-  text: string | null;
-}
-
-export interface EvalTemplateCreate {
-  name: string;
-  target_role?: string | null;
-  eval_type?: string;
-  cycle_weeks?: number | null;
-  items?: { title: string; type?: string; max_score?: number; sort_order?: number }[];
-}
-
-export interface EvaluationCreate {
-  evaluatee_id: string;
-  template_id: string;
-  store_id?: string | null;
-  responses?: { template_item_id: string; score?: number | null; text?: string | null }[];
-}
-
-export interface EvaluationFilters {
-  evaluator_id?: string;
-  evaluatee_id?: string;
-  status?: string;
-  page?: number;
-  per_page?: number;
-}
+// Evaluation (v1) — canonical types live in ./evaluation, re-exported below.
+export type {
+  CriterionConfig,
+  ScalePoint,
+  TemplateConfig,
+  EvalTemplate,
+  EvaluationStatus,
+  EvaluationScores,
+  Evaluation,
+  EvaluationCreate,
+  EvaluationUpdate,
+  EvaluationFilters,
+  EvaluatableUser,
+  EvaluatableUsersPage,
+} from "./evaluation";
 
 // Daily Report
 export interface DailyReport {
