@@ -1,285 +1,332 @@
 "use client";
 
 /**
- * 평가 관리 페이지 -- 평가 템플릿 목록 + 평가 목록을 탭으로 관리합니다.
+ * Evaluations — performance reviews across brands.
  *
- * Evaluations management page — Templates and evaluations in tabbed view.
+ * Single-page view machine (ported from the approved mockup):
+ *   list            — stats + filters + table (kebab: Open / Edit / Delete)
+ *   templates       — the org Basic template card (Preview form; New/Edit = v2)
+ *   templatePreview — blank printable form document
+ *   editor          — authoring (header pickers open modals; inline 1–5 rating)
+ *   detail          — read-only mirror of a submitted/draft evaluation
+ *
+ * Data + mutations come from the evaluation data layer (`useEvaluations.ts`);
+ * mutation result modals fire from `useMutationResult` inside those hooks, so this
+ * page never re-shows success/error. Deletes confirm via `useModal`.
  */
 
-import React, { useState, useCallback } from "react";
+import React, { useMemo, useState } from "react";
+import { Plus } from "lucide-react";
+
 import { usePersistedFilters } from "@/hooks/usePersistedFilters";
-import { Plus, Trash2 } from "lucide-react";
+import { usePermissions } from "@/hooks/usePermissions";
+import { useModal } from "@/components/ui/imperative-modal";
 import {
   useEvalTemplates,
-  useCreateEvalTemplate,
-  useDeleteEvalTemplate,
-  useEvaluations,
-  useSubmitEvaluation,
+  useEvaluation,
+  useCreateEvaluation,
+  useUpdateEvaluation,
+  useDeleteEvaluation,
 } from "@/hooks/useEvaluations";
-import {
-  Button,
-  Input,
-  Select,
-  Card,
-  Table,
-  Modal,
-  Badge,
-  Pagination,
-  LoadingSpinner,
-} from "@/components/ui";
-import { useModal } from "@/components/ui/imperative-modal";
-import { formatDate } from "@/lib/utils";
-import { useTimezone } from "@/hooks/useTimezone";
-import { usePermissions } from "@/hooks/usePermissions";
+import { Button, LoadingSpinner } from "@/components/ui";
 import { PERMISSIONS } from "@/lib/permissions";
-import type { EvalTemplate, Evaluation as EvalType } from "@/types";
+import type {
+  Evaluation,
+  EvaluationCreate,
+  EvaluationUpdate,
+  TemplateConfig,
+  EvalTemplate,
+} from "@/types";
 
-const PER_PAGE: number = 20;
+import { EvaluationsList } from "@/components/evaluations/EvaluationsList";
+import { TemplatesList } from "@/components/evaluations/TemplatesList";
+import { TemplatePreview } from "@/components/evaluations/TemplatePreview";
+import { EvaluationDetail } from "@/components/evaluations/EvaluationDetail";
+import {
+  EvaluationEditor,
+  EMPTY_DRAFT,
+  type EditorDraft,
+} from "@/components/evaluations/EvaluationEditor";
+import { BASIC_TEMPLATE_CONFIG } from "@/components/evaluations/criteria";
+import { fmtRange } from "@/components/evaluations/format";
+
+type View = "list" | "templates" | "templatePreview" | "editor" | "detail";
+
+const CAPTION: Record<View, string> = {
+  list: "Performance reviews across your stores",
+  templates: "The form your evaluations are based on",
+  templatePreview: "Basic template — form preview",
+  editor: "Fill the evaluation form",
+  detail: "Evaluation detail",
+};
+
+/** Build the editor draft from an existing evaluation record. */
+function draftFromEvaluation(ev: Evaluation): EditorDraft {
+  return {
+    evaluatee_id: ev.evaluatee_id,
+    evaluatee_name: ev.evaluatee_name,
+    employee_no: ev.employee_no,
+    store_id: ev.store_id,
+    store_name: ev.store_name,
+    position_id: ev.position_id,
+    position_name: ev.position_name ?? ev.job_title,
+    // The picker re-fetches the candidate's stores on next employee change;
+    // prefill the current store so the Store dropdown has at least it.
+    employee_stores:
+      ev.store_id && ev.store_name ? [{ id: ev.store_id, name: ev.store_name }] : [],
+    period_start: ev.period_start ?? "",
+    period_end: ev.period_end ?? "",
+    responses: ev.responses,
+    improvement: ev.improvement ?? "",
+    good_examples: ev.good_examples ?? "",
+  };
+}
 
 export default function EvaluationsPage(): React.ReactElement {
-  const modal = useModal();
   const { hasPermission } = usePermissions();
-  const tz = useTimezone();
-  const isGMOrAbove = hasPermission(PERMISSIONS.EVALUATIONS_CREATE);
+  const modal = useModal();
 
-  const [urlParams, setUrlParams] = usePersistedFilters("evaluations", { tab: "templates", tpage: "1", epage: "1" });
-  const activeTab = (urlParams.tab === "evaluations" ? "evaluations" : "templates") as "templates" | "evaluations";
-  const templatePage = Number(urlParams.tpage);
-  const evalPage = Number(urlParams.epage);
+  const canCreate = hasPermission(PERMISSIONS.EVALUATIONS_CREATE);
+  const canUpdate = hasPermission(PERMISSIONS.EVALUATIONS_UPDATE);
+  const canDelete = hasPermission(PERMISSIONS.EVALUATIONS_DELETE);
 
-  // Template modal
-  const [isTemplateFormOpen, setIsTemplateFormOpen] = useState(false);
-  const [templateName, setTemplateName] = useState("");
-  const [templateTargetRole, setTemplateTargetRole] = useState("");
-  const [templateEvalType, setTemplateEvalType] = useState("adhoc");
+  // ── Persisted tab + list filters ──────────────────────────────────────────
+  const [filters, setFilters] = usePersistedFilters("evaluations", {
+    tab: "list",
+    store: "",
+    status: "",
+    q: "",
+    page: "1",
+  });
+  const tab = (filters.tab === "templates" ? "templates" : "list") as "list" | "templates";
+  const page = Number(filters.page) || 1;
 
-  // Data hooks
-  const { data: templatesData, isLoading: templatesLoading } = useEvalTemplates(templatePage, PER_PAGE);
-  const { data: evalsData, isLoading: evalsLoading } = useEvaluations({ page: evalPage, per_page: PER_PAGE });
-  const createTemplate = useCreateEvalTemplate();
-  const deleteTemplate = useDeleteEvalTemplate();
-  const submitEvaluation = useSubmitEvaluation();
+  // ── Transient view state (editor/detail/preview live in-page, not in the URL) ─
+  const [view, setView] = useState<View>("list");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [previewTemplate, setPreviewTemplate] = useState<EvalTemplate | null>(null);
 
-  const templates: EvalTemplate[] = templatesData?.items ?? [];
-  const evaluations: EvalType[] = evalsData?.items ?? [];
+  // The view shown when on a tab page (list/templates) follows the persisted tab.
+  const effectiveView: View =
+    view === "list" || view === "templates" ? tab : view;
 
-  // Template handlers
-  const handleCreateTemplate = useCallback(async () => {
-    if (!templateName.trim()) return;
+  // ── Template config for new evaluations (org Basic) ───────────────────────
+  const { data: templates } = useEvalTemplates();
+  const basicConfig: TemplateConfig = useMemo(
+    () =>
+      (templates?.find((t) => t.is_default) ?? templates?.[0])?.config ??
+      BASIC_TEMPLATE_CONFIG,
+    [templates],
+  );
+
+  // ── Editing record (existing eval being edited) ───────────────────────────
+  const { data: editingEval, isLoading: editingLoading } = useEvaluation(
+    view === "editor" && editingId ? editingId : undefined,
+  );
+
+  // ── Mutations ─────────────────────────────────────────────────────────────
+  const createMut = useCreateEvaluation();
+  const updateMut = useUpdateEvaluation();
+  const deleteMut = useDeleteEvaluation();
+  const saving = createMut.isPending || updateMut.isPending;
+
+  // ── Navigation helpers ────────────────────────────────────────────────────
+  function goList(): void {
+    setView("list");
+    setFilters({ tab: "list" });
+  }
+
+  function startFresh(): void {
+    setEditingId(null);
+    setSelectedId(null);
+    setView("editor");
+  }
+
+  function openDetail(id: string): void {
+    setSelectedId(id);
+    setView("detail");
+  }
+
+  function editEvaluation(id: string): void {
+    setEditingId(id);
+    setSelectedId(id);
+    setView("editor");
+  }
+
+  function previewForm(template: EvalTemplate): void {
+    setPreviewTemplate(template);
+    setView("templatePreview");
+  }
+
+  function setTab(next: "list" | "templates"): void {
+    setView(next);
+    setFilters({ tab: next, page: "1" });
+  }
+
+  // ── Save (create or update) ───────────────────────────────────────────────
+  async function persist(d: EditorDraft, status: "draft" | "submitted"): Promise<void> {
+    // [M6] A draft needs only an employee; store + valid period are submit-only.
+    // Submitting still requires the full header (gated in the editor too).
+    if (!d.evaluatee_id) return;
+    if (status === "submitted" && (!d.store_id || !d.period_start || !d.period_end)) return;
+
+    // Send only the fields that are actually present — partial drafts omit empties.
+    const body: EvaluationCreate & EvaluationUpdate = {
+      evaluatee_id: d.evaluatee_id,
+      status,
+      responses: d.responses,
+      improvement: d.improvement,
+      good_examples: d.good_examples,
+    };
+    if (d.store_id) body.store_id = d.store_id;
+    body.position_id = d.position_id;
+    if (d.period_start) body.period_start = d.period_start;
+    if (d.period_end) body.period_end = d.period_end;
+
     try {
-      await createTemplate.mutateAsync({
-        name: templateName.trim(),
-        target_role: templateTargetRole || null,
-        eval_type: templateEvalType,
-      });
-      setIsTemplateFormOpen(false);
-      setTemplateName("");
-      setTemplateTargetRole("");
-      setTemplateEvalType("adhoc");
+      if (editingId) {
+        await updateMut.mutateAsync({ evaluationId: editingId, data: body });
+        openDetail(editingId);
+      } else {
+        const created = await createMut.mutateAsync(body);
+        if (status === "submitted") {
+          openDetail(created.id);
+        } else {
+          goList();
+        }
+      }
     } catch {
-      // hook 자동 모달이 표시함.
+      // Hook surfaces the error modal; keep the editor open for correction.
     }
-  }, [templateName, templateTargetRole, templateEvalType, createTemplate]);
+  }
 
-  const handleDeleteTemplate = useCallback(async (id: string) => {
+  // ── Delete (confirm → soft delete; hook fires the result modal) ────────────
+  async function handleDelete(ev: Evaluation): Promise<void> {
+    const who = ev.evaluatee_name ?? "this employee";
+    const period = fmtRange(ev.period_start, ev.period_end);
     const ok = await modal.confirm({
-      title: "Delete Template",
-      message: "Are you sure you want to delete this evaluation template? This action cannot be undone.",
+      title: "Delete this evaluation?",
+      message: `This will permanently remove ${who}'s ${period} evaluation. This can't be undone.`,
       confirmLabel: "Delete",
       variant: "danger",
     });
     if (!ok) return;
-    deleteTemplate.mutate(id);
-  }, [deleteTemplate, modal]);
-
-  const handleSubmitEval = useCallback(async (evalId: string) => {
     try {
-      await submitEvaluation.mutateAsync(evalId);
+      await deleteMut.mutateAsync(ev.id);
+      goList();
     } catch {
-      // hook 자동 모달이 표시함.
+      // Hook surfaces the error modal.
     }
-  }, [submitEvaluation]);
+  }
 
-  const isLoading = activeTab === "templates" ? templatesLoading : evalsLoading;
+  // ── Editor draft + config resolution ──────────────────────────────────────
+  const editorInitial: EditorDraft = useMemo(() => {
+    if (editingId && editingEval) return draftFromEvaluation(editingEval);
+    return EMPTY_DRAFT;
+  }, [editingId, editingEval]);
+
+  const editorConfig: TemplateConfig =
+    editingId && editingEval ? editingEval.template_snapshot : basicConfig;
+
+  const showTabs = effectiveView === "list" || effectiveView === "templates";
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h1 className="text-xl md:text-2xl font-extrabold text-text">Evaluations</h1>
-        {isGMOrAbove && activeTab === "templates" && (
-          <Button onClick={() => setIsTemplateFormOpen(true)}>
-            <Plus className="h-4 w-4 mr-1" />
-            New Template
+    <div className="space-y-0">
+      {/* Page header */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-text">Evaluations</h1>
+          <p className="text-sm text-text-secondary mt-1">{CAPTION[effectiveView]}</p>
+        </div>
+        {effectiveView === "list" && canCreate && (
+          <Button variant="primary" size="lg" onClick={startFresh} className="gap-1.5">
+            <Plus className="h-4 w-4" />
+            Start Evaluation
           </Button>
         )}
       </div>
 
-      {/* Tabs */}
-      <div className="flex gap-2 mb-6">
-        <button
-          onClick={() => setUrlParams({ tab: "templates" })}
-          className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-            activeTab === "templates"
-              ? "bg-accent text-white"
-              : "bg-surface text-text-secondary hover:bg-surface-hover"
-          }`}
-        >
-          Templates ({templatesData?.total ?? 0})
-        </button>
-        <button
-          onClick={() => setUrlParams({ tab: "evaluations" })}
-          className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-            activeTab === "evaluations"
-              ? "bg-accent text-white"
-              : "bg-surface text-text-secondary hover:bg-surface-hover"
-          }`}
-        >
-          Evaluations ({evalsData?.total ?? 0})
-        </button>
-      </div>
-
-      {isLoading ? (
-        <div className="flex justify-center py-12">
-          <LoadingSpinner size="lg" />
+      {/* Section tabs */}
+      {showTabs ? (
+        <div className="flex items-center gap-1.5 mt-4 mb-6">
+          {(
+            [
+              ["list", "Evaluations"],
+              ["templates", "Templates"],
+            ] as const
+          ).map(([v, label]) => (
+            <button
+              key={v}
+              type="button"
+              onClick={() => setTab(v)}
+              className={
+                tab === v
+                  ? "px-4 h-9 rounded-lg text-sm font-semibold bg-accent text-white shadow-sm"
+                  : "px-4 h-9 rounded-lg text-sm font-semibold bg-surface border border-border text-text-secondary hover:text-text transition-colors"
+              }
+            >
+              {label}
+            </button>
+          ))}
         </div>
-      ) : activeTab === "templates" ? (
-        <Card>
-          <Table
-            columns={[
-              { key: "name", header: "Name" },
-              { key: "target_role", header: "Target Role" },
-              { key: "eval_type", header: "Type" },
-              { key: "item_count", header: "Items" },
-              { key: "created_at", header: "Created", hideOnMobile: true },
-              ...(isGMOrAbove ? [{ key: "actions" as const, header: "" }] : []),
-            ]}
-            data={templates.map((t) => ({
-              id: t.id,
-              name: t.name,
-              target_role: t.target_role || "-",
-              eval_type: (
-                <Badge variant={t.eval_type === "regular" ? "accent" : "default"}>
-                  {t.eval_type}
-                </Badge>
-              ),
-              item_count: t.item_count,
-              created_at: formatDate(t.created_at, tz),
-              ...(isGMOrAbove
-                ? {
-                    actions: (
-                      <button
-                        onClick={() => void handleDeleteTemplate(t.id)}
-                        className="text-text-muted hover:text-danger transition-colors"
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </button>
-                    ),
-                  }
-                : {}),
-            }))}
-            emptyMessage="No evaluation templates yet."
-          />
-          {(templatesData?.total ?? 0) > PER_PAGE && (
-            <Pagination
-              page={templatePage}
-              totalPages={Math.ceil((templatesData?.total ?? 0) / PER_PAGE)}
-              onPageChange={(p: number) => setUrlParams({ tpage: String(p) })}
-            />
-          )}
-        </Card>
       ) : (
-        <Card>
-          <Table
-            columns={[
-              { key: "evaluatee_name", header: "Evaluatee" },
-              { key: "evaluator_name", header: "Evaluator" },
-              { key: "template_name", header: "Template" },
-              { key: "status", header: "Status" },
-              { key: "created_at", header: "Created", hideOnMobile: true },
-              { key: "actions", header: "" },
-            ]}
-            data={evaluations.map((e) => ({
-              id: e.id,
-              evaluatee_name: e.evaluatee_name || "-",
-              evaluator_name: e.evaluator_name || "-",
-              template_name: e.template_name || "-",
-              status: (
-                <Badge variant={e.status === "submitted" ? "success" : "warning"}>
-                  {e.status}
-                </Badge>
-              ),
-              created_at: formatDate(e.created_at, tz),
-              actions: e.status === "draft" ? (
-                <Button
-                  size="sm"
-                  variant="ghost"
-                  onClick={() => handleSubmitEval(e.id)}
-                >
-                  Submit
-                </Button>
-              ) : null,
-            }))}
-            emptyMessage="No evaluations yet."
-          />
-          {(evalsData?.total ?? 0) > PER_PAGE && (
-            <Pagination
-              page={evalPage}
-              totalPages={Math.ceil((evalsData?.total ?? 0) / PER_PAGE)}
-              onPageChange={(p: number) => setUrlParams({ epage: String(p) })}
-            />
-          )}
-        </Card>
+        <div className="mb-6" />
       )}
 
-      {/* Create Template Modal */}
-      <Modal
-        isOpen={isTemplateFormOpen}
-        onClose={() => setIsTemplateFormOpen(false)}
-        title="New Evaluation Template"
-        closeOnBackdrop={false}
-      >
-        <div className="space-y-4">
-          <Input
-            label="Template Name"
-            value={templateName}
-            onChange={(e) => setTemplateName(e.target.value)}
-            placeholder="e.g. Monthly Staff Evaluation"
-          />
-          <Select
-            label="Target Role"
-            value={templateTargetRole}
-            onChange={(e) => setTemplateTargetRole(e.target.value)}
-            placeholder="All Roles"
-            options={[
-              { value: "", label: "All Roles" },
-              { value: "staff", label: "Staff" },
-              { value: "supervisor", label: "Supervisor" },
-              { value: "gm", label: "GM" },
-            ]}
-          />
-          <Select
-            label="Evaluation Type"
-            value={templateEvalType}
-            onChange={(e) => setTemplateEvalType(e.target.value)}
-            options={[
-              { value: "adhoc", label: "Ad-hoc (수시)" },
-              { value: "regular", label: "Regular (정기)" },
-            ]}
-          />
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="ghost" onClick={() => setIsTemplateFormOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleCreateTemplate}
-              disabled={!templateName.trim() || createTemplate.isPending}
-            >
-              {createTemplate.isPending ? "Creating..." : "Create"}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+      {/* Body */}
+      {effectiveView === "list" && (
+        <EvaluationsList
+          storeFilter={filters.store}
+          statusFilter={filters.status}
+          query={filters.q}
+          page={page}
+          onStoreFilter={(v) => setFilters({ store: v || null, page: "1" })}
+          onStatusFilter={(v) => setFilters({ status: v || null, page: "1" })}
+          onQuery={(v) => setFilters({ q: v || null })}
+          onPage={(p) => setFilters({ page: String(p) })}
+          onStart={startFresh}
+          onOpen={openDetail}
+          onEdit={canUpdate ? editEvaluation : openDetail}
+          onDelete={canDelete ? handleDelete : () => undefined}
+        />
+      )}
 
+      {effectiveView === "templates" && <TemplatesList onPreview={previewForm} />}
+
+      {effectiveView === "templatePreview" && previewTemplate && (
+        <TemplatePreview
+          config={previewTemplate.config}
+          onBack={() => setTab("templates")}
+        />
+      )}
+
+      {effectiveView === "editor" &&
+        (editingId && editingLoading ? (
+          <div className="py-16 flex justify-center">
+            <LoadingSpinner />
+          </div>
+        ) : (
+          <EvaluationEditor
+            key={editingId ?? "new"}
+            config={editorConfig}
+            initial={editorInitial}
+            editingStatus={editingEval?.status ?? null}
+            saving={saving}
+            onBack={() => (editingId ? openDetail(editingId) : goList())}
+            onSaveDraft={(d) => void persist(d, "draft")}
+            onSubmit={(d) => void persist(d, "submitted")}
+          />
+        ))}
+
+      {effectiveView === "detail" && selectedId && (
+        <EvaluationDetail
+          evaluationId={selectedId}
+          onBack={goList}
+          onEdit={canUpdate ? editEvaluation : () => undefined}
+          onDelete={canDelete ? handleDelete : () => undefined}
+        />
+      )}
     </div>
   );
 }
