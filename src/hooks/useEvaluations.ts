@@ -1,15 +1,25 @@
 /**
- * 평가 React Query 훅 모음.
+ * Evaluation React Query hooks (v1).
  *
- * 평가 템플릿(EvalTemplate)과 평가(Evaluation)의 CRUD를 제공합니다.
- * 템플릿: 평가 기준 항목을 정의하는 양식
- * 평가: 특정 직원에 대한 실제 평가 기록
+ * Backs the evaluations feature against `/api/v1/console/evaluations`:
+ *  - Templates (read-only): the single org-wide Basic Performance Evaluation.
+ *  - Evaluations: list / detail / create / update / delete (soft).
+ *  - Evaluatable users: direction-filtered employee picker (strictly-lower
+ *    authority), optionally scoped to a store.
+ *
+ * Submit is not a separate action — pass `status: "submitted"` on create/update
+ * (the submit-gate is enforced server-side). Mutation result modals fire from
+ * `useMutationResult`; callers must NOT re-show success/error.
  */
 import {
   useQuery,
+  useInfiniteQuery,
   useMutation,
   useQueryClient,
+  keepPreviousData,
   type UseQueryResult,
+  type UseInfiniteQueryResult,
+  type InfiniteData,
   type UseMutationResult,
 } from "@tanstack/react-query";
 import type { AxiosResponse } from "axios";
@@ -17,41 +27,62 @@ import api from "@/lib/api";
 import { useMutationResult } from "@/lib/mutationResult";
 import type {
   EvalTemplate,
-  EvalTemplateCreate,
   Evaluation,
   EvaluationCreate,
+  EvaluationUpdate,
   EvaluationFilters,
+  EvaluatableUser,
+  EvaluatableUsersPage,
   PaginatedResponse,
 } from "@/types";
 
-// === 평가 템플릿 훅 ===
+// ─── Query keys ─────────────────────────────────────────────────────────────
+const KEYS = {
+  templates: ["eval-templates"] as const,
+  template: (id: string) => ["eval-template", id] as const,
+  list: (filters: EvaluationFilters) => ["evaluations", filters] as const,
+  detail: (id: string) => ["evaluation", id] as const,
+  evaluatable: (storeId?: string) => ["evaluatable-users", storeId ?? null] as const,
+  evaluatableInfinite: (q: string, storeId?: string) =>
+    ["evaluatable-users", { q, storeId: storeId ?? null }] as const,
+};
 
-/** 평가 템플릿 목록 조회 (페이지네이션) */
-export const useEvalTemplates = (
-  page: number = 1,
-  perPage: number = 20
-): UseQueryResult<PaginatedResponse<EvalTemplate>, Error> => {
+const EVALUATABLE_PAGE_SIZE = 30;
+
+/** Invalidate every evaluation list + the dashboard summary after a mutation. */
+function invalidateEvaluations(
+  qc: ReturnType<typeof useQueryClient>,
+  evaluationId?: string,
+): void {
+  qc.invalidateQueries({ queryKey: ["evaluations"] });
+  qc.invalidateQueries({ queryKey: ["dashboard", "evaluation-summary"] });
+  if (evaluationId) qc.invalidateQueries({ queryKey: KEYS.detail(evaluationId) });
+}
+
+// === Templates (read-only) ===================================================
+
+/** The org's evaluation templates — v1 returns exactly the one Basic. */
+export const useEvalTemplates = (): UseQueryResult<EvalTemplate[], Error> => {
   return useQuery({
-    queryKey: ["eval-templates", page, perPage],
+    queryKey: KEYS.templates,
     queryFn: async () => {
-      const res: AxiosResponse<PaginatedResponse<EvalTemplate>> = await api.get(
+      const res: AxiosResponse<EvalTemplate[]> = await api.get(
         "/console/evaluations/templates",
-        { params: { page, per_page: perPage } }
       );
       return res.data;
     },
   });
 };
 
-/** 평가 템플릿 단건 조회 */
+/** Single evaluation template by id. */
 export const useEvalTemplate = (
-  templateId: string
+  templateId: string | undefined,
 ): UseQueryResult<EvalTemplate, Error> => {
   return useQuery({
-    queryKey: ["eval-template", templateId],
+    queryKey: KEYS.template(templateId ?? ""),
     queryFn: async () => {
       const res: AxiosResponse<EvalTemplate> = await api.get(
-        `/console/evaluations/templates/${templateId}`
+        `/console/evaluations/templates/${templateId}`,
       );
       return res.data;
     },
@@ -59,77 +90,94 @@ export const useEvalTemplate = (
   });
 };
 
-/** 평가 템플릿 생성 */
-export const useCreateEvalTemplate = (): UseMutationResult<
-  EvalTemplate,
-  Error,
-  EvalTemplateCreate
-> => {
-  const qc = useQueryClient();
-  const { success, error } = useMutationResult();
-  return useMutation<EvalTemplate, Error, EvalTemplateCreate>({
-    mutationFn: async (data: EvalTemplateCreate) => {
-      const res: AxiosResponse<EvalTemplate> = await api.post(
-        "/console/evaluations/templates",
-        data
+// === Evaluatable users (picker) ==============================================
+
+/**
+ * Users the current user may evaluate (strictly-lower authority, active).
+ * Pass a `storeId` to restrict to that store's assignees (and prefill).
+ *
+ * Flat variant — fetches the first page only (legacy callers that need a small
+ * list without paging). The employee picker uses the infinite variant below.
+ */
+export const useEvaluatableUsers = (
+  storeId?: string,
+): UseQueryResult<EvaluatableUser[], Error> => {
+  return useQuery({
+    queryKey: KEYS.evaluatable(storeId),
+    queryFn: async () => {
+      const res: AxiosResponse<EvaluatableUsersPage> = await api.get(
+        "/console/evaluations/evaluatable-users",
+        { params: storeId ? { store_id: storeId } : undefined },
+      );
+      return res.data.items;
+    },
+  });
+};
+
+/**
+ * Paginated + server-searched evaluatable users for the employee picker.
+ * First page loads fast; the modal fetches more on scroll and re-queries on a
+ * debounced search term. Direction filtering + org scoping stay server-side.
+ */
+export const useInfiniteEvaluatableUsers = (
+  q: string,
+  storeId?: string,
+): UseInfiniteQueryResult<InfiniteData<EvaluatableUsersPage>, Error> => {
+  return useInfiniteQuery<EvaluatableUsersPage, Error>({
+    queryKey: KEYS.evaluatableInfinite(q, storeId),
+    queryFn: async ({ pageParam }): Promise<EvaluatableUsersPage> => {
+      const params: Record<string, string | number> = {
+        page: (pageParam as number) ?? 1,
+        limit: EVALUATABLE_PAGE_SIZE,
+      };
+      if (q) params.q = q;
+      if (storeId) params.store_id = storeId;
+      const res: AxiosResponse<EvaluatableUsersPage> = await api.get(
+        "/console/evaluations/evaluatable-users",
+        { params },
       );
       return res.data;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["eval-templates"] });
-      success("Evaluation template created.");
-    },
-    onError: error("Couldn't create evaluation template"),
+    initialPageParam: 1,
+    getNextPageParam: (last) => (last.has_more ? last.page + 1 : undefined),
+    placeholderData: keepPreviousData,
   });
 };
 
-/** 평가 템플릿 삭제 */
-export const useDeleteEvalTemplate = (): UseMutationResult<
-  void,
-  Error,
-  string
-> => {
-  const qc = useQueryClient();
-  const { success, error } = useMutationResult();
-  return useMutation<void, Error, string>({
-    mutationFn: async (templateId: string) => {
-      await api.delete(`/console/evaluations/templates/${templateId}`);
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["eval-templates"] });
-      success("Evaluation template deleted.");
-    },
-    onError: error("Couldn't delete evaluation template"),
-  });
-};
+// === Evaluations =============================================================
 
-// === 평가 기록 훅 ===
-
-/** 평가 목록 조회 (필터 + 페이지네이션) */
+/** Evaluation list (org-scoped, soft-deleted excluded, created_at DESC). */
 export const useEvaluations = (
-  filters: EvaluationFilters = {}
+  filters: EvaluationFilters = {},
 ): UseQueryResult<PaginatedResponse<Evaluation>, Error> => {
   return useQuery({
-    queryKey: ["evaluations", filters],
+    queryKey: KEYS.list(filters),
     queryFn: async () => {
+      const params: Record<string, string | number> = {};
+      if (filters.store_id) params.store_id = filters.store_id;
+      if (filters.status) params.status = filters.status;
+      if (filters.evaluatee_id) params.evaluatee_id = filters.evaluatee_id;
+      params.page = filters.page ?? 1;
+      params.per_page = filters.per_page ?? 20;
       const res: AxiosResponse<PaginatedResponse<Evaluation>> = await api.get(
         "/console/evaluations",
-        { params: filters }
+        { params },
       );
       return res.data;
     },
+    placeholderData: (prev) => prev,
   });
 };
 
-/** 평가 단건 조회 */
+/** Single evaluation by id. */
 export const useEvaluation = (
-  evaluationId: string
+  evaluationId: string | undefined,
 ): UseQueryResult<Evaluation, Error> => {
   return useQuery({
-    queryKey: ["evaluation", evaluationId],
+    queryKey: KEYS.detail(evaluationId ?? ""),
     queryFn: async () => {
       const res: AxiosResponse<Evaluation> = await api.get(
-        `/console/evaluations/${evaluationId}`
+        `/console/evaluations/${evaluationId}`,
       );
       return res.data;
     },
@@ -137,7 +185,7 @@ export const useEvaluation = (
   });
 };
 
-/** 평가 생성 — 평가자가 피평가자에 대한 평가를 시작 */
+/** Create an evaluation (status "draft" or "submitted"). */
 export const useCreateEvaluation = (): UseMutationResult<
   Evaluation,
   Error,
@@ -146,40 +194,69 @@ export const useCreateEvaluation = (): UseMutationResult<
   const qc = useQueryClient();
   const { success, error } = useMutationResult();
   return useMutation<Evaluation, Error, EvaluationCreate>({
-    mutationFn: async (data: EvaluationCreate) => {
+    mutationFn: async (data) => {
       const res: AxiosResponse<Evaluation> = await api.post(
         "/console/evaluations",
-        data
+        data,
       );
       return res.data;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["evaluations"] });
-      success("Evaluation created.");
+    onSuccess: (evaluation) => {
+      invalidateEvaluations(qc, evaluation.id);
+      success(
+        evaluation.status === "submitted"
+          ? "Evaluation submitted."
+          : "Draft saved.",
+      );
     },
-    onError: error("Couldn't create evaluation"),
+    onError: error("Couldn't save evaluation"),
   });
 };
 
-/** 평가 제출 — draft 상태의 평가를 submitted로 변경 */
-export const useSubmitEvaluation = (): UseMutationResult<
+/** Update an evaluation (draft → submitted transition via `status`). */
+export const useUpdateEvaluation = (): UseMutationResult<
   Evaluation,
   Error,
-  string
+  { evaluationId: string; data: EvaluationUpdate }
 > => {
   const qc = useQueryClient();
   const { success, error } = useMutationResult();
-  return useMutation<Evaluation, Error, string>({
-    mutationFn: async (evaluationId: string) => {
-      const res: AxiosResponse<Evaluation> = await api.post(
-        `/console/evaluations/${evaluationId}/submit`
+  return useMutation<
+    Evaluation,
+    Error,
+    { evaluationId: string; data: EvaluationUpdate }
+  >({
+    mutationFn: async ({ evaluationId, data }) => {
+      const res: AxiosResponse<Evaluation> = await api.put(
+        `/console/evaluations/${evaluationId}`,
+        data,
       );
       return res.data;
     },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["evaluations"] });
-      success("Submitted.");
+    onSuccess: (evaluation) => {
+      invalidateEvaluations(qc, evaluation.id);
+      success(
+        evaluation.status === "submitted"
+          ? "Evaluation submitted."
+          : "Draft saved.",
+      );
     },
-    onError: error("Couldn't submit evaluation"),
+    onError: error("Couldn't update evaluation"),
+  });
+};
+
+/** Soft-delete an evaluation. */
+export const useDeleteEvaluation = (): UseMutationResult<void, Error, string> => {
+  const qc = useQueryClient();
+  const { success, error } = useMutationResult();
+  return useMutation<void, Error, string>({
+    mutationFn: async (evaluationId) => {
+      await api.delete(`/console/evaluations/${evaluationId}`);
+    },
+    onSuccess: (_data, evaluationId) => {
+      invalidateEvaluations(qc, evaluationId);
+      success("Evaluation deleted.");
+    },
+    onError: error("Couldn't delete evaluation"),
   });
 };

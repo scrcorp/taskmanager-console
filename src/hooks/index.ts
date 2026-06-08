@@ -142,12 +142,13 @@ export {
 export {
   useEvalTemplates,
   useEvalTemplate,
-  useCreateEvalTemplate,
-  useDeleteEvalTemplate,
+  useEvaluatableUsers,
+  useInfiniteEvaluatableUsers,
   useEvaluations,
   useEvaluation,
   useCreateEvaluation,
-  useSubmitEvaluation,
+  useUpdateEvaluation,
+  useDeleteEvaluation,
 } from "./useEvaluations";
 
 export { useCompletionLog } from "./useCompletionLog";
