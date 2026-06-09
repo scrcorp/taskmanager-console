@@ -76,6 +76,12 @@ export const PERMISSIONS = {
   EVALUATIONS_UPDATE: "evaluations:update",
   EVALUATIONS_DELETE: "evaluations:delete",
 
+  // ── Warnings (직원 경고 — GM 이상) ──
+  WARNINGS_READ: "warnings:read",
+  WARNINGS_CREATE: "warnings:create",
+  WARNINGS_UPDATE: "warnings:update",
+  WARNINGS_DELETE: "warnings:delete",
+
   // ── Daily Reports (legacy) ──
   DAILY_REPORTS_READ: "daily_reports:read",
   DAILY_REPORTS_CREATE: "daily_reports:create",
@@ -157,6 +163,8 @@ export const PAGE_PERMISSIONS: Record<string, string> = {
   "/tasks/new": PERMISSIONS.TASKS_CREATE,
   "/notices": PERMISSIONS.ANNOUNCEMENTS_READ,
   "/evaluations": PERMISSIONS.EVALUATIONS_READ,
+  "/warnings": PERMISSIONS.WARNINGS_READ,
+  "/warnings/new": PERMISSIONS.WARNINGS_CREATE,
   "/daily-reports": PERMISSIONS.DAILY_REPORTS_READ,
   "/reports": PERMISSIONS.REPORTS_READ,
   "/reports/issues": PERMISSIONS.REPORTS_READ,
@@ -186,6 +194,7 @@ export const MENU_PERMISSIONS: Record<string, string> = {
   "/tasks": PERMISSIONS.TASKS_READ,
   "/notices": PERMISSIONS.ANNOUNCEMENTS_READ,
   "/evaluations": PERMISSIONS.EVALUATIONS_READ,
+  "/warnings": PERMISSIONS.WARNINGS_READ,
   "/daily-reports": PERMISSIONS.DAILY_REPORTS_READ,
   "/reports/issues": PERMISSIONS.REPORTS_READ,
   "/inventory": PERMISSIONS.INVENTORY_READ,
