@@ -160,7 +160,7 @@ export const useEvaluations = (
       params.page = filters.page ?? 1;
       params.per_page = filters.per_page ?? 20;
       const res: AxiosResponse<PaginatedResponse<Evaluation>> = await api.get(
-        "/console/evaluations",
+        "/console/evaluations/",
         { params },
       );
       return res.data;
@@ -196,7 +196,7 @@ export const useCreateEvaluation = (): UseMutationResult<
   return useMutation<Evaluation, Error, EvaluationCreate>({
     mutationFn: async (data) => {
       const res: AxiosResponse<Evaluation> = await api.post(
-        "/console/evaluations",
+        "/console/evaluations/",
         data,
       );
       return res.data;
