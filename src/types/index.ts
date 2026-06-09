@@ -699,6 +699,20 @@ export type {
   EvaluatableUsersPage,
 } from "./evaluation";
 
+// Warning (v1) — canonical types live in ./warning, re-exported below.
+export type {
+  WarningStatus,
+  WarningCategory,
+  Warning,
+  WarningCreate,
+  WarningUpdate,
+  WarningFilters,
+  WarnableUser,
+  WarnableUserStore,
+  WarnableUsersPage,
+  WarningCount,
+} from "./warning";
+
 // Daily Report
 export interface DailyReport {
   id: string;

@@ -43,6 +43,7 @@ import { PERMISSIONS, ROLE_PRIORITY } from "@/lib/permissions";
 import { useAdminResetPassword } from "@/hooks/usePassword";
 import { useClockinPin, useUpdateClockinPin } from "@/hooks/useClockinPin";
 import { ResetPasswordResultModal } from "@/components/auth/ResetPasswordResultModal";
+import { StaffWarningsSection } from "@/components/warnings/StaffWarningsSection";
 import type { User, Store, Role, UserStoreAssignment } from "@/types";
 
 /* -------------------------------------------------------------------------- */
@@ -845,6 +846,11 @@ export default function UserDetailPage(): React.ReactElement {
           </p>
         </div>
       </div>
+
+      {/* Warnings Section — staff disciplinary record (GM+ only) */}
+      {hasPermission(PERMISSIONS.WARNINGS_READ) && user && (
+        <StaffWarningsSection userId={userId} userName={user.full_name} />
+      )}
 
       {/* ================================================================== */}
       {/*  Modals & Dialogs                                                  */}
