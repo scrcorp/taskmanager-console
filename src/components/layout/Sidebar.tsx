@@ -87,6 +87,7 @@ const navItems: NavItem[] = [
   { href: "/tasks", label: "Tasks", icon: Zap },
   { href: "/notices", label: "Notices", icon: Megaphone },
   { href: "/evaluations", label: "Evaluations", icon: Star },
+  { href: "/warnings", label: "Warnings", icon: AlertTriangle },
   {
     href: "/reports",
     label: "Reports",

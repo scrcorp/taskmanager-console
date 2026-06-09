@@ -12,6 +12,8 @@ import React, { useState, useMemo, useCallback, useEffect, useRef } from "react"
 import { useRouter } from "next/navigation";
 import { Plus, Search, Layers } from "lucide-react";
 import { useUsers, useCreateUser } from "@/hooks/useUsers";
+import { useWarningCounts } from "@/hooks/useWarnings";
+import { WarnRangeFilter, WARN_MAX } from "@/components/warnings/WarnRangeFilter";
 import { useRoles } from "@/hooks/useRoles";
 import { useStores } from "@/hooks/useStores";
 import { usePersistedFilters } from "@/hooks/usePersistedFilters";
@@ -33,6 +35,7 @@ function csvToArr(v: string): string[] {
 function arrToCsv(v: string[]): string | null {
   return v.length === 0 ? null : v.join(",");
 }
+
 
 /** 매장 배정 체크 상태 / Store assignment check state */
 interface StoreCheck {
@@ -88,6 +91,8 @@ export default function UsersPage(): React.ReactElement {
     store: "",
     dept: "",
     email: "all",
+    wlo: "0",
+    whi: "5",
     sort: "",
     dir: "asc",
     inactive: "",
@@ -97,6 +102,10 @@ export default function UsersPage(): React.ReactElement {
   const selectedRoles = useMemo(() => csvToArr(params.role), [params.role]);
   const selectedDepartments = useMemo(() => csvToArr(params.dept), [params.dept]);
   const selectedStoreIds = useMemo(() => csvToArr(params.store), [params.store]);
+  // Warnings 개수 범위 필터 [warnLo, warnHi] (0..5, 5 = "5+"). [0,5] = 필터 없음.
+  const warnLo = Math.min(WARN_MAX, Math.max(0, Number(params.wlo) || 0));
+  const warnHi = Math.min(WARN_MAX, Math.max(0, params.whi === "" ? WARN_MAX : Number(params.whi)));
+  const warnFilterActive = !(warnLo === 0 && warnHi === WARN_MAX);
   const emailFilter = (params.email || "all") as "all" | "verified" | "unverified";
   const sortKey: string | null = params.sort || null;
   const sortDirection = (params.dir || "asc") as "asc" | "desc";
@@ -118,6 +127,10 @@ export default function UsersPage(): React.ReactElement {
   const setEmailFilter = useCallback((v: "all" | "verified" | "unverified") => {
     setParams({ email: v === "all" ? null : v });
   }, [setParams]);
+  const setWarnRange = useCallback((lo: number, hi: number) => {
+    setParams({ wlo: String(lo), whi: String(hi) });
+  }, [setParams]);
+  const clearWarnRange = useCallback(() => setParams({ wlo: null, whi: null }), [setParams]);
 
   /** ephemeral UI state — 모달, 드롭다운 열림 */
   const [openFilter, setOpenFilter] = useState<string | null>(null);
@@ -158,6 +171,14 @@ export default function UsersPage(): React.ReactElement {
   const { data: roles } = useRoles();
   const { data: storesData } = useStores();
   const stores: Store[] = useMemo(() => storesData ?? [], [storesData]);
+
+  // 직원별 경고 갯수 (Warnings 칼럼) — warnings:read 있을 때만 조회.
+  const canSeeWarnings = hasPermission(PERMISSIONS.WARNINGS_READ);
+  const { data: warnCounts } = useWarningCounts(canSeeWarnings);
+  const warnMap = useMemo(
+    () => new Map((warnCounts ?? []).map((c) => [c.user_id, c])),
+    [warnCounts],
+  );
   const createUser = useCreateUser();
 
   const handleToggleInactive = useCallback((checked: boolean) => {
@@ -240,8 +261,23 @@ export default function UsersPage(): React.ReactElement {
       result = result.filter((user: User) => user.is_active);
     }
 
+    // Warnings 개수 범위 필터 — 유효(active, 미철회) 경고 수가 [warnLo, warnHi] 안.
+    // warnHi === WARN_MAX 면 상한 없음("5+"). [0,5] 이면 위에서 warnFilterActive=false 라 스킵.
+    if (warnFilterActive) {
+      result = result.filter((user: User) => {
+        const n = warnMap.get(user.id)?.active ?? 0;
+        return n >= warnLo && (warnHi >= WARN_MAX ? true : n <= warnHi);
+      });
+    }
+
     // 정렬
-    if (sortKey) {
+    if (sortKey === "warnings") {
+      result = [...result].sort((a: User, b: User) => {
+        const av = warnMap.get(a.id)?.active ?? 0;
+        const bv = warnMap.get(b.id)?.active ?? 0;
+        return sortDirection === "asc" ? av - bv : bv - av;
+      });
+    } else if (sortKey) {
       result = [...result].sort((a: User, b: User) => {
         const aVal = (a as unknown as Record<string, unknown>)[sortKey];
         const bVal = (b as unknown as Record<string, unknown>)[sortKey];
@@ -267,9 +303,9 @@ export default function UsersPage(): React.ReactElement {
     }
 
     return result;
-  }, [userList, searchQuery, selectedStaffIds, selectedRoles, selectedDepartments, emailFilter, showInactive, sortKey, sortDirection]);
+  }, [userList, searchQuery, selectedStaffIds, selectedRoles, selectedDepartments, emailFilter, showInactive, sortKey, sortDirection, warnFilterActive, warnLo, warnHi, warnMap]);
 
-  const totalFilterCount = selectedStaffIds.length + selectedRoles.length + selectedDepartments.length + selectedStoreIds.length + (emailFilter !== "all" ? 1 : 0);
+  const totalFilterCount = selectedStaffIds.length + selectedRoles.length + selectedDepartments.length + selectedStoreIds.length + (warnFilterActive ? 1 : 0) + (emailFilter !== "all" ? 1 : 0);
 
   /** 사용자 생성 핸들러 / Handle user creation */
   const handleCreate = useCallback(async (): Promise<void> => {
@@ -403,6 +439,34 @@ export default function UsersPage(): React.ReactElement {
       });
     }
 
+    // Warnings 갯수 칼럼 — warnings:read 있을 때만. active 수 기준 색.
+    if (canSeeWarnings) {
+      cols.push({
+        key: "warnings",
+        header: "Warnings",
+        sortable: true,
+        render: (user: User) => {
+          const c = warnMap.get(user.id);
+          const valid = c?.active ?? 0; // 유효(미철회) 경고 수
+          if (valid === 0) {
+            return <span className="text-text-muted text-xs tabular-nums">0</span>;
+          }
+          const cls =
+            valid >= 3
+              ? "bg-danger-muted text-danger"
+              : "bg-warning-muted text-warning";
+          return (
+            <span
+              title={`${valid} active · ${c?.total ?? valid} total (incl. retracted)`}
+              className={`inline-flex h-6 min-w-[26px] items-center justify-center rounded-full px-2 text-xs font-bold tabular-nums ${cls}`}
+            >
+              {valid}
+            </span>
+          );
+        },
+      });
+    }
+
     cols.push({
       key: "created_at",
       header: "Created",
@@ -416,7 +480,7 @@ export default function UsersPage(): React.ReactElement {
     });
 
     return cols;
-  }, [getRoleBadgeVariant, tz, showInactive]);
+  }, [getRoleBadgeVariant, tz, showInactive, canSeeWarnings, warnMap]);
 
   /** 고유 역할 이름 목록 / Unique role names from users */
   const uniqueRoleNames: string[] = useMemo(() => {
@@ -566,6 +630,18 @@ export default function UsersPage(): React.ReactElement {
             open={openFilter === "store"}
             onOpenChange={(o) => setOpenFilter(o ? "store" : null)}
           />
+
+          {/* Warnings count range filter (dual-handle 0..5+) — only for warnings:read */}
+          {canSeeWarnings && (
+            <WarnRangeFilter
+              lo={warnLo}
+              hi={warnHi}
+              open={openFilter === "warns"}
+              onOpenChange={(o) => setOpenFilter(o ? "warns" : null)}
+              onChange={setWarnRange}
+              onClear={clearWarnRange}
+            />
+          )}
 
           {/* Email Verified filter */}
           <div className="relative">
