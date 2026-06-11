@@ -10,7 +10,7 @@
  *
  * Counts are by ACTIVE (valid, non-retracted) warnings.
  */
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 export const WARN_MAX = 5; // 5 represents "5+"
 const LABELS = ["0", "1", "2", "3", "4", "5+"];
@@ -28,16 +28,51 @@ interface Props {
   onClear: () => void;
 }
 
-const THUMB =
-  "pointer-events-none absolute inset-x-0 top-0 h-5 w-full cursor-pointer appearance-none bg-transparent " +
-  "[&::-webkit-slider-thumb]:pointer-events-auto [&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:border-2 [&::-webkit-slider-thumb]:border-white [&::-webkit-slider-thumb]:bg-accent [&::-webkit-slider-thumb]:shadow " +
-  "[&::-moz-range-thumb]:pointer-events-auto [&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-2 [&::-moz-range-thumb]:border-white [&::-moz-range-thumb]:bg-accent " +
-  "[&::-webkit-slider-runnable-track]:bg-transparent [&::-moz-range-track]:bg-transparent";
-
 export function WarnRangeFilter({ lo, hi, open, onOpenChange, onChange, onClear }: Props): React.ReactElement {
   const ref = useRef<HTMLDivElement>(null);
   const active = !(lo === 0 && hi === WARN_MAX);
   const chip = active ? (lo === hi ? labelOf(lo) : `${labelOf(lo)}–${labelOf(hi)}`) : null;
+
+  // Custom drag: a translucent ghost follows the cursor; the actual value
+  // (and the filter) commit only on RELEASE — no live re-filtering while dragging.
+  const [dragging, setDragging] = useState<null | "lo" | "hi">(null);
+  const [ghost, setGhost] = useState(0);
+  const trackRef = useRef<HTMLDivElement>(null);
+  const loRef = useRef(lo);
+  loRef.current = lo;
+  const hiRef = useRef(hi);
+  hiRef.current = hi;
+  const ghostRef = useRef(ghost);
+  ghostRef.current = ghost;
+  const onChangeRef = useRef(onChange);
+  onChangeRef.current = onChange;
+  const justDraggedRef = useRef(false);
+
+  useEffect(() => {
+    if (!dragging) return;
+    const move = (e: PointerEvent): void => {
+      const rect = trackRef.current?.getBoundingClientRect();
+      if (!rect || rect.width === 0) return;
+      const ratio = (e.clientX - rect.left) / rect.width;
+      setGhost(Math.max(0, Math.min(WARN_MAX, Math.round(ratio * WARN_MAX))));
+    };
+    const up = (): void => {
+      const v = ghostRef.current;
+      if (dragging === "lo") onChangeRef.current(Math.min(v, hiRef.current), hiRef.current);
+      else onChangeRef.current(loRef.current, Math.max(v, loRef.current));
+      justDraggedRef.current = true;
+      setTimeout(() => {
+        justDraggedRef.current = false;
+      }, 0);
+      setDragging(null);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+  }, [dragging]);
 
   useEffect(() => {
     if (!open) return;
@@ -58,6 +93,24 @@ export function WarnRangeFilter({ lo, hi, open, onOpenChange, onChange, onClear 
   }
   function setHi(v: number): void {
     onChange(lo, Math.max(v, lo));
+  }
+  /** Click-to-move: move whichever handle is nearer to the clicked value. */
+  function moveNearest(v: number): void {
+    const cv = Math.max(0, Math.min(WARN_MAX, v));
+    if (Math.abs(cv - lo) <= Math.abs(cv - hi)) setLo(cv);
+    else setHi(cv);
+  }
+  function onTrackClick(e: React.MouseEvent<HTMLDivElement>): void {
+    if (justDraggedRef.current) return; // ignore the click that fires right after a drag
+    const rect = e.currentTarget.getBoundingClientRect();
+    const ratio = rect.width > 0 ? (e.clientX - rect.left) / rect.width : 0;
+    moveNearest(Math.round(ratio * WARN_MAX));
+  }
+  function startDrag(handle: "lo" | "hi", e: React.PointerEvent): void {
+    e.stopPropagation();
+    e.preventDefault();
+    setGhost(handle === "lo" ? lo : hi);
+    setDragging(handle);
   }
 
   return (
@@ -84,41 +137,61 @@ export function WarnRangeFilter({ lo, hi, open, onOpenChange, onChange, onClear 
         <div className="absolute left-0 top-full z-30 mt-1 w-64 rounded-lg border border-border bg-card p-4 shadow-lg">
           <div className="mb-3 text-xs font-semibold text-text-secondary">Filter by warning count</div>
 
-          {/* dual-handle slider */}
-          <div className="relative h-5">
+          {/* dual-handle slider — drag a thumb, or click the track / a number below */}
+          <div ref={trackRef} className="relative mt-7 h-5 cursor-pointer" onClick={onTrackClick}>
             <div className="absolute inset-x-0 top-1/2 h-1 -translate-y-1/2 rounded-full bg-border" />
             <div
               className="absolute top-1/2 h-1 -translate-y-1/2 rounded-full bg-accent"
               style={{ left: `${pct(lo)}%`, width: `${pct(hi) - pct(lo)}%` }}
             />
-            <input
-              type="range"
-              min={0}
-              max={WARN_MAX}
-              step={1}
-              value={lo}
-              onChange={(e) => setLo(Number(e.target.value))}
+            {/* real handles — stay put while dragging; commit on release */}
+            <button
+              type="button"
               aria-label="Minimum warnings"
-              className={THUMB}
-              style={{ zIndex: lo >= hi ? 4 : 3 }}
+              onPointerDown={(e) => startDrag("lo", e)}
+              className="absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-accent shadow cursor-grab active:cursor-grabbing"
+              style={{ left: `${pct(lo)}%`, zIndex: 3 }}
             />
-            <input
-              type="range"
-              min={0}
-              max={WARN_MAX}
-              step={1}
-              value={hi}
-              onChange={(e) => setHi(Number(e.target.value))}
+            <button
+              type="button"
               aria-label="Maximum warnings"
-              className={THUMB}
-              style={{ zIndex: 3 }}
+              onPointerDown={(e) => startDrag("hi", e)}
+              className="absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-accent shadow cursor-grab active:cursor-grabbing"
+              style={{ left: `${pct(hi)}%`, zIndex: 3 }}
             />
+            {/* translucent ghost that follows the cursor while dragging */}
+            {dragging && (
+              <>
+                <div
+                  className="pointer-events-none absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white bg-accent/40 shadow"
+                  style={{ left: `${pct(ghost)}%`, zIndex: 4 }}
+                />
+                <div
+                  className="pointer-events-none absolute -top-7 z-10 -translate-x-1/2 rounded-md bg-accent/70 px-1.5 py-0.5 text-[11px] font-bold text-white tabular-nums shadow-md"
+                  style={{ left: `${pct(ghost)}%` }}
+                >
+                  {labelOf(ghost)}
+                </div>
+              </>
+            )}
           </div>
 
-          <div className="mt-2 flex justify-between text-[10px] text-text-muted tabular-nums">
-            {LABELS.map((l) => (
-              <span key={l}>{l}</span>
-            ))}
+          <div className="mt-1 flex justify-between">
+            {LABELS.map((l, i) => {
+              const inRange = i >= lo && i <= hi;
+              return (
+                <button
+                  key={l}
+                  type="button"
+                  onClick={() => moveNearest(i)}
+                  className={`w-6 rounded text-[11px] font-semibold tabular-nums py-0.5 transition-colors ${
+                    inRange ? "text-accent" : "text-text-muted hover:text-text"
+                  }`}
+                >
+                  {l}
+                </button>
+              );
+            })}
           </div>
 
           <div className="mt-3 text-[11px] text-text-muted">
@@ -126,7 +199,7 @@ export function WarnRangeFilter({ lo, hi, open, onOpenChange, onChange, onClear 
               ? lo === hi
                 ? `Showing staff with ${labelOf(lo)} warning${lo === 1 ? "" : "s"}.`
                 : `Showing staff with ${labelOf(lo)}–${labelOf(hi)} warnings.`
-              : "All staff (drag the left handle to 1+ to show only those with warnings)."}
+              : "All staff (click or drag to 1+ to show only those with warnings)."}
           </div>
 
           {active && (

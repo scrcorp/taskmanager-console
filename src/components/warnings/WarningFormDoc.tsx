@@ -1,33 +1,27 @@
 "use client";
 
-import React from "react";
-import { Check } from "lucide-react";
-import type { WarningCategory } from "@/types";
-import { Textarea } from "@/components/ui";
-import { cn } from "@/lib/utils";
-import { CATEGORY_META } from "./categories";
+import React, { useState } from "react";
+import { Check, Search, X } from "lucide-react";
+import type { WarningCategory, WarningCategoryItem } from "@/types";
+import { DateField } from "@/components/ui/DateField";
+import { DateTimeField, fmt12 } from "@/components/ui/DateTimeField";
 
 /**
- * The unified warning document — a printable, paper-style sheet (the real
- * "EMPLOYEE WARNING NOTICE FORM") rendered in two modes:
- *   - "edit": authoring (employee/store are pick buttons, date/subject inputs,
- *              the 12 reasons are toggle checkboxes, details/action are textareas)
+ * The warning document — a tight "official document (공문)" sheet matching the
+ * approved mockup: a single gapless 12-column grid with hairline-shared cell
+ * borders + a thick outer frame (paper-white, fixed ink colors regardless of
+ * the console theme). Two modes:
+ *   - "edit": authoring (pick cells open modals; inputs/textareas fill cells;
+ *              reasons are toggle checkboxes from the org's categories + search;
+ *              dates use the shared calendar pickers)
  *   - "view": read-only detail
  *
- * Mirrors the evaluation feature's EvaluationFormDoc: fixed light "ink" colors so
- * it reads like printed paper regardless of the console dark theme, and matches
- * the server PDF (warning_pdf.py). Boxes we don't capture (deadline / follow-up /
- * signatures) render as blank lines, exactly like the paper form.
+ * v1.1: Subject(top, web-only) · EMP ID · Name+Manager adjacent (Manager owner-only)
+ * · dynamic reasons · Other free-text · Deadline / Follow-up(date+time, TBD) ·
+ * removed-category legacy lock · signatures/cc are print-PDF only.
  */
 
 type Mode = "edit" | "view";
-
-/** The 12 reasons in the paper form's 3-column layout. */
-const REASON_COLUMNS: WarningCategory[][] = [
-  ["tardiness", "damaged_equipment", "refusal_overtime", "absenteeism", "policy_violation"],
-  ["insubordination", "rudeness", "fighting", "language"],
-  ["failure_procedure", "failure_performance", "other"],
-];
 
 interface WarningFormDocProps {
   mode: Mode;
@@ -37,266 +31,346 @@ interface WarningFormDocProps {
   employeeNo?: string | null;
   managerName?: string | null;
   storeName?: string | null;
-  /** YYYY-MM-DD for the edit input. */
-  dateValue?: string;
-  /** Pretty date string for the view. */
-  dateLabel?: string;
+  dateValue?: string; // YYYY-MM-DD (edit)
+  dateLabel?: string; // pretty (view)
   maxDate?: string;
-  /** 1=First, 2=Second, ≥3=Other (view only). */
   ordinal?: number | null;
   title?: string;
+  categoryOptions: WarningCategoryItem[];
   categories: WarningCategory[];
+  categoryLabels?: Record<string, string>;
   details: string;
   correctiveAction: string;
-  /** In edit mode, render the employee as a fixed cell (subject can't change). */
+  otherText: string;
+  deadline: string;
+  followUpDate: string;
+  followUpTime: string;
   lockEmployee?: boolean;
+  /** Owner(+super-owner) only — lets the Manager (issuer) be changed via a picker. */
+  canEditManager?: boolean;
   onPickEmployee?: () => void;
   onPickStore?: () => void;
+  onPickManager?: () => void;
   onTitle?: (s: string) => void;
   onDate?: (s: string) => void;
   onToggleCategory?: (c: WarningCategory) => void;
   onDetails?: (s: string) => void;
   onCorrectiveAction?: (s: string) => void;
+  onOtherText?: (s: string) => void;
+  onDeadline?: (s: string) => void;
+  onFollowUp?: (date: string, time: string) => void;
 }
 
-const chevron = (
-  <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="3 5.5 7 9.5 11 5.5" />
-  </svg>
+const CSS = `
+.wfd { --ink:#1A1C22; --ink-soft:#3C4049; --label:#7A8090; --muted:#9AA0AD; --rule:#C7CBD4; --rule-thick:#1A1C22; --fill:#F6F7F9; --accent:#6C5CE7; }
+.wfd * { box-sizing:border-box; }
+.wfd .sheet { background:#fff; color:var(--ink); font-family:"Helvetica Neue",Helvetica,"Segoe UI",Arial,sans-serif; }
+.wfd .banner { border:2.5px solid var(--rule-thick); border-bottom:none; display:flex; align-items:flex-end; justify-content:space-between; gap:16px; padding:16px 20px 13px; }
+.wfd .banner h1 { font-size:21px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; margin:0; line-height:1.12; }
+.wfd .banner h1 .ref { font-weight:600; color:var(--ink-soft); letter-spacing:.02em; text-transform:none; }
+.wfd .subtitle { margin-top:5px; font-size:10px; letter-spacing:.2em; text-transform:uppercase; color:var(--label); font-weight:600; }
+.wfd .company { text-align:right; line-height:1.15; flex:none; }
+.wfd .company .mark { font-size:14px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; }
+.wfd .company .mark-sub { font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:var(--muted); margin-top:2px; }
+.wfd .grid { border:2.5px solid var(--rule-thick); display:grid; grid-template-columns:repeat(12,1fr); }
+.wfd .cell { border-right:1px solid var(--rule); border-bottom:1px solid var(--rule); padding:9px 13px 10px; min-height:58px; display:flex; flex-direction:column; justify-content:center; position:relative; background:#fff; min-width:0; }
+.wfd .cell.edge-r { border-right:none; } .wfd .cell.edge-b { border-bottom:none; }
+.wfd .lbl { font-size:10px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--label); margin-bottom:5px; display:flex; align-items:center; gap:5px; }
+.wfd .req { color:var(--accent); font-weight:800; font-size:12px; }
+.wfd .hint { font-size:9px; letter-spacing:.04em; text-transform:none; color:var(--muted); font-weight:500; }
+.wfd .val { font-size:16px; font-weight:600; color:var(--ink-soft); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.wfd .val.static { color:var(--ink); font-weight:700; }
+.wfd .val.empty { color:var(--muted); }
+.wfd .subj { width:100%; border:none; outline:none; background:transparent; font-size:19px; font-weight:700; color:var(--ink); padding:0; }
+.wfd .subj::placeholder { color:var(--muted); font-weight:500; }
+.wfd .pick { width:100%; text-align:left; border:none; background:transparent; cursor:pointer; padding:0; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.wfd .pick .pv { font-size:16px; font-weight:700; color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.wfd .pick .pv.empty { color:var(--accent); }
+.wfd .pick .chev { color:var(--accent); font-size:11px; flex:none; }
+.wfd .edit-tag { position:absolute; top:8px; right:10px; font-size:9px; letter-spacing:.08em; text-transform:uppercase; color:var(--muted); font-weight:600; }
+.wfd .c-empid { grid-column:span 2; background:var(--fill); }
+.wfd .c-name { grid-column:span 5; } .wfd .c-mgr { grid-column:span 5; }
+.wfd .c-store { grid-column:span 8; } .wfd .c-date { grid-column:span 4; }
+.wfd .span12 { grid-column:span 12; } .wfd .span6 { grid-column:span 6; }
+.wfd .subject { grid-column:span 12; min-height:64px; }
+.wfd .wtype { grid-column:span 12; min-height:54px; }
+.wfd .wrow { display:flex; align-items:center; gap:26px; margin-top:4px; flex-wrap:wrap; }
+.wfd .opt { display:flex; align-items:center; gap:8px; }
+.wfd .box { width:16px; height:16px; border:1.6px solid var(--ink); display:inline-flex; align-items:center; justify-content:center; color:#fff; background:#fff; flex:none; }
+.wfd .box.on { background:var(--ink); }
+.wfd .otx { font-size:15px; font-weight:700; color:var(--ink); } .wfd .opt.off .otx { color:var(--muted); font-weight:600; }
+.wfd .band { grid-column:span 12; min-height:0; padding:8px 13px; background:var(--fill); display:flex; flex-direction:row; align-items:center; justify-content:space-between; gap:10px; text-align:left; }
+.wfd .band .bt { font-size:13.5px; font-weight:800; color:var(--ink); }
+.wfd .rsearch { display:flex; align-items:center; gap:5px; border:1px solid var(--rule); border-radius:6px; padding:3px 8px; background:#fff; flex:none; }
+.wfd .rsearch input { font-size:13px; border:none; outline:none; background:transparent; width:120px; color:var(--ink); }
+.wfd .rsearch input::placeholder { color:var(--muted); }
+.wfd .rgrid { display:grid; grid-template-columns:repeat(3,1fr); gap:6px 16px; align-items:start; }
+.wfd .ropt { display:flex; align-items:flex-start; gap:8px; padding:1px 0; }
+.wfd .ropt.click { cursor:pointer; } .wfd .ropt .box { margin-top:1px; }
+.wfd .ropt .rtx { font-size:14.5px; font-weight:600; color:var(--ink-soft); line-height:1.3; min-width:0; }
+.wfd .ropt.on .rtx { color:var(--ink); font-weight:700; }
+.wfd .ropt.removed .rtx { color:var(--muted); text-decoration:line-through; }
+.wfd .otherinp { flex:1 1 60px; min-width:60px; border:none; outline:none; background:transparent; border-bottom:1px solid var(--accent); font-size:13.5px; font-weight:600; color:var(--ink); padding-bottom:1px; }
+.wfd .otherinp::placeholder { color:var(--muted); font-weight:500; }
+.wfd .otherview { font-size:13.5px; font-weight:600; color:var(--ink); }
+.wfd .warea { width:100%; border:none; outline:none; background:transparent; resize:none; font-size:15px; line-height:1.5; color:var(--ink-soft); min-height:48px; font-family:inherit; }
+.wfd .warea::placeholder { color:var(--muted); }
+.wfd .rotext { font-size:15px; line-height:1.5; color:var(--ink); white-space:pre-wrap; min-height:24px; } .wfd .rotext.empty { color:var(--muted); font-style:italic; }
+.wfd .nomatch { font-size:13px; color:var(--muted); font-style:italic; padding:2px 0; }
+.wfd .dtrow { display:flex; align-items:center; gap:6px; margin-top:2px; }
+.wfd .clearx { color:var(--muted); padding:2px; cursor:pointer; display:inline-flex; }
+.wfd .clearx:hover { color:#ef4444; }
+.wfd .printmark { font-size:9px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); font-weight:700; margin-left:8px; }
+.wfd .sigline { height:26px; border-bottom:1px solid var(--ink); margin:10px 0 4px; }
+.wfd .sigmeta { display:flex; justify-content:space-between; font-size:11.5px; color:var(--label); font-weight:600; }
+.wfd .ccval { font-size:13px; font-weight:700; color:var(--ink); }
+
+/* ── Print (PDF) — only the sheet prints; Subject is web-only so it's dropped ── */
+@media print {
+  body { background:#fff !important; }
+  body * { visibility:hidden !important; }
+  .wfd, .wfd * { visibility:visible !important; }
+  .wfd { position:absolute; left:0; top:0; width:100%; padding:0 !important; margin:0 !important; }
+  .wfd .sheet { box-shadow:none !important; max-width:none !important; }
+  .wfd .subject { display:none !important; }
+  @page { margin:14mm; }
+}
+`;
+
+function fmtDate(iso: string): string {
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+}
+
+function addDays(iso: string, n: number): string {
+  const base = iso ? new Date(`${iso}T00:00:00`) : new Date();
+  base.setDate(base.getDate() + n);
+  const y = base.getFullYear();
+  const m = String(base.getMonth() + 1).padStart(2, "0");
+  const d = String(base.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+const chevDown = (
+  <svg width="11" height="11" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="2.5 4.5 6 8 9.5 4.5" /></svg>
 );
 
-function StaticCell({ label, value, muted }: { label: string; value?: string | null; muted?: boolean }): React.ReactElement {
-  return (
-    <div className={cn("border rounded-md px-3 py-2 min-h-[58px]", muted ? "border-[#dfe2e8] bg-[#f3f4f7]" : "border-[#cfd4dc]")}>
-      <div className={cn("text-[11px] font-bold uppercase tracking-wide", muted ? "text-[#9aa0ad]" : "text-[#6b7280]")}>{label}</div>
-      <div className={cn("text-[14.5px] font-semibold mt-1 truncate", muted ? "text-[#9aa0ad]" : "text-[#1A1D27]")}>{value || "—"}</div>
-    </div>
-  );
-}
-
-function PickCell({ label, value, placeholder, onClick }: { label: string; value?: string | null; placeholder: string; onClick?: () => void }): React.ReactElement {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="text-left w-full border border-[#cfd4dc] rounded-md px-3 py-2 min-h-[58px] hover:border-accent hover:bg-accent-muted transition-colors"
-    >
-      <div className="flex items-center justify-between text-[#6b7280]">
-        <span className="text-[11px] font-bold uppercase tracking-wide">{label}</span>
-        <span className="text-accent">{chevron}</span>
-      </div>
-      <div className={cn("text-[14.5px] font-semibold mt-1 truncate", value ? "text-[#1A1D27]" : "text-accent")}>
-        {value || placeholder}
-      </div>
-    </button>
-  );
-}
-
-function InputCell({ label, value, placeholder, maxLength, type = "text", max, onChange }: { label: string; value?: string; placeholder?: string; maxLength?: number; type?: string; max?: string; onChange?: (s: string) => void }): React.ReactElement {
-  return (
-    <div className="border border-[#cfd4dc] rounded-md px-3 py-2 min-h-[58px] focus-within:border-accent transition-colors">
-      <div className="text-[11px] font-bold uppercase tracking-wide text-[#6b7280]">{label}</div>
-      <input
-        type={type}
-        value={value ?? ""}
-        max={max}
-        maxLength={maxLength}
-        placeholder={placeholder}
-        onChange={(e) => onChange?.(e.target.value)}
-        className="mt-1 w-full bg-transparent text-[14.5px] font-semibold text-[#1A1D27] placeholder:text-[#9ca3af] placeholder:font-normal outline-none"
-      />
-    </div>
-  );
-}
-
-/** A never-captured field (blank on the form). Always muted so it's clearly not editable. */
-function BlankCell({ label, hint }: { label: string; hint?: string }): React.ReactElement {
-  return (
-    <div className="border border-[#dfe2e8] bg-[#f3f4f7] rounded-md px-3 py-2 min-h-[54px]">
-      <div className="flex items-center justify-between gap-2">
-        <div className="text-[11px] font-bold uppercase tracking-wide text-[#9aa0ad]">{label}</div>
-        {hint && <span className="text-[10px] italic text-[#b3b8c2] shrink-0">{hint}</span>}
-      </div>
-      <div className="h-5 mt-1.5 border-b border-dashed border-[#cfd4dc]" />
-    </div>
-  );
-}
-
-function CheckMark({ checked }: { checked: boolean }): React.ReactElement {
-  return (
-    <span className={cn("w-[15px] h-[15px] rounded-[3px] border flex items-center justify-center shrink-0", checked ? "bg-[#1A1D27] border-[#1A1D27]" : "bg-white border-[#9ca3af]")}>
-      {checked && <Check className="w-3 h-3 text-white" strokeWidth={3} />}
-    </span>
-  );
-}
-
-function ReasonCheck({ label, checked, onToggle }: { label: string; checked: boolean; onToggle?: () => void }): React.ReactElement {
-  const interactive = !!onToggle;
-  return (
-    <button
-      type="button"
-      disabled={!interactive}
-      onClick={onToggle}
-      className={cn("group flex items-center gap-2 text-left py-1 w-full", interactive ? "cursor-pointer" : "cursor-default")}
-    >
-      <CheckMark checked={checked} />
-      <span className={cn("text-[13.5px] leading-tight", checked ? "text-[#1A1D27] font-semibold" : "text-[#4b5563]", interactive && !checked && "group-hover:text-[#1A1D27]")}>
-        {label}
-      </span>
-    </button>
-  );
-}
-
-function CommentArea({ mode, value, placeholder, onChange }: { mode: Mode; value: string; placeholder: string; onChange?: (s: string) => void }): React.ReactElement {
-  if (mode === "edit") {
-    return (
-      <div className="mt-1.5">
-        <Textarea value={value} onChange={(e) => onChange?.(e.target.value)} rows={3} placeholder={placeholder} />
-      </div>
-    );
-  }
-  return (
-    <div className="mt-1.5 border border-[#cfd4dc] rounded-md px-3.5 py-3 min-h-[60px] text-[14.5px] leading-relaxed text-[#1A1D27] whitespace-pre-wrap">
-      {value || <span className="text-[#9ca3af] italic">—</span>}
-    </div>
-  );
+function Box({ on }: { on: boolean }): React.ReactElement {
+  return <span className={`box${on ? " on" : ""}`}>{on && <Check className="w-3 h-3" strokeWidth={3} />}</span>;
 }
 
 export function WarningFormDoc(props: WarningFormDocProps): React.ReactElement {
-  const { mode, companyName, refNo, employeeName, managerName, storeName, dateValue, dateLabel, maxDate, ordinal, title, categories, details, correctiveAction } = props;
+  const { mode, companyName, refNo, employeeName, employeeNo, managerName, storeName, dateValue, dateLabel, maxDate, ordinal, title, categoryOptions, categories, categoryLabels, details, correctiveAction, otherText, deadline, followUpDate, followUpTime } = props;
   const edit = mode === "edit";
   const chosen = new Set(categories);
+  const [reasonQuery, setReasonQuery] = useState("");
 
-  const TYPES: [string, number][] = [
-    ["First Warning", 1],
-    ["Second Warning", 2],
-    ["Other", 3],
-  ];
+  const activeCodes = new Set(categoryOptions.map((c) => c.code));
+  const legacy = categories.filter((c) => !activeCodes.has(c));
+  const rq = reasonQuery.trim().toLowerCase();
+  const filtered = edit && rq ? categoryOptions.filter((c) => c.label.toLowerCase().includes(rq)) : null;
+
+  const TYPES: [string, number][] = [["First Warning", 1], ["Second Warning", 2], ["Other", 3]];
+
+  const reasonItem = (c: WarningCategoryItem) => {
+    const on = chosen.has(c.code);
+    const isOther = c.code === "other";
+    return (
+      <div key={c.code} className={`ropt${on ? " on" : ""}${edit ? " click" : ""}`} onClick={edit ? () => props.onToggleCategory?.(c.code) : undefined}>
+        <Box on={on} />
+        <span className="rtx">{c.label}</span>
+        {isOther && on && edit && (
+          <input className="otherinp" value={otherText} onClick={(e) => e.stopPropagation()} onChange={(e) => props.onOtherText?.(e.target.value)} placeholder="specify…" />
+        )}
+        {isOther && on && !edit && otherText && <span className="otherview">— {otherText}</span>}
+      </div>
+    );
+  };
 
   return (
-    <div className="bg-white border border-border rounded-lg p-5 sm:p-9 shadow-sm">
-      {/* Title band: form name | company */}
-      <div className="flex items-end justify-between gap-4 border-b-2 border-[#1A1D27] pb-3">
-        <h1 className="text-[16px] sm:text-[20px] font-extrabold tracking-[0.03em] text-[#1A1D27] uppercase">
-          Employee Warning Notice Form
-        </h1>
-        <div className="text-[11px] sm:text-[12px] font-bold uppercase tracking-wide text-[#4b5563] text-right shrink-0">
-          {companyName || ""}
-        </div>
-      </div>
-
-      {/* Header field cells */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 mt-4">
-        {edit && !props.lockEmployee ? (
-          <PickCell label="Employee Name" value={employeeName} placeholder="Select employee" onClick={props.onPickEmployee} />
-        ) : (
-          <StaticCell label="Employee Name" value={employeeName} />
-        )}
-        {edit ? (
-          <InputCell label="Date" type="date" value={dateValue} max={maxDate} onChange={props.onDate} />
-        ) : (
-          <StaticCell label="Date" value={dateLabel} />
-        )}
-        <StaticCell label="Manager Name" value={managerName} muted={edit} />
-        {edit ? (
-          <PickCell label="Store" value={storeName} placeholder="Select store" onClick={props.onPickStore} />
-        ) : (
-          <StaticCell label="Store" value={storeName} />
-        )}
-        {edit ? (
-          <InputCell label="Subject" value={title} maxLength={80} placeholder="Short summary" onChange={props.onTitle} />
-        ) : (
-          <StaticCell label="Subject" value={title} />
-        )}
-        {!edit && refNo && <StaticCell label="Reference" value={refNo} />}
-      </div>
-
-      {/* Warning type — First / Second / Other (auto by ordinal; not editable) */}
-      <div className={cn("mt-4 border rounded-md px-3.5 py-2.5 flex flex-wrap items-center gap-x-7 gap-y-2", edit ? "border-[#dfe2e8] bg-[#f3f4f7]" : "border-[#cfd4dc]")}>
-        {TYPES.map(([lbl, n]) => {
-          const checked = !edit && (n === 3 ? (ordinal ?? 0) >= 3 : ordinal === n);
-          return (
-            <span key={lbl} className="flex items-center gap-2">
-              <CheckMark checked={checked} />
-              <span className={cn("text-[13.5px] font-semibold", edit ? "text-[#9aa0ad]" : "text-[#1A1D27]")}>{lbl}</span>
-            </span>
-          );
-        })}
-        {edit && (
-          <span className="text-[10.5px] text-[#b3b8c2] italic ml-auto">Auto-set by the employee&apos;s warning count</span>
-        )}
-      </div>
-
-      {/* Section 1 — reasons */}
-      <div className="mt-4 border border-[#cfd4dc] rounded-md">
-        <div className="px-3.5 py-2.5 bg-[#e7eaef] border-b border-[#cfd4dc]">
-          <span className="text-[13px] font-extrabold text-[#1A1D27]">
-            1. Your behavior/actions have been found unsatisfactory for the following reasons:
-          </span>
-        </div>
-        <div className="px-3.5 py-3 grid grid-cols-1 sm:grid-cols-[1fr_0.8fr_1.35fr] gap-x-4 gap-y-0.5">
-          {REASON_COLUMNS.map((col, ci) => (
-            <div key={ci}>
-              {col.map((code) => (
-                <ReasonCheck
-                  key={code}
-                  label={CATEGORY_META[code].label}
-                  checked={chosen.has(code)}
-                  onToggle={edit ? () => props.onToggleCategory?.(code) : undefined}
-                />
-              ))}
-            </div>
-          ))}
-        </div>
-        <div className="px-3.5 pb-3.5">
-          <div className="text-[11px] font-bold uppercase tracking-wide text-[#6b7280]">
-            Details of unsatisfactory behavior/actions
+    <div className="wfd">
+      <style>{CSS}</style>
+      <div className="sheet">
+        {/* Banner */}
+        <div className="banner">
+          <div>
+            <h1>Employee Warning Notice Form{refNo && <span className="ref"> ({refNo})</span>}</h1>
+            <div className="subtitle">Human Resources · Disciplinary Record</div>
           </div>
-          <CommentArea mode={mode} value={details} placeholder="Describe what happened…" onChange={props.onDetails} />
+          <div className="company">
+            <div className="mark">{companyName || ""}</div>
+            <div className="mark-sub">Official Notice</div>
+          </div>
         </div>
-      </div>
 
-      {/* Section 2 — corrective action */}
-      <div className="mt-4 border border-[#cfd4dc] rounded-md">
-        <div className="px-3.5 py-2.5 bg-[#e7eaef] border-b border-[#cfd4dc]">
-          <span className="text-[13px] font-extrabold text-[#1A1D27]">
-            2. The following immediate and sustained corrective action must be taken by the employee.
-            Failure to do so will result in further disciplinary action up to and including termination.
-          </span>
-        </div>
-        <div className="px-3.5 py-3">
-          <CommentArea mode={mode} value={correctiveAction} placeholder="What the employee must do to correct this (optional)…" onChange={props.onCorrectiveAction} />
-        </div>
-      </div>
+        <div className="grid">
+          {/* Subject (web only) */}
+          <div className="cell subject edge-r">
+            <div className="lbl">Subject <span className="req">*</span> <span className="hint">— web only (not in PDF)</span></div>
+            {edit ? (
+              <input className="subj" value={title ?? ""} maxLength={80} onChange={(e) => props.onTitle?.(e.target.value)} placeholder="Brief summary of the incident (required)" />
+            ) : (
+              <div className="val static">{title || "—"}</div>
+            )}
+          </div>
 
-      {/* Section 3 / 4 — never captured (blank on the form) */}
-      <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-        <BlankCell label="3. Deadline" hint="on printed form" />
-        <BlankCell label="4. Follow-up meeting will be held on" hint="on printed form" />
-      </div>
+          {/* EMP ID | Name | Manager */}
+          <div className="cell c-empid">
+            <div className="lbl">Emp ID</div>
+            <div className={`val static${employeeNo ? "" : " empty"}`}>{employeeNo || "-"}</div>
+          </div>
+          <div className="cell c-name">
+            <div className="lbl">Employee Name <span className="req">*</span></div>
+            {edit && !props.lockEmployee ? (
+              <button type="button" className="pick" onClick={props.onPickEmployee}>
+                <span className={`pv${employeeName ? "" : " empty"}`}>{employeeName || "Select employee"}</span>
+                <span className="chev">{chevDown}</span>
+              </button>
+            ) : (
+              <div className="val static">{employeeName || "—"}</div>
+            )}
+          </div>
+          <div className="cell c-mgr edge-r">
+            {edit && <div className="edit-tag">owner only</div>}
+            <div className="lbl">Manager Name</div>
+            {edit && props.canEditManager ? (
+              <button type="button" className="pick" onClick={props.onPickManager}>
+                <span className={`pv${managerName ? "" : " empty"}`}>{managerName || "Select manager"}</span>
+                <span className="chev">{chevDown}</span>
+              </button>
+            ) : (
+              <div className={`val static${edit ? " empty" : ""}`}>{managerName || "—"}</div>
+            )}
+          </div>
 
-      {/* Signatures + cc — signed by hand on the printed form (not captured here) */}
-      <div className={cn("mt-5 border-t border-[#cfd4dc] pt-4", edit && "opacity-70")}>
-        <div className="flex items-start justify-between gap-3">
-          <p className="text-[11.5px] text-[#6b7280] leading-relaxed max-w-[640px]">
-            Note: Your signature on this form means that we have discussed the situation. It doesn&apos;t
-            necessarily mean you agree that the infraction occurred.
-          </p>
-          {edit && <span className="text-[10px] italic text-[#b3b8c2] shrink-0">Signed on the printed form</span>}
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-8 gap-y-5 mt-4">
-          {["Employee Signature", "Manager's Signature"].map((role) => (
-            <div key={role}>
-              <div className="h-8 border-b border-[#1A1D27]" />
-              <div className="flex items-center justify-between mt-1">
-                <span className="text-[11.5px] font-semibold text-[#4b5563]">{role}</span>
-                <span className="text-[11.5px] text-[#9ca3af]">Date</span>
+          {/* Store | Date */}
+          <div className="cell c-store">
+            <div className="lbl">Store / Brand <span className="req">*</span></div>
+            {edit ? (
+              <button type="button" className="pick" onClick={props.onPickStore}>
+                <span className={`pv${storeName ? "" : " empty"}`}>{storeName || "Select store"}</span>
+                <span className="chev">{chevDown}</span>
+              </button>
+            ) : (
+              <div className="val static">{storeName || "—"}</div>
+            )}
+          </div>
+          <div className="cell c-date edge-r">
+            <div className="lbl">Date</div>
+            {edit ? (
+              <div className="dtrow">
+                <DateField value={dateValue ?? ""} onChange={(v) => props.onDate?.(v)} placeholder="Pick a date" fallbackDate={maxDate ?? ""} />
               </div>
+            ) : (
+              <div className="val static">{dateLabel}</div>
+            )}
+          </div>
+
+          {/* Warning type */}
+          <div className="cell wtype edge-r">
+            <div className="lbl">Warning Type <span className="hint">— auto by warning count</span></div>
+            <div className="wrow">
+              {TYPES.map(([lbl, n]) => {
+                const on = !edit && (n === 3 ? (ordinal ?? 0) >= 3 : ordinal === n);
+                return (
+                  <span key={lbl} className={`opt${on ? "" : " off"}`}>
+                    <Box on={on} />
+                    <span className="otx">{lbl}</span>
+                  </span>
+                );
+              })}
             </div>
-          ))}
-        </div>
-        <div className="mt-4 text-[11px] text-[#6b7280]">
-          cc:&nbsp;&nbsp;Employee&nbsp;&nbsp;/&nbsp;&nbsp;Manager&nbsp;&nbsp;/&nbsp;&nbsp;Human Resources&nbsp;&nbsp;/&nbsp;&nbsp;Personnel File
+          </div>
+
+          {/* Section 1 band + search */}
+          <div className="cell band edge-r">
+            <span className="bt">1. Behavior / actions found unsatisfactory — reasons</span>
+            {edit && (
+              <span className="rsearch">
+                <Search className="w-3.5 h-3.5" style={{ color: "#9AA0AD" }} />
+                <input value={reasonQuery} onChange={(e) => setReasonQuery(e.target.value)} placeholder="Search reasons…" />
+              </span>
+            )}
+          </div>
+          <div className="cell span12 edge-r">
+            {filtered ? (
+              filtered.length ? <div className="rgrid">{filtered.map(reasonItem)}</div> : <div className="nomatch">No reasons match “{reasonQuery}”.</div>
+            ) : (
+              <div className="rgrid">{categoryOptions.map(reasonItem)}</div>
+            )}
+            {legacy.length > 0 && (
+              <div className="rgrid" style={{ marginTop: 4 }}>
+                {legacy.map((code) => (
+                  <div key={code} className="ropt on removed">
+                    <Box on />
+                    <span className="rtx">{categoryLabels?.[code] ?? code}</span>
+                    <span className="hint" style={{ marginLeft: 2 }}>(removed)</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="cell span12 edge-r">
+            <div className="lbl">Details of unsatisfactory behavior / actions</div>
+            {edit ? (
+              <textarea className="warea" rows={2} value={details} onChange={(e) => props.onDetails?.(e.target.value)} placeholder="Describe what happened…" />
+            ) : (
+              <div className={`rotext${details ? "" : " empty"}`}>{details || "No details."}</div>
+            )}
+          </div>
+
+          {/* Section 2 — corrective */}
+          <div className="cell band edge-r"><span className="bt">2. Corrective action required — failure to comply may lead to further disciplinary action up to termination</span></div>
+          <div className="cell span12 edge-r">
+            {edit ? (
+              <textarea className="warea" rows={2} value={correctiveAction} onChange={(e) => props.onCorrectiveAction?.(e.target.value)} placeholder="What the employee must correct (optional)…" />
+            ) : (
+              <div className={`rotext${correctiveAction ? "" : " empty"}`}>{correctiveAction || "None specified."}</div>
+            )}
+          </div>
+
+          {/* Deadline | Follow-up (date + time) */}
+          <div className="cell span6">
+            <div className="lbl">3. Deadline <span className="hint">— optional</span></div>
+            {edit ? (
+              <div className="dtrow">
+                <DateField value={deadline} onChange={(v) => props.onDeadline?.(v)} placeholder="None" fallbackDate={maxDate ?? ""} />
+                {deadline && <button type="button" className="clearx" title="Clear" onClick={() => props.onDeadline?.("")}><X className="w-3.5 h-3.5" /></button>}
+              </div>
+            ) : (
+              <div className={`val static${deadline ? "" : " empty"}`}>{deadline ? fmtDate(deadline) : "—"}</div>
+            )}
+          </div>
+          <div className="cell span6 edge-r">
+            <div className="lbl">4. Follow-up — date &amp; time <span className="hint">— optional</span></div>
+            {edit ? (
+              <div className="dtrow">
+                <DateTimeField date={followUpDate} time={followUpTime} fallbackDate={addDays(maxDate ?? "", 1)} onChange={(d, t) => props.onFollowUp?.(d, t)} />
+                {followUpDate && <button type="button" className="clearx" title="Clear" onClick={() => props.onFollowUp?.("", "")}><X className="w-3.5 h-3.5" /></button>}
+              </div>
+            ) : (
+              <div className={`val static${followUpDate ? "" : " empty"}`}>{followUpDate ? `${fmtDate(followUpDate)} · ${followUpTime ? fmt12(followUpTime.slice(0, 5)) : "TBD"}` : "—"}</div>
+            )}
+          </div>
+
+          {/* Signatures (print PDF) */}
+          <div className="cell span6">
+            <div className="lbl">Employee Signature <span className="printmark">print PDF</span></div>
+            <div className="sigline" />
+            <div className="sigmeta"><span>{employeeName || "—"}</span><span>Date</span></div>
+          </div>
+          <div className="cell span6 edge-r">
+            <div className="lbl">Manager Signature <span className="printmark">print PDF</span></div>
+            <div className="sigline" />
+            <div className="sigmeta"><span>{managerName || "—"}</span><span>Date</span></div>
+          </div>
+
+          {/* cc */}
+          <div className="cell span12 edge-r edge-b">
+            <div className="lbl">cc</div>
+            <div className="ccval">Employee&nbsp;&nbsp;/&nbsp;&nbsp;Manager&nbsp;&nbsp;/&nbsp;&nbsp;Human Resources&nbsp;&nbsp;/&nbsp;&nbsp;Personnel File</div>
+          </div>
         </div>
       </div>
     </div>

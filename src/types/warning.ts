@@ -7,19 +7,27 @@
 
 export type WarningStatus = "active" | "withdrawn";
 
-export type WarningCategory =
-  | "tardiness"
-  | "damaged_equipment"
-  | "refusal_overtime"
-  | "absenteeism"
-  | "policy_violation"
-  | "insubordination"
-  | "rudeness"
-  | "fighting"
-  | "language"
-  | "failure_procedure"
-  | "failure_performance"
-  | "other";
+// v1.1: categories are org-managed (DB). Code is a free slug now, not a fixed union.
+export type WarningCategory = string;
+
+// org별 사유 카테고리 (warning_categories) — 관리 + 폼 picker.
+export interface WarningCategoryItem {
+  id: string;
+  code: string;
+  label: string;
+  sort_order: number;
+  is_hidden: boolean;
+  is_system: boolean; // 'other' — 숨김/삭제 불가, 항상 맨 끝
+}
+
+export interface WarningCategoryCreate {
+  label: string;
+}
+
+export interface WarningCategoryUpdate {
+  label?: string;
+  is_hidden?: boolean;
+}
 
 export interface Warning {
   id: string;
@@ -34,8 +42,13 @@ export interface Warning {
   store_name: string | null;
   title: string;
   categories: WarningCategory[];
+  category_labels: Record<string, string>; // code→label (live, includes removed legacy)
   details: string | null;
   corrective_action: string | null;
+  other_text: string | null; // 'other' free-text
+  deadline: string | null; // YYYY-MM-DD
+  follow_up_date: string | null; // YYYY-MM-DD
+  follow_up_time: string | null; // HH:MM:SS, null = TBD
   warning_date: string; // YYYY-MM-DD
   ordinal: number | null; // 1=First, 2=Second, ≥3=Other (detail only)
   withdrawn_at: string | null;
@@ -50,6 +63,11 @@ export interface WarningCreate {
   categories: WarningCategory[];
   details?: string | null;
   corrective_action?: string | null;
+  other_text?: string | null;
+  deadline?: string | null;
+  follow_up_date?: string | null;
+  follow_up_time?: string | null;
+  issued_by_id?: string | null; // Owner only — issue on behalf of another manager
   warning_date: string;
 }
 
@@ -59,6 +77,11 @@ export interface WarningUpdate {
   categories?: WarningCategory[];
   details?: string | null;
   corrective_action?: string | null;
+  other_text?: string | null;
+  deadline?: string | null;
+  follow_up_date?: string | null;
+  follow_up_time?: string | null;
+  issued_by_id?: string | null;
   status?: WarningStatus;
   warning_date?: string;
 }
