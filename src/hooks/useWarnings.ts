@@ -14,8 +14,12 @@ import {
   useQuery,
   useMutation,
   useQueryClient,
+  useInfiniteQuery,
+  keepPreviousData,
   type UseQueryResult,
   type UseMutationResult,
+  type UseInfiniteQueryResult,
+  type InfiniteData,
 } from "@tanstack/react-query";
 import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
@@ -71,6 +75,39 @@ export const useWarnableUsers = (
       );
       return res.data.items;
     },
+  });
+};
+
+const WARNABLE_PAGE_SIZE = 30;
+
+/**
+ * Paginated + server-searched warnable users for the employee picker.
+ * Mirrors the evaluations picker: scroll loads the next page; a debounced query
+ * is sent to the server (use what's loaded, else fetch). Avoids the old flat
+ * 100-cap that truncated the list alphabetically.
+ */
+export const useInfiniteWarnableUsers = (
+  q: string,
+  storeId?: string,
+): UseInfiniteQueryResult<InfiniteData<WarnableUsersPage>, Error> => {
+  return useInfiniteQuery<WarnableUsersPage, Error>({
+    queryKey: ["warnable-users-infinite", { q, storeId: storeId ?? null }],
+    queryFn: async ({ pageParam }): Promise<WarnableUsersPage> => {
+      const params: Record<string, string | number> = {
+        page: (pageParam as number) ?? 1,
+        limit: WARNABLE_PAGE_SIZE,
+      };
+      if (q) params.q = q;
+      if (storeId) params.store_id = storeId;
+      const res: AxiosResponse<WarnableUsersPage> = await api.get(
+        "/console/warnings/warnable-users",
+        { params },
+      );
+      return res.data;
+    },
+    initialPageParam: 1,
+    getNextPageParam: (last) => (last.has_more ? last.page + 1 : undefined),
+    placeholderData: keepPreviousData,
   });
 };
 

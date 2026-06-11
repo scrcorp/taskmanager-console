@@ -33,7 +33,8 @@ export default function NewWarningPage(): React.ReactElement | null {
     [warnable, subjectParam],
   );
   const initial = useMemo<WarningDraft>(() => {
-    const base = emptyDraft(today);
+    // Default issuer = the author (current user); an Owner may change it via the picker.
+    const base: WarningDraft = { ...emptyDraft(today), issued_by_name: user?.full_name ?? "" };
     if (!lockedSubject) return base;
     return {
       ...base,
@@ -44,7 +45,7 @@ export default function NewWarningPage(): React.ReactElement | null {
       store_id: lockedSubject.store_id,
       store_name: lockedSubject.store_name,
     };
-  }, [today, lockedSubject]);
+  }, [today, lockedSubject, user?.full_name]);
 
   async function handleSubmit(d: WarningDraft): Promise<void> {
     if (!d.subject_user_id || !d.store_id) return;
@@ -56,6 +57,11 @@ export default function NewWarningPage(): React.ReactElement | null {
         categories: d.categories,
         details: d.details.trim() || null,
         corrective_action: d.corrective_action.trim() || null,
+        other_text: d.categories.includes("other") ? d.other_text.trim() || null : null,
+        deadline: d.deadline || null,
+        follow_up_date: d.follow_up_date || null,
+        follow_up_time: d.follow_up_time || null,
+        issued_by_id: d.issued_by_id ?? undefined,
         warning_date: d.warning_date,
       });
       router.replace(`/warnings/${created.id}`);
@@ -85,7 +91,7 @@ export default function NewWarningPage(): React.ReactElement | null {
         today={today}
         lockEmployee={!!lockedSubject}
         saving={createMut.isPending}
-        submitLabel="Submit"
+        submitLabel="Save"
         onBack={() => router.push("/warnings")}
         onSubmit={handleSubmit}
       />
