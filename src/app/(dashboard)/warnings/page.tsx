@@ -8,19 +8,21 @@
  */
 import React from "react";
 import { useRouter } from "next/navigation";
-import { Plus } from "lucide-react";
+import { Plus, SlidersHorizontal } from "lucide-react";
 
 import { usePermissions } from "@/hooks/usePermissions";
 import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import { useStores } from "@/hooks/useStores";
 import { useWarnings } from "@/hooks/useWarnings";
+import { useWarningCategories } from "@/hooks/useWarningCategories";
+import { useModal } from "@/components/ui/imperative-modal";
 import { Button, Table, Select, Badge, Pagination } from "@/components/ui";
 import type { Column } from "@/components/ui/Table";
 import { PERMISSIONS } from "@/lib/permissions";
 import type { Warning, WarningFilters } from "@/types";
 
 import { CategoryChips } from "@/components/warnings/CategoryChips";
-import { CATEGORY_OPTIONS } from "@/components/warnings/categories";
+import { WarningCategoryManager } from "@/components/warnings/WarningCategoryManager";
 
 function fmtDate(iso: string): string {
   const d = new Date(`${iso}T00:00:00`);
@@ -41,10 +43,23 @@ function StatCard({ label, value, accent }: { label: string; value: number; acce
 
 export default function WarningsPage(): React.ReactElement {
   const router = useRouter();
-  const { hasPermission } = usePermissions();
+  const modal = useModal();
+  const { hasPermission, isOwner } = usePermissions();
   const canCreate = hasPermission(PERMISSIONS.WARNINGS_CREATE);
 
   const { data: stores } = useStores();
+  const { data: categories } = useWarningCategories();
+  // Filter dropdown offers the visible (non-hidden) categories, by sort order.
+  const categoryOptions = (categories ?? [])
+    .filter((c) => !c.is_hidden)
+    .map((c) => ({ value: c.code, label: c.label }));
+
+  function openCategoryManager() {
+    void modal.open(() => <WarningCategoryManager />, {
+      title: "Warning categories",
+      size: "md",
+    });
+  }
 
   const [filters, setFilters] = usePersistedFilters("warnings", {
     store: "",
@@ -90,7 +105,7 @@ export default function WarningsPage(): React.ReactElement {
     },
     {
       key: "warning",
-      header: "Warning",
+      header: "Subject",
       render: (w) => (
         <div className="min-w-0">
           <div className="truncate font-medium text-text">{w.title}</div>
@@ -129,12 +144,20 @@ export default function WarningsPage(): React.ReactElement {
           <h1 className="text-2xl font-bold text-text">Warnings</h1>
           <p className="mt-1 text-sm text-text-secondary">Disciplinary records across your brands</p>
         </div>
-        {canCreate && (
-          <Button variant="primary" size="lg" onClick={() => router.push("/warnings/new")} className="gap-1.5">
-            <Plus className="h-4 w-4" />
-            New Warning
-          </Button>
-        )}
+        <div className="flex items-center gap-2">
+          {isOwner && (
+            <Button variant="secondary" size="lg" onClick={openCategoryManager} className="gap-1.5">
+              <SlidersHorizontal className="h-4 w-4" />
+              Manage categories
+            </Button>
+          )}
+          {canCreate && (
+            <Button variant="primary" size="lg" onClick={() => router.push("/warnings/new")} className="gap-1.5">
+              <Plus className="h-4 w-4" />
+              New Warning
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Stats */}
@@ -155,7 +178,7 @@ export default function WarningsPage(): React.ReactElement {
         </div>
         <div className="w-48">
           <Select
-            options={[{ value: "", label: "All categories" }, ...CATEGORY_OPTIONS]}
+            options={[{ value: "", label: "All categories" }, ...categoryOptions]}
             value={filters.category}
             onChange={(e) => setFilters({ category: e.target.value || null, page: "1" })}
           />

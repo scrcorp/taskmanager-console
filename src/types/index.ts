@@ -699,10 +699,13 @@ export type {
   EvaluatableUsersPage,
 } from "./evaluation";
 
-// Warning (v1) — canonical types live in ./warning, re-exported below.
+// Warning — canonical types live in ./warning, re-exported below.
 export type {
   WarningStatus,
   WarningCategory,
+  WarningCategoryItem,
+  WarningCategoryCreate,
+  WarningCategoryUpdate,
   Warning,
   WarningCreate,
   WarningUpdate,

@@ -43,6 +43,12 @@ export default function WarningDetailPage(): React.ReactElement {
       categories: w.categories,
       details: w.details ?? "",
       corrective_action: w.corrective_action ?? "",
+      other_text: w.other_text ?? "",
+      deadline: w.deadline ?? "",
+      follow_up_date: w.follow_up_date ?? "",
+      follow_up_time: w.follow_up_time ? w.follow_up_time.slice(0, 5) : "",
+      issued_by_id: w.issued_by_id,
+      issued_by_name: w.issued_by_name ?? "",
       warning_date: w.warning_date,
     };
   }, [w, subjectStores]);
@@ -58,6 +64,11 @@ export default function WarningDetailPage(): React.ReactElement {
           categories: d.categories,
           details: d.details.trim() || null,
           corrective_action: d.corrective_action.trim() || null,
+          other_text: d.categories.includes("other") ? d.other_text.trim() || null : null,
+          deadline: d.deadline || null,
+          follow_up_date: d.follow_up_date || null,
+          follow_up_time: d.follow_up_time || null,
+          issued_by_id: d.issued_by_id ?? undefined,
           warning_date: d.warning_date,
         },
       });
