@@ -102,7 +102,16 @@ export function WarningDetailView({ warningId, onBack, onEdit }: Props): React.R
   // Client-side print → the browser's "Save as PDF". `@media print` (in
   // WarningFormDoc) hides the app chrome + the web-only Subject, so the printed
   // page is just the official form — no server PDF, always matches the screen.
+  // Swap the document title so the browser's print header reads the warning ref
+  // (e.g. "Warning W-00003") instead of the app tab name ("HTM Admin").
   function printPdf(): void {
+    const prev = document.title;
+    document.title = `Warning ${warning.ref_no}`;
+    const restore = (): void => {
+      document.title = prev;
+      window.removeEventListener("afterprint", restore);
+    };
+    window.addEventListener("afterprint", restore);
     window.print();
   }
 
