@@ -62,7 +62,7 @@ interface WarningFormDocProps {
 }
 
 const CSS = `
-.wfd { --ink:#1A1C22; --ink-soft:#3C4049; --label:#7A8090; --muted:#9AA0AD; --rule:#C7CBD4; --rule-thick:#1A1C22; --fill:#F6F7F9; --accent:#6C5CE7; }
+.wfd { --ink:#1A1C22; --ink-soft:#3C4049; --label:#7A8090; --muted:#9AA0AD; --rule:#C7CBD4; --rule-thick:#1A1C22; --fill:#F6F7F9; --accent:#6C5CE7; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
 .wfd * { box-sizing:border-box; }
 .wfd .sheet { background:#fff; color:var(--ink); font-family:"Helvetica Neue",Helvetica,"Segoe UI",Arial,sans-serif; }
 .wfd .banner { border:2.5px solid var(--rule-thick); border-bottom:none; display:flex; align-items:flex-end; justify-content:space-between; gap:16px; padding:16px 20px 13px; }
@@ -129,11 +129,18 @@ const CSS = `
 @media print {
   body { background:#fff !important; }
   body * { visibility:hidden !important; }
-  .wfd, .wfd * { visibility:visible !important; }
-  .wfd { position:absolute; left:0; top:0; width:100%; padding:0 !important; margin:0 !important; }
-  .wfd .sheet { box-shadow:none !important; max-width:none !important; }
+  .wfd, .wfd * { visibility:visible !important; -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
+  .wfd { position:absolute; left:0; top:0; width:100%; padding:0 !important; margin:0 !important; --rule:#6B7280; }
+  .wfd .sheet { box-shadow:none !important; max-width:none !important; padding:11mm 10mm !important; }
   .wfd .subject { display:none !important; }
-  @page { margin:14mm; }
+  /* 1px hairlines land on fractional device pixels under the print/PDF rasterizer and
+     anti-alias to near-nothing, dropping random dividers (esp. verticals). Darker +
+     2px so every divider survives low-DPI rasterization. edge-r/edge-b are border:none
+     → unaffected; the 2.5px near-black frame still reads as the outer rule. */
+  .wfd .cell { border-right-width:2px !important; border-bottom-width:2px !important; }
+  /* margin:0 leaves no page-margin box, so Chrome omits its auto header/footer
+     (date · "HTM Admin" · URL); the sheet padding above supplies the paper margin. */
+  @page { margin:0; }
 }
 `;
 
