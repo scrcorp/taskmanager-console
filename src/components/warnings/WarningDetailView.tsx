@@ -1,15 +1,22 @@
 "use client";
 
-import React from "react";
-import { ChevronLeft, Pencil, Trash2, Printer } from "lucide-react";
+import React, { useState } from "react";
+import { ChevronLeft, Pencil, Trash2, Printer, PenLine } from "lucide-react";
 import { Button, Badge, LoadingSpinner } from "@/components/ui";
 import { useModal } from "@/components/ui/imperative-modal";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useAuthStore } from "@/stores/authStore";
 import { PERMISSIONS } from "@/lib/permissions";
-import { useWarning, useUpdateWarning, useDeleteWarning } from "@/hooks/useWarnings";
+import {
+  useWarning,
+  useUpdateWarning,
+  useDeleteWarning,
+  useSignWarning,
+  useMySignature,
+} from "@/hooks/useWarnings";
 import { useWarningCategories } from "@/hooks/useWarningCategories";
 import { WarningFormDoc } from "./WarningFormDoc";
+import { SignaturePad, type SignatureResult } from "./SignaturePad";
 
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
@@ -34,6 +41,16 @@ export function WarningDetailView({ warningId, onBack, onEdit }: Props): React.R
   const categoryOptions = allCategories.filter((c) => !c.is_hidden);
   const updateMut = useUpdateWarning();
   const deleteMut = useDeleteWarning();
+  const signMut = useSignWarning();
+
+  const [padOpen, setPadOpen] = useState(false);
+  // Identity gate: only the warning's designated manager (the issuer) may sign.
+  // Drives whether we even fetch/offer their reusable saved signature.
+  const isWarningManager = !!w && !!userId && w.issued_by_id === userId;
+  const managerNotSigned = !!w && !w.signatures.manager;
+  const canSignAsManager = isWarningManager && managerNotSigned && w?.status === "active";
+  // Only fetch the saved signature for the manager who can actually sign.
+  const { data: savedSignature } = useMySignature(canSignAsManager);
 
   if (isLoading) {
     return (
@@ -115,6 +132,33 @@ export function WarningDetailView({ warningId, onBack, onEdit }: Props): React.R
     window.print();
   }
 
+  async function handleSign(result: SignatureResult): Promise<void> {
+    try {
+      await signMut.mutateAsync({
+        warningId: warning.id,
+        data: {
+          strokes: result.strokes,
+          aspect: result.aspect,
+          method: result.method,
+          save_as_default: result.saveAsDefault,
+        },
+      });
+      setPadOpen(false);
+    } catch {
+      // hook surfaces the error (incl. a 403 if the gate were somehow bypassed)
+    }
+  }
+
+  // ── sign-off status strip data ──
+  const issuedByName = warning.issued_by_name ?? "the manager";
+  const empSig = warning.signatures.employee;
+  const mgrSig = warning.signatures.manager;
+  const empState: "signed" | "read" | "not_opened" = empSig
+    ? "signed"
+    : warning.acknowledged_at
+      ? "read"
+      : "not_opened";
+
   return (
     <div className="max-w-[860px] mx-auto pb-10">
       <div className="sticky top-0 z-20 mb-4 bg-card border border-border rounded-lg px-3 sm:px-4 py-2.5 flex items-center gap-2 flex-wrap shadow-sm">
@@ -150,6 +194,73 @@ export function WarningDetailView({ warningId, onBack, onEdit }: Props): React.R
         </div>
       </div>
 
+      {/* Sign-off status strip — Employee acknowledge/sign + Manager sign */}
+      <div className="mb-4 grid gap-3 sm:grid-cols-2">
+        {/* Employee */}
+        {(() => {
+          const tone =
+            empState === "signed"
+              ? { fg: "#2F9E44", bg: "#EBF8EE", br: "#C3E9CD" }
+              : empState === "read"
+                ? { fg: "#B45309", bg: "#FEF6E7", br: "#F4E0B5" }
+                : { fg: "#7A8090", bg: "#F4F5F7", br: "#E2E5EA" };
+          const line =
+            empState === "signed"
+              ? `Signed on ${fmtDate(empSig?.signed_at ?? null)}`
+              : empState === "read"
+                ? `Read on ${fmtDate(warning.acknowledged_at)} — awaiting signature`
+                : "Not opened yet";
+          return (
+            <div className="rounded-lg px-3.5 py-2.5" style={{ border: `1px solid ${tone.br}`, background: tone.bg }}>
+              <div className="text-[10px] font-extrabold uppercase tracking-wider" style={{ color: "#9AA0AD" }}>
+                Employee
+              </div>
+              <div className="mt-1 flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full" style={{ background: tone.fg }} />
+                <span className="text-sm font-bold" style={{ color: tone.fg }}>{line}</span>
+              </div>
+            </div>
+          );
+        })()}
+        {/* Manager */}
+        {(() => {
+          const signed = !!mgrSig;
+          const actionable = canSignAsManager;
+          const tone = signed
+            ? { fg: "#2F9E44", bg: "#EBF8EE", br: "#C3E9CD" }
+            : actionable
+              ? { fg: "#6C5CE7", bg: "#F1EEFE", br: "#D6CCFB" }
+              : { fg: "#7A8090", bg: "#F4F5F7", br: "#E2E5EA" };
+          const line = signed
+            ? `Signed by ${mgrSig?.signer_name ?? issuedByName} on ${fmtDate(mgrSig?.signed_at ?? null)}`
+            : `Awaiting ${issuedByName}'s signature`;
+          return (
+            <div className="flex items-center gap-2.5 rounded-lg px-3.5 py-2.5" style={{ border: `1px solid ${tone.br}`, background: tone.bg }}>
+              <div className="min-w-0 flex-1">
+                <div className="text-[10px] font-extrabold uppercase tracking-wider" style={{ color: "#9AA0AD" }}>
+                  Manager
+                </div>
+                <div className="mt-1 flex items-center gap-2">
+                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: tone.fg }} />
+                  <span className="truncate text-sm font-bold" style={{ color: tone.fg }}>{line}</span>
+                </div>
+                {!signed && !canSignAsManager && (
+                  <div className="mt-0.5 text-[11.5px]" style={{ color: "#9AA0AD" }}>
+                    Only {issuedByName} can sign this.
+                  </div>
+                )}
+              </div>
+              {canSignAsManager && (
+                <Button variant="primary" onClick={() => setPadOpen(true)} className="shrink-0 gap-1.5">
+                  <PenLine className="h-4 w-4" />
+                  Sign as manager
+                </Button>
+              )}
+            </div>
+          );
+        })()}
+      </div>
+
       <WarningFormDoc
         mode="view"
         companyName={companyName}
@@ -170,7 +281,22 @@ export function WarningDetailView({ warningId, onBack, onEdit }: Props): React.R
         deadline={warning.deadline ?? ""}
         followUpDate={warning.follow_up_date ?? ""}
         followUpTime={warning.follow_up_time ?? ""}
+        employeeSignature={empSig}
+        managerSignature={mgrSig}
+        canSignAsManager={canSignAsManager}
+        managerAwaitingNote={mgrSig ? null : `Only ${issuedByName} can sign`}
+        onSignManager={() => setPadOpen(true)}
       />
+
+      {padOpen && canSignAsManager && (
+        <SignaturePad
+          signerName={issuedByName}
+          savedSignature={savedSignature ?? null}
+          isSubmitting={signMut.isPending}
+          onCancel={() => setPadOpen(false)}
+          onConfirm={(r) => void handleSign(r)}
+        />
+      )}
     </div>
   );
 }

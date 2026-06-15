@@ -32,6 +32,9 @@ import type {
   WarnableUser,
   WarnableUsersPage,
   WarningCount,
+  WarningSignRequest,
+  MySignatureResponse,
+  SignatureStrokes,
   PaginatedResponse,
 } from "@/types";
 
@@ -41,6 +44,7 @@ const KEYS = {
   detail: (id: string) => ["warning", id] as const,
   warnable: (storeId?: string) => ["warnable-users", storeId ?? null] as const,
   counts: ["warning-counts"] as const,
+  mySignature: ["warning-my-signature"] as const,
 };
 
 /** Invalidate every warning list + counts + the detail after a mutation. */
@@ -218,5 +222,80 @@ export const useDeleteWarning = (): UseMutationResult<void, Error, string> => {
       success("Warning deleted.");
     },
     onError: error("Couldn't delete warning"),
+  });
+};
+
+// === Manager sign-off ========================================================
+
+/**
+ * Sign a warning as its manager. The server enforces signer == issued_by_id
+ * (a non-issuer GM, and even an Owner who isn't the issuer, get 403) — the UI
+ * gates this too so 403 shouldn't normally surface, but the hook still reports
+ * any error via the result modal.
+ */
+export const useSignWarning = (): UseMutationResult<
+  Warning,
+  Error,
+  { warningId: string; data: WarningSignRequest }
+> => {
+  const qc = useQueryClient();
+  const { success, error } = useMutationResult();
+  return useMutation<Warning, Error, { warningId: string; data: WarningSignRequest }>({
+    mutationFn: async ({ warningId, data }) => {
+      const res: AxiosResponse<Warning> = await api.post(
+        `/console/warnings/${warningId}/sign`,
+        data,
+      );
+      return res.data;
+    },
+    onSuccess: (warning, { data }) => {
+      invalidateWarnings(qc, warning.id);
+      // A freshly drawn signature saved as default invalidates the cached one.
+      if (data.save_as_default) qc.invalidateQueries({ queryKey: KEYS.mySignature });
+      success("Signed as manager.");
+    },
+    onError: error("Couldn't sign this warning"),
+  });
+};
+
+// === Manager's reusable saved signature ======================================
+
+/** The current manager's reusable saved signature (users.signature_strokes). */
+export const useMySignature = (
+  enabled: boolean = true,
+): UseQueryResult<SignatureStrokes | null, Error> => {
+  return useQuery({
+    queryKey: KEYS.mySignature,
+    queryFn: async () => {
+      const res: AxiosResponse<MySignatureResponse> = await api.get(
+        "/console/warnings/my-signature",
+      );
+      return res.data.signature;
+    },
+    enabled,
+  });
+};
+
+/** Save/replace the manager's reusable signature. */
+export const useSaveMySignature = (): UseMutationResult<
+  SignatureStrokes | null,
+  Error,
+  SignatureStrokes
+> => {
+  const qc = useQueryClient();
+  const { success, error } = useMutationResult();
+  return useMutation<SignatureStrokes | null, Error, SignatureStrokes>({
+    mutationFn: async (signature) => {
+      const res: AxiosResponse<MySignatureResponse> = await api.put(
+        "/console/warnings/my-signature",
+        signature,
+      );
+      return res.data.signature;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: KEYS.mySignature });
+      success("Signature saved.");
+    },
+    onError: error("Couldn't save signature"),
   });
 };
