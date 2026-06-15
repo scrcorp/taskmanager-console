@@ -714,6 +714,12 @@ export type {
   WarnableUserStore,
   WarnableUsersPage,
   WarningCount,
+  SignatureStrokes,
+  SignatureMethod,
+  SigInfo,
+  WarningSignatures,
+  WarningSignRequest,
+  MySignatureResponse,
 } from "./warning";
 
 // Daily Report

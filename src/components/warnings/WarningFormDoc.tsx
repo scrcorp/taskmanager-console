@@ -1,10 +1,11 @@
 "use client";
 
 import React, { useState } from "react";
-import { Check, Search, X } from "lucide-react";
-import type { WarningCategory, WarningCategoryItem } from "@/types";
+import { Check, Search, X, PenLine } from "lucide-react";
+import type { WarningCategory, WarningCategoryItem, SigInfo } from "@/types";
 import { DateField } from "@/components/ui/DateField";
 import { DateTimeField, fmt12 } from "@/components/ui/DateTimeField";
+import { SignatureView } from "./SignatureView";
 
 /**
  * The warning document — a tight "official document (공문)" sheet matching the
@@ -48,6 +49,14 @@ interface WarningFormDocProps {
   lockEmployee?: boolean;
   /** Owner(+super-owner) only — lets the Manager (issuer) be changed via a picker. */
   canEditManager?: boolean;
+  // ── Signatures (view mode) — render captured vector ink in the sig boxes ──
+  employeeSignature?: SigInfo | null;
+  managerSignature?: SigInfo | null;
+  /** Show the in-box "Sign as manager" affordance (only the warning's manager). */
+  canSignAsManager?: boolean;
+  /** Read-only hint shown to everyone else when the manager hasn't signed yet. */
+  managerAwaitingNote?: string | null;
+  onSignManager?: () => void;
   onPickEmployee?: () => void;
   onPickStore?: () => void;
   onPickManager?: () => void;
@@ -72,7 +81,7 @@ const CSS = `
 .wfd .company { text-align:right; line-height:1.15; flex:none; }
 .wfd .company .mark { font-size:14px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; }
 .wfd .company .mark-sub { font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:var(--muted); margin-top:2px; }
-.wfd .grid { border:2.5px solid var(--rule-thick); display:grid; grid-template-columns:repeat(12,1fr); }
+.wfd .grid { border:2.5px solid var(--rule-thick); display:grid; grid-template-columns:repeat(12,minmax(0,1fr)); }
 .wfd .cell { border-right:1px solid var(--rule); border-bottom:1px solid var(--rule); padding:9px 13px 10px; min-height:58px; display:flex; flex-direction:column; justify-content:center; position:relative; background:#fff; min-width:0; }
 .wfd .cell.edge-r { border-right:none; } .wfd .cell.edge-b { border-bottom:none; }
 .wfd .lbl { font-size:10px; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:var(--label); margin-bottom:5px; display:flex; align-items:center; gap:5px; }
@@ -115,7 +124,7 @@ const CSS = `
 .wfd .otherview { font-size:13.5px; font-weight:600; color:var(--ink); }
 .wfd .warea { width:100%; border:none; outline:none; background:transparent; resize:none; font-size:15px; line-height:1.5; color:var(--ink-soft); min-height:48px; font-family:inherit; }
 .wfd .warea::placeholder { color:var(--muted); }
-.wfd .rotext { font-size:15px; line-height:1.5; color:var(--ink); white-space:pre-wrap; min-height:24px; } .wfd .rotext.empty { color:var(--muted); font-style:italic; }
+.wfd .rotext { font-size:15px; line-height:1.5; color:var(--ink); white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; min-height:24px; } .wfd .rotext.empty { color:var(--muted); font-style:italic; }
 .wfd .nomatch { font-size:13px; color:var(--muted); font-style:italic; padding:2px 0; }
 .wfd .dtrow { display:flex; align-items:center; gap:6px; margin-top:2px; }
 .wfd .clearx { color:var(--muted); padding:2px; cursor:pointer; display:inline-flex; }
@@ -123,6 +132,12 @@ const CSS = `
 .wfd .printmark { font-size:9px; letter-spacing:.1em; text-transform:uppercase; color:var(--muted); font-weight:700; margin-left:8px; }
 .wfd .sigline { height:26px; border-bottom:1px solid var(--ink); margin:10px 0 4px; }
 .wfd .sigmeta { display:flex; justify-content:space-between; font-size:11.5px; color:var(--label); font-weight:600; }
+.wfd .sigmeta .signedby { color:var(--ink); font-weight:700; }
+/* rendered signature ink sitting on the signature line */
+.wfd .sigink { height:42px; border-bottom:1px solid var(--ink); margin:6px 0 4px; display:flex; align-items:flex-end; justify-content:center; overflow:hidden; }
+.wfd .sigink svg { height:46px; width:auto; max-width:100%; }
+.wfd .signbtn { display:inline-flex; align-items:center; gap:6px; margin-top:8px; padding:6px 12px; border:1px solid var(--accent); border-radius:7px; background:rgba(108,92,231,.08); color:var(--accent); font-size:12px; font-weight:800; cursor:pointer; }
+.wfd .awaiting { margin-top:6px; font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--muted); }
 .wfd .ccval { font-size:13px; font-weight:700; color:var(--ink); }
 
 /* ── Print (PDF) — only the sheet prints; Subject is web-only so it's dropped ── */
@@ -150,6 +165,14 @@ function fmtDate(iso: string): string {
   return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
 }
 
+// ISO datetime → "Jun 12, 2026" (signatures carry a full timestamp).
+function fmtSignDate(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+}
+
 function addDays(iso: string, n: number): string {
   const base = iso ? new Date(`${iso}T00:00:00`) : new Date();
   base.setDate(base.getDate() + n);
@@ -168,7 +191,7 @@ function Box({ on }: { on: boolean }): React.ReactElement {
 }
 
 export function WarningFormDoc(props: WarningFormDocProps): React.ReactElement {
-  const { mode, companyName, refNo, employeeName, employeeNo, managerName, storeName, dateValue, dateLabel, maxDate, ordinal, title, categoryOptions, categories, categoryLabels, details, correctiveAction, otherText, deadline, followUpDate, followUpTime } = props;
+  const { mode, companyName, refNo, employeeName, employeeNo, managerName, storeName, dateValue, dateLabel, maxDate, ordinal, title, categoryOptions, categories, categoryLabels, details, correctiveAction, otherText, deadline, followUpDate, followUpTime, employeeSignature, managerSignature, canSignAsManager, managerAwaitingNote, onSignManager } = props;
   const edit = mode === "edit";
   const chosen = new Set(categories);
   const [reasonQuery, setReasonQuery] = useState("");
@@ -361,16 +384,43 @@ export function WarningFormDoc(props: WarningFormDocProps): React.ReactElement {
             )}
           </div>
 
-          {/* Signatures (print PDF) */}
+          {/* Signatures (print PDF) — render captured vector strokes when signed */}
           <div className="cell span6">
             <div className="lbl">Employee Signature <span className="printmark">print PDF</span></div>
-            <div className="sigline" />
-            <div className="sigmeta"><span>{employeeName || "—"}</span><span>Date</span></div>
+            {employeeSignature ? (
+              <>
+                <div className="sigink"><SignatureView signature={employeeSignature.signature_strokes} strokeWidth={2.6} /></div>
+                <div className="sigmeta"><span className="signedby">{employeeSignature.signer_name || employeeName || "—"}</span><span>{fmtSignDate(employeeSignature.signed_at) || "Date"}</span></div>
+              </>
+            ) : (
+              <>
+                <div className="sigline" />
+                <div className="sigmeta"><span>{employeeName || "—"}</span><span>Date</span></div>
+              </>
+            )}
           </div>
           <div className="cell span6 edge-r">
             <div className="lbl">Manager Signature <span className="printmark">print PDF</span></div>
-            <div className="sigline" />
-            <div className="sigmeta"><span>{managerName || "—"}</span><span>Date</span></div>
+            {managerSignature ? (
+              <>
+                <div className="sigink"><SignatureView signature={managerSignature.signature_strokes} strokeWidth={2.6} /></div>
+                <div className="sigmeta"><span className="signedby">{managerSignature.signer_name || managerName || "—"}</span><span>{fmtSignDate(managerSignature.signed_at) || "Date"}</span></div>
+              </>
+            ) : (
+              <>
+                <div className="sigline" />
+                <div className="sigmeta"><span>{managerName || "—"}</span><span>Date</span></div>
+                {!edit && canSignAsManager && (
+                  <button type="button" className="signbtn" onClick={onSignManager}>
+                    <PenLine className="w-3.5 h-3.5" />
+                    Sign as manager
+                  </button>
+                )}
+                {!edit && !canSignAsManager && managerAwaitingNote && (
+                  <div className="awaiting">{managerAwaitingNote}</div>
+                )}
+              </>
+            )}
           </div>
 
           {/* cc */}
