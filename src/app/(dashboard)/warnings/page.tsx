@@ -23,6 +23,7 @@ import type { Warning, WarningFilters } from "@/types";
 
 import { CategoryChips } from "@/components/warnings/CategoryChips";
 import { WarningCategoryManager } from "@/components/warnings/WarningCategoryManager";
+import { SignOffCell } from "@/components/warnings/SignOffCell";
 
 function fmtDate(iso: string): string {
   const d = new Date(`${iso}T00:00:00`);
@@ -106,6 +107,8 @@ export default function WarningsPage(): React.ReactElement {
     {
       key: "warning",
       header: "Subject",
+      // 칼럼 폭 제한 — 긴 details 가 테이블을 옆으로 늘리지 않게 (max-width 로 truncate 동작).
+      className: "max-w-[360px]",
       render: (w) => (
         <div className="min-w-0">
           <div className="truncate font-medium text-text">{w.title}</div>
@@ -133,6 +136,12 @@ export default function WarningsPage(): React.ReactElement {
           {w.status === "active" ? "Active" : "Withdrawn"}
         </Badge>
       ),
+    },
+    {
+      key: "signoff",
+      header: "Sign-off",
+      hideOnMobile: true,
+      render: (w) => <SignOffCell warning={w} />,
     },
   ];
 

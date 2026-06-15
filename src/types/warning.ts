@@ -7,6 +7,47 @@
 
 export type WarningStatus = "active" | "withdrawn";
 
+// ── Signatures ─────────────────────────────────────────────
+// A signature is captured as VECTOR strokes (arrays of [x,y] points), not an
+// image — identical to the staff app so app + console render the same ink.
+// `strokes` are normalized; `aspect` (= width/height of the capture pad) lets
+// the renderer build a consistent viewBox. Mirrors the server contract.
+export type SignatureStrokes = {
+  strokes: number[][][]; // [[[x,y]..]..]
+  aspect: number | null;
+};
+
+// How the manager applied the signature: freshly "drawn" or their "saved" one.
+export type SignatureMethod = "drawn" | "saved";
+
+// Per-side signature info (employee or manager) returned by the server.
+export interface SigInfo {
+  signer_user_id: string;
+  signer_name: string;
+  signed_at: string; // ISO datetime
+  method: SignatureMethod;
+  signature_strokes: SignatureStrokes;
+}
+
+// Both sign-off slots on a warning. `null` until that party signs.
+export interface WarningSignatures {
+  employee: SigInfo | null;
+  manager: SigInfo | null;
+}
+
+// POST /console/warnings/{id}/sign body — the manager applies their signature.
+export interface WarningSignRequest {
+  strokes: number[][][];
+  aspect: number | null;
+  method: SignatureMethod;
+  save_as_default: boolean;
+}
+
+// GET/PUT /console/warnings/my-signature — the manager's reusable signature.
+export interface MySignatureResponse {
+  signature: SignatureStrokes | null;
+}
+
 // v1.1: categories are org-managed (DB). Code is a free slug now, not a fixed union.
 export type WarningCategory = string;
 
@@ -52,6 +93,11 @@ export interface Warning {
   warning_date: string; // YYYY-MM-DD
   ordinal: number | null; // 1=First, 2=Second, ≥3=Other (detail only)
   withdrawn_at: string | null;
+  // Employee acknowledge is AUTOMATIC: opening the warning in the staff app sets
+  // this ("Read" = acknowledged). The explicit employee sign sits in signatures.
+  acknowledged_at: string | null; // ISO datetime
+  // Vector sign-off slots — employee (set in the app) + manager (set here).
+  signatures: WarningSignatures;
   created_at: string;
   updated_at: string;
 }
