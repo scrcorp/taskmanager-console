@@ -702,6 +702,7 @@ export type {
 // Warning — canonical types live in ./warning, re-exported below.
 export type {
   WarningStatus,
+  WarningSignatureMethod,
   WarningCategory,
   WarningCategoryItem,
   WarningCategoryCreate,

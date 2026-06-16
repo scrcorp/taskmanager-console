@@ -14,6 +14,7 @@ import { useAuthStore } from "@/stores/authStore";
 import { todayInTimezone } from "@/lib/utils";
 import type { Schedule, User, WorkRole, Store } from "@/types";
 import { ROLE_PRIORITY } from "@/lib/permissions";
+import { isOn30Grid } from "./scheduleStats";
 
 export interface ScheduleEditPayload {
   userId: string;
@@ -99,6 +100,56 @@ function minutesToTime(mins: number): string {
   const h = Math.floor(((mins % 1440) + 1440) % 1440 / 60);
   const m = ((mins % 60) + 60) % 60;
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}`;
+}
+
+/** 스케줄 30분 grid 규칙은 scheduleStats 로 분리 (등록 모달·서버 reject 와 동일 규칙). */
+const SCHEDULE_STEP_MIN = 30;
+
+/** 30분 단위로 스냅(반올림). auto-계산된 end/break 값을 grid 에 맞춰 옵션과 일치시킬 때만 사용. */
+function snapTo30(hhmm: string): string {
+  if (!hhmm) return hhmm;
+  return minutesToTime(Math.round(timeToMinutes(hhmm) / SCHEDULE_STEP_MIN) * SCHEDULE_STEP_MIN);
+}
+
+/**
+ * 시/분/AM·PM 를 분리한 30분 단위 시간 선택기. 네이티브 time input 은 브라우저별로
+ * 1·5·15분을 노출하므로, 짧은 드롭다운 3개로 30분만 보장한다 (분 = 00/30).
+ * 레거시 off-grid 분(예: 15)은 분 옵션에 끼워 표시(저장 시 검증이 막음).
+ */
+function TimeSelect({ value, onChange, className }: { value: string; onChange: (v: string) => void; className: string }) {
+  const total = value ? timeToMinutes(value) : 0;
+  const h24 = Math.floor(total / 60);
+  const min = total % 60;
+  const period: "AM" | "PM" = h24 < 12 ? "AM" : "PM";
+  const h12 = h24 % 12 === 0 ? 12 : h24 % 12;
+  const minOptions = min === 0 || min === SCHEDULE_STEP_MIN ? [0, SCHEDULE_STEP_MIN] : [min, 0, SCHEDULE_STEP_MIN];
+
+  function emit(nh12: number, nmin: number, nperiod: "AM" | "PM") {
+    let h = nh12 % 12;            // 12 → 0
+    if (nperiod === "PM") h += 12;
+    onChange(`${String(h).padStart(2, "0")}:${String(nmin).padStart(2, "0")}`);
+  }
+
+  const sel = "bg-transparent focus:outline-none cursor-pointer";
+  return (
+    <div className={`${className} flex items-center gap-0.5`}>
+      <select value={h12} onChange={(e) => emit(Number(e.target.value), min, period)} className={sel} aria-label="Hour">
+        {Array.from({ length: 12 }, (_, i) => i + 1).map((h) => (
+          <option key={h} value={h}>{h}</option>
+        ))}
+      </select>
+      <span className="text-[var(--color-text-muted)]">:</span>
+      <select value={min} onChange={(e) => emit(h12, Number(e.target.value), period)} className={sel} aria-label="Minute">
+        {minOptions.map((m) => (
+          <option key={m} value={m}>{String(m).padStart(2, "0")}</option>
+        ))}
+      </select>
+      <select value={period} onChange={(e) => emit(h12, min, e.target.value as "AM" | "PM")} className={`${sel} ml-0.5`} aria-label="AM/PM">
+        <option value="AM">AM</option>
+        <option value="PM">PM</option>
+      </select>
+    </div>
+  );
 }
 
 /** start→end 사이 분수 (overnight: end < start일 때 +24h 자동 처리). */
@@ -348,9 +399,9 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
   function onChangeStart(v: string) {
     timeDirtyRef.current = true;
     setStartTime(v);
-    // end를 아직 직접 편집 안 했으면 start + defaultShiftMin로 자동 이동
+    // end를 아직 직접 편집 안 했으면 start + defaultShiftMin로 자동 이동 (30분 grid 스냅)
     if (!endTimeDirtyRef.current) {
-      setEndTime(minutesToTime(timeToMinutes(v) + defaultShiftMin));
+      setEndTime(snapTo30(minutesToTime(timeToMinutes(v) + defaultShiftMin)));
     }
   }
   function onChangeEnd(v: string) {
@@ -382,8 +433,8 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
       if (!hasValidBreak) {
         const auto = computeAutoBreak(startTime, endTime, defaultBreakMin);
         if (auto) {
-          setBreakStart(auto.start);
-          setBreakEnd(auto.end);
+          setBreakStart(snapTo30(auto.start));
+          setBreakEnd(snapTo30(auto.end));
           breakDirtyRef.current = false; // 자동 계산은 dirty 아님
         }
       }
@@ -402,9 +453,12 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
   const validationError: string | null = (() => {
     if (startTime === endTime) return "Start and end time cannot be the same.";
     if (shiftTotalMin > 1440 - 1) return "Shift cannot exceed 24 hours."; // safety
+    // 30분 grid 강제 — 반올림하지 않고 reject. 키보드로 :17 등 입력 시 차단.
+    if (!isOn30Grid(startTime) || !isOn30Grid(endTime)) return "Start and end must be on the hour or half-hour (:00 or :30).";
     if (splitEnabled) {
       if (!breakStart || !breakEnd) return "Break times required when split is enabled.";
       if (breakStart === breakEnd) return "Break start and end cannot be the same.";
+      if (!isOn30Grid(breakStart) || !isOn30Grid(breakEnd)) return "Break times must be on the hour or half-hour (:00 or :30).";
       if (breakMinutes >= shiftTotalMin) return "Break cannot be longer than shift.";
     }
     return null;
@@ -596,10 +650,9 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">Start</label>
-                <input
-                  type="time"
+                <TimeSelect
                   value={startTime}
-                  onChange={(e) => onChangeStart(e.target.value)}
+                  onChange={onChangeStart}
                   className={`w-full px-3 py-2 border rounded-lg text-[13px] bg-[var(--color-surface)] ${changed("startTime", startTime) ? changedCls : "border-[var(--color-border)]"}`}
                 />
               </div>
@@ -607,10 +660,9 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
                 <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">
                   End {overnightShift && <span className="text-[var(--color-warning)] normal-case font-bold">+1d</span>}
                 </label>
-                <input
-                  type="time"
+                <TimeSelect
                   value={endTime}
-                  onChange={(e) => onChangeEnd(e.target.value)}
+                  onChange={onChangeEnd}
                   className={`w-full px-3 py-2 border rounded-lg text-[13px] bg-[var(--color-surface)] ${changed("endTime", endTime) ? changedCls : "border-[var(--color-border)]"}`}
                 />
               </div>
@@ -620,19 +672,17 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">Segment 1 Start</label>
-                  <input
-                    type="time"
+                  <TimeSelect
                     value={startTime}
-                    onChange={(e) => onChangeStart(e.target.value)}
+                    onChange={onChangeStart}
                     className="w-full px-3 py-2 border border-[var(--color-border)] rounded-lg text-[13px] bg-[var(--color-surface)]"
                   />
                 </div>
                 <div>
                   <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">Segment 1 End</label>
-                  <input
-                    type="time"
+                  <TimeSelect
                     value={breakStart}
-                    onChange={(e) => onChangeBreakStart(e.target.value)}
+                    onChange={onChangeBreakStart}
                     className={`w-full px-3 py-2 border rounded-lg text-[13px] bg-[var(--color-surface)] ${changed("breakStart", breakStart) ? changedCls : "border-[var(--color-border)]"}`}
                   />
                 </div>
@@ -646,10 +696,9 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">Segment 2 Start</label>
-                  <input
-                    type="time"
+                  <TimeSelect
                     value={breakEnd}
-                    onChange={(e) => onChangeBreakEnd(e.target.value)}
+                    onChange={onChangeBreakEnd}
                     className={`w-full px-3 py-2 border rounded-lg text-[13px] bg-[var(--color-surface)] ${changed("breakEnd", breakEnd) ? changedCls : "border-[var(--color-border)]"}`}
                   />
                 </div>
@@ -657,10 +706,9 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
                   <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">
                     Segment 2 End {overnightShift && <span className="text-[var(--color-warning)] normal-case font-bold">+1d</span>}
                   </label>
-                  <input
-                    type="time"
+                  <TimeSelect
                     value={endTime}
-                    onChange={(e) => onChangeEnd(e.target.value)}
+                    onChange={onChangeEnd}
                     className="w-full px-3 py-2 border border-[var(--color-border)] rounded-lg text-[13px] bg-[var(--color-surface)]"
                   />
                 </div>

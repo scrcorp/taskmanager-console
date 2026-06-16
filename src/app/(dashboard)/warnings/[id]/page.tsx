@@ -5,7 +5,9 @@ import { useParams, useRouter } from "next/navigation";
 import { useAuthStore } from "@/stores/authStore";
 import { useTimezone } from "@/hooks/useTimezone";
 import { todayInTimezone } from "@/lib/utils";
-import { useWarning, useUpdateWarning, useWarnableUsers } from "@/hooks/useWarnings";
+import { useWarning, useUpdateWarning, useWarnableUsers, useSwitchWarningMethod } from "@/hooks/useWarnings";
+import { useModal } from "@/components/ui/imperative-modal";
+import type { WarningSignatureMethod } from "@/types";
 import { WarningDetailView } from "@/components/warnings/WarningDetailView";
 import { WarningEditor, type WarningDraft } from "@/components/warnings/WarningEditor";
 
@@ -18,9 +20,38 @@ export default function WarningDetailPage(): React.ReactElement {
   const user = useAuthStore((s) => s.user);
 
   const [editing, setEditing] = useState(false);
+  const modal = useModal();
   const { data: w } = useWarning(id);
   const { data: warnable } = useWarnableUsers();
   const updateMut = useUpdateWarning();
+  const switchMut = useSwitchWarningMethod();
+
+  // Signature-method switch lives in Edit now (the toggle), not the detail action bar.
+  // It's destructive (resets sign-off / invalidates signatures), so it confirms first.
+  async function handleSwitchMethod(target: WarningSignatureMethod): Promise<void> {
+    if (!w) return;
+    const isWet = w.signature_method === "wet";
+    const hasSignatures = w.employee_signed || w.manager_signed;
+    const issuedByName = w.issued_by_name ?? "the manager";
+    const ok = await modal.confirm({
+      title: isWet ? "Switch to digital signature?" : "Switch to wet signature?",
+      message: hasSignatures
+        ? isWet
+          ? `${w.ref_no} has signatures on file. Switching to digital will permanently remove the uploaded signed PDF and reset sign-off, and the employee will be asked to re-sign in the app. This can't be undone.`
+          : `${w.ref_no} has signatures on file. Switching to wet will permanently remove the captured digital signatures and reset sign-off. You'll need to print the form, sign on paper, and upload the scan. This can't be undone.`
+        : isWet
+          ? `${w.ref_no} will switch to digital signing — the employee signs in the app and ${issuedByName} signs here.`
+          : `${w.ref_no} will switch to wet signing — print the form, sign on paper, then upload the scanned PDF.`,
+      confirmLabel: isWet ? "Switch to digital" : "Switch to wet",
+      variant: hasSignatures ? "danger" : "primary",
+    });
+    if (!ok) return;
+    try {
+      await switchMut.mutateAsync({ warningId: id, method: target });
+    } catch {
+      /* hook surfaces error */
+    }
+  }
 
   // Subject's stores (to let the Store picker change store while editing).
   const subjectStores = useMemo(() => {
@@ -50,6 +81,9 @@ export default function WarningDetailPage(): React.ReactElement {
       issued_by_id: w.issued_by_id,
       issued_by_name: w.issued_by_name ?? "",
       warning_date: w.warning_date,
+      // Method is switched via the editor's Digital/Wet toggle here (onSwitchMethod →
+      // the dedicated switch endpoint, not the draft Save). Seed it so the draft is well-formed.
+      signature_method: w.signature_method,
     };
   }, [w, subjectStores]);
 
@@ -87,6 +121,8 @@ export default function WarningDetailPage(): React.ReactElement {
           initial={editInitial}
           today={today}
           lockEmployee
+          methodValue={w.signature_method}
+          onSwitchMethod={(t) => void handleSwitchMethod(t)}
           saving={updateMut.isPending}
           submitLabel="Save changes"
           onBack={() => setEditing(false)}

@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { fmtTeam } from './scheduleStats'
 
 type SortState = 'none' | 'confirmed' | 'requested'
 
@@ -134,7 +135,7 @@ export function StatsHeader({
           >
             <span className="inline-flex items-center justify-center gap-1">
               <span className="inline-flex items-center justify-center min-w-[20px] px-1 py-0.5 rounded text-[10px] font-bold bg-[var(--color-success-muted)] text-[var(--color-success)]">
-                {col.teamConfirmed}
+                {fmtTeam(col.teamConfirmed)}
               </span>
               <svg width="8" height="5" viewBox="0 0 8 5"
                 className={`transition-opacity shrink-0 ${sortCol === i && sortState === 'confirmed' ? 'opacity-100' : hoverCol === i || sortCol === i ? 'opacity-40' : 'opacity-0'}`}>
@@ -145,7 +146,7 @@ export function StatsHeader({
         ))}
         <td className="py-1 border-b border-[var(--color-border)]/30 border-l border-[var(--color-border)] text-center">
           <span className="inline-flex items-center justify-center min-w-[20px] px-1 py-0.5 rounded text-[10px] font-bold bg-[var(--color-success-muted)] text-[var(--color-success)]">
-            {totalTeamConfirmed}
+            {fmtTeam(totalTeamConfirmed)}
           </span>
         </td>
       </tr>
@@ -168,7 +169,7 @@ export function StatsHeader({
           >
             <span className="inline-flex items-center justify-center gap-1">
               <span className={`inline-flex items-center justify-center min-w-[20px] px-1 py-0.5 rounded text-[10px] font-bold ${col.teamPending > 0 ? 'bg-[var(--color-warning-muted)] text-[var(--color-warning)]' : 'text-[var(--color-text-muted)] opacity-25'}`}>
-                {col.teamPending}
+                {fmtTeam(col.teamPending)}
               </span>
               <svg width="8" height="5" viewBox="0 0 8 5"
                 className={`transition-opacity shrink-0 ${sortCol === i && sortState === 'requested' ? 'opacity-100' : hoverCol === i || sortCol === i ? 'opacity-40' : 'opacity-0'}`}>
@@ -179,7 +180,7 @@ export function StatsHeader({
         ))}
         <td className="py-1 border-l border-[var(--color-border)] text-center">
           <span className={`inline-flex items-center justify-center min-w-[20px] px-1 py-0.5 rounded text-[10px] font-bold ${totalTeamPending > 0 ? 'bg-[var(--color-warning-muted)] text-[var(--color-warning)]' : 'text-[var(--color-text-muted)] opacity-25'}`}>
-            {totalTeamPending}
+            {fmtTeam(totalTeamPending)}
           </span>
         </td>
       </tr>

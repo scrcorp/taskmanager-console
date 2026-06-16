@@ -24,6 +24,7 @@ import { useAuthStore } from "@/stores/authStore";
 import type { Schedule, Store, User } from "@/types";
 import { ScheduleBlock } from "./ScheduleBlock";
 import { StatsHeader } from "./StatsHeader";
+import { hourOccupancy } from "./scheduleStats";
 import { ContextMenu } from "./ContextMenu";
 import { HistoryPanel } from "./HistoryPanel";
 import { SwapModal } from "./SwapModal";
@@ -868,8 +869,9 @@ export default function SchedulesCalendarView() {
       isSunday: day.isSunday,
       isSaturday: day.isWeekend && !day.isSunday,
       isNow: day.date === todayStr,
-      teamConfirmed: new Set(confirmed.map((s) => s.user_id)).size,
-      teamPending: new Set(pending.map((s) => s.user_id)).size,
+      // TEAM = 스케줄 수 (고유 인원 아님). 한 사람이 2개 등록하면 2.
+      teamConfirmed: confirmed.length,
+      teamPending: pending.length,
       hoursConfirmed: sumHours(confirmed),
       hoursPending: sumHours(pending),
       costConfirmed: sumCost(confirmed),
@@ -887,26 +889,25 @@ export default function SchedulesCalendarView() {
   }, [openHour, closeHour]);
 
   const dailyColumns = useMemo(() => dailyHourRange.map((h) => {
-    const daySchedules = schedules.filter((s) => {
-      if (s.work_date !== selectedDay || !matchesStoreFilter(s.store_id)) return false;
-      const sH = Math.floor(parseTimeToHours(s.start_time));
-      const eH = Math.ceil(parseTimeToHours(s.end_time));
-      // overnight: end <= start → treat end as end + 24
-      const effectiveEnd = eH <= sH ? eH + 24 : eH;
-      return sH <= h && effectiveEnd > h;
-    });
+    // 이 1시간 슬롯 [h, h+1) 안에서 스케줄이 차지하는 비율(0~1). 30분 grid라 0/0.5/1 로 떨어짐.
+    // 30분만 걸친 사람은 0.5인으로 계산 (한 시간 전부 일하면 1인).
+    const occupancy = (s: Schedule): number => hourOccupancy(s.start_time, s.end_time, h);
+    const daySchedules = schedules.filter(
+      (s) => s.work_date === selectedDay && matchesStoreFilter(s.store_id) && occupancy(s) > 0,
+    );
     const confirmed = daySchedules.filter((s) => s.status === "confirmed");
     const pending = daySchedules.filter((s) => s.status === "requested");
-    // 시간당 1시간 컬럼 — stored only
-    const sumCost = (arr: Schedule[]) => arr.reduce((sum, s) => sum + (s.hourly_rate ?? 0), 0);
+    // 점유 비율 가중 합 — 30분 점유 = 0.5. cost 도 점유분만큼만 잡음.
+    const sumOcc = (arr: Schedule[]) => arr.reduce((sum, s) => sum + occupancy(s), 0);
+    const sumCost = (arr: Schedule[]) => arr.reduce((sum, s) => sum + occupancy(s) * (s.hourly_rate ?? 0), 0);
     return {
       key: `h${h}`,
       hour: h,
       label: formatHourLabel(h),
-      teamConfirmed: confirmed.length,
-      teamPending: pending.length,
-      hoursConfirmed: confirmed.length,
-      hoursPending: pending.length,
+      teamConfirmed: sumOcc(confirmed),
+      teamPending: sumOcc(pending),
+      hoursConfirmed: sumOcc(confirmed),
+      hoursPending: sumOcc(pending),
       costConfirmed: sumCost(confirmed),
       costPending: sumCost(pending),
     };
@@ -921,8 +922,8 @@ export default function SchedulesCalendarView() {
       hp: weeklyColumns.reduce((a, c) => a + c.hoursPending, 0),
       lc: weeklyColumns.reduce((a, c) => a + c.costConfirmed, 0),
       lp: weeklyColumns.reduce((a, c) => a + c.costPending, 0),
-      tc: new Set(conf.map((s) => s.user_id)).size,
-      tp: new Set(pend.map((s) => s.user_id)).size,
+      tc: conf.length,
+      tp: pend.length,
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [weeklyColumns, schedules, weekDates, selectedStores, isAllStores]);
@@ -938,8 +939,9 @@ export default function SchedulesCalendarView() {
       hp: sumHours(pend),
       lc: sumCost(conf),
       lp: sumCost(pend),
-      tc: new Set(conf.map((s) => s.user_id)).size,
-      tp: new Set(pend.map((s) => s.user_id)).size,
+      // 일간 TOTAL TEAM = 그 날 스케줄 수 (시간대별은 0.5 환산이지만 합계 컬럼은 스케줄 수).
+      tc: conf.length,
+      tp: pend.length,
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [schedules, selectedDay, selectedStores, isAllStores, users]);
@@ -953,8 +955,8 @@ export default function SchedulesCalendarView() {
     return {
       hc: sumHours(conf), hp: sumHours(pend),
       lc: sumCost(conf), lp: sumCost(pend),
-      tc: new Set(conf.map((s) => s.user_id)).size,
-      tp: new Set(pend.map((s) => s.user_id)).size,
+      tc: conf.length,
+      tp: pend.length,
     };
   }, [schedules, monthDateFrom, monthDateTo, selectedStores, isAllStores]);
 
@@ -990,8 +992,8 @@ export default function SchedulesCalendarView() {
       staff: filteredUsers.length,
       hc: sumHours(conf), hp: sumHours(pend),
       lc: sumCost(conf), lp: sumCost(pend),
-      tc: new Set(conf.map((s) => s.user_id)).size,
-      tp: new Set(pend.map((s) => s.user_id)).size,
+      tc: conf.length,
+      tp: pend.length,
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [totalActiveFilters, filteredUsers, filters, schedules, view, monthDateFrom, monthDateTo, selectedDay, weekDates, selectedStores, isAllStores]);

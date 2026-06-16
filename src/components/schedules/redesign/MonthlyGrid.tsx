@@ -43,7 +43,8 @@ interface DayStat {
 
 function calcStat(scheds: Schedule[]): DayStat {
   return {
-    count: new Set(scheds.map((s) => s.user_id)).size,
+    // TEAM = 스케줄 수 (고유 인원 아님). 한 사람이 여러 스케줄이면 그 수만큼.
+    count: scheds.length,
     hours: scheds.reduce((sum, s) => sum + getNetHours(s), 0),
     cost: scheds.reduce((sum, s) => sum + getCost(s), 0),
   };

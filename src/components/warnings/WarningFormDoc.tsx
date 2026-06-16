@@ -56,6 +56,10 @@ interface WarningFormDocProps {
   canSignAsManager?: boolean;
   /** Read-only hint shown to everyone else when the manager hasn't signed yet. */
   managerAwaitingNote?: string | null;
+  /** Wet-sign warning: the signature cells reference the uploaded PDF, not ink lines. */
+  wetSign?: boolean;
+  /** Wet-sign + the scanned PDF has been uploaded. */
+  wetSigned?: boolean;
   onSignManager?: () => void;
   onPickEmployee?: () => void;
   onPickStore?: () => void;
@@ -74,13 +78,29 @@ const CSS = `
 .wfd { --ink:#1A1C22; --ink-soft:#3C4049; --label:#7A8090; --muted:#9AA0AD; --rule:#C7CBD4; --rule-thick:#1A1C22; --fill:#F6F7F9; --accent:#6C5CE7; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
 .wfd * { box-sizing:border-box; }
 .wfd .sheet { background:#fff; color:var(--ink); font-family:"Helvetica Neue",Helvetica,"Segoe UI",Arial,sans-serif; }
+/* 서명 방식(digital/wet) 모드 표시 — SCREEN ONLY (인쇄/PDF 에선 제거). 뒤쪽에서 은은히 빛나는 글로우 + 라벨로 구분. */
+.wfd.m-digital .sheet { box-shadow:0 0 48px 0 rgba(108,92,231,.28), 0 0 12px rgba(108,92,231,.14), 0 10px 34px rgba(0,0,0,.4); }
+.wfd.m-wet .sheet { box-shadow:0 0 48px 0 rgba(232,146,12,.3), 0 0 12px rgba(232,146,12,.15), 0 10px 34px rgba(0,0,0,.4); }
+.wfd .modebar { display:inline-flex; align-items:center; gap:7px; font-size:11px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; padding:6px 12px; margin-bottom:11px; border-radius:8px; border:1px solid; }
+.wfd .modebar .dot { width:8px; height:8px; border-radius:50%; flex:none; }
+.wfd .modebar .sub { font-weight:600; letter-spacing:.04em; text-transform:none; opacity:.8; }
+.wfd.m-digital .modebar { color:#4b41b8; background:rgba(108,92,231,.09); border-color:rgba(108,92,231,.45); }
+.wfd.m-digital .modebar .dot { background:#6C5CE7; }
+.wfd.m-wet .modebar { color:#8a5600; background:rgba(232,146,12,.1); border-color:rgba(232,146,12,.5); }
+.wfd.m-wet .modebar .dot { background:#E8920C; }
 .wfd .banner { border:2.5px solid var(--rule-thick); border-bottom:none; display:flex; align-items:flex-end; justify-content:space-between; gap:16px; padding:16px 20px 13px; }
 .wfd .banner h1 { font-size:21px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; margin:0; line-height:1.12; }
 .wfd .banner h1 .ref { font-weight:600; color:var(--ink-soft); letter-spacing:.02em; text-transform:none; }
 .wfd .subtitle { margin-top:5px; font-size:10px; letter-spacing:.2em; text-transform:uppercase; color:var(--label); font-weight:600; }
-.wfd .company { text-align:right; line-height:1.15; flex:none; }
-.wfd .company .mark { font-size:14px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; }
-.wfd .company .mark-sub { font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:var(--muted); margin-top:2px; }
+.wfd .company { line-height:1.15; flex:none; display:flex; flex-direction:column; align-items:flex-end; gap:6px; }
+.wfd .company .mark { font-size:14px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; text-align:right; }
+.wfd .company .markpick { display:inline-flex; align-items:center; gap:7px; border:1px solid var(--rule); border-radius:7px; padding:4px 9px; background:#fff; cursor:pointer; font-size:13px; font-weight:800; letter-spacing:.05em; text-transform:uppercase; color:var(--ink); }
+.wfd .company .markpick:hover { border-color:var(--ink-soft); }
+.wfd .company .markpick .empty { color:var(--muted); font-weight:700; }
+.wfd .company .markpick .chev { color:var(--muted); display:inline-flex; }
+.wfd .company .lhdate { display:flex; align-items:center; gap:7px; }
+.wfd .company .lhdate-lbl { font-size:9px; font-weight:700; letter-spacing:.14em; text-transform:uppercase; color:var(--label); }
+.wfd .company .lhdate-val { font-size:12.5px; font-weight:700; color:var(--ink-soft); letter-spacing:.01em; }
 .wfd .grid { border:2.5px solid var(--rule-thick); display:grid; grid-template-columns:repeat(12,minmax(0,1fr)); }
 .wfd .cell { border-right:1px solid var(--rule); border-bottom:1px solid var(--rule); padding:9px 13px 10px; min-height:58px; display:flex; flex-direction:column; justify-content:center; position:relative; background:#fff; min-width:0; }
 .wfd .cell.edge-r { border-right:none; } .wfd .cell.edge-b { border-bottom:none; }
@@ -147,6 +167,7 @@ const CSS = `
   .wfd, .wfd * { visibility:visible !important; -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
   .wfd { position:absolute; left:0; top:0; width:100%; padding:0 !important; margin:0 !important; --rule:#6B7280; }
   .wfd .sheet { box-shadow:none !important; max-width:none !important; padding:11mm 10mm !important; }
+  .wfd .modebar { display:none !important; }
   .wfd .subject { display:none !important; }
   /* 1px hairlines land on fractional device pixels under the print/PDF rasterizer and
      anti-alias to near-nothing, dropping random dividers (esp. verticals). Darker +
@@ -191,7 +212,7 @@ function Box({ on }: { on: boolean }): React.ReactElement {
 }
 
 export function WarningFormDoc(props: WarningFormDocProps): React.ReactElement {
-  const { mode, companyName, refNo, employeeName, employeeNo, managerName, storeName, dateValue, dateLabel, maxDate, ordinal, title, categoryOptions, categories, categoryLabels, details, correctiveAction, otherText, deadline, followUpDate, followUpTime, employeeSignature, managerSignature, canSignAsManager, managerAwaitingNote, onSignManager } = props;
+  const { mode, companyName, refNo, employeeName, employeeNo, managerName, storeName, dateValue, dateLabel, maxDate, ordinal, title, categoryOptions, categories, categoryLabels, details, correctiveAction, otherText, deadline, followUpDate, followUpTime, employeeSignature, managerSignature, canSignAsManager, managerAwaitingNote, onSignManager, wetSign, wetSigned } = props;
   const edit = mode === "edit";
   const chosen = new Set(categories);
   const [reasonQuery, setReasonQuery] = useState("");
@@ -219,8 +240,14 @@ export function WarningFormDoc(props: WarningFormDocProps): React.ReactElement {
   };
 
   return (
-    <div className="wfd">
+    <div className={`wfd ${wetSign ? "m-wet" : "m-digital"}`}>
       <style>{CSS}</style>
+      {/* 서명 방식 모드 표시 (screen-only) — 테두리 링과 함께 wet/digital 구분 */}
+      <div className="modebar">
+        <span className="dot" />
+        {wetSign ? "Wet signature" : "Digital signature"}
+        <span className="sub">{wetSign ? "— print & sign on paper" : "— signed in app / console"}</span>
+      </div>
       <div className="sheet">
         {/* Banner */}
         <div className="banner">
@@ -229,8 +256,24 @@ export function WarningFormDoc(props: WarningFormDocProps): React.ReactElement {
             <div className="subtitle">Human Resources · Disciplinary Record</div>
           </div>
           <div className="company">
-            <div className="mark">{companyName || ""}</div>
-            <div className="mark-sub">Official Notice</div>
+            {/* 레터헤드 = 발행 매장(브랜드)명 + 발행일. 멀티브랜드라 매장이 발행 주체.
+                edit 모드에선 매장 선택/날짜 입력(중복 STORE/DATE 행 대체), view 모드는 표시만. */}
+            {edit ? (
+              <button type="button" className="markpick" onClick={props.onPickStore} title="Select store">
+                <span className={storeName ? "" : "empty"}>{storeName || "Select store"}</span>
+                <span className="chev">{chevDown}</span>
+              </button>
+            ) : (
+              <div className="mark">{storeName || ""}</div>
+            )}
+            <div className="lhdate">
+              <span className="lhdate-lbl">Date</span>
+              {edit ? (
+                <DateField value={dateValue ?? ""} onChange={(v) => props.onDate?.(v)} placeholder="Pick a date" fallbackDate={maxDate ?? ""} />
+              ) : (
+                <span className="lhdate-val">{dateLabel || "—"}</span>
+              )}
+            </div>
           </div>
         </div>
 
@@ -274,28 +317,7 @@ export function WarningFormDoc(props: WarningFormDocProps): React.ReactElement {
             )}
           </div>
 
-          {/* Store | Date */}
-          <div className="cell c-store">
-            <div className="lbl">Store / Brand <span className="req">*</span></div>
-            {edit ? (
-              <button type="button" className="pick" onClick={props.onPickStore}>
-                <span className={`pv${storeName ? "" : " empty"}`}>{storeName || "Select store"}</span>
-                <span className="chev">{chevDown}</span>
-              </button>
-            ) : (
-              <div className="val static">{storeName || "—"}</div>
-            )}
-          </div>
-          <div className="cell c-date edge-r">
-            <div className="lbl">Date</div>
-            {edit ? (
-              <div className="dtrow">
-                <DateField value={dateValue ?? ""} onChange={(v) => props.onDate?.(v)} placeholder="Pick a date" fallbackDate={maxDate ?? ""} />
-              </div>
-            ) : (
-              <div className="val static">{dateLabel}</div>
-            )}
-          </div>
+          {/* Store / Date 행 제거 — 매장명은 우상단 레터헤드(중복 제거), 날짜도 레터헤드로 이동. */}
 
           {/* Warning type */}
           <div className="cell wtype edge-r">
@@ -384,10 +406,17 @@ export function WarningFormDoc(props: WarningFormDocProps): React.ReactElement {
             )}
           </div>
 
-          {/* Signatures (print PDF) — render captured vector strokes when signed */}
+          {/* Signatures (print PDF) — render captured vector strokes when signed.
+              Wet warnings sign on paper, so the boxes reference the uploaded PDF. */}
           <div className="cell span6">
             <div className="lbl">Employee Signature <span className="printmark">print PDF</span></div>
-            {employeeSignature ? (
+            {wetSign ? (
+              <>
+                <div className="sigline" />
+                <div className="sigmeta"><span>{employeeName || "—"}</span><span>Date</span></div>
+                <div className="awaiting">{wetSigned ? "Signed on paper — see PDF" : "To be signed on paper"}</div>
+              </>
+            ) : employeeSignature ? (
               <>
                 <div className="sigink"><SignatureView signature={employeeSignature.signature_strokes} strokeWidth={2.6} /></div>
                 <div className="sigmeta"><span className="signedby">{employeeSignature.signer_name || employeeName || "—"}</span><span>{fmtSignDate(employeeSignature.signed_at) || "Date"}</span></div>
@@ -401,7 +430,13 @@ export function WarningFormDoc(props: WarningFormDocProps): React.ReactElement {
           </div>
           <div className="cell span6 edge-r">
             <div className="lbl">Manager Signature <span className="printmark">print PDF</span></div>
-            {managerSignature ? (
+            {wetSign ? (
+              <>
+                <div className="sigline" />
+                <div className="sigmeta"><span>{managerName || "—"}</span><span>Date</span></div>
+                <div className="awaiting">{wetSigned ? "Signed on paper — see PDF" : "To be signed on paper"}</div>
+              </>
+            ) : managerSignature ? (
               <>
                 <div className="sigink"><SignatureView signature={managerSignature.signature_strokes} strokeWidth={2.6} /></div>
                 <div className="sigmeta"><span className="signedby">{managerSignature.signer_name || managerName || "—"}</span><span>{fmtSignDate(managerSignature.signed_at) || "Date"}</span></div>
