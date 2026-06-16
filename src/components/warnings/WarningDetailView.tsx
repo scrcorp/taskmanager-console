@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { ChevronLeft, Pencil, Trash2, Printer, PenLine } from "lucide-react";
+import { ChevronLeft, Pencil, Trash2, Printer, PenLine, MonitorSmartphone, FileSignature } from "lucide-react";
 import { Button, Badge, LoadingSpinner } from "@/components/ui";
 import { useModal } from "@/components/ui/imperative-modal";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -17,6 +17,8 @@ import {
 import { useWarningCategories } from "@/hooks/useWarningCategories";
 import { WarningFormDoc } from "./WarningFormDoc";
 import { SignaturePad, type SignatureResult } from "./SignaturePad";
+import { WetUploadControl, SignedPdfCard } from "./WarningWetSign";
+import { buildWarningFilename, missingFilenameFields } from "./filename";
 
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
@@ -39,16 +41,22 @@ export function WarningDetailView({ warningId, onBack, onEdit }: Props): React.R
   const { data: w, isLoading, isError } = useWarning(warningId);
   const { data: allCategories = [] } = useWarningCategories();
   const categoryOptions = allCategories.filter((c) => !c.is_hidden);
+  // Live code→label resolver for the download filename (covers org categories).
+  const categoryLabel = (code: string): string | undefined =>
+    allCategories.find((c) => c.code === code)?.label;
   const updateMut = useUpdateWarning();
   const deleteMut = useDeleteWarning();
   const signMut = useSignWarning();
 
   const [padOpen, setPadOpen] = useState(false);
+  const isWet = w?.signature_method === "wet";
   // Identity gate: only the warning's designated manager (the issuer) may sign.
   // Drives whether we even fetch/offer their reusable saved signature.
   const isWarningManager = !!w && !!userId && w.issued_by_id === userId;
   const managerNotSigned = !!w && !w.signatures.manager;
-  const canSignAsManager = isWarningManager && managerNotSigned && w?.status === "active";
+  // Digital sign-off only applies to digital warnings.
+  const canSignAsManager =
+    !isWet && isWarningManager && managerNotSigned && w?.status === "active";
   // Only fetch the saved signature for the manager who can actually sign.
   const { data: savedSignature } = useMySignature(canSignAsManager);
 
@@ -79,6 +87,14 @@ export function WarningDetailView({ warningId, onBack, onEdit }: Props): React.R
     (isOwner || warning.issued_by_id === userId) && hasPermission(PERMISSIONS.WARNINGS_UPDATE);
   const canEdit = canWithdraw;
   const canDelete = isOwner;
+  // Wet-sign gates:
+  //  - upload/replace the scan: the issuing manager (own warning) OR an
+  //    owner / `warnings:upload` holder (any warning)
+  //  - switch signature method: anyone who can update (warnings:update)
+  const canUploadWet =
+    warning.issued_by_id === userId || isOwner || hasPermission(PERMISSIONS.WARNINGS_UPLOAD);
+  const downloadName = buildWarningFilename(warning, categoryLabel);
+  const missingFields = missingFilenameFields(warning);
 
   async function toggleWithdraw(): Promise<void> {
     const toWithdrawn = warning.status !== "withdrawn";
@@ -119,11 +135,11 @@ export function WarningDetailView({ warningId, onBack, onEdit }: Props): React.R
   // Client-side print → the browser's "Save as PDF". `@media print` (in
   // WarningFormDoc) hides the app chrome + the web-only Subject, so the printed
   // page is just the official form — no server PDF, always matches the screen.
-  // Swap the document title so the browser's print header reads the warning ref
-  // (e.g. "Warning W-00003") instead of the app tab name ("HTM Admin").
+  // Swap the document title to the canonical download filename (sans ".pdf")
+  // so the browser's Save-as-PDF dialog pre-fills it; restore on afterprint.
   function printPdf(): void {
     const prev = document.title;
-    document.title = `Warning ${warning.ref_no}`;
+    document.title = downloadName.replace(/\.pdf$/i, "");
     const restore = (): void => {
       document.title = prev;
       window.removeEventListener("afterprint", restore);
@@ -150,10 +166,14 @@ export function WarningDetailView({ warningId, onBack, onEdit }: Props): React.R
   }
 
   // ── sign-off status strip data ──
+  // Sign-off status comes from the server-derived `employee_signed` /
+  // `manager_signed` bools (which fold in the wet path), NOT the raw signatures
+  // map. The vector `signatures` entries are still used only to surface the
+  // signer name + exact date for the digital case.
   const issuedByName = warning.issued_by_name ?? "the manager";
   const empSig = warning.signatures.employee;
   const mgrSig = warning.signatures.manager;
-  const empState: "signed" | "read" | "not_opened" = empSig
+  const empState: "signed" | "read" | "not_opened" = warning.employee_signed
     ? "signed"
     : warning.acknowledged_at
       ? "read"
@@ -162,13 +182,21 @@ export function WarningDetailView({ warningId, onBack, onEdit }: Props): React.R
   return (
     <div className="max-w-[860px] mx-auto pb-10">
       <div className="sticky top-0 z-20 mb-4 bg-card border border-border rounded-lg px-3 sm:px-4 py-2.5 flex items-center gap-2 flex-wrap shadow-sm">
+        {/* Left — nav + status info (방식 전환은 Edit 의 토글로 이동) */}
         <Button variant="ghost" onClick={onBack} className="gap-1.5">
           <ChevronLeft className="h-4 w-4" />
           Back
         </Button>
+        <span className="mx-1 hidden h-5 w-px bg-border sm:block" />
         <Badge variant={warning.status === "active" ? "warning" : "default"}>
           {warning.status === "active" ? "Active" : "Withdrawn"}
         </Badge>
+        <Badge variant="default" className="gap-1">
+          {isWet ? <FileSignature className="h-3 w-3" /> : <MonitorSmartphone className="h-3 w-3" />}
+          {isWet ? "Wet" : "Digital"}
+        </Badge>
+
+        {/* Right — actions, destructive/ownership separated by a divider */}
         <div className="ml-auto flex items-center gap-2">
           <Button variant="secondary" onClick={printPdf} className="gap-1.5">
             <Printer className="h-4 w-4" />
@@ -179,6 +207,7 @@ export function WarningDetailView({ warningId, onBack, onEdit }: Props): React.R
               {warning.status === "withdrawn" ? "Re-warn" : "Withdraw"}
             </Button>
           )}
+          {(canDelete || canEdit) && <span className="mx-0.5 h-5 w-px bg-border" />}
           {canDelete && (
             <Button variant="danger" onClick={() => void handleDelete()} isLoading={deleteMut.isPending} className="gap-1.5">
               <Trash2 className="h-4 w-4" />
@@ -194,6 +223,15 @@ export function WarningDetailView({ warningId, onBack, onEdit }: Props): React.R
         </div>
       </div>
 
+      {/* Missing-fields badge — surfaces gaps that downgrade the download filename. */}
+      {missingFields.length > 0 && (
+        <div className="mb-3 rounded-lg border px-3.5 py-2.5 text-[12.5px] font-semibold"
+          style={{ border: "1px solid #F4E0B5", background: "#FEF6E7", color: "#B45309" }}>
+          Missing for the file name: {missingFields.join(", ")}. The PDF still downloads,
+          but with an &ldquo;NA&rdquo; placeholder for those parts.
+        </div>
+      )}
+
       {/* Sign-off status strip — Employee acknowledge/sign + Manager sign */}
       <div className="mb-4 grid gap-3 sm:grid-cols-2">
         {/* Employee */}
@@ -206,9 +244,11 @@ export function WarningDetailView({ warningId, onBack, onEdit }: Props): React.R
                 : { fg: "#7A8090", bg: "#F4F5F7", br: "#E2E5EA" };
           const line =
             empState === "signed"
-              ? `Signed on ${fmtDate(empSig?.signed_at ?? null)}`
+              ? isWet
+                ? "Signed PDF uploaded"
+                : `Signed on ${fmtDate(empSig?.signed_at ?? null)}`
               : empState === "read"
-                ? `Read on ${fmtDate(warning.acknowledged_at)} — awaiting signature`
+                ? `Read on ${fmtDate(warning.acknowledged_at)}${isWet ? "" : " — awaiting signature"}`
                 : "Not opened yet";
           return (
             <div className="rounded-lg px-3.5 py-2.5" style={{ border: `1px solid ${tone.br}`, background: tone.bg }}>
@@ -224,16 +264,21 @@ export function WarningDetailView({ warningId, onBack, onEdit }: Props): React.R
         })()}
         {/* Manager */}
         {(() => {
-          const signed = !!mgrSig;
+          const signed = warning.manager_signed;
           const actionable = canSignAsManager;
           const tone = signed
             ? { fg: "#2F9E44", bg: "#EBF8EE", br: "#C3E9CD" }
             : actionable
               ? { fg: "#6C5CE7", bg: "#F1EEFE", br: "#D6CCFB" }
               : { fg: "#7A8090", bg: "#F4F5F7", br: "#E2E5EA" };
+          // Wet: the uploaded scan stands in for the manager's signature too.
           const line = signed
-            ? `Signed by ${mgrSig?.signer_name ?? issuedByName} on ${fmtDate(mgrSig?.signed_at ?? null)}`
-            : `Awaiting ${issuedByName}'s signature`;
+            ? isWet
+              ? "Signed on paper — see PDF"
+              : `Signed by ${mgrSig?.signer_name ?? issuedByName} on ${fmtDate(mgrSig?.signed_at ?? null)}`
+            : isWet
+              ? "Awaiting the signed PDF upload"
+              : `Awaiting ${issuedByName}'s signature`;
           return (
             <div className="flex items-center gap-2.5 rounded-lg px-3.5 py-2.5" style={{ border: `1px solid ${tone.br}`, background: tone.bg }}>
               <div className="min-w-0 flex-1">
@@ -244,12 +289,18 @@ export function WarningDetailView({ warningId, onBack, onEdit }: Props): React.R
                   <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: tone.fg }} />
                   <span className="truncate text-sm font-bold" style={{ color: tone.fg }}>{line}</span>
                 </div>
-                {!signed && !canSignAsManager && (
+                {!signed && !isWet && !canSignAsManager && (
                   <div className="mt-0.5 text-[11.5px]" style={{ color: "#9AA0AD" }}>
                     Only {issuedByName} can sign this.
                   </div>
                 )}
+                {!signed && isWet && !canUploadWet && (
+                  <div className="mt-0.5 text-[11.5px]" style={{ color: "#9AA0AD" }}>
+                    {issuedByName} or an authorized manager uploads the signed PDF.
+                  </div>
+                )}
               </div>
+              {/* Digital: in-card sign affordance. Wet: upload handled by the card below. */}
               {canSignAsManager && (
                 <Button variant="primary" onClick={() => setPadOpen(true)} className="shrink-0 gap-1.5">
                   <PenLine className="h-4 w-4" />
@@ -260,6 +311,21 @@ export function WarningDetailView({ warningId, onBack, onEdit }: Props): React.R
           );
         })()}
       </div>
+
+      {/* Wet sign — uploaded scan preview, or the upload control when missing. */}
+      {isWet && warning.signed_pdf_present && (
+        <SignedPdfCard warning={warning} categoryLabel={categoryLabel} canReplace={canUploadWet} />
+      )}
+      {isWet && !warning.signed_pdf_present && canUploadWet && (
+        <div className="mb-4 rounded-xl border border-border bg-card p-4">
+          <div className="mb-2 text-sm font-bold text-text">Upload signed PDF</div>
+          <p className="mb-3 text-xs text-text-secondary">
+            Print the form below, have the employee and {issuedByName} sign on paper, then
+            upload the scan here. This stands in for both digital signatures.
+          </p>
+          <WetUploadControl warningId={warning.id} defaultSignedOn={warning.warning_date} />
+        </div>
+      )}
 
       <WarningFormDoc
         mode="view"
@@ -281,11 +347,13 @@ export function WarningDetailView({ warningId, onBack, onEdit }: Props): React.R
         deadline={warning.deadline ?? ""}
         followUpDate={warning.follow_up_date ?? ""}
         followUpTime={warning.follow_up_time ?? ""}
-        employeeSignature={empSig}
-        managerSignature={mgrSig}
+        employeeSignature={isWet ? null : empSig}
+        managerSignature={isWet ? null : mgrSig}
         canSignAsManager={canSignAsManager}
-        managerAwaitingNote={mgrSig ? null : `Only ${issuedByName} can sign`}
+        managerAwaitingNote={isWet || mgrSig ? null : `Only ${issuedByName} can sign`}
         onSignManager={() => setPadOpen(true)}
+        wetSign={isWet}
+        wetSigned={isWet && warning.signed_pdf_present}
       />
 
       {padOpen && canSignAsManager && (

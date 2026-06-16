@@ -33,6 +33,7 @@ import type {
   WarnableUsersPage,
   WarningCount,
   WarningSignRequest,
+  WarningSignatureMethod,
   MySignatureResponse,
   SignatureStrokes,
   PaginatedResponse,
@@ -299,3 +300,84 @@ export const useSaveMySignature = (): UseMutationResult<
     onError: error("Couldn't save signature"),
   });
 };
+
+// === Wet sign (physical paper → scanned PDF) =================================
+
+/**
+ * Switch a warning's signature method (digital ↔ wet). When signatures or a
+ * scanned PDF already exist the server invalidates them and sends a re-sign
+ * notice — a destructive action the UI confirms with a danger dialog.
+ */
+export const useSwitchWarningMethod = (): UseMutationResult<
+  Warning,
+  Error,
+  { warningId: string; method: WarningSignatureMethod }
+> => {
+  const qc = useQueryClient();
+  const { success, error } = useMutationResult();
+  return useMutation<Warning, Error, { warningId: string; method: WarningSignatureMethod }>({
+    mutationFn: async ({ warningId, method }) => {
+      const res: AxiosResponse<Warning> = await api.put(
+        `/console/warnings/${warningId}/method`,
+        { method },
+      );
+      return res.data;
+    },
+    onSuccess: (warning) => {
+      invalidateWarnings(qc, warning.id);
+      success(
+        warning.signature_method === "wet"
+          ? "Switched to wet signature."
+          : "Switched to digital signature.",
+      );
+    },
+    onError: error("Couldn't switch signature method"),
+  });
+};
+
+/**
+ * Upload a wet-signed scanned PDF for a warning (multipart). `signedOn` is the
+ * date the document was physically signed (defaults server-side to the upload
+ * date). Server gates: the issuing manager (own warnings) OR an owner/holder of
+ * `warnings:upload` (any warning).
+ */
+export const useUploadSignedPdf = (): UseMutationResult<
+  Warning,
+  Error,
+  { warningId: string; file: File; signedOn?: string }
+> => {
+  const qc = useQueryClient();
+  const { success, error } = useMutationResult();
+  return useMutation<Warning, Error, { warningId: string; file: File; signedOn?: string }>({
+    mutationFn: async ({ warningId, file, signedOn }) => {
+      const fd = new FormData();
+      fd.append("file", file);
+      if (signedOn) fd.append("signed_on", signedOn);
+      const res: AxiosResponse<Warning> = await api.post(
+        `/console/warnings/${warningId}/signed-pdf`,
+        fd,
+        { headers: { "Content-Type": "multipart/form-data" } },
+      );
+      return res.data;
+    },
+    onSuccess: (warning) => {
+      invalidateWarnings(qc, warning.id);
+      success("Signed PDF uploaded.");
+    },
+    onError: error("Couldn't upload signed PDF"),
+  });
+};
+
+/**
+ * Fetch the wet-signed PDF as an object URL. The endpoint streams the bytes and
+ * requires the auth header (so it can't go straight into an <iframe src>) — we
+ * fetch via the authed axios client with responseType "blob" and wrap it in a
+ * blob: URL the caller revokes when done. Not a hook; call imperatively.
+ */
+export async function fetchSignedPdfUrl(warningId: string): Promise<string> {
+  const res = await api.get(`/console/warnings/${warningId}/signed-pdf`, {
+    responseType: "blob",
+  });
+  const blob = new Blob([res.data as BlobPart], { type: "application/pdf" });
+  return URL.createObjectURL(blob);
+}

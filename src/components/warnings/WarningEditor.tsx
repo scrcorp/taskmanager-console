@@ -2,12 +2,13 @@
 
 import React, { useMemo, useState } from "react";
 import { ChevronLeft } from "lucide-react";
-import type { WarningCategory, WarnableUserStore } from "@/types";
+import type { WarningCategory, WarnableUserStore, WarningSignatureMethod } from "@/types";
 import { Button } from "@/components/ui";
 import { useModal } from "@/components/ui/imperative-modal";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useWarningCategories } from "@/hooks/useWarningCategories";
 import { WarningFormDoc } from "./WarningFormDoc";
+import { MethodToggle } from "./MethodToggle";
 import { EmployeePickerModal, StorePickerModal, ManagerPickerModal } from "./WarningPickers";
 
 /** The mutable shape the editor edits; field names mirror the API. */
@@ -31,6 +32,8 @@ export interface WarningDraft {
   issued_by_id: string | null;
   issued_by_name: string; // display
   warning_date: string;
+  /** How this warning is signed off: digital (in-app) or wet (paper → PDF). */
+  signature_method: WarningSignatureMethod;
 }
 
 export function emptyDraft(today: string): WarningDraft {
@@ -52,6 +55,7 @@ export function emptyDraft(today: string): WarningDraft {
     issued_by_id: null,
     issued_by_name: "",
     warning_date: today,
+    signature_method: "digital",
   };
 }
 
@@ -62,6 +66,13 @@ interface Props {
   today: string;
   /** Subject is fixed (editing an existing warning, or issuing from a staff page). */
   lockEmployee?: boolean;
+  /** Hide the Digital/Wet toggle entirely. */
+  hideMethodToggle?: boolean;
+  /** Edit mode: the live signature method + a switch handler. When provided, the
+   *  toggle reflects this value and triggers a (destructive) switch via the parent
+   *  instead of editing a draft field. When omitted (create), the toggle edits the draft. */
+  methodValue?: WarningSignatureMethod;
+  onSwitchMethod?: (target: WarningSignatureMethod) => void;
   saving: boolean;
   submitLabel?: string;
   onBack: () => void;
@@ -74,6 +85,9 @@ export function WarningEditor({
   initial,
   today,
   lockEmployee,
+  hideMethodToggle,
+  methodValue,
+  onSwitchMethod,
   saving,
   submitLabel,
   onBack,
@@ -132,10 +146,13 @@ export function WarningEditor({
           Back
         </Button>
         <div className="ml-auto flex items-center gap-2.5">
-          {!valid && (
-            <span className="text-xs text-text-muted hidden lg:inline whitespace-nowrap">
-              pick employee, store, subject &amp; a reason
-            </span>
+          {/* Signature method toggle — action-bar only (never on the printed PDF).
+              create: edits the draft. edit: reflects live method + triggers a destructive switch. */}
+          {!hideMethodToggle && (
+            <MethodToggle
+              value={onSwitchMethod ? (methodValue ?? draft.signature_method) : draft.signature_method}
+              onChange={onSwitchMethod ?? ((m) => patch({ signature_method: m }))}
+            />
           )}
           <Button variant="primary" disabled={!valid || saving} isLoading={saving} onClick={() => onSubmit(draft)}>
             {submitLabel ?? "Save"}
@@ -145,6 +162,7 @@ export function WarningEditor({
 
       <WarningFormDoc
         mode="edit"
+        wetSign={draft.signature_method === "wet"}
         companyName={companyName}
         managerName={draft.issued_by_name || managerName}
         canEditManager={isOwner}

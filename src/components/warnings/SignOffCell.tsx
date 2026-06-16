@@ -5,11 +5,14 @@ import type { Warning } from "@/types";
 
 /**
  * Compact two-pill sign-off summary for the warnings table: Employee + Manager.
- * Derived from the warning's `signatures` + `acknowledged_at`:
+ * Derived from the server bools `employee_signed` / `manager_signed` (which fold
+ * in the wet path) + `acknowledged_at`:
  *   - EMP: Signed (green) / Read (amber) / pending gray ("Not opened")
  *   - MGR: Signed (green) / Sign (accent — the actionable case) / pending gray
  * The manager pill is highlighted (accent) only when the employee has signed but
- * the manager hasn't — the row that needs a manager's action.
+ * the manager hasn't — the row that needs a manager's action. For wet warnings
+ * a single uploaded PDF satisfies both sides — "PDF Uploaded" (green) when done,
+ * else a muted "PDF Not uploaded" (idle gray, no dot — clearly not yet done).
  */
 
 type Tone = "done" | "pending" | "idle" | "action";
@@ -37,9 +40,27 @@ function Pill({ who, label, tone, dot }: { who: string; label: string; tone: Ton
 }
 
 export function SignOffCell({ warning }: { warning: Warning }): React.ReactElement {
-  const empSigned = !!warning.signatures.employee;
+  const isWet = warning.signature_method === "wet";
+  const empSigned = warning.employee_signed;
   const empRead = !empSigned && !!warning.acknowledged_at;
-  const mgrSigned = !!warning.signatures.manager;
+  const mgrSigned = warning.manager_signed;
+
+  // Wet warnings: a single uploaded PDF satisfies both sides. Until then the
+  // pending action is "Upload" (no employee app sign step in the wet flow).
+  if (isWet) {
+    const done = warning.signed_pdf_present;
+    return (
+      <div className="flex flex-wrap items-center gap-1">
+        {done ? (
+          <Pill who="PDF" label="Uploaded" tone="done" dot />
+        ) : (
+          // 아직 업로드 전 — 회색 idle, 점 없음 (완료/업로드된 것처럼 안 보이게)
+          <Pill who="PDF" label="Not uploaded" tone="idle" />
+        )}
+      </div>
+    );
+  }
+
   // The manager must act once the employee has signed but the manager hasn't.
   const mgrNeedsAction = empSigned && !mgrSigned;
 
