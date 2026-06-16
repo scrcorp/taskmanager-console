@@ -13,7 +13,7 @@ import api from "@/lib/api";
 import { parseApiError, todayInTimezone } from "@/lib/utils";
 import { useRouter } from "next/navigation";
 import { usePersistedFilters } from "@/hooks/usePersistedFilters";
-import { useSchedules, useConfirmSchedule, useRejectSchedule, useDeleteScheduleFlow, useSubmitSchedule, useRevertSchedule, useCancelSchedule, useCreateSchedule, useUpdateSchedule, useSwitchSchedule } from "@/hooks/useSchedules";
+import { useSchedules, useScheduleRoster, useConfirmSchedule, useRejectSchedule, useDeleteScheduleFlow, useSubmitSchedule, useRevertSchedule, useCancelSchedule, useCreateSchedule, useUpdateSchedule, useSwitchSchedule, type RosterColumnData } from "@/hooks/useSchedules";
 import { useUsers } from "@/hooks/useUsers";
 import { ROLE_PRIORITY } from "@/lib/permissions";
 import { useStores } from "@/hooks/useStores";
@@ -503,6 +503,22 @@ export default function SchedulesCalendarView() {
     date_to: dateTo,
     per_page: 500,
   });
+  // Windowed roster (Phase 2): 서버가 정렬·필터·집계 소유. roster 가 있으면 헤더/컬럼/행순서/totals 의 source of truth,
+  // 없으면(로딩/실패) 기존 클라 계산을 fallback 으로 사용.
+  const rosterGranularity = view === "monthly" ? "month" : view === "daily" ? "day" : "week";
+  const rosterQ = useScheduleRoster({
+    date_from: dateFrom,
+    date_to: dateTo,
+    granularity: rosterGranularity,
+    store_ids: isAllStores ? undefined : selectedStores,
+    staff_ids: filters.staffIds.length ? filters.staffIds : undefined,
+    roles: filters.roles.length ? filters.roles : undefined,
+    departments: filters.departments.length ? filters.departments : undefined,
+    statuses: filters.statuses.length ? filters.statuses : undefined,
+    positions: filters.positions.length ? filters.positions : undefined,
+    shifts: filters.shifts.length ? filters.shifts : undefined,
+  });
+  const roster = rosterQ.data;
 
   const users = usersQ.data ?? [];
   const stores = storesQ.data ?? [];
@@ -746,7 +762,17 @@ export default function SchedulesCalendarView() {
   function getSchedulesForCell(userId: string, date: string): Schedule[] {
     // 선택 외 store도 같은 셀에 표시 — ScheduleBlock의 isOtherStore dim으로 구분.
     // All Stores는 전부 "선택됨"으로 취급 (dim 없음).
-    return schedules.filter((s) => s.user_id === userId && s.work_date === date);
+    // active 칩 필터(status/position/shift)는 블록 단위로도 적용 — 비매칭 블록 숨김.
+    return schedules.filter((s) => {
+      if (s.user_id !== userId || s.work_date !== date) return false;
+      if (filters.statuses.length > 0 && !filters.statuses.includes(s.status)) return false;
+      if (filters.positions.length > 0 && !(s.position_snapshot && filters.positions.includes(s.position_snapshot))) return false;
+      if (filters.shifts.length > 0) {
+        const name = s.work_role_name_snapshot || s.work_role_name;
+        if (!name || !filters.shifts.includes(name)) return false;
+      }
+      return true;
+    });
   }
 
   function getAttendanceFor(scheduleId: string) {
@@ -999,6 +1025,62 @@ export default function SchedulesCalendarView() {
   }, [totalActiveFilters, filteredUsers, filters, schedules, view, monthDateFrom, monthDateTo, selectedDay, weekDates, selectedStores, isAllStores]);
 
   const columns = view === "weekly" ? weeklyColumns : dailyColumns;
+
+  // ─── Roster override (Phase 2) — roster 있으면 서버 집계/정렬/필터를 source of truth 로 ───
+  const rosterColByKey = useMemo(() => {
+    const m: Record<string, RosterColumnData> = {};
+    if (roster) for (const c of roster.columns) m[c.key] = c;
+    return m;
+  }, [roster]);
+
+  const effectiveColumns = useMemo(() => {
+    if (!roster) return columns;
+    return columns.map((c) => {
+      const rc = rosterColByKey[c.key];
+      return {
+        ...c,
+        teamConfirmed: rc?.team_confirmed ?? 0,
+        teamPending: rc?.team_pending ?? 0,
+        hoursConfirmed: rc?.hours_confirmed ?? 0,
+        hoursPending: rc?.hours_pending ?? 0,
+        costConfirmed: rc?.cost_confirmed ?? 0,
+        costPending: rc?.cost_pending ?? 0,
+      };
+    });
+  }, [roster, columns, rosterColByKey]);
+
+  const effectiveTotals = roster
+    ? {
+        tc: roster.totals.team_confirmed, tp: roster.totals.team_pending,
+        hc: roster.totals.hours_confirmed, hp: roster.totals.hours_pending,
+        lc: roster.totals.cost_confirmed ?? 0, lp: roster.totals.cost_pending ?? 0,
+      }
+    : totals;
+
+  // roster 가 이미 필터 반영본이므로 별도 Filtered 배너는 roster 없을 때(fallback)만.
+  const effectiveFilteredTotals = roster ? null : filteredTotals;
+  const headerStaffCount = roster ? roster.totals.staff_count : users.length;
+  const isFiltered = totalActiveFilters > 0;
+
+  // 행 순서/표시 — roster 가 정렬·필터 소유. empty-staff 토글은 클라 유지.
+  const rosterDisplayUsers = useMemo(() => {
+    if (!roster) return null;
+    const byId = new Map(users.map((u) => [u.id, u]));
+    const ordered = roster.roster
+      .map((r) => byId.get(r.user_id))
+      .filter((u): u is User => Boolean(u));
+    const hasSched = new Set(
+      roster.roster.filter((r) => r.has_schedule_in_period).map((r) => r.user_id),
+    );
+    if (emptyStaffHide) return ordered.filter((u) => hasSched.has(u.id));
+    if (emptyStaffSort === "in-order") return ordered;
+    const withS: User[] = [];
+    const without: User[] = [];
+    for (const u of ordered) (hasSched.has(u.id) ? withS : without).push(u);
+    return emptyStaffSort === "top" ? [...without, ...withS] : [...withS, ...without];
+  }, [roster, users, emptyStaffHide, emptyStaffSort]);
+  const effectiveDisplayUsers = rosterDisplayUsers ?? displayUsers;
+
   // selectedDay 직접 파싱 — weekDates lookup은 selectedDay가 weekDates 밖이면 undefined가 됨
   const selectedDayLabel = (() => {
     if (!selectedDay) return "";
@@ -1425,17 +1507,20 @@ export default function SchedulesCalendarView() {
           )}
           {schedulesQ.isLoading && <span className="text-[11px] text-[var(--color-text-muted)]">Loading…</span>}
           <div className="hidden md:flex items-center gap-3 text-[13px] text-[var(--color-text-secondary)]">
-            <span title="Total staff in selected store(s) — does not change with filters">Staff: <strong className="text-[14px] text-[var(--color-text)]">{users.length}</strong></span>
+            {roster && isFiltered && (
+              <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-accent)] shrink-0" title="Stats reflect the active filters">Filtered</span>
+            )}
+            <span title={roster && isFiltered ? "Staff matching active filters" : "Total staff in selected store(s)"}>Staff: <strong className="text-[14px] text-[var(--color-text)]">{headerStaffCount}</strong></span>
             <span className="w-px h-4 bg-[var(--color-border)]" />
-            <span title="Confirmed / approved schedules">Scheduled: <strong className="text-[14px] text-[var(--color-text)]">{totals.tc}</strong></span>
+            <span title="Confirmed / approved schedules">Scheduled: <strong className="text-[14px] text-[var(--color-text)]">{effectiveTotals.tc}</strong></span>
             <span className="w-px h-4 bg-[var(--color-border)]" />
-            <span title="Requested schedules awaiting approval">Pending: <strong className="text-[14px] text-[var(--color-warning)]">{totals.tp}</strong></span>
+            <span title="Requested schedules awaiting approval">Pending: <strong className="text-[14px] text-[var(--color-warning)]">{effectiveTotals.tp}</strong></span>
             {isGMView && <>
               <span className="w-px h-4 bg-[var(--color-border)]" />
-              <span title="Confirmed cost (approved) + pending cost (awaiting approval)">Cost: <strong className="text-[14px] text-[var(--color-success)]">${totals.lc.toFixed(2)}</strong>{totals.lp > 0 && <strong className="text-[14px] text-[var(--color-warning)]" title="Additional pending cost if approved"> +${totals.lp.toFixed(2)}</strong>}</span>
-              {totals.hc > 0 && (
+              <span title="Confirmed cost (approved) + pending cost (awaiting approval)">Cost: <strong className="text-[14px] text-[var(--color-success)]">${effectiveTotals.lc.toFixed(2)}</strong>{effectiveTotals.lp > 0 && <strong className="text-[14px] text-[var(--color-warning)]" title="Additional pending cost if approved"> +${effectiveTotals.lp.toFixed(2)}</strong>}</span>
+              {effectiveTotals.hc > 0 && (
                 <span className="text-[var(--color-text-muted)]" title="Average hourly rate = total cost / total hours across all confirmed schedules">
-                  (avg ${(totals.lc / totals.hc).toFixed(2)}/h)
+                  (avg ${(effectiveTotals.lc / effectiveTotals.hc).toFixed(2)}/h)
                 </span>
               )}
             </>}
@@ -1579,7 +1664,7 @@ export default function SchedulesCalendarView() {
         />
 
         {/* Filtered totals — 활성 필터 적용된 합계만 표시 */}
-        {filteredTotals && (
+        {effectiveFilteredTotals && (() => { const filteredTotals = effectiveFilteredTotals; return (
           <div className="-mt-3 mb-4 px-4 py-2 bg-[var(--color-accent-muted)] border border-[var(--color-accent)]/30 rounded-xl flex items-center gap-3 text-[13px] text-[var(--color-text-secondary)] flex-wrap">
             <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-accent)] shrink-0">Filtered</span>
             <span title="Staff matching active filters">Staff: <strong className="text-[14px] text-[var(--color-text)]">{filteredTotals.staff}</strong></span>
@@ -1596,7 +1681,7 @@ export default function SchedulesCalendarView() {
               </>
             )}
           </div>
-        )}
+        ); })()}
 
         {/* Monthly Grid */}
         {view === "monthly" && (
@@ -1639,23 +1724,23 @@ export default function SchedulesCalendarView() {
               </colgroup>
 
               <StatsHeader
-                columns={columns}
+                columns={effectiveColumns}
                 showCost={isGMView}
                 sortCol={sortCol}
                 sortState={sortState}
                 onSort={handleSort}
                 onColumnClick={view === "weekly" ? handleDayClick : undefined}
                 firstColLabel={view === "weekly" ? "Day" : "Time"}
-                totalHoursConfirmed={totals.hc}
-                totalHoursPending={totals.hp}
-                totalCostConfirmed={totals.lc}
-                totalCostPending={totals.lp}
-                totalTeamConfirmed={totals.tc}
-                totalTeamPending={totals.tp}
+                totalHoursConfirmed={effectiveTotals.hc}
+                totalHoursPending={effectiveTotals.hp}
+                totalCostConfirmed={effectiveTotals.lc}
+                totalCostPending={effectiveTotals.lp}
+                totalTeamConfirmed={effectiveTotals.tc}
+                totalTeamPending={effectiveTotals.tp}
               />
 
               <tbody>
-                {displayUsers.map((u: User) => {
+                {effectiveDisplayUsers.map((u: User) => {
                   // 신규 스케줄 생성 시 default로 박힐 rate (user → store → org cascade).
                   // 기존 스케줄의 stored rate와는 무관 — 표시 라벨에만 사용.
                   const userEffective = effectiveRate(u, currentStore, orgDefaultRate);

@@ -56,6 +56,87 @@ export const useSchedules = (
   });
 };
 
+// ─── Windowed Roster (Phase 2) ───────────────────────
+export interface RosterRow {
+  user_id: string;
+  user_name: string | null;
+  user_department: string | null;
+  role_priority: number;
+  effective_hourly_rate: number | null;
+  has_schedule_in_period: boolean;
+  confirmed_hours: number;
+  pending_hours: number;
+  confirmed_cost: number | null;
+  pending_cost: number | null;
+}
+export interface RosterColumnData {
+  key: string;
+  team_confirmed: number;
+  team_pending: number;
+  hours_confirmed: number;
+  hours_pending: number;
+  cost_confirmed: number | null;
+  cost_pending: number | null;
+}
+export interface RosterTotalsData {
+  team_confirmed: number;
+  team_pending: number;
+  hours_confirmed: number;
+  hours_pending: number;
+  cost_confirmed: number | null;
+  cost_pending: number | null;
+  staff_count: number;
+}
+export interface RosterFilterDomain {
+  positions: string[];
+  shifts: string[];
+}
+export interface RosterResponse {
+  roster: RosterRow[];
+  columns: RosterColumnData[];
+  totals: RosterTotalsData;
+  filter_domain: RosterFilterDomain;
+}
+
+export interface RosterFilters {
+  date_from?: string;
+  date_to?: string;
+  granularity?: "week" | "month" | "day";
+  store_ids?: string[];
+  staff_ids?: string[];
+  roles?: string[];
+  departments?: string[];
+  statuses?: string[];
+  positions?: string[];
+  shifts?: string[];
+}
+
+/** Windowed roster — 정렬된 staff 행 + 필터 반영 컬럼/요약/도메인 (셀 제외). */
+export const useScheduleRoster = (
+  filters: RosterFilters,
+): UseQueryResult<RosterResponse, Error> => {
+  const params: Record<string, string> = {};
+  if (filters.date_from) params.date_from = filters.date_from;
+  if (filters.date_to) params.date_to = filters.date_to;
+  if (filters.granularity) params.granularity = filters.granularity;
+  const csv = (a?: string[]) => (a && a.length > 0 ? a.join(",") : undefined);
+  const sids = csv(filters.store_ids); if (sids) params.store_ids = sids;
+  const stf = csv(filters.staff_ids); if (stf) params.staff_ids = stf;
+  const rls = csv(filters.roles); if (rls) params.roles = rls;
+  const dep = csv(filters.departments); if (dep) params.departments = dep;
+  const sts = csv(filters.statuses); if (sts) params.statuses = sts;
+  const pos = csv(filters.positions); if (pos) params.positions = pos;
+  const shf = csv(filters.shifts); if (shf) params.shifts = shf;
+  return useQuery<RosterResponse, Error>({
+    queryKey: ["schedule-roster", params],
+    queryFn: async () => {
+      const res: AxiosResponse<RosterResponse> = await api.get("/console/schedules/roster", { params });
+      return res.data;
+    },
+    enabled: !!filters.date_from && !!filters.date_to,
+  });
+};
+
 export const useValidateSchedule = (): UseMutationResult<ScheduleValidation, Error, ScheduleCreate> => {
   return useMutation<ScheduleValidation, Error, ScheduleCreate>({
     mutationFn: async (data) => {
