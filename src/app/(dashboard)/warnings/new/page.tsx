@@ -63,6 +63,7 @@ export default function NewWarningPage(): React.ReactElement | null {
         follow_up_time: d.follow_up_time || null,
         issued_by_id: d.issued_by_id ?? undefined,
         warning_date: d.warning_date,
+        signature_method: d.signature_method,
       });
       router.replace(`/warnings/${created.id}`);
     } catch {

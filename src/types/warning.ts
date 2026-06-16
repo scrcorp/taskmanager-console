@@ -7,6 +7,11 @@
 
 export type WarningStatus = "active" | "withdrawn";
 
+// How a warning is signed off:
+//   - "digital": captured vector strokes in-app/console (warning_signatures)
+//   - "wet": printed → physically signed on paper → scanned PDF uploaded
+export type WarningSignatureMethod = "digital" | "wet";
+
 // ── Signatures ─────────────────────────────────────────────
 // A signature is captured as VECTOR strokes (arrays of [x,y] points), not an
 // image — identical to the staff app so app + console render the same ink.
@@ -98,6 +103,21 @@ export interface Warning {
   acknowledged_at: string | null; // ISO datetime
   // Vector sign-off slots — employee (set in the app) + manager (set here).
   signatures: WarningSignatures;
+  // ── Wet-sign (physical paper) fields ──
+  // The signature method for this warning (digital default | wet).
+  signature_method: WarningSignatureMethod;
+  // Store code (stores.code) — used to build the download filename.
+  store_code: string | null;
+  // True once a wet-signed scan has been uploaded.
+  signed_pdf_present: boolean;
+  // The date the document was physically signed (YYYY-MM-DD). Filename date source.
+  wet_signed_on: string | null;
+  // When the scan was uploaded (ISO datetime).
+  wet_uploaded_at: string | null;
+  // Derived sign-off status — consume THESE for sign-off display, not the
+  // signatures map (they fold in the wet path: a wet PDF satisfies both sides).
+  employee_signed: boolean;
+  manager_signed: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -115,6 +135,7 @@ export interface WarningCreate {
   follow_up_time?: string | null;
   issued_by_id?: string | null; // Owner only — issue on behalf of another manager
   warning_date: string;
+  signature_method?: WarningSignatureMethod; // defaults to "digital" server-side
 }
 
 export interface WarningUpdate {

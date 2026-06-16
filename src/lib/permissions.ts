@@ -81,6 +81,8 @@ export const PERMISSIONS = {
   WARNINGS_CREATE: "warnings:create",
   WARNINGS_UPDATE: "warnings:update",
   WARNINGS_DELETE: "warnings:delete",
+  // wet-sign 스캔 PDF 업로드(타인 발행 건 포함). 발행자 본인은 권한 없어도 가능.
+  WARNINGS_UPLOAD: "warnings:upload",
 
   // ── Daily Reports (legacy) ──
   DAILY_REPORTS_READ: "daily_reports:read",
