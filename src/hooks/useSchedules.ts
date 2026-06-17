@@ -77,6 +77,10 @@ export interface RosterColumnData {
   hours_pending: number;
   cost_confirmed: number | null;
   cost_pending: number | null;
+  // day granularity 전용 — 시간당 30분 슬롯 인원 [첫30분, 둘째30분]. week/month 는 빈 배열.
+  // 롤아웃 중 구버전 캐시 응답은 undefined 일 수 있어 옵셔널 (소비 측 ?? []).
+  slots_confirmed?: number[];
+  slots_pending?: number[];
 }
 export interface RosterTotalsData {
   team_confirmed: number;

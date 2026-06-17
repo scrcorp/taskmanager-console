@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { hourOccupancy, fmtTeam, isOn30Grid } from "@/components/schedules/redesign/scheduleStats";
+import { hourOccupancy, slotOverlap, fmtTeam, isOn30Grid } from "@/components/schedules/redesign/scheduleStats";
 
 describe("hourOccupancy — 일간 0.5인 환산", () => {
   it("한 시간 전부 일하면 1.0", () => {
@@ -25,6 +25,43 @@ describe("hourOccupancy — 일간 0.5인 환산", () => {
     expect(hourOccupancy("22:00", "02:00", 24)).toBe(1); // 0:00 next day
     expect(hourOccupancy("22:00", "02:00", 25)).toBe(1); // 1:00 next day
     expect(hourOccupancy("22:00", "02:00", 26)).toBe(0); // 2:00 — 끝
+  });
+});
+
+describe("slotOverlap — 30분 슬롯 겹침 (daily 30분 정렬/카운트)", () => {
+  // half=0 → slotStart=h, half=1 → slotStart=h+0.5. slotLen=0.5(30분) 또는 1(시간 전체).
+  it("첫 30분만 근무 → 첫 슬롯만 overlap>0", () => {
+    expect(slotOverlap("09:00", "09:30", 9, 0.5)).toBeGreaterThan(0);    // 첫 30분
+    expect(slotOverlap("09:00", "09:30", 9.5, 0.5)).toBe(0);             // 둘째 30분 (없음)
+  });
+
+  it("둘째 30분만 근무 → 둘째 슬롯만 overlap>0", () => {
+    expect(slotOverlap("09:30", "10:00", 9, 0.5)).toBe(0);              // 첫 30분 (없음)
+    expect(slotOverlap("09:30", "10:00", 9.5, 0.5)).toBeGreaterThan(0); // 둘째 30분
+  });
+
+  it("한 시간 전부 근무 → 두 30분 슬롯 모두 overlap>0", () => {
+    expect(slotOverlap("09:00", "10:00", 9, 0.5)).toBe(0.5);
+    expect(slotOverlap("09:00", "10:00", 9.5, 0.5)).toBe(0.5);
+  });
+
+  it("슬롯 밖이면 0", () => {
+    expect(slotOverlap("10:00", "12:00", 9, 0.5)).toBe(0);
+    expect(slotOverlap("10:00", "12:00", 9.5, 0.5)).toBe(0);
+  });
+
+  it("overnight: 22:30~01:30 은 자정 넘는 30분 슬롯과 겹침", () => {
+    expect(slotOverlap("22:30", "01:30", 22.5, 0.5)).toBe(0.5);  // 22:30 첫 슬롯
+    expect(slotOverlap("22:30", "01:30", 24, 0.5)).toBe(0.5);    // 00:00 next day
+    expect(slotOverlap("22:30", "01:30", 25, 0.5)).toBe(0.5);    // 01:00 next day
+    expect(slotOverlap("22:30", "01:30", 25.5, 0.5)).toBe(0);    // 01:30 — 끝
+  });
+
+  it("slotLen=1 (sortHalf===null 시간 전체) → 구버전 풀시간 동작과 일치", () => {
+    // 시간 전체 정렬 호환: [hour, hour+1) 와 겹치면 매치.
+    expect(slotOverlap("09:30", "10:00", 9, 1)).toBeGreaterThan(0);  // 시간 안 어디든 걸치면 매치
+    expect(slotOverlap("09:00", "09:30", 9, 1)).toBeGreaterThan(0);
+    expect(slotOverlap("11:00", "12:00", 9, 1)).toBe(0);            // 밖이면 0
   });
 });
 

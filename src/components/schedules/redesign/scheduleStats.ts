@@ -26,6 +26,24 @@ export function hourOccupancy(startTime: string | null, endTime: string | null, 
   return Math.max(0, Math.min(1, overlap));
 }
 
+/**
+ * 스케줄이 [slotStart, slotStart+slotLen) 슬롯과 겹치는 양(시간 단위, 0 이상).
+ * overnight(end<=start) 은 end+24 로 처리. 30분 슬롯이면 slotLen=0.5, 1시간이면 1.
+ * overlap>0 이면 그 슬롯을 "차지"한 것 (30분 grid 입력이면 풀 또는 0).
+ */
+export function slotOverlap(
+  startTime: string | null,
+  endTime: string | null,
+  slotStart: number,
+  slotLen: number,
+): number {
+  const start = parseTimeToHours(startTime);
+  const end = parseTimeToHours(endTime);
+  const effectiveEnd = end <= start ? end + 24 : end;
+  const overlap = Math.min(effectiveEnd, slotStart + slotLen) - Math.max(start, slotStart);
+  return Math.max(0, overlap);
+}
+
 /** TEAM 표시 — 0.5 grid 로 스냅. 정수면 정수, 반이면 "x.5". */
 export function fmtTeam(n: number): string {
   const r = Math.round(n * 2) / 2;

@@ -24,7 +24,7 @@ import { useAuthStore } from "@/stores/authStore";
 import type { Schedule, Store, User } from "@/types";
 import { ScheduleBlock } from "./ScheduleBlock";
 import { StatsHeader } from "./StatsHeader";
-import { hourOccupancy } from "./scheduleStats";
+import { hourOccupancy, slotOverlap } from "./scheduleStats";
 import { ContextMenu } from "./ContextMenu";
 import { HistoryPanel } from "./HistoryPanel";
 import { SwapModal } from "./SwapModal";
@@ -281,6 +281,7 @@ export default function SchedulesCalendarView() {
       wss: "none",
       dsc: "-1",
       dss: "none",
+      dsh: "",
       esort: "bottom",
       ehide: "",
     },
@@ -331,10 +332,13 @@ export default function SchedulesCalendarView() {
   const weeklySortState = params.wss as SortState;
   const dailySortCol = Number(params.dsc);
   const dailySortState = params.dss as SortState;
+  // daily 30분 정렬 슬롯. "" → null (시간 전체, 구버전 호환). "0"/"1" → 첫/둘째 30분.
+  const dailySortHalf: 0 | 1 | null = params.dsh === "0" ? 0 : params.dsh === "1" ? 1 : null;
   const setWeeklySortCol = useCallback((c: number) => setParams({ wsc: c === -1 ? null : String(c) }), [setParams]);
   const setWeeklySortState = useCallback((s: SortState) => setParams({ wss: s === "none" ? null : s }), [setParams]);
   const setDailySortCol = useCallback((c: number) => setParams({ dsc: c === -1 ? null : String(c) }), [setParams]);
   const setDailySortState = useCallback((s: SortState) => setParams({ dss: s === "none" ? null : s }), [setParams]);
+  const setDailySortHalf = useCallback((h: 0 | 1 | null) => setParams({ dsh: h === null ? null : String(h) }), [setParams]);
 
   // 멀티 스토어 선택: 빈 배열 = All (전체)
   const selectedStores = useMemo(
@@ -506,9 +510,12 @@ export default function SchedulesCalendarView() {
   // Windowed roster (Phase 2): 서버가 정렬·필터·집계 소유. roster 가 있으면 헤더/컬럼/행순서/totals 의 source of truth,
   // 없으면(로딩/실패) 기존 클라 계산을 fallback 으로 사용.
   const rosterGranularity = view === "monthly" ? "month" : view === "daily" ? "day" : "week";
+  // daily 는 선택한 하루만 집계해야 함 (dateFrom/dateTo 는 주 전체라 그대로 쓰면 한 주치가 시간 슬롯에 합산됨).
+  const rosterDateFrom = view === "daily" ? selectedDay : dateFrom;
+  const rosterDateTo = view === "daily" ? selectedDay : dateTo;
   const rosterQ = useScheduleRoster({
-    date_from: dateFrom,
-    date_to: dateTo,
+    date_from: rosterDateFrom,
+    date_to: rosterDateTo,
     granularity: rosterGranularity,
     store_ids: isAllStores ? undefined : selectedStores,
     staff_ids: filters.staffIds.length ? filters.staffIds : undefined,
@@ -806,48 +813,44 @@ export default function SchedulesCalendarView() {
 
   const sortCol = view === "weekly" ? weeklySortCol : dailySortCol;
   const sortState = view === "weekly" ? weeklySortState : dailySortState;
+  // weekly 에는 half 개념 없음. daily 에서만 30분 슬롯 정렬.
+  const sortHalf = view === "weekly" ? null : dailySortHalf;
 
-  const sortedUsers = useMemo(() => {
-    const arr = [...filteredUsers];
+  // 컬럼 클릭 정렬 비교자 — 클라 행(sortedUsers)·roster 행(rosterDisplayUsers) 양쪽 재사용.
+  // sortCol/sortState 기준으로 schedules 에서 해당 칸 상태(confirmed>requested>draft>none)를 보고 정렬.
+  const applyColumnSort = (arr: User[]): User[] => {
     if (sortCol < 0 || sortState === "none") return arr;
-
-    return arr.sort((a, b) => {
-      let aStatus = "none";
-      let bStatus = "none";
-
+    const statusFor = (uid: string): string => {
+      let blocks: Schedule[];
       if (view === "weekly") {
         const date = weekDates[sortCol]?.date;
-        if (date) {
-          const aBlocks = schedules.filter((s) => s.user_id === a.id && s.work_date === date && matchesStoreFilter(s.store_id));
-          const bBlocks = schedules.filter((s) => s.user_id === b.id && s.work_date === date && matchesStoreFilter(s.store_id));
-          aStatus = aBlocks.find((s) => s.status === "confirmed") ? "confirmed" : aBlocks.find((s) => s.status === "requested") ? "requested" : aBlocks.length > 0 ? "draft" : "none";
-          bStatus = bBlocks.find((s) => s.status === "confirmed") ? "confirmed" : bBlocks.find((s) => s.status === "requested") ? "requested" : bBlocks.length > 0 ? "draft" : "none";
-        }
+        blocks = date ? schedules.filter((s) => s.user_id === uid && s.work_date === date && matchesStoreFilter(s.store_id)) : [];
       } else {
-        const hour = openHour + sortCol;
-        const matchHour = (s: Schedule) => {
-          const sH = Math.floor(parseTimeToHours(s.start_time));
-          const eH = Math.ceil(parseTimeToHours(s.end_time));
-          const effectiveEnd = eH <= sH ? eH + 24 : eH;
-          return sH <= hour && effectiveEnd > hour;
-        };
-        const aBlocks = schedules.filter((s) => s.user_id === a.id && s.work_date === selectedDay && matchesStoreFilter(s.store_id) && matchHour(s));
-        const bBlocks = schedules.filter((s) => s.user_id === b.id && s.work_date === selectedDay && matchesStoreFilter(s.store_id) && matchHour(s));
-        aStatus = aBlocks.find((s) => s.status === "confirmed") ? "confirmed" : aBlocks.find((s) => s.status === "requested") ? "requested" : aBlocks.length > 0 ? "draft" : "none";
-        bStatus = bBlocks.find((s) => s.status === "confirmed") ? "confirmed" : bBlocks.find((s) => s.status === "requested") ? "requested" : bBlocks.length > 0 ? "draft" : "none";
+        // 30분 슬롯 정렬: sortHalf 가 0/1 이면 그 30분 [slotStart, slotStart+0.5) 와 겹치는 블록만,
+        // null 이면 시간 전체 [hour, hour+1) (구버전 dsh 없는 영속값 호환).
+        const slotStart = openHour + sortCol + (sortHalf === 1 ? 0.5 : 0);
+        const slotLen = sortHalf === null ? 1 : 0.5;
+        const matchSlot = (s: Schedule) => slotOverlap(s.start_time, s.end_time, slotStart, slotLen) > 0;
+        blocks = schedules.filter((s) => s.user_id === uid && s.work_date === selectedDay && matchesStoreFilter(s.store_id) && matchSlot(s));
       }
-
-      const hasA = aStatus !== "none" ? 0 : 1;
-      const hasB = bStatus !== "none" ? 0 : 1;
+      return blocks.find((s) => s.status === "confirmed") ? "confirmed" : blocks.find((s) => s.status === "requested") ? "requested" : blocks.length > 0 ? "draft" : "none";
+    };
+    const order = sortState === "confirmed"
+      ? { confirmed: 0, requested: 1, draft: 2, none: 3 }
+      : { requested: 0, confirmed: 1, draft: 2, none: 3 };
+    return [...arr].sort((a, b) => {
+      const as = statusFor(a.id);
+      const bs = statusFor(b.id);
+      const hasA = as !== "none" ? 0 : 1;
+      const hasB = bs !== "none" ? 0 : 1;
       if (hasA !== hasB) return hasA - hasB;
-
-      const order = sortState === "confirmed"
-        ? { confirmed: 0, requested: 1, draft: 2, none: 3 }
-        : { requested: 0, confirmed: 1, draft: 2, none: 3 };
-      return (order[aStatus as keyof typeof order] ?? 3) - (order[bStatus as keyof typeof order] ?? 3);
+      return (order[as as keyof typeof order] ?? 3) - (order[bs as keyof typeof order] ?? 3);
     });
+  };
+
+  const sortedUsers = useMemo(() => applyColumnSort([...filteredUsers]),
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sortCol, sortState, view, selectedStores, isAllStores, selectedDay, filteredUsers, schedules, weekDates, openHour]);
+  [sortCol, sortState, sortHalf, view, selectedStores, isAllStores, selectedDay, filteredUsers, schedules, weekDates, openHour]);
 
   const userHasScheduleInView = useMemo(() => {
     let from: string;
@@ -926,6 +929,9 @@ export default function SchedulesCalendarView() {
     // 점유 비율 가중 합 — 30분 점유 = 0.5. cost 도 점유분만큼만 잡음.
     const sumOcc = (arr: Schedule[]) => arr.reduce((sum, s) => sum + occupancy(s), 0);
     const sumCost = (arr: Schedule[]) => arr.reduce((sum, s) => sum + occupancy(s) * (s.hourly_rate ?? 0), 0);
+    // 30분 슬롯 인원 — [첫30분(h..h+0.5), 둘째30분(h+0.5..h+1)]. overlap>0 카운트 (서버 _occupies_slot 미러).
+    const halfCount = (arr: Schedule[], slotStart: number) =>
+      arr.filter((s) => slotOverlap(s.start_time, s.end_time, slotStart, 0.5) > 0).length;
     return {
       key: `h${h}`,
       hour: h,
@@ -936,6 +942,8 @@ export default function SchedulesCalendarView() {
       hoursPending: sumOcc(pending),
       costConfirmed: sumCost(confirmed),
       costPending: sumCost(pending),
+      slotsConfirmed: [halfCount(confirmed, h), halfCount(confirmed, h + 0.5)],
+      slotsPending: [halfCount(pending, h), halfCount(pending, h + 0.5)],
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }), [dailyHourRange, schedules, selectedStores, isAllStores, selectedDay, users]);
@@ -1045,6 +1053,10 @@ export default function SchedulesCalendarView() {
         hoursPending: rc?.hours_pending ?? 0,
         costConfirmed: rc?.cost_confirmed ?? 0,
         costPending: rc?.cost_pending ?? 0,
+        // day 30분 슬롯 — roster 가 권위 source. roster 가 이 시간 컬럼을 안 주면(필터로 매칭 0)
+        // team 과 동일하게 빈배열(0)로. 클라(필터 미반영) 값으로 폴백 금지 — 필터된 헤더에 미필터 숫자 누출 버그.
+        slotsConfirmed: rc?.slots_confirmed ?? [],
+        slotsPending: rc?.slots_pending ?? [],
       };
     });
   }, [roster, columns, rosterColByKey]);
@@ -1058,17 +1070,18 @@ export default function SchedulesCalendarView() {
     : totals;
 
   // roster 가 이미 필터 반영본이므로 별도 Filtered 배너는 roster 없을 때(fallback)만.
-  const effectiveFilteredTotals = roster ? null : filteredTotals;
   const headerStaffCount = roster ? roster.totals.staff_count : users.length;
   const isFiltered = totalActiveFilters > 0;
 
-  // 행 순서/표시 — roster 가 정렬·필터 소유. empty-staff 토글은 클라 유지.
+  // 행 순서/표시 — roster 가 기본 정렬·필터 소유. 컬럼 클릭 정렬 + empty-staff 토글은 클라 유지.
   const rosterDisplayUsers = useMemo(() => {
     if (!roster) return null;
     const byId = new Map(users.map((u) => [u.id, u]));
-    const ordered = roster.roster
+    const base = roster.roster
       .map((r) => byId.get(r.user_id))
       .filter((u): u is User => Boolean(u));
+    // 칸 헤더 클릭 정렬 활성 시 roster 기본순서 위에 컬럼 정렬을 덮어씀 (회귀 수정).
+    const ordered = applyColumnSort(base);
     const hasSched = new Set(
       roster.roster.filter((r) => r.has_schedule_in_period).map((r) => r.user_id),
     );
@@ -1078,7 +1091,8 @@ export default function SchedulesCalendarView() {
     const without: User[] = [];
     for (const u of ordered) (hasSched.has(u.id) ? withS : without).push(u);
     return emptyStaffSort === "top" ? [...without, ...withS] : [...withS, ...without];
-  }, [roster, users, emptyStaffHide, emptyStaffSort]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roster, users, emptyStaffHide, emptyStaffSort, sortCol, sortState, sortHalf, view, schedules, weekDates, openHour, selectedDay]);
   const effectiveDisplayUsers = rosterDisplayUsers ?? displayUsers;
 
   // selectedDay 직접 파싱 — weekDates lookup은 selectedDay가 weekDates 밖이면 undefined가 됨
@@ -1098,6 +1112,13 @@ export default function SchedulesCalendarView() {
       setDailySortCol(state === "none" ? -1 : colIndex);
       setDailySortState(state);
     }
+  }
+
+  // daily 30분 슬롯 클릭 정렬. weekly 에서는 호출되지 않음(onSortHalf 미전달).
+  function handleSortHalf(colIndex: number, half: 0 | 1, state: SortState) {
+    setDailySortCol(state === "none" ? -1 : colIndex);
+    setDailySortHalf(state === "none" ? null : half);
+    setDailySortState(state);
   }
 
   function handleDayClick(dateKey: string) {
@@ -1663,25 +1684,7 @@ export default function SchedulesCalendarView() {
           onEmptyStaffHideChange={setEmptyStaffHide}
         />
 
-        {/* Filtered totals — 활성 필터 적용된 합계만 표시 */}
-        {effectiveFilteredTotals && (() => { const filteredTotals = effectiveFilteredTotals; return (
-          <div className="-mt-3 mb-4 px-4 py-2 bg-[var(--color-accent-muted)] border border-[var(--color-accent)]/30 rounded-xl flex items-center gap-3 text-[13px] text-[var(--color-text-secondary)] flex-wrap">
-            <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-accent)] shrink-0">Filtered</span>
-            <span title="Staff matching active filters">Staff: <strong className="text-[14px] text-[var(--color-text)]">{filteredTotals.staff}</strong></span>
-            <span className="w-px h-4 bg-[var(--color-border)]" />
-            <span title="Confirmed schedules within filtered set">Scheduled: <strong className="text-[14px] text-[var(--color-text)]">{filteredTotals.tc}</strong></span>
-            <span className="w-px h-4 bg-[var(--color-border)]" />
-            <span title="Pending schedules within filtered set">Pending: <strong className="text-[14px] text-[var(--color-warning)]">{filteredTotals.tp}</strong></span>
-            <span className="w-px h-4 bg-[var(--color-border)]" />
-            <span title="Confirmed hours within filtered set">Hours: <strong className="text-[14px] text-[var(--color-success)]">{(Math.round(filteredTotals.hc * 100) / 100)} h</strong>{filteredTotals.hp > 0 && <strong className="text-[14px] text-[var(--color-warning)]" title="Additional pending hours if approved"> +{(Math.round(filteredTotals.hp * 100) / 100)} h</strong>}</span>
-            {isGMView && (
-              <>
-                <span className="w-px h-4 bg-[var(--color-border)]" />
-                <span title="Confirmed cost within filtered set">Cost: <strong className="text-[14px] text-[var(--color-success)]">${filteredTotals.lc.toFixed(2)}</strong>{filteredTotals.lp > 0 && <strong className="text-[14px] text-[var(--color-warning)]" title="Additional pending cost if approved"> +${filteredTotals.lp.toFixed(2)}</strong>}</span>
-              </>
-            )}
-          </div>
-        ); })()}
+        {/* (filtered totals 배너 제거 — 헤더가 필터 반영본으로 표시) */}
 
         {/* Monthly Grid */}
         {view === "monthly" && (
@@ -1715,11 +1718,11 @@ export default function SchedulesCalendarView() {
 
         {/* Table Grid (Weekly / Daily) */}
         {view !== "monthly" && <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl overflow-auto flex-1" style={{ maxHeight: "calc(100vh - 220px)" }}>
-          <div style={{ minWidth: 220 + columns.length * (view === "weekly" ? 120 : 52) + 90 }}>
+          <div style={{ minWidth: 220 + columns.length * (view === "weekly" ? 120 : 96) + 90 }}>
             <table className="w-full border-collapse" style={{ tableLayout: "fixed" }}>
               <colgroup>
                 <col className="w-[180px] xl:w-[220px]" />
-                {columns.map((c) => <col key={c.key} />)}
+                {columns.map((c) => <col key={c.key} style={view === "daily" ? { width: 96 } : undefined} />)}
                 <col className="w-[80px] xl:w-[90px]" />
               </colgroup>
 
@@ -1729,6 +1732,9 @@ export default function SchedulesCalendarView() {
                 sortCol={sortCol}
                 sortState={sortState}
                 onSort={handleSort}
+                daily30={view === "daily"}
+                sortHalf={sortHalf}
+                onSortHalf={handleSortHalf}
                 onColumnClick={view === "weekly" ? handleDayClick : undefined}
                 firstColLabel={view === "weekly" ? "Day" : "Time"}
                 totalHoursConfirmed={effectiveTotals.hc}
@@ -1746,8 +1752,8 @@ export default function SchedulesCalendarView() {
                   const userEffective = effectiveRate(u, currentStore, orgDefaultRate);
                   const isUserCustom = u.hourly_rate != null;
                 return (
-                  <tr key={u.id} className="border-b border-[var(--color-border)] last:border-b-0 hover:bg-[var(--color-surface-hover)] transition-[background-color] duration-100 relative z-[1]">
-                    <td className="px-4 py-3 border-r-2 border-[var(--color-border)] sticky left-0 z-[5] bg-[var(--color-surface)]">
+                  <tr key={u.id} className="border-b border-[var(--color-border)] last:border-b-0 hover:bg-[var(--color-surface-hover)] transition-[background-color] duration-100">
+                    <td className="px-4 py-3 border-r-2 border-[var(--color-border)] sticky left-0 z-[25] bg-[var(--color-surface)]">
                       <div className="flex items-center gap-3">
                         <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 ${rolePriorityToColor(u.role_priority)}`}>{getInitials(u.full_name)}</div>
                         <div className="min-w-0">
@@ -1813,7 +1819,8 @@ export default function SchedulesCalendarView() {
                       </>
                     ) : (
                       <td colSpan={closeHour - openHour} className="p-0 relative">
-                        {/* Border grid overlay (시간 구분선) + 익일(h>=24) 컬럼 옅은 배경 + 자정 경계 굵은 divider */}
+                        {/* Border grid overlay (시간 구분선) + 익일(h>=24) 컬럼 옅은 배경 + 자정 경계 굵은 divider
+                            + 칸 가운데 30분 분할선(faint) — 헤더 TIME 칸 분할선과 정렬 */}
                         <div className="absolute inset-0 grid pointer-events-none" style={{ gridTemplateColumns: `repeat(${closeHour - openHour}, 1fr)` }}>
                           {dailyHourRange.map((hr) => {
                             const isNextDay = hr >= 24;
@@ -1821,11 +1828,26 @@ export default function SchedulesCalendarView() {
                             return (
                               <div
                                 key={hr}
-                                className={`${isMidnightBoundary ? "border-l-2 border-l-[var(--color-accent)] " : ""}border-r border-[var(--color-border)] ${isNextDay ? "bg-[var(--color-bg)]" : ""}`}
-                              />
+                                className={`relative ${isMidnightBoundary ? "border-l-2 border-l-[var(--color-accent)] " : ""}border-r border-[var(--color-border)] ${isNextDay ? "bg-[var(--color-bg)]" : ""}`}
+                              >
+                                <span className="absolute left-1/2 inset-y-0 w-px -translate-x-1/2 bg-[var(--color-border)]/40" aria-hidden="true" />
+                              </div>
                             );
                           })}
                         </div>
+                        {/* 정렬 밴드 — 클릭한 30분 슬롯을 세로 밴드로 하이라이트 (스케줄 블록 뒤). */}
+                        {sortCol >= 0 && sortHalf != null && (closeHour - openHour) > 0 && (() => {
+                          const totalH = closeHour - openHour;
+                          const bandLeft = ((sortCol + (sortHalf === 1 ? 0.5 : 0)) / totalH) * 100;
+                          const bandWidth = (0.5 / totalH) * 100;
+                          return (
+                            <div
+                              className="absolute inset-y-0 z-0 pointer-events-none bg-[rgba(108,92,231,0.10)] border-x border-[rgba(108,92,231,0.5)]"
+                              style={{ left: `${bandLeft}%`, width: `${bandWidth}%` }}
+                              aria-hidden="true"
+                            />
+                          );
+                        })()}
                         {/* 현재 시간 indicator — 오늘 + 영업시간 내 + daily view 일 때만 표시.
                             라벨은 hover (선 근처) 시에만 노출. 시간은 뻔히 아는 정보라 평소엔 선만. */}
                         {nowPct != null && (
@@ -1912,7 +1934,7 @@ export default function SchedulesCalendarView() {
                       </td>
                     )}
 
-                    <td className="px-2 py-3 text-center border-l border-[var(--color-border)]">
+                    <td className="px-2 py-3 text-center border-l-2 border-[var(--color-border)] sticky right-0 z-[24] bg-[var(--color-surface)]">
                       {view === "weekly" ? (
                         (() => {
                           const ch = weekDates.reduce((sum, d) => sum + getUserConfirmedHours(u.id, d.date), 0);
@@ -1931,11 +1953,17 @@ export default function SchedulesCalendarView() {
                       ) : (
                         (() => {
                           const blocks = schedules.filter((b) => b.work_date === selectedDay && b.user_id === u.id && matchesStoreFilter(b.store_id));
-                          const h = blocks.filter((b) => b.status === "confirmed").reduce((sum, b) => sum + getNetWorkHours(b), 0);
-                          const ph = blocks.filter((b) => b.status === "requested").reduce((sum, b) => sum + getNetWorkHours(b), 0);
+                          const conf = blocks.filter((b) => b.status === "confirmed");
+                          const pend = blocks.filter((b) => b.status === "requested");
+                          const h = conf.reduce((sum, b) => sum + getNetWorkHours(b), 0);
+                          const ph = pend.reduce((sum, b) => sum + getNetWorkHours(b), 0);
+                          const lc = conf.reduce((sum, b) => sum + getNetWorkHours(b) * (b.hourly_rate ?? 0), 0);
+                          const lp = pend.reduce((sum, b) => sum + getNetWorkHours(b) * (b.hourly_rate ?? 0), 0);
                           return <div className="flex flex-col items-center">
                             {h > 0 && <span className="text-[13px] font-bold text-[var(--color-success)]">{fmtH(h)} h</span>}
                             {ph > 0 && <span className="text-[10px] font-semibold text-[var(--color-warning)]">+{fmtH(ph)} h</span>}
+                            {isGMView && (h > 0 || ph > 0) && <span className="text-[10px] text-[var(--color-success)]">${lc.toFixed(2)}</span>}
+                            {isGMView && lp > 0 && <span className="text-[10px] text-[var(--color-warning)]">+${lp.toFixed(2)}</span>}
                             {h === 0 && ph === 0 && <span className="text-[11px] text-[var(--color-text-muted)]">--</span>}
                           </div>;
                         })()

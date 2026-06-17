@@ -143,7 +143,7 @@ export function MultiSelectFilter<T extends MultiSelectOption = MultiSelectOptio
       {open && (
         <div
           style={{ width }}
-          className="absolute top-full left-0 mt-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] z-30 overflow-hidden"
+          className="absolute top-full left-0 mt-1.5 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] z-50 overflow-hidden"
         >
           {/* Search */}
           {searchable && (
