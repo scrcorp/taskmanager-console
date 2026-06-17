@@ -1,11 +1,68 @@
 "use client";
 
 import React, { useState } from "react";
-import { Check, Search, X, PenLine } from "lucide-react";
+import { Check, Search, X, PenLine, Maximize2 } from "lucide-react";
 import type { WarningCategory, WarningCategoryItem, SigInfo } from "@/types";
 import { DateField } from "@/components/ui/DateField";
 import { DateTimeField, fmt12 } from "@/components/ui/DateTimeField";
+import { useModal } from "@/components/ui/imperative-modal";
 import { SignatureView } from "./SignatureView";
+
+/** 텍스트 입력을 크게 편집하는 모달 본문 — Save 해야만 폼에 반영(동기화).
+ *  변경이 있는데 그냥 닫으려 하면 인라인 discard 확인을 띄운다(중첩 모달 회피). */
+function TextExpandModal({
+  heading,
+  initial,
+  onChange,
+  onDone,
+  placeholder,
+}: {
+  heading: string;
+  initial: string;
+  onChange: (s: string) => void;
+  onDone: () => void;
+  placeholder?: string;
+}): React.ReactElement {
+  const [val, setVal] = useState(initial);
+  const [confirmingDiscard, setConfirmingDiscard] = useState(false);
+  const dirty = val !== initial;
+
+  function handleCancel(): void {
+    if (dirty) setConfirmingDiscard(true);
+    else onDone(); // 변경 없으면 그냥 닫기
+  }
+
+  return (
+    <div className="flex flex-col gap-3">
+      <div className="text-sm font-bold text-text">{heading}</div>
+      <textarea
+        autoFocus
+        value={val}
+        onChange={(e) => setVal(e.target.value)}
+        placeholder={placeholder}
+        className="w-full min-h-[55vh] resize-none rounded-lg border border-border bg-surface px-4 py-3 text-[15px] leading-relaxed text-text outline-none focus:border-accent"
+      />
+      {confirmingDiscard ? (
+        <div className="flex flex-wrap items-center justify-end gap-2 rounded-lg border border-border bg-surface px-3 py-2">
+          <span className="mr-auto text-xs font-semibold text-danger">Discard your changes?</span>
+          <button type="button" onClick={() => setConfirmingDiscard(false)} className="rounded-md border border-border px-3 py-1.5 text-sm font-semibold text-text hover:bg-surface-hover">Keep editing</button>
+          <button type="button" onClick={onDone} className="rounded-md bg-danger px-3 py-1.5 text-sm font-semibold text-white">Discard</button>
+        </div>
+      ) : (
+        <div className="flex justify-end gap-2">
+          <button type="button" onClick={handleCancel} className="rounded-lg border border-border px-4 py-2 text-sm font-semibold text-text hover:bg-surface-hover">Cancel</button>
+          <button
+            type="button"
+            onClick={() => { onChange(val); onDone(); }}
+            className="rounded-lg bg-accent px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-accent-light"
+          >
+            Save
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
 
 /**
  * The warning document — a tight "official document (공문)" sheet matching the
@@ -145,6 +202,12 @@ const CSS = `
 .wfd .warea { width:100%; border:none; outline:none; background:transparent; resize:none; font-size:15px; line-height:1.5; color:var(--ink-soft); min-height:48px; font-family:inherit; }
 .wfd .warea::placeholder { color:var(--muted); }
 .wfd .rotext { font-size:15px; line-height:1.5; color:var(--ink); white-space:pre-wrap; overflow-wrap:anywhere; word-break:break-word; min-height:24px; } .wfd .rotext.empty { color:var(--muted); font-style:italic; }
+/* 텍스트 입력칸 우상단 Expand 버튼 (작성 시만, 인쇄 제외). 누르면 큰 모달로 편집. */
+.wfd .expandbtn { position:absolute; top:7px; right:9px; display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; border:1px solid var(--rule); border-radius:6px; background:#fff; color:var(--label); cursor:pointer; z-index:1; }
+.wfd .expandbtn:hover { border-color:var(--ink-soft); color:var(--ink-soft); }
+/* Details / Corrective action 입력칸 기본 높이를 넉넉히 (작성 시 답답하지 않게). */
+.wfd .bigtext { min-height:112px; }
+.wfd .bigtext .warea { min-height:92px; }
 .wfd .nomatch { font-size:13px; color:var(--muted); font-style:italic; padding:2px 0; }
 .wfd .dtrow { display:flex; align-items:center; gap:6px; margin-top:2px; }
 .wfd .clearx { color:var(--muted); padding:2px; cursor:pointer; display:inline-flex; }
@@ -168,6 +231,7 @@ const CSS = `
   .wfd { position:absolute; left:0; top:0; width:100%; padding:0 !important; margin:0 !important; --rule:#6B7280; }
   .wfd .sheet { box-shadow:none !important; max-width:none !important; padding:11mm 10mm !important; }
   .wfd .modebar { display:none !important; }
+  .wfd .expandbtn { display:none !important; }
   .wfd .subject { display:none !important; }
   /* 1px hairlines land on fractional device pixels under the print/PDF rasterizer and
      anti-alias to near-nothing, dropping random dividers (esp. verticals). Darker +
@@ -216,6 +280,24 @@ export function WarningFormDoc(props: WarningFormDocProps): React.ReactElement {
   const edit = mode === "edit";
   const chosen = new Set(categories);
   const [reasonQuery, setReasonQuery] = useState("");
+  const modal = useModal();
+
+  // 텍스트 입력 → 가운데 큰 모달로 펼쳐 편집 (뒤 어두워짐). 값은 onChange 로 폼과 실시간 동기화.
+  function expandText(
+    heading: string,
+    value: string,
+    onChange: ((s: string) => void) | undefined,
+    placeholder?: string,
+  ): void {
+    if (!onChange) return;
+    // title 생략 → 모달 헤더/X 없음 + backdrop/ESC 닫기 비활성 → Save/Cancel 로만 닫힘(제어).
+    void modal.open(
+      ({ close }) => (
+        <TextExpandModal heading={heading} initial={value} onChange={onChange} onDone={close} placeholder={placeholder} />
+      ),
+      { size: "lg", closeOnBackdrop: false, closeOnEscape: false },
+    );
+  }
 
   const activeCodes = new Set(categoryOptions.map((c) => c.code));
   const legacy = categories.filter((c) => !activeCodes.has(c));
@@ -363,10 +445,16 @@ export function WarningFormDoc(props: WarningFormDocProps): React.ReactElement {
               </div>
             )}
           </div>
-          <div className="cell span12 edge-r">
+          <div className="cell span12 edge-r bigtext">
             <div className="lbl">Details of unsatisfactory behavior / actions</div>
+            {edit && (
+              <button type="button" className="expandbtn" aria-label="Expand"
+                onClick={() => expandText("Details of unsatisfactory behavior / actions", details, props.onDetails, "Describe what happened…")}>
+                <Maximize2 className="w-3.5 h-3.5" />
+              </button>
+            )}
             {edit ? (
-              <textarea className="warea" rows={2} value={details} onChange={(e) => props.onDetails?.(e.target.value)} placeholder="Describe what happened…" />
+              <textarea className="warea" rows={4} value={details} onChange={(e) => props.onDetails?.(e.target.value)} placeholder="Describe what happened…" />
             ) : (
               <div className={`rotext${details ? "" : " empty"}`}>{details || "No details."}</div>
             )}
@@ -374,9 +462,15 @@ export function WarningFormDoc(props: WarningFormDocProps): React.ReactElement {
 
           {/* Section 2 — corrective */}
           <div className="cell band edge-r"><span className="bt">2. Corrective action required — failure to comply may lead to further disciplinary action up to termination</span></div>
-          <div className="cell span12 edge-r">
+          <div className="cell span12 edge-r bigtext">
+            {edit && (
+              <button type="button" className="expandbtn" aria-label="Expand"
+                onClick={() => expandText("Corrective action required", correctiveAction, props.onCorrectiveAction, "What the employee must correct (optional)…")}>
+                <Maximize2 className="w-3.5 h-3.5" />
+              </button>
+            )}
             {edit ? (
-              <textarea className="warea" rows={2} value={correctiveAction} onChange={(e) => props.onCorrectiveAction?.(e.target.value)} placeholder="What the employee must correct (optional)…" />
+              <textarea className="warea" rows={4} value={correctiveAction} onChange={(e) => props.onCorrectiveAction?.(e.target.value)} placeholder="What the employee must correct (optional)…" />
             ) : (
               <div className={`rotext${correctiveAction ? "" : " empty"}`}>{correctiveAction || "None specified."}</div>
             )}
