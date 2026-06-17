@@ -2,7 +2,7 @@
  * Shared warning download-filename builder.
  *
  * Spec (plan doc 2026-06-15):
- *   {YYYY.MM.DD}-{STORECODE}-{EMPID}-{CATEGORIES}-{N}-{First_Last}.pdf
+ *   {YYYY-MM-DD}-{STORECODE}-{EMPID}-{CATEGORIES}-{N}-{First_Last}.pdf
  *
  * - date    = wet_signed_on (the date physically signed) || warning_date
  * - STORECODE = stores.code (warning.store_code)
@@ -34,13 +34,11 @@ function sanitizePart(raw: string | null | undefined): string {
   return cleaned || NA;
 }
 
-/** "2026-06-12" (or ISO) → "2026.06.12"; falls back to "NA". */
+/** ISO date → "YYYY-MM-DD" (the date prefix of the filename); falls back to "NA". */
 function fmtFilenameDate(iso: string | null | undefined): string {
   if (!iso) return NA;
   const ymd = iso.slice(0, 10); // YYYY-MM-DD
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd);
-  if (!m) return NA;
-  return `${m[1]}.${m[2]}.${m[3]}`;
+  return /^\d{4}-\d{2}-\d{2}$/.test(ymd) ? ymd : NA;
 }
 
 /**
