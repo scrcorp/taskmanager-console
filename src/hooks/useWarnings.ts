@@ -381,3 +381,17 @@ export async function fetchSignedPdfUrl(warningId: string): Promise<string> {
   const blob = new Blob([res.data as BlobPart], { type: "application/pdf" });
   return URL.createObjectURL(blob);
 }
+
+/**
+ * Fetch the server-rendered warning *document* PDF as an object URL. The server
+ * renders the official paginated document (not the on-screen form) and streams
+ * the bytes behind the auth header — like the signed PDF we fetch via the authed
+ * axios client and wrap the bytes in a blob: URL the caller revokes when done.
+ */
+export async function fetchWarningPdfUrl(warningId: string): Promise<string> {
+  const res = await api.get(`/console/warnings/${warningId}/pdf`, {
+    responseType: "blob",
+  });
+  const blob = new Blob([res.data as BlobPart], { type: "application/pdf" });
+  return URL.createObjectURL(blob);
+}

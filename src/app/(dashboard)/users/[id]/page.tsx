@@ -1257,7 +1257,7 @@ interface ProfilePinRowProps {
 }
 
 /**
- * 프로필 카드 내부의 6자리 PIN 행.
+ * 프로필 카드 내부의 4~6자리 PIN 행.
  *
  * 권한: `clockin_pin:read` — 기본 masked, 눈 아이콘으로 reveal/hide 토글.
  * 권한: `clockin_pin:update` — 연필 아이콘으로 인라인 편집 모드 진입.
@@ -1271,8 +1271,8 @@ function ProfilePinRow({ userId }: ProfilePinRowProps): React.ReactElement {
   const [draft, setDraft] = useState<string>("");
   const canEdit = hasPermission(PERMISSIONS.CLOCKIN_PIN_UPDATE);
 
-  const maskedPin = "••••••";
   const pinValue = pinData?.clockin_pin ?? "";
+  const maskedPin = "•".repeat(pinValue.length || 6);
   const displayPin = pinData ? (revealed ? pinValue : maskedPin) : "—";
 
   const startEdit = (): void => {
@@ -1284,7 +1284,7 @@ function ProfilePinRow({ userId }: ProfilePinRowProps): React.ReactElement {
     setDraft("");
   };
   const saveEdit = (): void => {
-    if (!/^\d{6}$/.test(draft)) return;
+    if (!/^\d{4,6}$/.test(draft)) return;
     updatePin.mutate(
       { userId, clockinPin: draft },
       { onSuccess: () => setEditing(false) },
@@ -1300,7 +1300,7 @@ function ProfilePinRow({ userId }: ProfilePinRowProps): React.ReactElement {
             <input
               type="text"
               inputMode="numeric"
-              pattern="\d{6}"
+              pattern="\d{4,6}"
               maxLength={6}
               value={draft}
               onChange={(e) =>
@@ -1312,7 +1312,7 @@ function ProfilePinRow({ userId }: ProfilePinRowProps): React.ReactElement {
             <button
               type="button"
               onClick={saveEdit}
-              disabled={!/^\d{6}$/.test(draft) || updatePin.isPending}
+              disabled={!/^\d{4,6}$/.test(draft) || updatePin.isPending}
               className="text-success hover:opacity-80 disabled:opacity-30 transition"
               title="Save"
               aria-label="Save"

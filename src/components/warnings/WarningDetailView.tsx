@@ -13,12 +13,13 @@ import {
   useDeleteWarning,
   useSignWarning,
   useMySignature,
+  fetchWarningPdfUrl,
 } from "@/hooks/useWarnings";
 import { useWarningCategories } from "@/hooks/useWarningCategories";
 import { WarningFormDoc } from "./WarningFormDoc";
 import { SignaturePad, type SignatureResult } from "./SignaturePad";
 import { WetUploadControl, SignedPdfCard } from "./WarningWetSign";
-import { buildWarningFilename, missingFilenameFields } from "./filename";
+import { missingFilenameFields } from "./filename";
 
 function fmtDate(iso: string | null): string {
   if (!iso) return "—";
@@ -35,6 +36,7 @@ interface Props {
 
 export function WarningDetailView({ warningId, onBack, onEdit }: Props): React.ReactElement {
   const modal = useModal();
+  const [pdfBusy, setPdfBusy] = useState(false);
   const { isOwner, hasPermission } = usePermissions();
   const userId = useAuthStore((s) => s.user?.id);
   const companyName = useAuthStore((s) => s.user?.organization_name);
@@ -93,7 +95,6 @@ export function WarningDetailView({ warningId, onBack, onEdit }: Props): React.R
   //  - switch signature method: anyone who can update (warnings:update)
   const canUploadWet =
     warning.issued_by_id === userId || isOwner || hasPermission(PERMISSIONS.WARNINGS_UPLOAD);
-  const downloadName = buildWarningFilename(warning, categoryLabel);
   const missingFields = missingFilenameFields(warning);
 
   async function toggleWithdraw(): Promise<void> {
@@ -132,20 +133,23 @@ export function WarningDetailView({ warningId, onBack, onEdit }: Props): React.R
     }
   }
 
-  // Client-side print → the browser's "Save as PDF". `@media print` (in
-  // WarningFormDoc) hides the app chrome + the web-only Subject, so the printed
-  // page is just the official form — no server PDF, always matches the screen.
-  // Swap the document title to the canonical download filename (sans ".pdf")
-  // so the browser's Save-as-PDF dialog pre-fills it; restore on afterprint.
-  function printPdf(): void {
-    const prev = document.title;
-    document.title = downloadName.replace(/\.pdf$/i, "");
-    const restore = (): void => {
-      document.title = prev;
-      window.removeEventListener("afterprint", restore);
-    };
-    window.addEventListener("afterprint", restore);
-    window.print();
+  // Open the server-rendered document PDF in a new tab. The server renders the
+  // official paginated document (not the screen form) and streams the bytes
+  // behind the auth header, so we fetch (authed) → blob: URL → window.open for an
+  // inline view; the browser's PDF viewer handles print/save. Revoke after the
+  // tab has had time to load. Replaces the old window.print() of the screen form.
+  async function openPdf(): Promise<void> {
+    if (pdfBusy) return;
+    setPdfBusy(true);
+    try {
+      const url = await fetchWarningPdfUrl(warning.id);
+      window.open(url, "_blank", "noopener");
+      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+    } catch {
+      void modal.alert({ type: "error", message: "Couldn't open the PDF." });
+    } finally {
+      setPdfBusy(false);
+    }
   }
 
   async function handleSign(result: SignatureResult): Promise<void> {
@@ -198,7 +202,7 @@ export function WarningDetailView({ warningId, onBack, onEdit }: Props): React.R
 
         {/* Right — actions, destructive/ownership separated by a divider */}
         <div className="ml-auto flex items-center gap-2">
-          <Button variant="secondary" onClick={printPdf} className="gap-1.5">
+          <Button variant="secondary" onClick={() => void openPdf()} isLoading={pdfBusy} className="gap-1.5">
             <Printer className="h-4 w-4" />
             Print / PDF
           </Button>
@@ -320,8 +324,9 @@ export function WarningDetailView({ warningId, onBack, onEdit }: Props): React.R
         <div className="mb-4 rounded-xl border border-border bg-card p-4">
           <div className="mb-2 text-sm font-bold text-text">Upload signed PDF</div>
           <p className="mb-3 text-xs text-text-secondary">
-            Print the form below, have the employee and {issuedByName} sign on paper, then
-            upload the scan here. This stands in for both digital signatures.
+            Use <span className="font-semibold">Print / PDF</span> above to print this warning,
+            have the employee and {issuedByName} sign on paper, then upload the scan here. This
+            stands in for both digital signatures.
           </p>
           <WetUploadControl warningId={warning.id} defaultSignedOn={warning.warning_date} />
         </div>
