@@ -223,25 +223,8 @@ const CSS = `
 .wfd .awaiting { margin-top:6px; font-size:11px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; color:var(--muted); }
 .wfd .ccval { font-size:13px; font-weight:700; color:var(--ink); }
 
-/* ── Print (PDF) — only the sheet prints; Subject is web-only so it's dropped ── */
-@media print {
-  body { background:#fff !important; }
-  body * { visibility:hidden !important; }
-  .wfd, .wfd * { visibility:visible !important; -webkit-print-color-adjust:exact !important; print-color-adjust:exact !important; }
-  .wfd { position:absolute; left:0; top:0; width:100%; padding:0 !important; margin:0 !important; --rule:#6B7280; }
-  .wfd .sheet { box-shadow:none !important; max-width:none !important; padding:11mm 10mm !important; }
-  .wfd .modebar { display:none !important; }
-  .wfd .expandbtn { display:none !important; }
-  .wfd .subject { display:none !important; }
-  /* 1px hairlines land on fractional device pixels under the print/PDF rasterizer and
-     anti-alias to near-nothing, dropping random dividers (esp. verticals). Darker +
-     2px so every divider survives low-DPI rasterization. edge-r/edge-b are border:none
-     → unaffected; the 2.5px near-black frame still reads as the outer rule. */
-  .wfd .cell { border-right-width:2px !important; border-bottom-width:2px !important; }
-  /* margin:0 leaves no page-margin box, so Chrome omits its auto header/footer
-     (date · "HTM Admin" · URL); the sheet padding above supplies the paper margin. */
-  @page { margin:0; }
-}
+/* Print/PDF is now server-rendered (WeasyPrint) via GET /console/warnings/{id}/pdf
+   — this on-screen form is input/preview only, so there is no @media print here. */
 `;
 
 function fmtDate(iso: string): string {
