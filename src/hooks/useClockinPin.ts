@@ -1,5 +1,5 @@
 /**
- * 직원 개인 6자리 PIN 조회/재발급 훅.
+ * 직원 개인 4~6자리 PIN 조회/재발급 훅.
  *
  * 출퇴근용 태블릿(Attendance Device)에서 사용하는 개인 PIN.
  */
@@ -78,7 +78,7 @@ interface UpdateClockinPinVars {
 /**
  * 직원 개인 PIN 직접 변경 뮤테이션 (관리자가 값 지정).
  *
- * 권한: clockin_pin:update. 6자리 숫자만 허용.
+ * 권한: clockin_pin:update. 4~6자리 숫자만 허용 (서버 검증 ^\d{4,6}$).
  */
 export const useUpdateClockinPin = (): UseMutationResult<
   ClockinPin,
