@@ -308,7 +308,7 @@ export function FilterBar({ filters, onChange, users, schedules, selectedStoreId
                 </svg>
               </button>
               {openMenu === "empty-staff" && (
-                <div className="absolute top-full right-0 mt-1.5 w-[300px] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] z-30 overflow-hidden">
+                <div className="absolute top-full right-0 mt-1.5 w-[300px] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] z-50 overflow-hidden">
                   <div className="px-3 py-2 border-b border-[var(--color-border)] text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
                     Staff with no schedule
                   </div>
