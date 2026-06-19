@@ -1,17 +1,19 @@
 "use client";
 
-import React, { useCallback, useRef, useState } from "react";
-import type { SignatureStrokes } from "@/types";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import type { SignatureStrokes, SignParty } from "@/types";
 import { SignatureView } from "./SignatureView";
 
 /**
- * Manager signature draw pad — a centered modal over the document with a real
- * SVG pad capturing pointer strokes. Offers "Draw new" vs "Use saved signature"
- * (the manager's stored signature), plus Clear + Confirm. Mirrors the staff app
- * pad. Strokes are normalized to 0..1 against the pad, with `aspect` (= pad
- * width/height) captured, so they render the same in the document's signature
- * box. The identity gate is enforced by the CALLER, which only opens this pad
- * for the warning's designated manager.
+ * On-device signature pad — a centered modal over the document with a real SVG
+ * pad capturing pointer strokes, for either the employee or manager line. The
+ * person signs in person on this device. "Use saved signature" + "save as
+ * default" are offered only when `allowSaved` (the logged-in user is signing
+ * their own line); capturing someone else's signature is draw-only so we never
+ * store another person's strokes as the operator's default. Strokes are
+ * normalized 0..1 against the pad with `aspect` captured, so they render the
+ * same in the document's signature box. Permission/identity is gated by the
+ * CALLER (the confirm step + warnings:sign).
  */
 
 const PAD_W = 520;
@@ -32,25 +34,56 @@ export interface SignatureResult {
 }
 
 export function SignaturePad({
+  party,
   signerName,
   savedSignature,
+  allowSaved = false,
   isSubmitting = false,
   onCancel,
   onConfirm,
 }: {
+  party: SignParty;
   signerName: string;
   savedSignature?: SignatureStrokes | null;
+  /** Offer reuse + save-as-default. Only when the operator IS this party (self). */
+  allowSaved?: boolean;
   isSubmitting?: boolean;
   onCancel: () => void;
   onConfirm: (result: SignatureResult) => void;
 }): React.ReactElement {
-  const hasSaved = !!savedSignature && savedSignature.strokes.length > 0;
+  const partyLabel = party === "manager" ? "manager" : "employee";
+  const lineLabel = party === "manager" ? "Manager Signature" : "Employee Signature";
+  const hasSaved = allowSaved && !!savedSignature && savedSignature.strokes.length > 0;
   const [mode, setMode] = useState<Mode>(hasSaved ? "saved" : "draw");
   const [strokes, setStrokes] = useState<Stroke[]>([]);
   const [current, setCurrent] = useState<Stroke | null>(null);
   const [saveAsDefault, setSaveAsDefault] = useState(false);
   const drawing = useRef(false);
   const svgRef = useRef<SVGSVGElement | null>(null);
+
+  // Mobile: lock background scroll while the pad is open so the page behind
+  // doesn't scroll under the finger while drawing.
+  useEffect(() => {
+    const { overflow, overscrollBehavior } = document.body.style;
+    document.body.style.overflow = "hidden";
+    document.body.style.overscrollBehavior = "none";
+    return () => {
+      document.body.style.overflow = overflow;
+      document.body.style.overscrollBehavior = overscrollBehavior;
+    };
+  }, []);
+
+  // Mobile: block the native touch-scroll gesture on the pad itself. React 19's
+  // delegated pointer events can't preventDefault the native gesture, so attach
+  // a non-passive native touchmove listener (touch-action:none alone is not
+  // reliable across mobile browsers). Re-attaches when the pad mounts (draw mode).
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg || mode !== "draw") return;
+    const block = (e: TouchEvent): void => e.preventDefault();
+    svg.addEventListener("touchmove", block, { passive: false });
+    return () => svg.removeEventListener("touchmove", block);
+  }, [mode]);
 
   // pointer → normalized 0..1 against the pad viewBox.
   const pointFrom = useCallback((e: React.PointerEvent): Pt | null => {
@@ -129,15 +162,15 @@ export function SignaturePad({
 
       <div style={{ position: "relative", zIndex: 1, width: "min(560px,100%)", background: "#fff", borderRadius: 16, boxShadow: "0 24px 60px rgba(0,0,0,.35)", padding: 22 }}>
         <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-          <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#1A1C22" }}>Sign as manager</h2>
+          <h2 style={{ margin: 0, fontSize: 17, fontWeight: 800, color: "#1A1C22" }}>Sign as {partyLabel}</h2>
           <button type="button" onClick={onCancel} aria-label="Cancel" style={{ border: "none", background: "transparent", cursor: "pointer", color: "#9AA0AD", padding: 4, lineHeight: 0 }}>
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round"><path d="M18 6 6 18M6 6l12 12" /></svg>
           </button>
         </div>
         <p style={{ margin: "0 0 14px", fontSize: 12.5, color: "#7A8090" }}>
           {mode === "saved"
-            ? "Apply your stored signature to the warning's Manager Signature line."
-            : "Draw your signature below. It will be added to the warning's Manager Signature line."}
+            ? `Apply your stored signature to the warning's ${lineLabel} line.`
+            : `Draw your signature below. It will be added to the warning's ${lineLabel} line.`}
         </p>
 
         {/* mode toggle — draw new vs reuse the manager's saved signature */}
@@ -211,8 +244,8 @@ export function SignaturePad({
           )}
         </div>
 
-        {/* save-as-default — only meaningful for a freshly drawn signature */}
-        {mode === "draw" && (
+        {/* save-as-default — only when signing your own line (self), freshly drawn */}
+        {allowSaved && mode === "draw" && (
           <label style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12, fontSize: 12.5, color: "#3C4049", cursor: "pointer", userSelect: "none" }}>
             <input type="checkbox" checked={saveAsDefault} onChange={(e) => setSaveAsDefault(e.target.checked)} style={{ accentColor: ACCENT, width: 15, height: 15 }} />
             Save as my default signature for next time

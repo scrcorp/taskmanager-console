@@ -226,13 +226,13 @@ export const useDeleteWarning = (): UseMutationResult<void, Error, string> => {
   });
 };
 
-// === Manager sign-off ========================================================
+// === On-device sign-off ======================================================
 
 /**
- * Sign a warning as its manager. The server enforces signer == issued_by_id
- * (a non-issuer GM, and even an Owner who isn't the issuer, get 403) — the UI
- * gates this too so 403 shouldn't normally surface, but the hook still reports
- * any error via the result modal.
+ * Capture an on-device signature for a warning's employee or manager line. The
+ * person signs in person on whatever console device is logged in; the server
+ * gates this with `warnings:sign` (GM+/Owner) + store scope, records the party's
+ * own name as the signer, and stamps the operator account as captured_by.
  */
 export const useSignWarning = (): UseMutationResult<
   Warning,
@@ -253,9 +253,9 @@ export const useSignWarning = (): UseMutationResult<
       invalidateWarnings(qc, warning.id);
       // A freshly drawn signature saved as default invalidates the cached one.
       if (data.save_as_default) qc.invalidateQueries({ queryKey: KEYS.mySignature });
-      success("Signed as manager.");
+      success(data.party === "employee" ? "Employee signature saved." : "Manager signature saved.");
     },
-    onError: error("Couldn't sign this warning"),
+    onError: error("Couldn't save this signature"),
   });
 };
 

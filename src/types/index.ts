@@ -718,6 +718,7 @@ export type {
   SignatureStrokes,
   SignatureMethod,
   SigInfo,
+  SignParty,
   WarningSignatures,
   WarningSignRequest,
   MySignatureResponse,
