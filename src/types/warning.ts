@@ -29,10 +29,18 @@ export type SignatureMethod = "drawn" | "saved";
 export interface SigInfo {
   signer_user_id: string;
   signer_name: string;
+  // On-device capture: the account that actually received the signature. Null
+  // when it's the signer's own session (self-sign), so it's only set/shown when
+  // someone signed on another logged-in user's device.
+  captured_by_user_id?: string | null;
+  captured_by_name?: string | null;
   signed_at: string; // ISO datetime
   method: SignatureMethod;
   signature_strokes: SignatureStrokes;
 }
+
+// Which signature line is being captured on the console device.
+export type SignParty = "employee" | "manager";
 
 // Both sign-off slots on a warning. `null` until that party signs.
 export interface WarningSignatures {
@@ -40,12 +48,14 @@ export interface WarningSignatures {
   manager: SigInfo | null;
 }
 
-// POST /console/warnings/{id}/sign body — the manager applies their signature.
+// POST /console/warnings/{id}/sign body — capture an on-device signature for the
+// given party (employee or manager). `party` defaults to manager server-side.
 export interface WarningSignRequest {
   strokes: number[][][];
   aspect: number | null;
   method: SignatureMethod;
   save_as_default: boolean;
+  party: SignParty;
 }
 
 // GET/PUT /console/warnings/my-signature — the manager's reusable signature.

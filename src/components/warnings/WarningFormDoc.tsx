@@ -109,15 +109,20 @@ interface WarningFormDocProps {
   // ── Signatures (view mode) — render captured vector ink in the sig boxes ──
   employeeSignature?: SigInfo | null;
   managerSignature?: SigInfo | null;
-  /** Show the in-box "Sign as manager" affordance (only the warning's manager). */
+  /** Show the in-box "Sign as manager" affordance (warnings:sign holders). */
   canSignAsManager?: boolean;
-  /** Read-only hint shown to everyone else when the manager hasn't signed yet. */
+  /** Show the in-box "Sign as employee" affordance (on-device capture). */
+  canSignAsEmployee?: boolean;
+  /** Read-only hint shown when the manager hasn't signed yet. */
   managerAwaitingNote?: string | null;
+  /** Read-only hint shown when the employee hasn't signed yet. */
+  employeeAwaitingNote?: string | null;
   /** Wet-sign warning: the signature cells reference the uploaded PDF, not ink lines. */
   wetSign?: boolean;
   /** Wet-sign + the scanned PDF has been uploaded. */
   wetSigned?: boolean;
   onSignManager?: () => void;
+  onSignEmployee?: () => void;
   onPickEmployee?: () => void;
   onPickStore?: () => void;
   onPickManager?: () => void;
@@ -259,7 +264,7 @@ function Box({ on }: { on: boolean }): React.ReactElement {
 }
 
 export function WarningFormDoc(props: WarningFormDocProps): React.ReactElement {
-  const { mode, companyName, refNo, employeeName, employeeNo, managerName, storeName, dateValue, dateLabel, maxDate, ordinal, title, categoryOptions, categories, categoryLabels, details, correctiveAction, otherText, deadline, followUpDate, followUpTime, employeeSignature, managerSignature, canSignAsManager, managerAwaitingNote, onSignManager, wetSign, wetSigned } = props;
+  const { mode, companyName, refNo, employeeName, employeeNo, managerName, storeName, dateValue, dateLabel, maxDate, ordinal, title, categoryOptions, categories, categoryLabels, details, correctiveAction, otherText, deadline, followUpDate, followUpTime, employeeSignature, managerSignature, canSignAsManager, canSignAsEmployee, managerAwaitingNote, employeeAwaitingNote, onSignManager, onSignEmployee, wetSign, wetSigned } = props;
   const edit = mode === "edit";
   const chosen = new Set(categories);
   const [reasonQuery, setReasonQuery] = useState("");
@@ -502,6 +507,15 @@ export function WarningFormDoc(props: WarningFormDocProps): React.ReactElement {
               <>
                 <div className="sigline" />
                 <div className="sigmeta"><span>{employeeName || "—"}</span><span>Date</span></div>
+                {!edit && canSignAsEmployee && (
+                  <button type="button" className="signbtn" onClick={onSignEmployee}>
+                    <PenLine className="w-3.5 h-3.5" />
+                    Sign as employee
+                  </button>
+                )}
+                {!edit && !canSignAsEmployee && employeeAwaitingNote && (
+                  <div className="awaiting">{employeeAwaitingNote}</div>
+                )}
               </>
             )}
           </div>

@@ -7,6 +7,7 @@ import { useModal } from "@/components/ui/imperative-modal";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useAuthStore } from "@/stores/authStore";
 import { PERMISSIONS } from "@/lib/permissions";
+import type { SignParty } from "@/types";
 import {
   useWarning,
   useUpdateWarning,
@@ -50,17 +51,26 @@ export function WarningDetailView({ warningId, onBack, onEdit }: Props): React.R
   const deleteMut = useDeleteWarning();
   const signMut = useSignWarning();
 
-  const [padOpen, setPadOpen] = useState(false);
+  const [signParty, setSignParty] = useState<SignParty | null>(null);
   const isWet = w?.signature_method === "wet";
-  // Identity gate: only the warning's designated manager (the issuer) may sign.
-  // Drives whether we even fetch/offer their reusable saved signature.
-  const isWarningManager = !!w && !!userId && w.issued_by_id === userId;
+  // On-device sign: anyone with warnings:sign (GM+/Owner) can capture either
+  // signature on this device — the person signs in person. Digital + active only.
+  const canSign =
+    !isWet && w?.status === "active" && hasPermission(PERMISSIONS.WARNINGS_SIGN);
+  const employeeNotSigned = !!w && !w.signatures.employee;
   const managerNotSigned = !!w && !w.signatures.manager;
-  // Digital sign-off only applies to digital warnings.
-  const canSignAsManager =
-    !isWet && isWarningManager && managerNotSigned && w?.status === "active";
-  // Only fetch the saved signature for the manager who can actually sign.
-  const { data: savedSignature } = useMySignature(canSignAsManager);
+  const canSignEmployee = !!canSign && employeeNotSigned && !!w?.subject_user_id;
+  const canSignManager = !!canSign && managerNotSigned && !!w?.issued_by_id;
+  // "Self" = the logged-in account IS the party being signed (manager=issuer,
+  // employee=subject). A GM/Owner can be the subject of a warning issued from
+  // above, so employee-self is possible in the console too. When self we skip the
+  // identity confirm and offer their registered signature; capturing on behalf of
+  // someone else is confirm-gated + draw-only.
+  const isSelfManager = !!userId && w?.issued_by_id === userId;
+  const isSelfEmployee = !!userId && w?.subject_user_id === userId;
+  const { data: savedSignature } = useMySignature(
+    (canSignManager && isSelfManager) || (canSignEmployee && isSelfEmployee),
+  );
 
   if (isLoading) {
     return (
@@ -152,7 +162,31 @@ export function WarningDetailView({ warningId, onBack, onEdit }: Props): React.R
     }
   }
 
+  // Confirm the in-person identity, then open the pad for that party. The
+  // signature is recorded as the party's own (employee=subject, manager=issuer);
+  // the logged-in operator is stamped as captured_by server-side.
+  async function startSign(party: SignParty): Promise<void> {
+    const isSelf = party === "manager" ? isSelfManager : isSelfEmployee;
+    // Signing your own line — you're already authenticated as yourself, so no
+    // "is this you?" prompt; go straight to the pad (it offers your registered
+    // signature). Only confirm identity when capturing for someone else here.
+    if (!isSelf) {
+      const who =
+        party === "manager"
+          ? (warning.issued_by_name ?? "the manager")
+          : (warning.subject_name ?? "the employee");
+      const ok = await modal.confirm({
+        title: "Confirm signer",
+        message: `This will be recorded as ${who}'s signature (${party}). Make sure ${who} is here and signing in person on this device.`,
+        confirmLabel: "Continue to sign",
+      });
+      if (!ok) return;
+    }
+    setSignParty(party);
+  }
+
   async function handleSign(result: SignatureResult): Promise<void> {
+    if (!signParty) return;
     try {
       await signMut.mutateAsync({
         warningId: warning.id,
@@ -161,9 +195,10 @@ export function WarningDetailView({ warningId, onBack, onEdit }: Props): React.R
           aspect: result.aspect,
           method: result.method,
           save_as_default: result.saveAsDefault,
+          party: signParty,
         },
       });
-      setPadOpen(false);
+      setSignParty(null);
     } catch {
       // hook surfaces the error (incl. a 403 if the gate were somehow bypassed)
     }
@@ -255,21 +290,29 @@ export function WarningDetailView({ warningId, onBack, onEdit }: Props): React.R
                 ? `Read on ${fmtDate(warning.acknowledged_at)}${isWet ? "" : " — awaiting signature"}`
                 : "Not opened yet";
           return (
-            <div className="rounded-lg px-3.5 py-2.5" style={{ border: `1px solid ${tone.br}`, background: tone.bg }}>
-              <div className="text-[10px] font-extrabold uppercase tracking-wider" style={{ color: "#9AA0AD" }}>
-                Employee
+            <div className="flex items-center gap-2.5 rounded-lg px-3.5 py-2.5" style={{ border: `1px solid ${tone.br}`, background: tone.bg }}>
+              <div className="min-w-0 flex-1">
+                <div className="text-[10px] font-extrabold uppercase tracking-wider" style={{ color: "#9AA0AD" }}>
+                  Employee
+                </div>
+                <div className="mt-1 flex items-center gap-2">
+                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: tone.fg }} />
+                  <span className="truncate text-sm font-bold" style={{ color: tone.fg }}>{line}</span>
+                </div>
               </div>
-              <div className="mt-1 flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full" style={{ background: tone.fg }} />
-                <span className="text-sm font-bold" style={{ color: tone.fg }}>{line}</span>
-              </div>
+              {canSignEmployee && (
+                <Button variant="primary" onClick={() => void startSign("employee")} className="shrink-0 gap-1.5">
+                  <PenLine className="h-4 w-4" />
+                  Sign as employee
+                </Button>
+              )}
             </div>
           );
         })()}
         {/* Manager */}
         {(() => {
           const signed = warning.manager_signed;
-          const actionable = canSignAsManager;
+          const actionable = canSignManager;
           const tone = signed
             ? { fg: "#2F9E44", bg: "#EBF8EE", br: "#C3E9CD" }
             : actionable
@@ -293,11 +336,6 @@ export function WarningDetailView({ warningId, onBack, onEdit }: Props): React.R
                   <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: tone.fg }} />
                   <span className="truncate text-sm font-bold" style={{ color: tone.fg }}>{line}</span>
                 </div>
-                {!signed && !isWet && !canSignAsManager && (
-                  <div className="mt-0.5 text-[11.5px]" style={{ color: "#9AA0AD" }}>
-                    Only {issuedByName} can sign this.
-                  </div>
-                )}
                 {!signed && isWet && !canUploadWet && (
                   <div className="mt-0.5 text-[11.5px]" style={{ color: "#9AA0AD" }}>
                     {issuedByName} or an authorized manager uploads the signed PDF.
@@ -305,8 +343,8 @@ export function WarningDetailView({ warningId, onBack, onEdit }: Props): React.R
                 )}
               </div>
               {/* Digital: in-card sign affordance. Wet: upload handled by the card below. */}
-              {canSignAsManager && (
-                <Button variant="primary" onClick={() => setPadOpen(true)} className="shrink-0 gap-1.5">
+              {canSignManager && (
+                <Button variant="primary" onClick={() => void startSign("manager")} className="shrink-0 gap-1.5">
                   <PenLine className="h-4 w-4" />
                   Sign as manager
                 </Button>
@@ -354,19 +392,24 @@ export function WarningDetailView({ warningId, onBack, onEdit }: Props): React.R
         followUpTime={warning.follow_up_time ?? ""}
         employeeSignature={isWet ? null : empSig}
         managerSignature={isWet ? null : mgrSig}
-        canSignAsManager={canSignAsManager}
-        managerAwaitingNote={isWet || mgrSig ? null : `Only ${issuedByName} can sign`}
-        onSignManager={() => setPadOpen(true)}
+        canSignAsManager={canSignManager}
+        canSignAsEmployee={canSignEmployee}
+        managerAwaitingNote={isWet || mgrSig || canSignManager ? null : "Awaiting signature"}
+        employeeAwaitingNote={isWet || empSig || canSignEmployee ? null : "Awaiting signature"}
+        onSignManager={() => void startSign("manager")}
+        onSignEmployee={() => void startSign("employee")}
         wetSign={isWet}
         wetSigned={isWet && warning.signed_pdf_present}
       />
 
-      {padOpen && canSignAsManager && (
+      {signParty && (
         <SignaturePad
-          signerName={issuedByName}
-          savedSignature={savedSignature ?? null}
+          party={signParty}
+          signerName={signParty === "manager" ? issuedByName : (warning.subject_name ?? "the employee")}
+          allowSaved={signParty === "manager" ? isSelfManager : isSelfEmployee}
+          savedSignature={(signParty === "manager" ? isSelfManager : isSelfEmployee) ? (savedSignature ?? null) : null}
           isSubmitting={signMut.isPending}
-          onCancel={() => setPadOpen(false)}
+          onCancel={() => setSignParty(null)}
           onConfirm={(r) => void handleSign(r)}
         />
       )}
