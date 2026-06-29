@@ -69,11 +69,17 @@ interface TemplateGroup {
 
 export function DailyReportTemplatesView({
   showHeader = true,
+  storeId = null,
 }: {
   showHeader?: boolean;
+  /** 설정 시 해당 매장 전용 템플릿만 관리 (store detail Reports tab). null/undefined = org Templates 페이지 기본 동작. */
+  storeId?: string | null;
 } = {}): React.ReactElement {
   const router = useRouter();
   const modal = useModal();
+
+  /** Store-scoped mode: 한 매장 템플릿만 보여주고 store selector 를 잠근다. */
+  const storeScoped = !!storeId;
 
   // Data hooks
   const { data: templates, isLoading } = useTemplates();
@@ -102,11 +108,11 @@ export function DailyReportTemplatesView({
   const resetForm = useCallback(() => {
     setEditingId(null);
     setFormName("");
-    setFormStoreId("");
+    setFormStoreId(storeId ?? "");
     setFormIsDefault(false);
     setFormIsActive(true);
     setFormSections([createEmptySection(1)]);
-  }, []);
+  }, [storeId]);
 
   const openCreateForm = useCallback(() => {
     resetForm();
@@ -166,7 +172,7 @@ export function DailyReportTemplatesView({
         // 신규 템플릿은 항상 active 로 생성 (서버 default). Active 체크박스는 편집 시에만 노출.
         const data: DailyReportTemplateCreate = {
           name: formName.trim(),
-          store_id: formStoreId || null,
+          store_id: storeScoped ? storeId : formStoreId || null,
           is_default: formIsDefault,
           sections,
         };
@@ -177,7 +183,7 @@ export function DailyReportTemplatesView({
     } catch {
       // hook 자동 모달
     }
-  }, [formName, formStoreId, formIsDefault, formIsActive, formSections, editingId, createTemplate, updateTemplate, modal, resetForm]);
+  }, [formName, formStoreId, formIsDefault, formIsActive, formSections, editingId, createTemplate, updateTemplate, modal, resetForm, storeScoped, storeId]);
 
   const handleDelete = useCallback(async (id: string) => {
     const ok = await modal.confirm({
@@ -253,7 +259,23 @@ export function DailyReportTemplatesView({
   // --- Group templates by store ---
 
   const groups: TemplateGroup[] = useMemo(() => {
-    const list = templates ?? [];
+    const all = templates ?? [];
+
+    // Store-scoped: 이 매장 템플릿만, 단일 그룹(그룹 헤더 없이 평탄하게).
+    if (storeScoped) {
+      const own = all.filter((t) => t.store_id === storeId);
+      if (own.length === 0) return [];
+      return [
+        {
+          key: storeId,
+          label: "Templates for this store",
+          subtitle: `${own.filter((t) => t.is_active).length} active`,
+          templates: own,
+        },
+      ];
+    }
+
+    const list = all;
     const orgWide = list.filter((t) => !t.store_id);
     const byStore = new Map<string, DailyReportTemplate[]>();
     for (const t of list) {
@@ -283,7 +305,7 @@ export function DailyReportTemplatesView({
       });
     }
     return result;
-  }, [templates, activeStores]);
+  }, [templates, activeStores, storeScoped, storeId]);
 
   const renderTemplateRows = (rows: DailyReportTemplate[]) =>
     rows.map((tpl: DailyReportTemplate) => ({
@@ -366,10 +388,14 @@ export function DailyReportTemplatesView({
       </div>
 
       {/* Organization-wide report periods (daily report types). Per-store
-          overrides live on the store detail Reports tab. */}
-      <div className="mb-8">
-        <ReportTypesManager />
-      </div>
+          overrides live on the store detail Reports tab.
+          Store-scoped 모드(store detail Reports tab)에서는 periods 가 별도 섹션으로
+          이미 렌더되므로 여기서는 숨긴다. */}
+      {!storeScoped && (
+        <div className="mb-8">
+          <ReportTypesManager />
+        </div>
+      )}
 
       {/* Template list — grouped by store */}
       {isLoading ? (
@@ -379,7 +405,9 @@ export function DailyReportTemplatesView({
       ) : groups.length === 0 ? (
         <Card>
           <div className="py-8 text-center text-sm text-text-muted">
-            No templates yet. Create one to get started.
+            {storeScoped
+              ? "No templates for this store yet. Create one to get started."
+              : "No templates yet. Create one to get started."}
           </div>
         </Card>
       ) : (
@@ -422,7 +450,7 @@ export function DailyReportTemplatesView({
             placeholder="e.g. Daily Lunch Report"
           />
 
-          {!editingId && (
+          {!editingId && !storeScoped && (
             <Select
               label="Store (optional)"
               value={formStoreId}
