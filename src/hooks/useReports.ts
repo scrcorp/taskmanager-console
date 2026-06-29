@@ -34,6 +34,7 @@ export const useReports = (
       if (filters.store_id) params.store_id = filters.store_id;
       if (filters.date_from) params.date_from = filters.date_from;
       if (filters.date_to) params.date_to = filters.date_to;
+      if (filters.period) params.period = filters.period;
       if (filters.status) params.status = filters.status;
       if (filters.show_all) params.show_all = true;
       params.page = filters.page ?? 1;
@@ -104,6 +105,53 @@ export const useTransitionIssue = (): UseMutationResult<
       success("Status updated.");
     },
     onError: error("Couldn't change status"),
+  });
+};
+
+/** Report 리뷰 (GM+). submitted → reviewed, 선택 피드백 코멘트. */
+export const useReviewReport = (): UseMutationResult<
+  Report,
+  Error,
+  { reportId: string; feedback?: string }
+> => {
+  const qc = useQueryClient();
+  const { success, error } = useMutationResult();
+  return useMutation<Report, Error, { reportId: string; feedback?: string }>({
+    mutationFn: async ({ reportId, feedback }) => {
+      const res: AxiosResponse<Report> = await api.post(
+        `/console/reports/${reportId}/review`,
+        feedback ? { feedback } : {},
+      );
+      return res.data;
+    },
+    onSuccess: (_, { reportId }) => {
+      qc.invalidateQueries({ queryKey: ["reports"] });
+      qc.invalidateQueries({ queryKey: ["report", reportId] });
+      qc.invalidateQueries({ queryKey: ["daily-reports"] });
+      qc.invalidateQueries({ queryKey: ["daily-report", reportId] });
+      success("Report reviewed.");
+    },
+    onError: error("Couldn't review report"),
+  });
+};
+
+/** Report acknowledge (idempotent). 수신자가 확인했음을 기록. */
+export const useAcknowledgeReport = (): UseMutationResult<Report, Error, string> => {
+  const qc = useQueryClient();
+  const { success, error } = useMutationResult();
+  return useMutation<Report, Error, string>({
+    mutationFn: async (reportId) => {
+      const res: AxiosResponse<Report> = await api.post(
+        `/console/reports/${reportId}/acknowledge`,
+      );
+      return res.data;
+    },
+    onSuccess: (_, reportId) => {
+      qc.invalidateQueries({ queryKey: ["report", reportId] });
+      qc.invalidateQueries({ queryKey: ["daily-report", reportId] });
+      success("Acknowledged.");
+    },
+    onError: error("Couldn't acknowledge report"),
   });
 };
 

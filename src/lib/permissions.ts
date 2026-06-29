@@ -97,6 +97,10 @@ export const PERMISSIONS = {
   REPORTS_CREATE: "reports:create",
   REPORTS_UPDATE: "reports:update",
   REPORTS_DELETE: "reports:delete",
+  REPORTS_REVIEW: "reports:review",
+  REPORTS_ACKNOWLEDGE: "reports:acknowledge",
+  // 보고서 종류(period) 구성 — org-default + store override 관리.
+  REPORT_TYPES_MANAGE: "report_types:manage",
 
   // ── Dashboard ──
   DASHBOARD_READ: "dashboard:read",

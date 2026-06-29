@@ -22,6 +22,7 @@ import {
   Settings,
   Scale,
   Sunrise,
+  Store as StoreIcon,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useStore, useUpdateStore } from "@/hooks/useStores";
@@ -65,6 +66,7 @@ import {
   Select,
 } from "@/components/ui";
 import { SortableList } from "@/components/ui/SortableList";
+import { ReportTypesManager } from "@/components/reports/ReportTypesManager";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useToast } from "@/components/ui/Toast";
 import { useModal } from "@/components/ui/imperative-modal";
@@ -86,7 +88,7 @@ import type {
 /* -------------------------------------------------------------------------- */
 
 /** 탭 이름 타입 / Tab name type */
-type TabName = "shifts-positions" | "checklists" | "settings";
+type TabName = "shifts-positions" | "checklists" | "reports" | "settings";
 
 /** 시프트/포지션 폼 데이터 / Shift/Position form data */
 interface ShiftPositionFormData {
@@ -172,6 +174,7 @@ const TAB_OPTIONS: { value: TabName; label: string }[] = [
   { value: "shifts-positions", label: "Shifts & Positions" },
   // Work Roles moved to /schedules/settings
   { value: "checklists", label: "Checklists" },
+  { value: "reports", label: "Reports" },
   { value: "settings", label: "Settings" },
 ];
 
@@ -194,7 +197,7 @@ export default function StoreDetailPage(): React.ReactElement {
 
   /** 현재 활성 탭 (URL-persisted) / Currently active tab */
   const [urlParams, setUrlParams] = usePersistedFilters("stores.detail", { tab: "shifts-positions" });
-  const activeTab: TabName = (["shifts-positions", "checklists", "settings"] as TabName[]).includes(urlParams.tab as TabName)
+  const activeTab: TabName = (["shifts-positions", "checklists", "reports", "settings"] as TabName[]).includes(urlParams.tab as TabName)
     ? (urlParams.tab as TabName)
     : "shifts-positions";
   const setActiveTab = useCallback((tab: TabName) => setUrlParams({ tab }), [setUrlParams]);
@@ -284,6 +287,11 @@ export default function StoreDetailPage(): React.ReactElement {
   /* ---- Settings: Store Update -------------------------------------------- */
   const updateStore = useUpdateStore();
   const setAcceptingSignups = useSetAcceptingSignups(storeId);
+  /* ---- Settings: Brand Profile (name/code/phone/email) ------------------- */
+  const [profileName, setProfileName] = useState<string>("");
+  const [profileCode, setProfileCode] = useState<string>("");
+  const [profilePhone, setProfilePhone] = useState<string>("");
+  const [profileEmail, setProfileEmail] = useState<string>("");
   const [maxWorkHoursWeekly, setMaxWorkHoursWeekly] = useState<string>("");
   const [storeTimezone, setStoreTimezone] = useState<string>("");
   const [storeDefaultHourlyRate, setStoreDefaultHourlyRate] = useState<string>("");
@@ -322,6 +330,10 @@ export default function StoreDetailPage(): React.ReactElement {
   /** 매장 데이터가 로드되면 settings 동기화 / Sync settings when store loads */
   useEffect(() => {
     if (store) {
+      setProfileName(store.name ?? "");
+      setProfileCode(store.code ?? "");
+      setProfilePhone(store.phone ?? "");
+      setProfileEmail(store.email ?? "");
       setMaxWorkHoursWeekly(store.max_work_hours_weekly?.toString() ?? "");
       setStoreTimezone(store.timezone ?? "");
       setStoreDefaultHourlyRate(store.default_hourly_rate != null ? String(store.default_hourly_rate) : "");
@@ -847,6 +859,31 @@ export default function StoreDetailPage(): React.ReactElement {
     } catch (err) {
     }
   }, [maxWorkHoursWeekly, updateStore, storeId]);
+
+  /** 브랜드 프로필 저장 / Save brand profile (name/code/phone/email) */
+  const handleSaveProfile = useCallback(async (): Promise<void> => {
+    const name = profileName.trim();
+    if (!name) {
+      void modal.alert({ type: "error", message: "Brand name can't be empty." });
+      return;
+    }
+    const code = profileCode.trim().toUpperCase();
+    if (code !== "" && !/^[A-Z0-9]{2,10}$/.test(code)) {
+      void modal.alert({ type: "error", message: "Code must be 2–10 letters/numbers, or left blank." });
+      return;
+    }
+    try {
+      await updateStore.mutateAsync({
+        id: storeId,
+        name,
+        code: code || null, // 비우면 코드 제거 (생성과 달리 자동 생성하지 않음)
+        phone: profilePhone.trim() || null,
+        email: profileEmail.trim() || null,
+      });
+    } catch {
+      // hook 자동 에러 모달
+    }
+  }, [profileName, profileCode, profilePhone, profileEmail, updateStore, storeId, modal]);
 
   /** 주(State) 코드 저장 / Save US state code (labor-law driver) */
   const handleSaveStateCode = useCallback(async (): Promise<void> => {
@@ -1848,10 +1885,78 @@ export default function StoreDetailPage(): React.ReactElement {
       )}
 
       {/* ================================================================== */}
+      {/*  Reports Tab — per-store report periods (daily report types)       */}
+      {/* ================================================================== */}
+      {activeTab === "reports" && (
+        <ReportTypesManager storeId={storeId} />
+      )}
+
+      {/* ================================================================== */}
       {/*  Settings Tab                                                      */}
       {/* ================================================================== */}
       {activeTab === "settings" && (
         <div className="space-y-8">
+          {/* ---- Section 0: Brand Profile (name/code/phone/email) ---- */}
+          <div className="bg-card border border-border rounded-xl p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <StoreIcon className="h-5 w-5 text-accent" />
+              <h2 className="text-lg font-bold text-text">Brand Profile</h2>
+            </div>
+            <div className="max-w-lg space-y-4">
+              <Input
+                label="Brand Name"
+                placeholder="Enter brand name"
+                value={profileName}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setProfileName(e.target.value)
+                }
+              />
+              <div>
+                <Input
+                  label="Code"
+                  placeholder="e.g. SWC"
+                  value={profileCode}
+                  maxLength={10}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                    setProfileCode(e.target.value.toUpperCase())
+                  }
+                />
+                <p className="mt-1 text-xs text-text-muted">
+                  2–10 letters/numbers, unique within your organization. Leave blank to remove the code.
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Input
+                  label="Phone"
+                  placeholder="Optional"
+                  value={profilePhone}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                    setProfilePhone(e.target.value)
+                  }
+                />
+                <Input
+                  label="Email"
+                  placeholder="Optional"
+                  value={profileEmail}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                    setProfileEmail(e.target.value)
+                  }
+                />
+              </div>
+              <div className="flex justify-end">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleSaveProfile}
+                  isLoading={updateStore.isPending}
+                  disabled={!canUpdateSettings}
+                >
+                  Save
+                </Button>
+              </div>
+            </div>
+          </div>
+
           {/* ---- Section 1: Weekly Hour Limit ---- */}
           <div className="bg-card border border-border rounded-xl p-6">
             <div className="flex items-center gap-2 mb-4">

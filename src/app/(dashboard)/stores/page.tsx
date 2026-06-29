@@ -39,6 +39,7 @@ import { Table, Badge, Modal } from "@/components/ui";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useModal } from "@/components/ui/imperative-modal";
 import { formatDate, parseApiError } from "@/lib/utils";
+import { previewStoreCode } from "@/lib/storeCode";
 import { useTimezone } from "@/hooks/useTimezone";
 import { TIMEZONE_OPTIONS } from "@/lib/timezones";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -210,6 +211,24 @@ export default function StoresPage(): React.ReactElement {
     }
     return result;
   }, [stores, searchQuery, statusFilter]);
+
+  /** 사용 중인 코드 집합 — 폐점 매장은 코드를 반납하므로 제외 (서버 dedup과 일치) */
+  const liveCodes: string[] = useMemo(
+    () =>
+      Array.isArray(stores)
+        ? stores
+            .filter((s) => s.status !== "closed")
+            .map((s) => s.code)
+            .filter((c): c is string => Boolean(c))
+        : [],
+    [stores],
+  );
+
+  /** 코드 미리보기 — 이름 입력 시 비워두면 자동 생성될 코드를 placeholder로 안내 */
+  const codePreview: string = useMemo(
+    () => (createForm.name.trim() ? previewStoreCode(createForm.name, liveCodes) : ""),
+    [createForm.name, liveCodes],
+  );
 
   /** 드래그 정렬 가능 여부 — 기본 active 뷰 + 검색 없을 때만 (순서는 org 전역) */
   const canReorder = canWrite && statusFilter === "active" && !searchQuery.trim();
@@ -622,7 +641,7 @@ export default function StoresPage(): React.ReactElement {
           <div>
             <Input
               label="Code"
-              placeholder="Auto from name if blank (e.g. SWC)"
+              placeholder={codePreview ? `${codePreview} (auto)` : "Auto from name if blank (e.g. SWC)"}
               value={createForm.code}
               maxLength={10}
               onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
@@ -633,7 +652,15 @@ export default function StoresPage(): React.ReactElement {
               }
             />
             <p className="mt-1 text-xs text-text-muted">
-              2–10 letters/numbers. Leave blank to auto-generate from the name (first 3 letters).
+              {codePreview && !createForm.code.trim() ? (
+                <>
+                  2–10 letters/numbers. Leave blank to use{" "}
+                  <span className="font-semibold text-text-secondary">{codePreview}</span>,
+                  auto-generated from the name.
+                </>
+              ) : (
+                <>2–10 letters/numbers. Leave blank to auto-generate from the name (first 3 letters).</>
+              )}
             </p>
           </div>
           <div className="grid grid-cols-2 gap-3">

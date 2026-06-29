@@ -1563,11 +1563,20 @@ export interface Report {
   status: string;
   report_date: string | null;
   submitted_at: string | null;
+  // Deadline (store tz → UTC). null = no deadline rule for this period.
+  deadline_at: string | null;
+  is_overdue: boolean; // 마감 지남 + 미제출
+  is_late: boolean; // 마감 이후 제출됨
+  reviewed_by_id: string | null;
+  reviewed_by_name: string | null;
+  reviewed_at: string | null;
   created_at: string;
   updated_at: string;
   payload: Record<string, unknown>;
   comment_count: number;
   comments: ReportComment[];
+  acknowledgement_count: number;
+  acknowledgements: ReportAcknowledgement[];
 }
 
 export interface ReportComment {
@@ -1578,11 +1587,82 @@ export interface ReportComment {
   created_at: string;
 }
 
+export interface ReportAcknowledgement {
+  user_id: string;
+  user_name: string | null;
+  acknowledged_at: string;
+}
+
+/** daily report payload 본문 — period + 섹션별 작성 내용. */
+export interface DailyReportPayloadSection {
+  id?: string | null;
+  title: string;
+  content?: string | null;
+  sort_order: number;
+  template_section_id?: string | null;
+}
+
+export interface DailyReportPayload {
+  period: string;
+  sections?: DailyReportPayloadSection[];
+}
+
+// ── Report Types (daily 'period' 종류 — org-default + store override) ──
+
+/** report_types raw row (org-default 또는 store override). */
+export interface ReportType {
+  id: string;
+  organization_id: string;
+  store_id: string | null;
+  code: string;
+  label: string;
+  sort_order: number;
+  is_active: boolean;
+  default_deadline_local_time: string | null; // "HH:MM"
+  deadline_day_offset: number;
+  created_at?: string | null;
+  updated_at?: string | null;
+}
+
+/** 매장에 실제 적용되는 resolved report type (org+store 병합). */
+export interface EffectiveReportType {
+  code: string;
+  label: string;
+  sort_order: number;
+  is_active: boolean;
+  default_deadline_local_time: string | null;
+  deadline_day_offset: number;
+  scope: "org" | "store";
+  // 편집 시 PUT 대상 row id. 내장 기본값(DB row 없음)이면 null.
+  id: string | null;
+  // store override 가 가리키는 org-default row id.
+  org_type_id: string | null;
+}
+
+export interface ReportTypeCreate {
+  code: string;
+  label: string;
+  store_id?: string | null;
+  sort_order?: number;
+  is_active?: boolean;
+  default_deadline_local_time?: string | null;
+  deadline_day_offset?: number;
+}
+
+export interface ReportTypeUpdate {
+  label?: string;
+  sort_order?: number;
+  is_active?: boolean;
+  default_deadline_local_time?: string | null;
+  deadline_day_offset?: number;
+}
+
 export interface ReportFilters {
   type?: string;
   store_id?: string;
   date_from?: string;
   date_to?: string;
+  period?: string;
   status?: string;
   show_all?: boolean;
   page?: number;
