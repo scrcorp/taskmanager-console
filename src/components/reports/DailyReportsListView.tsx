@@ -8,7 +8,7 @@
 
 import React, { useEffect, useMemo, Suspense } from "react";
 import { useRouter } from "next/navigation";
-import { FileText, MapPin, Calendar, User, MessageSquare, Settings } from "lucide-react";
+import { FileText, MapPin, Calendar, User, MessageSquare, Settings, AlertCircle } from "lucide-react";
 import { useDailyReports } from "@/hooks/useDailyReports";
 import { useStores } from "@/hooks/useStores";
 import { useAlerts } from "@/hooks/useAlerts";
@@ -22,7 +22,7 @@ import {
   Pagination,
 } from "@/components/ui";
 import { DateField } from "@/components/ui/DateField";
-import type { DailyReport, Store } from "@/types";
+import type { DailyReportPayload, Report, Store } from "@/types";
 import { cn, formatFixedDate, todayInTimezone } from "@/lib/utils";
 
 // ── Date range presets ─────────────────────────────────────────────
@@ -70,18 +70,28 @@ function detectActivePreset(from: string, to: string, today: string): string {
 
 const periodOptions: { value: string; label: string }[] = [
   { value: "", label: "All Periods" },
+  { value: "morning", label: "Morning" },
   { value: "lunch", label: "Lunch" },
   { value: "dinner", label: "Dinner" },
 ];
 
+const statusOptions: { value: string; label: string }[] = [
+  { value: "", label: "All Statuses" },
+  { value: "submitted", label: "Submitted" },
+  { value: "reviewed", label: "Reviewed" },
+];
+
 const statusBadge: Record<
   string,
-  { label: string; variant: "success" | "warning" | "default" }
+  { label: string; variant: "success" | "warning" | "accent" | "default" }
 > = {
-  submitted: { label: "Submitted", variant: "success" },
+  draft: { label: "Draft", variant: "warning" },
+  submitted: { label: "Submitted", variant: "accent" },
+  reviewed: { label: "Reviewed", variant: "success" },
 };
 
 const periodBadge: Record<string, { label: string; variant: "accent" | "default" }> = {
+  morning: { label: "Morning", variant: "default" },
   lunch: { label: "Lunch", variant: "accent" },
   dinner: { label: "Dinner", variant: "default" },
 };
@@ -106,12 +116,14 @@ function DailyReportsListBody({
   const [urlParams, setUrlParams] = usePersistedFilters(filterKey, {
     store: "",
     period: "",
+    status: "",
     from: "",
     to: "",
     page: "1",
   });
   const selectedStoreId = urlParams.store;
   const selectedPeriod = urlParams.period;
+  const selectedStatus = urlParams.status;
   const dateFrom = urlParams.from;
   const dateTo = urlParams.to;
   const page = Math.max(1, Number(urlParams.page) || 1);
@@ -128,6 +140,8 @@ function DailyReportsListBody({
     setUrlParams({ store: v || null, page: null });
   const setSelectedPeriod = (v: string): void =>
     setUrlParams({ period: v || null, page: null });
+  const setSelectedStatus = (v: string): void =>
+    setUrlParams({ status: v || null, page: null });
   const setDateFrom = (v: string): void => setUrlParams({ from: v || null, page: null });
   const setDateTo = (v: string): void => setUrlParams({ to: v || null, page: null });
   const setPage = (next: number): void =>
@@ -139,12 +153,12 @@ function DailyReportsListBody({
     date_from: dateFrom || undefined,
     date_to: dateTo || undefined,
     period: selectedPeriod || undefined,
-    status: "submitted",
+    status: selectedStatus || undefined,
     page,
     per_page: PER_PAGE,
   });
 
-  const reports: DailyReport[] = reportsData?.items ?? [];
+  const reports: Report[] = reportsData?.items ?? [];
 
   // Unread alerts → reference_id set (daily_report 만). issue list 와 동일 패턴.
   const { data: alertsData } = useAlerts(1, 100);
@@ -225,6 +239,20 @@ function DailyReportsListBody({
             </option>
           ))}
         </select>
+
+        <select
+          value={selectedStatus}
+          onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
+            setSelectedStatus(e.target.value);
+          }}
+          className="px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text focus:outline-none focus:ring-1 focus:ring-accent"
+        >
+          {statusOptions.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
       </div>
 
       {/* Date range — preset chips + custom calendar */}
@@ -298,9 +326,11 @@ function DailyReportsListBody({
         </Card>
       ) : (
         <div className="space-y-2">
-          {reports.map((report: DailyReport) => {
+          {reports.map((report: Report) => {
+            const payload = (report.payload ?? {}) as Partial<DailyReportPayload>;
+            const period = payload.period ?? "";
             const sBadge = statusBadge[report.status] ?? statusBadge.draft;
-            const pBadge = periodBadge[report.period] ?? periodBadge.lunch;
+            const pBadge = periodBadge[period] ?? { label: period || "—", variant: "default" as const };
             const isUnread = unreadReportIds.has(report.id);
             return (
               <Card
@@ -330,7 +360,7 @@ function DailyReportsListBody({
                           isUnread ? "font-bold" : "font-semibold",
                         )}
                       >
-                        {formatFixedDate(report.report_date)}
+                        {formatFixedDate(report.report_date ?? "")}
                       </span>
                     </div>
 
@@ -355,6 +385,27 @@ function DailyReportsListBody({
                   </div>
 
                   <div className="flex items-center gap-2">
+                    {/* Overdue / late deadline */}
+                    {report.is_overdue && (
+                      <Badge variant="danger">
+                        <span className="inline-flex items-center gap-1">
+                          <AlertCircle size={12} />
+                          Overdue
+                        </span>
+                      </Badge>
+                    )}
+                    {report.is_late && !report.is_overdue && (
+                      <Badge variant="warning">Late</Badge>
+                    )}
+                    {/* Acknowledgement count */}
+                    {(report.acknowledgement_count ?? 0) > 0 && (
+                      <span
+                        className="text-xs text-success font-medium"
+                        title="Acknowledged"
+                      >
+                        ✓ {report.acknowledgement_count}
+                      </span>
+                    )}
                     {/* Comment count */}
                     {(report.comment_count ?? 0) > 0 && (
                       <div className="flex items-center gap-1 text-accent">
