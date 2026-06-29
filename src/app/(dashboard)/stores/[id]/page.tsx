@@ -67,6 +67,7 @@ import {
 } from "@/components/ui";
 import { SortableList } from "@/components/ui/SortableList";
 import { ReportTypesManager } from "@/components/reports/ReportTypesManager";
+import { DailyReportTemplatesView } from "@/components/reports/DailyReportTemplatesView";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useToast } from "@/components/ui/Toast";
 import { useModal } from "@/components/ui/imperative-modal";
@@ -193,6 +194,7 @@ export default function StoreDetailPage(): React.ReactElement {
   const canManageStoreConfig = hasPermission(PERMISSIONS.STORES_UPDATE);
   const canCreateStoreConfig = hasPermission(PERMISSIONS.STORES_CREATE);
   const canManageChecklists = hasPermission(PERMISSIONS.CHECKLISTS_CREATE);
+  const canManageReportTemplates = hasPermission(PERMISSIONS.DAILY_REPORTS_UPDATE);
   const canUpdateSettings = hasPermission(PERMISSIONS.STORES_UPDATE);
 
   /** 현재 활성 탭 (URL-persisted) / Currently active tab */
@@ -1888,7 +1890,32 @@ export default function StoreDetailPage(): React.ReactElement {
       {/*  Reports Tab — per-store report periods (daily report types)       */}
       {/* ================================================================== */}
       {activeTab === "reports" && (
-        <ReportTypesManager storeId={storeId} />
+        <div className="space-y-10">
+          <p className="text-sm text-text-muted">
+            <span className="font-medium text-text-secondary">Report periods</span> decide
+            which daily reports this store collects (e.g. morning, lunch, dinner). The{" "}
+            <span className="font-medium text-text-secondary">report template</span> defines
+            the sections and fields each of those reports asks staff to fill in.
+          </p>
+
+          {/* Section A — which periods this store collects */}
+          <section>
+            <ReportTypesManager storeId={storeId} />
+          </section>
+
+          {/* Section B — the form template (sections/fields) for this store */}
+          {canManageReportTemplates && (
+            <section>
+              <div className="mb-4">
+                <h2 className="text-lg font-bold text-text">Report Template</h2>
+                <p className="text-sm text-text-muted mt-0.5">
+                  Sections and fields each daily report at this store asks for.
+                </p>
+              </div>
+              <DailyReportTemplatesView storeId={storeId} showHeader={false} />
+            </section>
+          )}
+        </div>
       )}
 
       {/* ================================================================== */}
