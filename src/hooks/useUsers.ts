@@ -86,6 +86,8 @@ interface CreateUserData {
   hourly_rate?: number | null;
   /** FOH/BOH 분류 — null/생략 시 미지정 */
   department?: "FOH" | "BOH" | null;
+  /** 사번 — org 내 유일. 생략 시 미부여 */
+  employee_no?: string | null;
   /** 생성 직후 Store Assignment 상세 (각 매장별 Manager/Work 플래그) */
   store_assignments?: { store_id: string; is_manager: boolean; is_work_assignment: boolean }[];
 }
@@ -140,6 +142,8 @@ interface UpdateUserData {
   hourly_rate?: number | null;
   /** FOH/BOH 분류 — null이면 미지정으로 해제 */
   department?: "FOH" | "BOH" | null;
+  /** 사번 — org 내 유일. null이면 해제, 생략 시 변경 없음 */
+  employee_no?: string | null;
 }
 
 /**

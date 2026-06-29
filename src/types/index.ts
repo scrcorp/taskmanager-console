@@ -174,6 +174,8 @@ export interface User {
   effective_hourly_rate?: number | null;
   /** FOH/BOH 분류 — null이면 미지정 (오너·매니저 등) */
   department?: "FOH" | "BOH" | null;
+  /** 사번 — org 내 유일. null이면 미부여 */
+  employee_no?: string | null;
   is_active: boolean;
   created_at: string;
 }
@@ -309,6 +311,8 @@ export interface UserCreate {
   role_id: string;
   /** FOH/BOH 분류 — null/생략 시 미지정 */
   department?: "FOH" | "BOH" | null;
+  /** 사번 — org 내 유일. 생략 시 미부여 */
+  employee_no?: string | null;
 }
 
 /** 사용자 수정 요청 타입.
@@ -322,6 +326,8 @@ export interface UserUpdate {
   hourly_rate?: number | null;
   /** FOH/BOH 분류 — null이면 미지정으로 해제 */
   department?: "FOH" | "BOH" | null;
+  /** 사번 — org 내 유일. null이면 해제, 생략 시 변경 없음 */
+  employee_no?: string | null;
 }
 
 /** 시간대 생성 요청 타입.
