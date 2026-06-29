@@ -32,6 +32,8 @@ export interface SignupStore {
   id: string;
   name: string;
   address: string | null;
+  phone: string | null;
+  email: string | null;
   cover_photos: { url: string; is_primary: boolean }[];
 }
 

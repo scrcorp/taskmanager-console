@@ -54,6 +54,8 @@ import {
   useDeleteShiftPreset,
 } from "@/hooks/useShiftPresets";
 import { useLaborLaw, useUpsertLaborLaw } from "@/hooks/useLaborLaw";
+import { useSetAcceptingSignups } from "@/hooks/useHiring";
+import { useStoreSettings, useUpsertStoreSetting } from "@/hooks/useSettings";
 import { useWorkRoles } from "@/hooks/useWorkRoles";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -281,9 +283,11 @@ export default function StoreDetailPage(): React.ReactElement {
 
   /* ---- Settings: Store Update -------------------------------------------- */
   const updateStore = useUpdateStore();
+  const setAcceptingSignups = useSetAcceptingSignups(storeId);
   const [maxWorkHoursWeekly, setMaxWorkHoursWeekly] = useState<string>("");
   const [storeTimezone, setStoreTimezone] = useState<string>("");
   const [storeDefaultHourlyRate, setStoreDefaultHourlyRate] = useState<string>("");
+  const [stateCode, setStateCode] = useState<string>("");
 
   /* ---- Settings: Day Start Time ----------------------------------------- */
   const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
@@ -303,6 +307,13 @@ export default function StoreDetailPage(): React.ReactElement {
   const [isPresetCreateOpen, setIsPresetCreateOpen] = useState<boolean>(false);
   const [presetCreateForm, setPresetCreateForm] = useState<PresetFormData>(INITIAL_PRESET_FORM);
 
+  /* ---- Settings: Schedule Approval (store_settings SoT) ------------------ */
+  const { data: storeSettings } = useStoreSettings(storeId);
+  const upsertStoreSetting = useUpsertStoreSetting(storeId);
+  const approvalOverride = storeSettings?.find((s) => s.key === "schedule.approval_required");
+  // store override 가 있으면 그 값, 없으면 registry default(true) 상속
+  const approvalRequired = approvalOverride ? Boolean(approvalOverride.value) : true;
+
   /* ---- Settings: Labor Law ----------------------------------------------- */
   const { data: laborLaw, isLoading: laborLawLoading } = useLaborLaw(storeId);
   const upsertLaborLaw = useUpsertLaborLaw();
@@ -314,6 +325,7 @@ export default function StoreDetailPage(): React.ReactElement {
       setMaxWorkHoursWeekly(store.max_work_hours_weekly?.toString() ?? "");
       setStoreTimezone(store.timezone ?? "");
       setStoreDefaultHourlyRate(store.default_hourly_rate != null ? String(store.default_hourly_rate) : "");
+      setStateCode(store.state_code ?? "");
       // day_start_time sync
       const dst = store.day_start_time;
       if (dst) {
@@ -836,6 +848,20 @@ export default function StoreDetailPage(): React.ReactElement {
     }
   }, [maxWorkHoursWeekly, updateStore, storeId]);
 
+  /** 주(State) 코드 저장 / Save US state code (labor-law driver) */
+  const handleSaveStateCode = useCallback(async (): Promise<void> => {
+    const val = stateCode.trim().toUpperCase();
+    if (val !== "" && !/^[A-Z]{2}$/.test(val)) {
+      void modal.alert({ type: "error", message: "Enter a 2-letter US state code (e.g. CA)." });
+      return;
+    }
+    try {
+      await updateStore.mutateAsync({ id: storeId, state_code: val || null });
+    } catch {
+      // hook 자동 에러 모달
+    }
+  }, [stateCode, updateStore, storeId, modal]);
+
   /** 매장 타임존 저장 / Save store timezone */
   const handleSaveTimezone = useCallback(async (): Promise<void> => {
     try {
@@ -983,8 +1009,23 @@ export default function StoreDetailPage(): React.ReactElement {
               <h1 className="text-xl md:text-2xl font-extrabold text-text">
                 {store.name}
               </h1>
-              <Badge variant={store.is_active ? "success" : "danger"}>
-                {store.is_active ? "Active" : "Inactive"}
+              {store.code && (
+                <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-surface border border-border text-text-secondary">
+                  {store.code}
+                </span>
+              )}
+              <Badge
+                variant={
+                  store.status === "open"
+                    ? "success"
+                    : store.status === "preparing"
+                      ? "warning"
+                      : store.status === "closed"
+                        ? "danger"
+                        : "default"
+                }
+              >
+                {store.status.charAt(0).toUpperCase() + store.status.slice(1)}
               </Badge>
             </div>
             {store.address && (
@@ -1811,11 +1852,11 @@ export default function StoreDetailPage(): React.ReactElement {
       {/* ================================================================== */}
       {activeTab === "settings" && (
         <div className="space-y-8">
-          {/* ---- Section 1: Operating Hours ---- */}
+          {/* ---- Section 1: Weekly Hour Limit ---- */}
           <div className="bg-card border border-border rounded-xl p-6">
             <div className="flex items-center gap-2 mb-4">
               <Clock className="h-5 w-5 text-accent" />
-              <h2 className="text-lg font-bold text-text">Operating Hours</h2>
+              <h2 className="text-lg font-bold text-text">Weekly Hour Limit</h2>
             </div>
             <div className="max-w-sm space-y-4">
               <Input
@@ -1832,6 +1873,98 @@ export default function StoreDetailPage(): React.ReactElement {
                   variant="primary"
                   size="sm"
                   onClick={handleSaveMaxWorkHours}
+                  isLoading={updateStore.isPending}
+                  disabled={!canUpdateSettings}
+                >
+                  Save
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* ---- Section 1b: Public Signups ---- */}
+          <div className="bg-card border border-border rounded-xl p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Clock className="h-5 w-5 text-accent" />
+              <h2 className="text-lg font-bold text-text">Public Signups</h2>
+            </div>
+            <div className="flex items-center justify-between max-w-sm">
+              <div>
+                <p className="text-sm text-text">
+                  {store?.accepting_signups ? "Accepting new sign-ups" : "Sign-ups paused"}
+                </p>
+                <p className="text-xs text-text-muted mt-0.5">
+                  Controls the public join link for this store.
+                </p>
+              </div>
+              <Button
+                variant={store?.accepting_signups ? "secondary" : "primary"}
+                size="sm"
+                onClick={() => setAcceptingSignups.mutate(!store?.accepting_signups)}
+                isLoading={setAcceptingSignups.isPending}
+                disabled={!canUpdateSettings}
+              >
+                {store?.accepting_signups ? "Pause sign-ups" : "Enable sign-ups"}
+              </Button>
+            </div>
+          </div>
+
+          {/* ---- Section 1d: Schedule Approval ---- */}
+          <div className="bg-card border border-border rounded-xl p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Clock className="h-5 w-5 text-accent" />
+              <h2 className="text-lg font-bold text-text">Schedule Approval</h2>
+            </div>
+            <div className="flex items-center justify-between max-w-sm">
+              <div>
+                <p className="text-sm text-text">
+                  {approvalRequired ? "GM approval required" : "Auto-confirm (no approval)"}
+                </p>
+                <p className="text-xs text-text-muted mt-0.5">
+                  When on, SV-created schedules need GM confirmation before becoming active.
+                </p>
+              </div>
+              <Button
+                variant={approvalRequired ? "secondary" : "primary"}
+                size="sm"
+                onClick={() =>
+                  upsertStoreSetting.mutate({
+                    key: "schedule.approval_required",
+                    value: !approvalRequired,
+                  })
+                }
+                isLoading={upsertStoreSetting.isPending}
+                disabled={!canUpdateSettings}
+              >
+                {approvalRequired ? "Turn off" : "Require approval"}
+              </Button>
+            </div>
+          </div>
+
+          {/* ---- Section 1c: Labor Law Region (state_code) ---- */}
+          <div className="bg-card border border-border rounded-xl p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Clock className="h-5 w-5 text-accent" />
+              <h2 className="text-lg font-bold text-text">Labor Law Region</h2>
+            </div>
+            <div className="max-w-sm space-y-2">
+              <Input
+                label="US State Code"
+                placeholder="e.g. CA"
+                value={stateCode}
+                maxLength={2}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setStateCode(e.target.value.toUpperCase())
+                }
+              />
+              <p className="text-xs text-text-muted">
+                2-letter state that drives labor-law limits below. Separate from the detailed Labor Law Settings.
+              </p>
+              <div className="flex justify-end">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleSaveStateCode}
                   isLoading={updateStore.isPending}
                   disabled={!canUpdateSettings}
                 >
