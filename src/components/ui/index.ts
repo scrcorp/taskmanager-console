@@ -12,6 +12,7 @@ export { Card } from "./Card";
 export { Table } from "./Table";
 export { Modal } from "./Modal";
 export { Badge } from "./Badge";
+export { Switch } from "./Switch";
 export { ToastProvider, useToast } from "./Toast";
 export { Tabs } from "./Tabs";
 export { Pagination } from "./Pagination";

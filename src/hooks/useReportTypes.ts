@@ -9,6 +9,7 @@
  */
 import {
   useQuery,
+  useQueries,
   useMutation,
   useQueryClient,
   type UseQueryResult,
@@ -59,6 +60,37 @@ export const useEffectiveReportTypes = (
       return res.data.items ?? [];
     },
   });
+};
+
+/** Per-store effective lists 병렬 조회. 여러 매장의 resolved 목록을 한 번에.
+ *
+ * org Report Periods 화면의 cross-store 토글 매트릭스에서 사용한다. 각 결과는
+ * useEffectiveReportTypes(storeId) 와 같은 캐시 키를 공유하므로 invalidate 가 함께 적용됨.
+ */
+export const useEffectiveReportTypesForStores = (
+  storeIds: string[],
+): {
+  storeId: string;
+  data: EffectiveReportType[];
+  isLoading: boolean;
+}[] => {
+  const results = useQueries({
+    queries: storeIds.map((storeId) => ({
+      queryKey: ["report-types-effective", storeId],
+      queryFn: async (): Promise<EffectiveReportType[]> => {
+        const res: AxiosResponse<{ items: EffectiveReportType[] }> = await api.get(
+          BASE,
+          { params: { effective: true, store_id: storeId } },
+        );
+        return res.data.items ?? [];
+      },
+    })),
+  });
+  return storeIds.map((storeId, i) => ({
+    storeId,
+    data: results[i]?.data ?? [],
+    isLoading: results[i]?.isLoading ?? false,
+  }));
 };
 
 const invalidate = (qc: ReturnType<typeof useQueryClient>): void => {
