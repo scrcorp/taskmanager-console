@@ -34,6 +34,7 @@ import {
   AlertTriangle,
   Wallet,
   Coins,
+  Sparkles,
 } from "lucide-react";
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useAuthStore } from "@/stores/authStore";
@@ -118,6 +119,7 @@ const navItems: NavItem[] = [
     ],
   },
   { href: "/alerts", label: "Alerts", icon: Bell },
+  { href: "/whats-new", label: "What's New", icon: Sparkles },
   {
     href: "/settings",
     label: "Settings",

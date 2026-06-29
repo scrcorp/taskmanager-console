@@ -1,27 +1,55 @@
 "use client";
 
 /**
- * 일일 보고서 상세 페이지 -- 보고서 섹션 + 댓글을 표시합니다.
+ * 일일 보고서 상세 페이지 — 통합 reports 엔드포인트 기반.
  *
- * Daily report detail page showing report sections and comments with add comment form.
+ * 보고서 섹션 + 댓글 + 마감/리뷰/확인(acknowledge) 상태를 표시한다.
+ * period/sections 는 report.payload 안에 들어있다.
  */
 
 import React, { useState, useCallback } from "react";
 import { useParams, useRouter } from "next/navigation";
-import { ChevronLeft, MapPin, User, Calendar, Clock, Send, Trash2 } from "lucide-react";
-import { useDailyReport, useAddDailyReportComment, useDeleteDailyReport } from "@/hooks/useDailyReports";
+import {
+  ChevronLeft,
+  MapPin,
+  User,
+  Calendar,
+  Clock,
+  Send,
+  Trash2,
+  AlertCircle,
+  CheckCircle2,
+} from "lucide-react";
+import {
+  useDailyReport,
+  useAddDailyReportComment,
+  useDeleteDailyReport,
+} from "@/hooks/useDailyReports";
+import { useReviewReport } from "@/hooks/useReports";
 import { Button, Card, Badge, LoadingSpinner, EmptyState } from "@/components/ui";
 import { useModal } from "@/components/ui/imperative-modal";
+import { usePermissions } from "@/hooks/usePermissions";
+import { PERMISSIONS } from "@/lib/permissions";
 import { formatDate, formatFixedDate } from "@/lib/utils";
 import { useTimezone } from "@/hooks/useTimezone";
-import type { DailyReportSection, DailyReportComment } from "@/types";
+import type {
+  DailyReportPayload,
+  DailyReportPayloadSection,
+  ReportAcknowledgement,
+  ReportComment,
+} from "@/types";
 
-const statusBadge: Record<string, { label: string; variant: "success" | "warning" | "default" }> = {
+const statusBadge: Record<
+  string,
+  { label: string; variant: "success" | "warning" | "accent" | "default" }
+> = {
   draft: { label: "Draft", variant: "warning" },
-  submitted: { label: "Submitted", variant: "success" },
+  submitted: { label: "Submitted", variant: "accent" },
+  reviewed: { label: "Reviewed", variant: "success" },
 };
 
 const periodLabel: Record<string, string> = {
+  morning: "Morning",
   lunch: "Lunch",
   dinner: "Dinner",
 };
@@ -31,13 +59,18 @@ export default function DailyReportDetailPage(): React.ReactElement {
   const router = useRouter();
   const modal = useModal();
   const tz = useTimezone();
+  const { hasPermission } = usePermissions();
+  const canReview = hasPermission(PERMISSIONS.REPORTS_REVIEW);
+  const canDelete = hasPermission(PERMISSIONS.REPORTS_DELETE);
 
   const reportId: string = params.id as string;
   const { data: report, isLoading } = useDailyReport(reportId);
   const addComment = useAddDailyReportComment();
   const deleteMutation = useDeleteDailyReport();
+  const reviewMutation = useReviewReport();
 
   const [commentText, setCommentText] = useState<string>("");
+  const [feedbackText, setFeedbackText] = useState<string>("");
 
   const handleAddComment = useCallback(async () => {
     if (!commentText.trim()) return;
@@ -45,14 +78,27 @@ export default function DailyReportDetailPage(): React.ReactElement {
       await addComment.mutateAsync({ reportId, content: commentText.trim() });
       setCommentText("");
     } catch {
-      // hook 자동 모달이 표시함.
+      // hook 자동 모달
     }
   }, [reportId, commentText, addComment]);
+
+  const handleReview = useCallback(async () => {
+    try {
+      await reviewMutation.mutateAsync({
+        reportId,
+        feedback: feedbackText.trim() || undefined,
+      });
+      setFeedbackText("");
+    } catch {
+      // hook 자동 모달
+    }
+  }, [reportId, feedbackText, reviewMutation]);
 
   const handleDelete = useCallback(async () => {
     const ok = await modal.confirm({
       title: "Delete Report",
-      message: "Are you sure you want to delete this daily report? This action cannot be undone.",
+      message:
+        "Are you sure you want to delete this daily report? This action cannot be undone.",
       confirmLabel: "Delete",
       variant: "danger",
     });
@@ -61,7 +107,7 @@ export default function DailyReportDetailPage(): React.ReactElement {
       await deleteMutation.mutateAsync(reportId);
       router.push("/daily-reports");
     } catch {
-      // hook 자동 모달이 표시함.
+      // hook 자동 모달
     }
   }, [reportId, deleteMutation, modal, router]);
 
@@ -85,10 +131,12 @@ export default function DailyReportDetailPage(): React.ReactElement {
     );
   }
 
+  const payload = (report.payload ?? {}) as Partial<DailyReportPayload>;
+  const period = payload.period ?? "";
   const sBadge = statusBadge[report.status] ?? statusBadge.draft;
-  const sortedSections: DailyReportSection[] = [...report.sections].sort(
-    (a, b) => a.sort_order - b.sort_order,
-  );
+  const sortedSections: DailyReportPayloadSection[] = [
+    ...(payload.sections ?? []),
+  ].sort((a, b) => a.sort_order - b.sort_order);
 
   return (
     <div>
@@ -110,28 +158,39 @@ export default function DailyReportDetailPage(): React.ReactElement {
             <h1 className="text-lg md:text-xl font-bold text-text mb-2">
               Daily Report
             </h1>
-            <div className="flex items-center gap-3 flex-wrap">
+            <div className="flex items-center gap-2 flex-wrap">
               <div className="flex items-center gap-1.5">
                 <Calendar size={14} className="text-text-muted" />
                 <span className="text-sm text-text-secondary">
-                  {formatFixedDate(report.report_date)}
+                  {formatFixedDate(report.report_date ?? "")}
                 </span>
               </div>
-              <Badge variant="accent">
-                {periodLabel[report.period] ?? report.period}
-              </Badge>
+              <Badge variant="accent">{periodLabel[period] ?? period ?? "—"}</Badge>
               <Badge variant={sBadge.variant}>{sBadge.label}</Badge>
+              {report.is_overdue && (
+                <Badge variant="danger">
+                  <span className="inline-flex items-center gap-1">
+                    <AlertCircle size={12} />
+                    Overdue
+                  </span>
+                </Badge>
+              )}
+              {report.is_late && !report.is_overdue && (
+                <Badge variant="warning">Submitted late</Badge>
+              )}
             </div>
           </div>
-          <Button
-            variant="danger"
-            size="sm"
-            onClick={() => void handleDelete()}
-            isLoading={deleteMutation.isPending}
-          >
-            <Trash2 size={14} className="mr-1" />
-            Delete
-          </Button>
+          {canDelete && (
+            <Button
+              variant="danger"
+              size="sm"
+              onClick={() => void handleDelete()}
+              isLoading={deleteMutation.isPending}
+            >
+              <Trash2 size={14} className="mr-1" />
+              Delete
+            </Button>
+          )}
         </div>
 
         <div className="border-t border-border pt-4 space-y-2">
@@ -147,6 +206,14 @@ export default function DailyReportDetailPage(): React.ReactElement {
               {report.author_name || "Unknown Author"}
             </span>
           </div>
+          {report.deadline_at && (
+            <div className="flex items-center gap-2">
+              <Clock size={14} className="text-text-muted shrink-0" />
+              <span className="text-sm text-text-secondary">
+                Deadline: {formatDate(report.deadline_at, tz)}
+              </span>
+            </div>
+          )}
           {report.submitted_at && (
             <div className="flex items-center gap-2">
               <Clock size={14} className="text-text-muted shrink-0" />
@@ -155,21 +222,60 @@ export default function DailyReportDetailPage(): React.ReactElement {
               </span>
             </div>
           )}
+          {report.reviewed_at && (
+            <div className="flex items-center gap-2">
+              <CheckCircle2 size={14} className="text-success shrink-0" />
+              <span className="text-sm text-text-secondary">
+                Reviewed by {report.reviewed_by_name || "—"} ·{" "}
+                {formatDate(report.reviewed_at, tz)}
+              </span>
+            </div>
+          )}
         </div>
       </Card>
+
+      {/* Review action (GM+). submitted → reviewed. */}
+      {canReview && report.status === "submitted" && (
+        <Card className="mb-4">
+          <h2 className="text-base font-semibold text-text mb-2">Review</h2>
+          <p className="text-sm text-text-muted mb-3">
+            Mark this report as reviewed. Optionally leave feedback for the author.
+          </p>
+          <textarea
+            value={feedbackText}
+            onChange={(e) => setFeedbackText(e.target.value)}
+            placeholder="Feedback (optional)"
+            rows={2}
+            className="w-full px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text placeholder-text-muted focus:outline-none focus:ring-1 focus:ring-accent resize-none mb-3"
+          />
+          <div className="flex justify-end">
+            <Button
+              size="sm"
+              onClick={() => void handleReview()}
+              isLoading={reviewMutation.isPending}
+            >
+              <CheckCircle2 size={14} className="mr-1" />
+              Mark reviewed
+            </Button>
+          </div>
+        </Card>
+      )}
 
       {/* Sections */}
       {sortedSections.length > 0 ? (
         <div className="space-y-3 mb-4">
-          {sortedSections.map((section: DailyReportSection) => (
-            <Card key={section.sort_order}>
+          {sortedSections.map((section, idx) => (
+            <Card key={section.id ?? section.sort_order ?? idx}>
               <h2 className="text-base font-semibold text-text mb-2">
                 {section.title}
               </h2>
               {section.content ? (
                 <div>
                   {section.content.split("\n").map((line: string, i: number) => (
-                    <p key={i} className="text-sm text-text-secondary leading-relaxed mb-1">
+                    <p
+                      key={i}
+                      className="text-sm text-text-secondary leading-relaxed mb-1"
+                    >
                       {line}
                     </p>
                   ))}
@@ -182,7 +288,30 @@ export default function DailyReportDetailPage(): React.ReactElement {
         </div>
       ) : (
         <Card className="mb-4" padding="p-8">
-          <p className="text-sm text-text-muted text-center">No sections in this report.</p>
+          <p className="text-sm text-text-muted text-center">
+            No sections in this report.
+          </p>
+        </Card>
+      )}
+
+      {/* Acknowledgements */}
+      {report.acknowledgement_count > 0 && (
+        <Card className="mb-4">
+          <h2 className="text-base font-semibold text-text mb-3">
+            Acknowledged ({report.acknowledgement_count})
+          </h2>
+          <ul className="flex flex-wrap gap-2">
+            {report.acknowledgements.map((ack: ReportAcknowledgement) => (
+              <li
+                key={ack.user_id}
+                className="inline-flex items-center gap-1.5 text-xs bg-success-muted text-success px-2.5 py-1 rounded-full"
+                title={formatDate(ack.acknowledged_at, tz)}
+              >
+                <CheckCircle2 size={12} />
+                {ack.user_name || "Unknown"}
+              </li>
+            ))}
+          </ul>
         </Card>
       )}
 
@@ -194,7 +323,7 @@ export default function DailyReportDetailPage(): React.ReactElement {
 
         {report.comments.length > 0 ? (
           <ul className="divide-y divide-border mb-4">
-            {report.comments.map((comment: DailyReportComment) => (
+            {report.comments.map((comment: ReportComment) => (
               <li key={comment.id} className="py-3">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-sm font-medium text-text">
@@ -216,7 +345,9 @@ export default function DailyReportDetailPage(): React.ReactElement {
         <div className="flex gap-2">
           <textarea
             value={commentText}
-            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setCommentText(e.target.value)}
+            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+              setCommentText(e.target.value)
+            }
             placeholder="Write a comment..."
             rows={2}
             className="flex-1 px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text placeholder-text-muted focus:outline-none focus:ring-1 focus:ring-accent resize-none"
@@ -237,7 +368,6 @@ export default function DailyReportDetailPage(): React.ReactElement {
           </Button>
         </div>
       </Card>
-
     </div>
   );
 }

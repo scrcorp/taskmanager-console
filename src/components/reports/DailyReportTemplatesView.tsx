@@ -9,18 +9,17 @@
  * 재사용. 헤더(back button + title)는 props.showHeader 로 토글.
  */
 
-import React, { useState, useCallback, useMemo, useRef } from "react";
+import React, { useState, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Trash2, Pencil, ChevronLeft, GripVertical, X, Upload, Download } from "lucide-react";
+import { Plus, Trash2, Pencil, ChevronLeft, GripVertical, X } from "lucide-react";
 import {
   useTemplates,
   useCreateTemplate,
   useUpdateTemplate,
   useDeleteTemplate,
-  useUploadTemplateExcel,
-  downloadSampleExcel,
 } from "@/hooks/useDailyReportTemplates";
 import { useStores } from "@/hooks/useStores";
+import { ReportTypesManager } from "@/components/reports/ReportTypesManager";
 import {
   Button,
   Input,
@@ -70,11 +69,17 @@ interface TemplateGroup {
 
 export function DailyReportTemplatesView({
   showHeader = true,
+  storeId = null,
 }: {
   showHeader?: boolean;
+  /** 설정 시 해당 매장 전용 템플릿만 관리 (store detail Reports tab). null/undefined = org Templates 페이지 기본 동작. */
+  storeId?: string | null;
 } = {}): React.ReactElement {
   const router = useRouter();
   const modal = useModal();
+
+  /** Store-scoped mode: 한 매장 템플릿만 보여주고 store selector 를 잠근다. */
+  const storeScoped = !!storeId;
 
   // Data hooks
   const { data: templates, isLoading } = useTemplates();
@@ -82,7 +87,6 @@ export function DailyReportTemplatesView({
   const createTemplate = useCreateTemplate();
   const updateTemplate = useUpdateTemplate();
   const deleteTemplate = useDeleteTemplate();
-  const uploadExcel = useUploadTemplateExcel();
 
   const activeStores: Store[] = useMemo(
     () => (stores ?? []).filter((s: Store) => s.is_active),
@@ -98,24 +102,17 @@ export function DailyReportTemplatesView({
   const [formIsActive, setFormIsActive] = useState(true);
   const [formSections, setFormSections] = useState<SectionFormItem[]>([]);
 
-  // Excel upload modal state
-  const [isExcelOpen, setIsExcelOpen] = useState(false);
-  const [excelFile, setExcelFile] = useState<File | null>(null);
-  const [excelName, setExcelName] = useState("");
-  const [excelStoreId, setExcelStoreId] = useState("");
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
   // Inline toggle pending state (id-level disable while mutation flies)
   const [togglingId, setTogglingId] = useState<string | null>(null);
 
   const resetForm = useCallback(() => {
     setEditingId(null);
     setFormName("");
-    setFormStoreId("");
+    setFormStoreId(storeId ?? "");
     setFormIsDefault(false);
     setFormIsActive(true);
     setFormSections([createEmptySection(1)]);
-  }, []);
+  }, [storeId]);
 
   const openCreateForm = useCallback(() => {
     resetForm();
@@ -175,7 +172,7 @@ export function DailyReportTemplatesView({
         // 신규 템플릿은 항상 active 로 생성 (서버 default). Active 체크박스는 편집 시에만 노출.
         const data: DailyReportTemplateCreate = {
           name: formName.trim(),
-          store_id: formStoreId || null,
+          store_id: storeScoped ? storeId : formStoreId || null,
           is_default: formIsDefault,
           sections,
         };
@@ -186,7 +183,7 @@ export function DailyReportTemplatesView({
     } catch {
       // hook 자동 모달
     }
-  }, [formName, formStoreId, formIsDefault, formIsActive, formSections, editingId, createTemplate, updateTemplate, modal, resetForm]);
+  }, [formName, formStoreId, formIsDefault, formIsActive, formSections, editingId, createTemplate, updateTemplate, modal, resetForm, storeScoped, storeId]);
 
   const handleDelete = useCallback(async (id: string) => {
     const ok = await modal.confirm({
@@ -198,40 +195,6 @@ export function DailyReportTemplatesView({
     if (!ok) return;
     deleteTemplate.mutate(id);
   }, [deleteTemplate, modal]);
-
-  const handleExcelUpload = useCallback(async () => {
-    if (!excelFile || !excelName.trim()) {
-      void modal.alert({
-        type: "error",
-        message: "File and template name are required",
-      });
-      return;
-    }
-    try {
-      await uploadExcel.mutateAsync({
-        file: excelFile,
-        name: excelName.trim(),
-        store_id: excelStoreId || undefined,
-      });
-      setIsExcelOpen(false);
-      setExcelFile(null);
-      setExcelName("");
-      setExcelStoreId("");
-    } catch {
-      // hook 자동 모달
-    }
-  }, [excelFile, excelName, excelStoreId, uploadExcel, modal]);
-
-  const handleDownloadSample = useCallback(async () => {
-    try {
-      await downloadSampleExcel();
-    } catch {
-      void modal.alert({
-        type: "error",
-        message: "Failed to download sample file",
-      });
-    }
-  }, [modal]);
 
   const addSection = useCallback(() => {
     setFormSections((prev) => [...prev, createEmptySection(prev.length + 1)]);
@@ -296,7 +259,23 @@ export function DailyReportTemplatesView({
   // --- Group templates by store ---
 
   const groups: TemplateGroup[] = useMemo(() => {
-    const list = templates ?? [];
+    const all = templates ?? [];
+
+    // Store-scoped: 이 매장 템플릿만, 단일 그룹(그룹 헤더 없이 평탄하게).
+    if (storeScoped) {
+      const own = all.filter((t) => t.store_id === storeId);
+      if (own.length === 0) return [];
+      return [
+        {
+          key: storeId,
+          label: "Templates for this store",
+          subtitle: `${own.filter((t) => t.is_active).length} active`,
+          templates: own,
+        },
+      ];
+    }
+
+    const list = all;
     const orgWide = list.filter((t) => !t.store_id);
     const byStore = new Map<string, DailyReportTemplate[]>();
     for (const t of list) {
@@ -326,7 +305,7 @@ export function DailyReportTemplatesView({
       });
     }
     return result;
-  }, [templates, activeStores]);
+  }, [templates, activeStores, storeScoped, storeId]);
 
   const renderTemplateRows = (rows: DailyReportTemplate[]) =>
     rows.map((tpl: DailyReportTemplate) => ({
@@ -401,16 +380,22 @@ export function DailyReportTemplatesView({
           </>
         )}
         <div className={cn("flex items-center gap-2", !showHeader && "ml-auto")}>
-          <Button variant="ghost" size="sm" onClick={() => setIsExcelOpen(true)}>
-            <Upload className="h-4 w-4 mr-1" />
-            Excel Upload
-          </Button>
           <Button onClick={openCreateForm}>
             <Plus className="h-4 w-4 mr-1" />
             New Template
           </Button>
         </div>
       </div>
+
+      {/* Organization-wide report periods (daily report types). Per-store
+          overrides live on the store detail Reports tab.
+          Store-scoped 모드(store detail Reports tab)에서는 periods 가 별도 섹션으로
+          이미 렌더되므로 여기서는 숨긴다. */}
+      {!storeScoped && (
+        <div className="mb-8">
+          <ReportTypesManager />
+        </div>
+      )}
 
       {/* Template list — grouped by store */}
       {isLoading ? (
@@ -420,7 +405,9 @@ export function DailyReportTemplatesView({
       ) : groups.length === 0 ? (
         <Card>
           <div className="py-8 text-center text-sm text-text-muted">
-            No templates yet. Create one to get started.
+            {storeScoped
+              ? "No templates for this store yet. Create one to get started."
+              : "No templates yet. Create one to get started."}
           </div>
         </Card>
       ) : (
@@ -463,7 +450,7 @@ export function DailyReportTemplatesView({
             placeholder="e.g. Daily Lunch Report"
           />
 
-          {!editingId && (
+          {!editingId && !storeScoped && (
             <Select
               label="Store (optional)"
               value={formStoreId}
@@ -577,89 +564,6 @@ export function DailyReportTemplatesView({
             </Button>
             <Button onClick={handleSave} disabled={isSaving}>
               {isSaving ? "Saving..." : editingId ? "Update" : "Create"}
-            </Button>
-          </div>
-        </div>
-      </Modal>
-
-      {/* Excel Upload Modal */}
-      <Modal
-        isOpen={isExcelOpen}
-        onClose={() => setIsExcelOpen(false)}
-        title="Create Template from Excel"
-        closeOnBackdrop={false}
-      >
-        <div className="space-y-4">
-          <Input
-            label="Template Name"
-            value={excelName}
-            onChange={(e) => setExcelName(e.target.value)}
-            placeholder="e.g. Daily Lunch Report"
-          />
-
-          <Select
-            label="Store (optional)"
-            value={excelStoreId}
-            onChange={(e) => setExcelStoreId(e.target.value)}
-            options={[
-              { value: "", label: "Organization Default" },
-              ...activeStores.map((s) => ({ value: s.id, label: s.name })),
-            ]}
-          />
-
-          <div>
-            <label className="text-sm font-medium text-text-secondary block mb-1.5">
-              Excel File
-            </label>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".xlsx,.xls"
-              onChange={(e) => setExcelFile(e.target.files?.[0] ?? null)}
-              className="hidden"
-            />
-            <div className="flex items-center gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => fileInputRef.current?.click()}
-              >
-                <Upload className="h-4 w-4 mr-1" />
-                {excelFile ? excelFile.name : "Choose File"}
-              </Button>
-              {excelFile && (
-                <button
-                  onClick={() => {
-                    setExcelFile(null);
-                    if (fileInputRef.current) fileInputRef.current.value = "";
-                  }}
-                  className="text-text-muted hover:text-danger transition-colors"
-                >
-                  <X size={14} />
-                </button>
-              )}
-            </div>
-            <p className="text-xs text-text-muted mt-1.5">
-              Format: Title | Description | Required (Y/N).{" "}
-              <button
-                onClick={handleDownloadSample}
-                className="text-accent hover:underline inline-flex items-center gap-0.5"
-              >
-                <Download size={10} />
-                Download sample
-              </button>
-            </p>
-          </div>
-
-          <div className="flex justify-end gap-2 pt-2">
-            <Button variant="ghost" onClick={() => setIsExcelOpen(false)}>
-              Cancel
-            </Button>
-            <Button
-              onClick={handleExcelUpload}
-              disabled={!excelFile || !excelName.trim() || uploadExcel.isPending}
-            >
-              {uploadExcel.isPending ? "Uploading..." : "Create"}
             </Button>
           </div>
         </div>

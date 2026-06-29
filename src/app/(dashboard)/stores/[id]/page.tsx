@@ -22,6 +22,7 @@ import {
   Settings,
   Scale,
   Sunrise,
+  Store as StoreIcon,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useStore, useUpdateStore } from "@/hooks/useStores";
@@ -54,6 +55,8 @@ import {
   useDeleteShiftPreset,
 } from "@/hooks/useShiftPresets";
 import { useLaborLaw, useUpsertLaborLaw } from "@/hooks/useLaborLaw";
+import { useSetAcceptingSignups } from "@/hooks/useHiring";
+import { useStoreSettings, useUpsertStoreSetting } from "@/hooks/useSettings";
 import { useWorkRoles } from "@/hooks/useWorkRoles";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -63,6 +66,8 @@ import {
   Select,
 } from "@/components/ui";
 import { SortableList } from "@/components/ui/SortableList";
+import { ReportTypesManager } from "@/components/reports/ReportTypesManager";
+import { DailyReportTemplatesView } from "@/components/reports/DailyReportTemplatesView";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useToast } from "@/components/ui/Toast";
 import { useModal } from "@/components/ui/imperative-modal";
@@ -84,7 +89,7 @@ import type {
 /* -------------------------------------------------------------------------- */
 
 /** 탭 이름 타입 / Tab name type */
-type TabName = "shifts-positions" | "checklists" | "settings";
+type TabName = "shifts-positions" | "checklists" | "reports" | "settings";
 
 /** 시프트/포지션 폼 데이터 / Shift/Position form data */
 interface ShiftPositionFormData {
@@ -170,6 +175,7 @@ const TAB_OPTIONS: { value: TabName; label: string }[] = [
   { value: "shifts-positions", label: "Shifts & Positions" },
   // Work Roles moved to /schedules/settings
   { value: "checklists", label: "Checklists" },
+  { value: "reports", label: "Reports" },
   { value: "settings", label: "Settings" },
 ];
 
@@ -188,11 +194,12 @@ export default function StoreDetailPage(): React.ReactElement {
   const canManageStoreConfig = hasPermission(PERMISSIONS.STORES_UPDATE);
   const canCreateStoreConfig = hasPermission(PERMISSIONS.STORES_CREATE);
   const canManageChecklists = hasPermission(PERMISSIONS.CHECKLISTS_CREATE);
+  const canManageReportTemplates = hasPermission(PERMISSIONS.DAILY_REPORTS_UPDATE);
   const canUpdateSettings = hasPermission(PERMISSIONS.STORES_UPDATE);
 
   /** 현재 활성 탭 (URL-persisted) / Currently active tab */
   const [urlParams, setUrlParams] = usePersistedFilters("stores.detail", { tab: "shifts-positions" });
-  const activeTab: TabName = (["shifts-positions", "checklists", "settings"] as TabName[]).includes(urlParams.tab as TabName)
+  const activeTab: TabName = (["shifts-positions", "checklists", "reports", "settings"] as TabName[]).includes(urlParams.tab as TabName)
     ? (urlParams.tab as TabName)
     : "shifts-positions";
   const setActiveTab = useCallback((tab: TabName) => setUrlParams({ tab }), [setUrlParams]);
@@ -281,9 +288,16 @@ export default function StoreDetailPage(): React.ReactElement {
 
   /* ---- Settings: Store Update -------------------------------------------- */
   const updateStore = useUpdateStore();
+  const setAcceptingSignups = useSetAcceptingSignups(storeId);
+  /* ---- Settings: Brand Profile (name/code/phone/email) ------------------- */
+  const [profileName, setProfileName] = useState<string>("");
+  const [profileCode, setProfileCode] = useState<string>("");
+  const [profilePhone, setProfilePhone] = useState<string>("");
+  const [profileEmail, setProfileEmail] = useState<string>("");
   const [maxWorkHoursWeekly, setMaxWorkHoursWeekly] = useState<string>("");
   const [storeTimezone, setStoreTimezone] = useState<string>("");
   const [storeDefaultHourlyRate, setStoreDefaultHourlyRate] = useState<string>("");
+  const [stateCode, setStateCode] = useState<string>("");
 
   /* ---- Settings: Day Start Time ----------------------------------------- */
   const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
@@ -303,6 +317,13 @@ export default function StoreDetailPage(): React.ReactElement {
   const [isPresetCreateOpen, setIsPresetCreateOpen] = useState<boolean>(false);
   const [presetCreateForm, setPresetCreateForm] = useState<PresetFormData>(INITIAL_PRESET_FORM);
 
+  /* ---- Settings: Schedule Approval (store_settings SoT) ------------------ */
+  const { data: storeSettings } = useStoreSettings(storeId);
+  const upsertStoreSetting = useUpsertStoreSetting(storeId);
+  const approvalOverride = storeSettings?.find((s) => s.key === "schedule.approval_required");
+  // store override 가 있으면 그 값, 없으면 registry default(true) 상속
+  const approvalRequired = approvalOverride ? Boolean(approvalOverride.value) : true;
+
   /* ---- Settings: Labor Law ----------------------------------------------- */
   const { data: laborLaw, isLoading: laborLawLoading } = useLaborLaw(storeId);
   const upsertLaborLaw = useUpsertLaborLaw();
@@ -311,9 +332,14 @@ export default function StoreDetailPage(): React.ReactElement {
   /** 매장 데이터가 로드되면 settings 동기화 / Sync settings when store loads */
   useEffect(() => {
     if (store) {
+      setProfileName(store.name ?? "");
+      setProfileCode(store.code ?? "");
+      setProfilePhone(store.phone ?? "");
+      setProfileEmail(store.email ?? "");
       setMaxWorkHoursWeekly(store.max_work_hours_weekly?.toString() ?? "");
       setStoreTimezone(store.timezone ?? "");
       setStoreDefaultHourlyRate(store.default_hourly_rate != null ? String(store.default_hourly_rate) : "");
+      setStateCode(store.state_code ?? "");
       // day_start_time sync
       const dst = store.day_start_time;
       if (dst) {
@@ -836,6 +862,45 @@ export default function StoreDetailPage(): React.ReactElement {
     }
   }, [maxWorkHoursWeekly, updateStore, storeId]);
 
+  /** 브랜드 프로필 저장 / Save brand profile (name/code/phone/email) */
+  const handleSaveProfile = useCallback(async (): Promise<void> => {
+    const name = profileName.trim();
+    if (!name) {
+      void modal.alert({ type: "error", message: "Brand name can't be empty." });
+      return;
+    }
+    const code = profileCode.trim().toUpperCase();
+    if (code !== "" && !/^[A-Z0-9]{2,10}$/.test(code)) {
+      void modal.alert({ type: "error", message: "Code must be 2–10 letters/numbers, or left blank." });
+      return;
+    }
+    try {
+      await updateStore.mutateAsync({
+        id: storeId,
+        name,
+        code: code || null, // 비우면 코드 제거 (생성과 달리 자동 생성하지 않음)
+        phone: profilePhone.trim() || null,
+        email: profileEmail.trim() || null,
+      });
+    } catch {
+      // hook 자동 에러 모달
+    }
+  }, [profileName, profileCode, profilePhone, profileEmail, updateStore, storeId, modal]);
+
+  /** 주(State) 코드 저장 / Save US state code (labor-law driver) */
+  const handleSaveStateCode = useCallback(async (): Promise<void> => {
+    const val = stateCode.trim().toUpperCase();
+    if (val !== "" && !/^[A-Z]{2}$/.test(val)) {
+      void modal.alert({ type: "error", message: "Enter a 2-letter US state code (e.g. CA)." });
+      return;
+    }
+    try {
+      await updateStore.mutateAsync({ id: storeId, state_code: val || null });
+    } catch {
+      // hook 자동 에러 모달
+    }
+  }, [stateCode, updateStore, storeId, modal]);
+
   /** 매장 타임존 저장 / Save store timezone */
   const handleSaveTimezone = useCallback(async (): Promise<void> => {
     try {
@@ -983,8 +1048,23 @@ export default function StoreDetailPage(): React.ReactElement {
               <h1 className="text-xl md:text-2xl font-extrabold text-text">
                 {store.name}
               </h1>
-              <Badge variant={store.is_active ? "success" : "danger"}>
-                {store.is_active ? "Active" : "Inactive"}
+              {store.code && (
+                <span className="font-mono text-xs px-1.5 py-0.5 rounded bg-surface border border-border text-text-secondary">
+                  {store.code}
+                </span>
+              )}
+              <Badge
+                variant={
+                  store.status === "open"
+                    ? "success"
+                    : store.status === "preparing"
+                      ? "warning"
+                      : store.status === "closed"
+                        ? "danger"
+                        : "default"
+                }
+              >
+                {store.status.charAt(0).toUpperCase() + store.status.slice(1)}
               </Badge>
             </div>
             {store.address && (
@@ -1807,15 +1887,108 @@ export default function StoreDetailPage(): React.ReactElement {
       )}
 
       {/* ================================================================== */}
+      {/*  Reports Tab — per-store report periods (daily report types)       */}
+      {/* ================================================================== */}
+      {activeTab === "reports" && (
+        <div className="space-y-10">
+          <p className="text-sm text-text-muted">
+            <span className="font-medium text-text-secondary">Report periods</span> decide
+            which daily reports this store collects (e.g. morning, lunch, dinner). The{" "}
+            <span className="font-medium text-text-secondary">report template</span> defines
+            the sections and fields each of those reports asks staff to fill in.
+          </p>
+
+          {/* Section A — which periods this store collects */}
+          <section>
+            <ReportTypesManager storeId={storeId} />
+          </section>
+
+          {/* Section B — the form template (sections/fields) for this store */}
+          {canManageReportTemplates && (
+            <section>
+              <div className="mb-4">
+                <h2 className="text-lg font-bold text-text">Report Template</h2>
+                <p className="text-sm text-text-muted mt-0.5">
+                  Sections and fields each daily report at this store asks for.
+                </p>
+              </div>
+              <DailyReportTemplatesView storeId={storeId} showHeader={false} />
+            </section>
+          )}
+        </div>
+      )}
+
+      {/* ================================================================== */}
       {/*  Settings Tab                                                      */}
       {/* ================================================================== */}
       {activeTab === "settings" && (
         <div className="space-y-8">
-          {/* ---- Section 1: Operating Hours ---- */}
+          {/* ---- Section 0: Brand Profile (name/code/phone/email) ---- */}
+          <div className="bg-card border border-border rounded-xl p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <StoreIcon className="h-5 w-5 text-accent" />
+              <h2 className="text-lg font-bold text-text">Brand Profile</h2>
+            </div>
+            <div className="max-w-lg space-y-4">
+              <Input
+                label="Brand Name"
+                placeholder="Enter brand name"
+                value={profileName}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setProfileName(e.target.value)
+                }
+              />
+              <div>
+                <Input
+                  label="Code"
+                  placeholder="e.g. SWC"
+                  value={profileCode}
+                  maxLength={10}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                    setProfileCode(e.target.value.toUpperCase())
+                  }
+                />
+                <p className="mt-1 text-xs text-text-muted">
+                  2–10 letters/numbers, unique within your organization. Leave blank to remove the code.
+                </p>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Input
+                  label="Phone"
+                  placeholder="Optional"
+                  value={profilePhone}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                    setProfilePhone(e.target.value)
+                  }
+                />
+                <Input
+                  label="Email"
+                  placeholder="Optional"
+                  value={profileEmail}
+                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                    setProfileEmail(e.target.value)
+                  }
+                />
+              </div>
+              <div className="flex justify-end">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleSaveProfile}
+                  isLoading={updateStore.isPending}
+                  disabled={!canUpdateSettings}
+                >
+                  Save
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* ---- Section 1: Weekly Hour Limit ---- */}
           <div className="bg-card border border-border rounded-xl p-6">
             <div className="flex items-center gap-2 mb-4">
               <Clock className="h-5 w-5 text-accent" />
-              <h2 className="text-lg font-bold text-text">Operating Hours</h2>
+              <h2 className="text-lg font-bold text-text">Weekly Hour Limit</h2>
             </div>
             <div className="max-w-sm space-y-4">
               <Input
@@ -1832,6 +2005,98 @@ export default function StoreDetailPage(): React.ReactElement {
                   variant="primary"
                   size="sm"
                   onClick={handleSaveMaxWorkHours}
+                  isLoading={updateStore.isPending}
+                  disabled={!canUpdateSettings}
+                >
+                  Save
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {/* ---- Section 1b: Public Signups ---- */}
+          <div className="bg-card border border-border rounded-xl p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Clock className="h-5 w-5 text-accent" />
+              <h2 className="text-lg font-bold text-text">Public Signups</h2>
+            </div>
+            <div className="flex items-center justify-between max-w-sm">
+              <div>
+                <p className="text-sm text-text">
+                  {store?.accepting_signups ? "Accepting new sign-ups" : "Sign-ups paused"}
+                </p>
+                <p className="text-xs text-text-muted mt-0.5">
+                  Controls the public join link for this store.
+                </p>
+              </div>
+              <Button
+                variant={store?.accepting_signups ? "secondary" : "primary"}
+                size="sm"
+                onClick={() => setAcceptingSignups.mutate(!store?.accepting_signups)}
+                isLoading={setAcceptingSignups.isPending}
+                disabled={!canUpdateSettings}
+              >
+                {store?.accepting_signups ? "Pause sign-ups" : "Enable sign-ups"}
+              </Button>
+            </div>
+          </div>
+
+          {/* ---- Section 1d: Schedule Approval ---- */}
+          <div className="bg-card border border-border rounded-xl p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Clock className="h-5 w-5 text-accent" />
+              <h2 className="text-lg font-bold text-text">Schedule Approval</h2>
+            </div>
+            <div className="flex items-center justify-between max-w-sm">
+              <div>
+                <p className="text-sm text-text">
+                  {approvalRequired ? "GM approval required" : "Auto-confirm (no approval)"}
+                </p>
+                <p className="text-xs text-text-muted mt-0.5">
+                  When on, SV-created schedules need GM confirmation before becoming active.
+                </p>
+              </div>
+              <Button
+                variant={approvalRequired ? "secondary" : "primary"}
+                size="sm"
+                onClick={() =>
+                  upsertStoreSetting.mutate({
+                    key: "schedule.approval_required",
+                    value: !approvalRequired,
+                  })
+                }
+                isLoading={upsertStoreSetting.isPending}
+                disabled={!canUpdateSettings}
+              >
+                {approvalRequired ? "Turn off" : "Require approval"}
+              </Button>
+            </div>
+          </div>
+
+          {/* ---- Section 1c: Labor Law Region (state_code) ---- */}
+          <div className="bg-card border border-border rounded-xl p-6">
+            <div className="flex items-center gap-2 mb-4">
+              <Clock className="h-5 w-5 text-accent" />
+              <h2 className="text-lg font-bold text-text">Labor Law Region</h2>
+            </div>
+            <div className="max-w-sm space-y-2">
+              <Input
+                label="US State Code"
+                placeholder="e.g. CA"
+                value={stateCode}
+                maxLength={2}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setStateCode(e.target.value.toUpperCase())
+                }
+              />
+              <p className="text-xs text-text-muted">
+                2-letter state that drives labor-law limits below. Separate from the detailed Labor Law Settings.
+              </p>
+              <div className="flex justify-end">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleSaveStateCode}
                   isLoading={updateStore.isPending}
                   disabled={!canUpdateSettings}
                 >

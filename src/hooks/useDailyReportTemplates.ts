@@ -1,7 +1,9 @@
 /**
  * 일일 보고서 템플릿 React Query 훅 모음.
  *
- * Daily report template CRUD hooks.
+ * Unified `/console/report-templates` (type=daily) 기반. 섹션 정의는 통합
+ * 템플릿의 `payload.sections` 안에 저장된다. legacy `/console/daily-report-templates`
+ * 는 더 이상 사용하지 않는다. 뷰가 기대하는 `DailyReportTemplate` 모양으로 매핑한다.
  */
 import {
   useQuery,
@@ -16,44 +18,89 @@ import { useMutationResult } from "@/lib/mutationResult";
 import type {
   DailyReportTemplate,
   DailyReportTemplateCreate,
+  DailyReportTemplateSection,
   DailyReportTemplateUpdate,
 } from "@/types";
 
-/** 일일 보고서 템플릿 목록 조회 */
+const DAILY = "daily";
+
+/** Unified report-template 응답 (raw). */
+interface RawReportTemplate {
+  id: string;
+  type: string;
+  organization_id: string | null;
+  store_id: string | null;
+  name: string;
+  is_default: boolean;
+  is_active: boolean;
+  applicable_types: string[] | null;
+  payload: { sections?: RawSection[] } & Record<string, unknown>;
+  created_at: string | null;
+}
+
+interface RawSection {
+  id?: string | null;
+  title: string;
+  description?: string | null;
+  is_required?: boolean;
+  sort_order?: number;
+}
+
+/** unified 응답 → 뷰가 기대하는 DailyReportTemplate 모양으로 매핑. */
+function toDailyTemplate(t: RawReportTemplate): DailyReportTemplate {
+  const rawSections = Array.isArray(t.payload?.sections) ? t.payload.sections : [];
+  const sections: DailyReportTemplateSection[] = rawSections.map((s, i) => ({
+    id: s.id ?? `s-${i}`,
+    title: s.title,
+    description: s.description ?? null,
+    sort_order: s.sort_order ?? i + 1,
+    is_required: s.is_required ?? false,
+  }));
+  return {
+    id: t.id,
+    organization_id: t.organization_id ?? "",
+    store_id: t.store_id,
+    name: t.name,
+    is_default: t.is_default,
+    is_active: t.is_active,
+    created_at: t.created_at ?? "",
+    sections,
+  };
+}
+
+/** create/update 시 sections → payload.sections 변환. */
+function sectionsToPayload(
+  sections: { title: string; description?: string | null; sort_order: number; is_required: boolean }[],
+): { sections: RawSection[] } {
+  return {
+    sections: sections.map((s) => ({
+      title: s.title,
+      description: s.description ?? null,
+      sort_order: s.sort_order,
+      is_required: s.is_required,
+    })),
+  };
+}
+
+/** 일일 보고서 템플릿 목록 조회. */
 export const useTemplates = (
   storeId?: string,
 ): UseQueryResult<DailyReportTemplate[], Error> => {
   return useQuery({
     queryKey: ["daily-report-templates", storeId],
     queryFn: async () => {
-      const params: Record<string, string> = {};
+      const params: Record<string, string> = { type: DAILY };
       if (storeId) params.store_id = storeId;
-      const res: AxiosResponse<DailyReportTemplate[]> = await api.get(
-        "/console/daily-report-templates",
+      const res: AxiosResponse<{ items: RawReportTemplate[] }> = await api.get(
+        "/console/report-templates",
         { params },
       );
-      return res.data;
+      return (res.data.items ?? []).map(toDailyTemplate);
     },
   });
 };
 
-/** 일일 보고서 템플릿 단건 조회 */
-export const useTemplate = (
-  templateId: string,
-): UseQueryResult<DailyReportTemplate, Error> => {
-  return useQuery({
-    queryKey: ["daily-report-template", templateId],
-    queryFn: async () => {
-      const res: AxiosResponse<DailyReportTemplate> = await api.get(
-        `/console/daily-report-templates/${templateId}`,
-      );
-      return res.data;
-    },
-    enabled: !!templateId,
-  });
-};
-
-/** 일일 보고서 템플릿 생성 */
+/** 일일 보고서 템플릿 생성. */
 export const useCreateTemplate = (): UseMutationResult<
   DailyReportTemplate,
   Error,
@@ -63,11 +110,17 @@ export const useCreateTemplate = (): UseMutationResult<
   const { success, error } = useMutationResult();
   return useMutation<DailyReportTemplate, Error, DailyReportTemplateCreate>({
     mutationFn: async (data: DailyReportTemplateCreate) => {
-      const res: AxiosResponse<DailyReportTemplate> = await api.post(
-        "/console/daily-report-templates",
-        data,
+      const res: AxiosResponse<RawReportTemplate> = await api.post(
+        "/console/report-templates",
+        {
+          type: DAILY,
+          name: data.name,
+          store_id: data.store_id ?? null,
+          is_default: data.is_default ?? false,
+          payload: sectionsToPayload(data.sections),
+        },
       );
-      return res.data;
+      return toDailyTemplate(res.data);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["daily-report-templates"] });
@@ -77,7 +130,7 @@ export const useCreateTemplate = (): UseMutationResult<
   });
 };
 
-/** 일일 보고서 템플릿 수정 */
+/** 일일 보고서 템플릿 수정. */
 export const useUpdateTemplate = (): UseMutationResult<
   DailyReportTemplate,
   Error,
@@ -87,11 +140,16 @@ export const useUpdateTemplate = (): UseMutationResult<
   const { success, error } = useMutationResult();
   return useMutation<DailyReportTemplate, Error, { id: string; data: DailyReportTemplateUpdate }>({
     mutationFn: async ({ id, data }: { id: string; data: DailyReportTemplateUpdate }) => {
-      const res: AxiosResponse<DailyReportTemplate> = await api.put(
-        `/console/daily-report-templates/${id}`,
-        data,
+      const body: Record<string, unknown> = {};
+      if (data.name !== undefined) body.name = data.name;
+      if (data.is_default !== undefined) body.is_default = data.is_default;
+      if (data.is_active !== undefined) body.is_active = data.is_active;
+      if (data.sections !== undefined) body.payload = sectionsToPayload(data.sections);
+      const res: AxiosResponse<RawReportTemplate> = await api.put(
+        `/console/report-templates/${id}`,
+        body,
       );
-      return res.data;
+      return toDailyTemplate(res.data);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["daily-report-templates"] });
@@ -101,13 +159,13 @@ export const useUpdateTemplate = (): UseMutationResult<
   });
 };
 
-/** 일일 보고서 템플릿 삭제 */
+/** 일일 보고서 템플릿 삭제. */
 export const useDeleteTemplate = (): UseMutationResult<void, Error, string> => {
   const qc = useQueryClient();
   const { success, error } = useMutationResult();
   return useMutation<void, Error, string>({
     mutationFn: async (id: string) => {
-      await api.delete(`/console/daily-report-templates/${id}`);
+      await api.delete(`/console/report-templates/${id}`);
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["daily-report-templates"] });
@@ -115,50 +173,4 @@ export const useDeleteTemplate = (): UseMutationResult<void, Error, string> => {
     },
     onError: error("Couldn't delete template"),
   });
-};
-
-/** Excel 파일로 템플릿 생성 */
-export const useUploadTemplateExcel = (): UseMutationResult<
-  DailyReportTemplate,
-  Error,
-  { file: File; name: string; store_id?: string }
-> => {
-  const qc = useQueryClient();
-  const { success, error } = useMutationResult();
-  return useMutation<
-    DailyReportTemplate,
-    Error,
-    { file: File; name: string; store_id?: string }
-  >({
-    mutationFn: async ({ file, name, store_id }) => {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("name", name);
-      if (store_id) formData.append("store_id", store_id);
-      const res: AxiosResponse<DailyReportTemplate> = await api.post(
-        "/console/daily-report-templates/upload-excel",
-        formData,
-        { headers: { "Content-Type": "multipart/form-data" } },
-      );
-      return res.data;
-    },
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ["daily-report-templates"] });
-      success("Import complete.");
-    },
-    onError: error("Couldn't upload Excel file"),
-  });
-};
-
-/** 샘플 Excel 파일 다운로드 */
-export const downloadSampleExcel = async (): Promise<void> => {
-  const res = await api.get("/console/daily-report-templates/excel/sample", {
-    responseType: "blob",
-  });
-  const url = window.URL.createObjectURL(new Blob([res.data]));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "daily_report_template_sample.xlsx";
-  a.click();
-  window.URL.revokeObjectURL(url);
 };

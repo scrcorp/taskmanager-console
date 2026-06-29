@@ -9,7 +9,7 @@ import {
 import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
 import { useMutationToast } from "@/lib/mutationToast";
-import type { Store, StoreDetail } from "@/types";
+import type { Store, StoreDetail, StoreStatus } from "@/types";
 
 /**
  * 매장 목록 조회 훅 -- React Query 기반으로 모든 매장을 가져옵니다.
@@ -18,11 +18,17 @@ import type { Store, StoreDetail } from "@/types";
  *
  * @returns 매장 목록 쿼리 결과 (Store list query result)
  */
-export const useStores = (): UseQueryResult<Store[], Error> => {
+export const useStores = (options?: {
+  includeClosed?: boolean;
+}): UseQueryResult<Store[], Error> => {
+  const includeClosed = options?.includeClosed ?? false;
   return useQuery<Store[], Error>({
-    queryKey: ["stores"],
+    // includeClosed 변형은 별도 캐시 키 (기본 호출처는 영향 없음)
+    queryKey: includeClosed ? ["stores", "withClosed"] : ["stores"],
     queryFn: async (): Promise<Store[]> => {
-      const response: AxiosResponse<Store[]> = await api.get("/console/stores");
+      const response: AxiosResponse<Store[]> = await api.get("/console/stores", {
+        params: includeClosed ? { include_closed: true } : undefined,
+      });
       return response.data;
     },
   });
@@ -54,7 +60,11 @@ export const useStore = (
 /** 매장 생성 요청 데이터 타입 (Store creation request data type) */
 interface CreateStoreData {
   name: string;
+  code?: string | null; // 비우면 서버가 이름 앞 3글자로 자동 생성
   address?: string;
+  phone?: string | null;
+  email?: string | null;
+  status?: StoreStatus;
   timezone?: string | null;
 }
 
@@ -92,8 +102,12 @@ export const useCreateStore = (options?: {
 interface UpdateStoreData {
   id: string;
   name?: string;
+  code?: string | null;
   address?: string;
-  is_active?: boolean;
+  phone?: string | null;
+  email?: string | null;
+  status?: StoreStatus;
+  state_code?: string | null;
   day_start_time?: Record<string, string> | null;
   max_work_hours_weekly?: number | null;
   timezone?: string | null;
@@ -158,5 +172,42 @@ export const useDeleteStore = (): UseMutationResult<void, Error, string> => {
       success("Brand deleted.");
     },
     onError: error("Failed to delete brand"),
+  });
+};
+
+/**
+ * 매장 순서 변경 훅 -- 드래그로 정렬한 순서를 서버에 일괄 저장합니다.
+ *
+ * Mutation hook to persist a new store display order (drag reorder).
+ * Optimistically reorders the cached list; toast feedback is suppressed
+ * (optical reorder per design policy).
+ *
+ * @returns 순서 변경 뮤테이션 결과 (Reorder mutation result)
+ */
+export const useReorderStores = (): UseMutationResult<
+  void,
+  Error,
+  string[]
+> => {
+  const queryClient: QueryClient = useQueryClient();
+  const { error } = useMutationToast();
+  return useMutation<void, Error, string[]>({
+    mutationFn: async (storeIds: string[]): Promise<void> => {
+      await api.put("/console/stores/reorder", { store_ids: storeIds });
+    },
+    onMutate: (storeIds: string[]): void => {
+      // 낙관적 재정렬 — 요청 순서대로 캐시 즉시 갱신
+      queryClient.setQueryData<Store[]>(["stores"], (old) => {
+        if (!old) return old;
+        const byId = new Map(old.map((s) => [s.id, s]));
+        return storeIds
+          .map((id) => byId.get(id))
+          .filter((s): s is Store => s !== undefined);
+      });
+    },
+    onError: (err, _vars, _ctx): void => {
+      queryClient.invalidateQueries({ queryKey: ["stores"] });
+      error("Failed to reorder brands")(err);
+    },
   });
 };
