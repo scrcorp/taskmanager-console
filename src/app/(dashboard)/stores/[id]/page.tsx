@@ -65,6 +65,7 @@ import {
   Select,
 } from "@/components/ui";
 import { SortableList } from "@/components/ui/SortableList";
+import { ReportTypesManager } from "@/components/reports/ReportTypesManager";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useToast } from "@/components/ui/Toast";
 import { useModal } from "@/components/ui/imperative-modal";
@@ -86,7 +87,7 @@ import type {
 /* -------------------------------------------------------------------------- */
 
 /** 탭 이름 타입 / Tab name type */
-type TabName = "shifts-positions" | "checklists" | "settings";
+type TabName = "shifts-positions" | "checklists" | "reports" | "settings";
 
 /** 시프트/포지션 폼 데이터 / Shift/Position form data */
 interface ShiftPositionFormData {
@@ -172,6 +173,7 @@ const TAB_OPTIONS: { value: TabName; label: string }[] = [
   { value: "shifts-positions", label: "Shifts & Positions" },
   // Work Roles moved to /schedules/settings
   { value: "checklists", label: "Checklists" },
+  { value: "reports", label: "Reports" },
   { value: "settings", label: "Settings" },
 ];
 
@@ -194,7 +196,7 @@ export default function StoreDetailPage(): React.ReactElement {
 
   /** 현재 활성 탭 (URL-persisted) / Currently active tab */
   const [urlParams, setUrlParams] = usePersistedFilters("stores.detail", { tab: "shifts-positions" });
-  const activeTab: TabName = (["shifts-positions", "checklists", "settings"] as TabName[]).includes(urlParams.tab as TabName)
+  const activeTab: TabName = (["shifts-positions", "checklists", "reports", "settings"] as TabName[]).includes(urlParams.tab as TabName)
     ? (urlParams.tab as TabName)
     : "shifts-positions";
   const setActiveTab = useCallback((tab: TabName) => setUrlParams({ tab }), [setUrlParams]);
@@ -1845,6 +1847,13 @@ export default function StoreDetailPage(): React.ReactElement {
 
           {/* Delete item confirm 은 handleOpenItemDelete 안의 modal.confirm 으로 inline 처리 */}
         </div>
+      )}
+
+      {/* ================================================================== */}
+      {/*  Reports Tab — per-store report periods (daily report types)       */}
+      {/* ================================================================== */}
+      {activeTab === "reports" && (
+        <ReportTypesManager storeId={storeId} />
       )}
 
       {/* ================================================================== */}
