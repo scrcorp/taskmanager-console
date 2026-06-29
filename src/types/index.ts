@@ -46,15 +46,31 @@ export interface Organization {
 }
 
 // Store
+export type StoreStatus = "preparing" | "open" | "paused" | "closed";
+
+export const STORE_STATUS_OPTIONS: { value: StoreStatus; label: string }[] = [
+  { value: "preparing", label: "Preparing" },
+  { value: "open", label: "Open" },
+  { value: "paused", label: "Paused" },
+  { value: "closed", label: "Closed" },
+];
+
 export interface Store {
   id: string;
   organization_id: string;
   name: string;
+  code: string | null;
   address: string | null;
-  is_active: boolean;
+  phone: string | null;
+  email: string | null;
+  status: StoreStatus;
+  sort_order: number;
+  is_active: boolean; // derived (status === "open"), server-provided for back-compat
+  require_approval: boolean;
   operating_hours: Record<string, unknown> | null;
   day_start_time: Record<string, string> | null;
   max_work_hours_weekly: number | null;
+  state_code: string | null;
   timezone: string | null;
   default_hourly_rate: number | null;
   accepting_signups: boolean;

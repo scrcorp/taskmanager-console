@@ -1,6 +1,23 @@
 "use client";
 
 import React from "react";
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { GripVertical } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -34,6 +51,78 @@ interface TableProps<T> {
   sortKey?: string;
   sortDirection?: "asc" | "desc";
   onSort?: (key: string) => void;
+  /**
+   * 행 드래그 정렬 핸들러. 제공 시 각 행 앞에 드래그 핸들이 생기고,
+   * 드롭하면 새 id 순서가 콜백으로 전달된다. 미제공 시 기존 동작과 동일.
+   * (Opt-in row reorder. When set, rows get a drag handle and dropping emits the new id order.)
+   */
+  onReorder?: (orderedIds: string[]) => void;
+}
+
+/** 드래그 가능한 테이블 행 / Sortable table row (used only when onReorder is set) */
+function SortableTableRow<T extends { id?: string }>({
+  item,
+  rowId,
+  columns,
+  onRowClick,
+  rowClassName,
+}: {
+  item: T;
+  rowId: string;
+  columns: Column<T>[];
+  onRowClick?: (item: T) => void;
+  rowClassName?: (item: T) => string;
+}): React.ReactElement {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: rowId });
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+  };
+  return (
+    <tr
+      ref={setNodeRef}
+      style={style}
+      onClick={onRowClick ? () => onRowClick(item) : undefined}
+      className={cn(
+        "border-b border-border transition-colors duration-150",
+        onRowClick && "cursor-pointer hover:bg-surface-hover",
+        isDragging && "opacity-50 bg-surface shadow-lg",
+        rowClassName?.(item),
+      )}
+    >
+      <td className="w-8 px-1 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+        <button
+          type="button"
+          className="cursor-grab active:cursor-grabbing text-text-muted hover:text-text transition-colors touch-none"
+          aria-label="Drag to reorder"
+          {...attributes}
+          {...listeners}
+        >
+          <GripVertical className="h-4 w-4" />
+        </button>
+      </td>
+      {columns.map((column: Column<T>, index: number) => (
+        <td
+          key={column.key}
+          className={cn(
+            "px-2 md:px-4 py-3 text-text",
+            column.hideOnMobile && "hidden md:table-cell",
+            column.className,
+          )}
+        >
+          {column.render
+            ? column.render(item, index)
+            : (() => {
+                const val = (item as Record<string, unknown>)[column.key];
+                if (val == null) return "";
+                if (typeof val === "object") return val as React.ReactNode;
+                return String(val);
+              })()}
+        </td>
+      ))}
+    </tr>
+  );
 }
 
 function SkeletonRow({ columnCount }: { columnCount: number }): React.ReactElement {
@@ -58,14 +147,39 @@ export function Table<T extends { id?: string }>({
   sortKey,
   sortDirection,
   onSort,
+  onReorder,
 }: TableProps<T>): React.ReactElement {
   const skeletonRowCount: number = 5;
+  const reorderEnabled: boolean = !!onReorder && !isLoading && data.length > 0;
+  const totalColSpan: number = columns.length + (reorderEnabled ? 1 : 0);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+
+  const rowIds: string[] = data.map(
+    (item, i) => ((item as Record<string, unknown>).id as string) || String(i),
+  );
+
+  const handleDragEnd = (event: DragEndEvent): void => {
+    const { active, over } = event;
+    if (!over || active.id === over.id || !onReorder) return;
+    const oldIndex = rowIds.indexOf(String(active.id));
+    const newIndex = rowIds.indexOf(String(over.id));
+    if (oldIndex === -1 || newIndex === -1) return;
+    const next = [...rowIds];
+    const [moved] = next.splice(oldIndex, 1);
+    next.splice(newIndex, 0, moved);
+    onReorder(next);
+  };
 
   return (
     <div className="w-full overflow-x-auto">
       <table className="w-full text-sm">
         <thead>
           <tr className="border-b border-border">
+            {reorderEnabled && <th className="w-8" aria-hidden />}
             {columns.map((column: Column<T>) => (
               <th
                 key={column.key}
@@ -96,54 +210,73 @@ export function Table<T extends { id?: string }>({
             ))}
           </tr>
         </thead>
-        <tbody>
-          {isLoading ? (
-            Array.from({ length: skeletonRowCount }).map((_: unknown, i: number) => (
-              <SkeletonRow key={i} columnCount={columns.length} />
-            ))
-          ) : data.length === 0 ? (
-            <tr>
-              <td
-                colSpan={columns.length}
-                className="px-4 py-12 text-center text-text-muted"
-              >
-                {emptyMessage}
-              </td>
-            </tr>
-          ) : (
-            data.map((item: T, index: number) => (
-              <tr
-                key={(item as Record<string, unknown>).id as string || index}
-                onClick={onRowClick ? () => onRowClick(item) : undefined}
-                className={cn(
-                  "border-b border-border transition-colors duration-150",
-                  onRowClick && "cursor-pointer hover:bg-surface-hover",
-                  rowClassName?.(item),
-                )}
-              >
-                {columns.map((column: Column<T>) => (
-                  <td
-                    key={column.key}
-                    className={cn(
-                      "px-2 md:px-4 py-3 text-text",
-                      column.hideOnMobile && "hidden md:table-cell",
-                      column.className,
-                    )}
-                  >
-                    {column.render
-                      ? column.render(item, index)
-                      : (() => {
-                          const val = (item as Record<string, unknown>)[column.key];
-                          if (val == null) return "";
-                          if (typeof val === "object") return val as React.ReactNode;
-                          return String(val);
-                        })()}
-                  </td>
+        {reorderEnabled ? (
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+            <SortableContext items={rowIds} strategy={verticalListSortingStrategy}>
+              <tbody>
+                {data.map((item: T, index: number) => (
+                  <SortableTableRow<T>
+                    key={rowIds[index]}
+                    item={item}
+                    rowId={rowIds[index]}
+                    columns={columns}
+                    onRowClick={onRowClick}
+                    rowClassName={rowClassName}
+                  />
                 ))}
+              </tbody>
+            </SortableContext>
+          </DndContext>
+        ) : (
+          <tbody>
+            {isLoading ? (
+              Array.from({ length: skeletonRowCount }).map((_: unknown, i: number) => (
+                <SkeletonRow key={i} columnCount={totalColSpan} />
+              ))
+            ) : data.length === 0 ? (
+              <tr>
+                <td
+                  colSpan={totalColSpan}
+                  className="px-4 py-12 text-center text-text-muted"
+                >
+                  {emptyMessage}
+                </td>
               </tr>
-            ))
-          )}
-        </tbody>
+            ) : (
+              data.map((item: T, index: number) => (
+                <tr
+                  key={(item as Record<string, unknown>).id as string || index}
+                  onClick={onRowClick ? () => onRowClick(item) : undefined}
+                  className={cn(
+                    "border-b border-border transition-colors duration-150",
+                    onRowClick && "cursor-pointer hover:bg-surface-hover",
+                    rowClassName?.(item),
+                  )}
+                >
+                  {columns.map((column: Column<T>) => (
+                    <td
+                      key={column.key}
+                      className={cn(
+                        "px-2 md:px-4 py-3 text-text",
+                        column.hideOnMobile && "hidden md:table-cell",
+                        column.className,
+                      )}
+                    >
+                      {column.render
+                        ? column.render(item, index)
+                        : (() => {
+                            const val = (item as Record<string, unknown>)[column.key];
+                            if (val == null) return "";
+                            if (typeof val === "object") return val as React.ReactNode;
+                            return String(val);
+                          })()}
+                    </td>
+                  ))}
+                </tr>
+              ))
+            )}
+          </tbody>
+        )}
       </table>
     </div>
   );
