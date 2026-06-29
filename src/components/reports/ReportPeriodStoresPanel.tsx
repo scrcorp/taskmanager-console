@@ -13,9 +13,9 @@
 
 import React, { useCallback, useState } from "react";
 import Link from "next/link";
-import { ExternalLink } from "lucide-react";
+import { ExternalLink, RotateCcw } from "lucide-react";
 
-import { useApplyReportTypeChange } from "@/hooks/useReportTypes";
+import { useApplyReportTypeChange, useDeleteReportType } from "@/hooks/useReportTypes";
 import { Badge, LoadingSpinner, Switch } from "@/components/ui";
 import type { EffectiveReportType, Store } from "@/types";
 
@@ -43,6 +43,7 @@ export function ReportPeriodStoresPanel({
   canManage,
 }: Props): React.ReactElement {
   const applyChange = useApplyReportTypeChange();
+  const deleteType = useDeleteReportType();
   const [busyStoreId, setBusyStoreId] = useState<string | null>(null);
 
   const handleToggle = useCallback(
@@ -63,6 +64,22 @@ export function ReportPeriodStoresPanel({
       }
     },
     [applyChange],
+  );
+
+  // store override 행을 삭제해 org 기본값 상속으로 되돌린다.
+  const handleResetToDefault = useCallback(
+    async (entry: StoreEffectiveEntry, item: EffectiveReportType) => {
+      if (!item.id) return;
+      setBusyStoreId(entry.store.id);
+      try {
+        await deleteType.mutateAsync(item.id);
+      } catch {
+        // hook 자동 모달
+      } finally {
+        setBusyStoreId(null);
+      }
+    },
+    [deleteType],
   );
 
   if (isLoading) {
@@ -108,6 +125,19 @@ export function ReportPeriodStoresPanel({
               <Badge variant="accent">Override</Badge>
             ) : (
               <Badge variant="default">Default</Badge>
+            )}
+
+            {isOverride && canManage && item?.id && (
+              <button
+                type="button"
+                onClick={() => handleResetToDefault(entry, item)}
+                disabled={busy}
+                title="Reset to organization default"
+                aria-label={`Reset ${entry.store.name} to organization default`}
+                className="text-text-muted hover:text-text transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <RotateCcw className="h-3.5 w-3.5" />
+              </button>
             )}
 
             <Switch
