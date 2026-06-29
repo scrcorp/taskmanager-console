@@ -746,6 +746,15 @@ export type {
   MySignatureResponse,
 } from "./warning";
 
+// Changelog — canonical types live in ./changelog, re-exported below.
+export type {
+  ChangelogCategory,
+  ChangelogListItem,
+  ChangelogDetail,
+  ChangelogPaginatedResponse,
+} from "./changelog";
+export { CHANGELOG_CATEGORY_LABELS, CHANGELOG_CATEGORIES } from "./changelog";
+
 // Daily Report
 export interface DailyReport {
   id: string;
