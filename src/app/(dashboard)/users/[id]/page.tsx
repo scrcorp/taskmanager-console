@@ -59,6 +59,8 @@ interface UserEditFormData {
   role_id: string;
   /** 개인 시급 — 빈 문자열이면 변경 없음 / Personal hourly rate — empty string means no change */
   hourly_rate: string;
+  /** 사번 — org 내 유일. 빈 문자열이면 미부여(해제) / Employee number — unique within org, empty clears it */
+  employee_no: string;
 }
 
 /** 매장 배정 체크박스 상태 */
@@ -85,6 +87,7 @@ const INITIAL_EDIT_FORM: UserEditFormData = {
   phone: "",
   role_id: "",
   hourly_rate: "",
+  employee_no: "",
 };
 
 /* -------------------------------------------------------------------------- */
@@ -271,6 +274,7 @@ export default function UserDetailPage(): React.ReactElement {
       phone: user.phone || "",
       role_id: "",
       hourly_rate: user.hourly_rate != null ? String(user.hourly_rate) : "",
+      employee_no: user.employee_no || "",
     };
     editOriginalRef.current = snap;
     setEditForm(snap);
@@ -287,7 +291,8 @@ export default function UserDetailPage(): React.ReactElement {
       f.email !== orig.email ||
       f.phone !== orig.phone ||
       f.role_id !== orig.role_id ||
-      f.hourly_rate !== orig.hourly_rate
+      f.hourly_rate !== orig.hourly_rate ||
+      f.employee_no !== orig.employee_no
     );
   }, [editForm]);
 
@@ -348,6 +353,7 @@ export default function UserDetailPage(): React.ReactElement {
         phone?: string;
         role_id?: string;
         hourly_rate?: number | null;
+        employee_no?: string | null;
       } = {
         id: userId,
         full_name: editForm.full_name.trim(),
@@ -363,6 +369,10 @@ export default function UserDetailPage(): React.ReactElement {
       }
       if (hourlyRateVal !== undefined) {
         payload.hourly_rate = hourlyRateVal;
+      }
+      // 사번 — 변경됐을 때만 전송. 빈 문자열이면 null로 해제 (org 내 유일성은 서버가 강제)
+      if (user && editForm.employee_no.trim() !== (user.employee_no || "")) {
+        payload.employee_no = editForm.employee_no.trim() || null;
       }
       await updateUser.mutateAsync(payload);
       setIsEditOpen(false);
@@ -571,6 +581,14 @@ export default function UserDetailPage(): React.ReactElement {
                   </span>
                   <span className="text-sm text-text-secondary">
                     {user.phone || "-"}
+                  </span>
+                </div>
+                <div>
+                  <span className="text-xs text-text-muted block">
+                    Employee No.
+                  </span>
+                  <span className="text-sm text-text-secondary tabular-nums">
+                    {user.employee_no || "-"}
                   </span>
                 </div>
                 <div>
@@ -907,6 +925,17 @@ export default function UserDetailPage(): React.ReactElement {
               setEditForm((prev: UserEditFormData) => ({
                 ...prev,
                 phone: e.target.value,
+              }))
+            }
+          />
+          <Input
+            label="Employee No. (optional)"
+            placeholder="Company employee number — unique; retired numbers cannot be reused"
+            value={editForm.employee_no}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setEditForm((prev: UserEditFormData) => ({
+                ...prev,
+                employee_no: e.target.value,
               }))
             }
           />
