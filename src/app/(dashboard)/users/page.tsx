@@ -54,6 +54,8 @@ interface UserFormData {
   hourly_rate: string;
   /** FOH/BOH 분류 — "" = 미지정 */
   department: "" | "FOH" | "BOH";
+  /** 사번 — "" = 미부여. org 내 유일 */
+  employee_no: string;
   store_checks: Record<string, StoreCheck>;
 }
 
@@ -67,6 +69,7 @@ const INITIAL_FORM: UserFormData = {
   role_id: "",
   hourly_rate: "",
   department: "",
+  employee_no: "",
   store_checks: {},
 };
 
@@ -334,6 +337,7 @@ export default function UsersPage(): React.ReactElement {
         role_id: createForm.role_id,
         hourly_rate: parsedRate ? Number(parsedRate) : null,
         department: createForm.department || undefined,
+        employee_no: createForm.employee_no.trim() || undefined,
         store_assignments: store_assignments.length > 0 ? store_assignments : undefined,
       });
       setIsCreateOpen(false);
@@ -404,6 +408,17 @@ export default function UsersPage(): React.ReactElement {
             <Badge variant={user.department === "FOH" ? "info" : "warning"}>
               {user.department}
             </Badge>
+          ) : (
+            <span className="text-text-muted text-xs">—</span>
+          ),
+      },
+      {
+        key: "employee_no",
+        header: "Employee No.",
+        sortable: true,
+        render: (user: User) =>
+          user.employee_no ? (
+            <span className="text-text-secondary text-sm tabular-nums">{user.employee_no}</span>
           ) : (
             <span className="text-text-muted text-xs">—</span>
           ),
@@ -897,6 +912,17 @@ export default function UsersPage(): React.ReactElement {
               setCreateForm((prev: UserFormData) => ({
                 ...prev,
                 hourly_rate: e.target.value,
+              }))
+            }
+          />
+          <Input
+            label="Employee No. (optional)"
+            placeholder="Company employee number — unique; retired numbers cannot be reused"
+            value={createForm.employee_no}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setCreateForm((prev: UserFormData) => ({
+                ...prev,
+                employee_no: e.target.value,
               }))
             }
           />
