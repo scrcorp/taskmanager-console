@@ -115,6 +115,25 @@ function formatClockTime(iso: string | null, tz?: string): string {
   });
 }
 
+/** 자동 퇴근으로 마감된 attendance인지 판정. 서버 anomaly 표기 변형 모두 매칭. */
+const AUTO_CLOCK_OUT_ANOMALIES = ["auto_clocked_out", "auto_clock_out"];
+function isAutoClockedOut(attendance?: Attendance | null): boolean {
+  if (!attendance?.anomalies) return false;
+  return attendance.anomalies.some((a) => AUTO_CLOCK_OUT_ANOMALIES.includes(a));
+}
+
+/** WALK-IN chip — origin이 walk_in인 스케줄 표식 */
+function WalkInChip() {
+  return (
+    <span
+      className="inline-flex items-center shrink-0 text-[8px] font-bold uppercase tracking-wider px-1 py-px rounded bg-[var(--color-accent-muted)] text-[var(--color-accent)] border border-[var(--color-accent)]/30"
+      title="Walk-in clock-in (no pre-assigned schedule)"
+    >
+      Walk-in
+    </span>
+  );
+}
+
 function elapsedSince(iso: string): string {
   const start = new Date(iso).getTime();
   const diff = Math.max(0, Date.now() - start);
@@ -155,6 +174,9 @@ export function ScheduleBlock({ schedule, showCost, attendance, currentStoreId, 
   const roleName = schedule.work_role_name_snapshot || schedule.work_role_name || "Shift";
   const positionName = schedule.position_snapshot || "—";
   const showStoreName = true; // 뷰 모드와 무관하게 항상 스토어명 노출 (맥락 유지)
+  // 워크인 스케줄: 흐림 + dashed + WALK-IN 칩으로 구분 (설계 §F6 — 계획시각=기본값이라 판정 주의)
+  const isWalkIn = schedule.origin === "walk_in";
+  const autoClockedOut = isAutoClockedOut(attendance);
 
   if (isOtherStore) {
     return (
@@ -162,7 +184,10 @@ export function ScheduleBlock({ schedule, showCost, attendance, currentStoreId, 
         className="rounded-md border-[1.5px] border-dashed border-[var(--color-border)] px-2 py-1.5 bg-[var(--color-bg)] text-[var(--color-text-secondary)]"
         title={`Scheduled at ${schedule.store_name ?? "another store"}`}
       >
-        <div className="text-[10px] font-semibold truncate mb-0.5">{schedule.store_name ?? "—"}</div>
+        <div className="flex items-center justify-between gap-1 mb-0.5">
+          <div className="text-[10px] font-semibold truncate">{schedule.store_name ?? "—"}</div>
+          {isWalkIn && <WalkInChip />}
+        </div>
         <div className="text-[11px] font-semibold leading-tight truncate">{roleName} · {positionName}</div>
         <div className="text-[10px] mt-0.5">{timeRange} ({fmtH(hours)} h)</div>
       </div>
@@ -207,6 +232,7 @@ export function ScheduleBlock({ schedule, showCost, attendance, currentStoreId, 
         ${isConfirmed ? styles.bg : ""}
         ${isRequested ? "border-dashed" : ""}
         ${isDraft ? "border-dashed border-[var(--color-accent)] bg-[var(--color-accent-muted)] opacity-75" : ""}
+        ${isWalkIn && !isRejected && !isCancelled && !isDraft ? "border-dashed opacity-80" : ""}
         ${rejectedClasses}
         ${cancelledClasses}
         ${isActive ? "ring-2 ring-[var(--color-accent)] ring-offset-1 ring-offset-[var(--color-bg)] shadow-[0_4px_16px_rgba(108,92,231,0.35)] z-20" : ""}
@@ -223,6 +249,7 @@ export function ScheduleBlock({ schedule, showCost, attendance, currentStoreId, 
         <span className="text-[11px] font-semibold text-[var(--color-text)] truncate flex-1 min-w-0">
           {roleName}{positionName !== "—" ? ` · ${positionName}` : ""}
         </span>
+        {isWalkIn && <WalkInChip />}
         <span className={`text-[11px] font-bold tabular-nums shrink-0 ${styles.text}`}>{fmtH(hours)} h</span>
       </div>
 
@@ -308,6 +335,14 @@ export function ScheduleBlock({ schedule, showCost, attendance, currentStoreId, 
               )}
               {attendance.status === "clocked_out" && attendance.clock_out && (
                 <span className="opacity-60 truncate">· {formatClockTime(attendance.clock_out, storeTimezone ?? undefined)}</span>
+              )}
+              {autoClockedOut && (
+                <span
+                  className="inline-flex items-center shrink-0 text-[9px] font-bold uppercase tracking-wider px-1 py-px rounded bg-[var(--color-danger-muted)] text-[var(--color-danger)]"
+                  title="Automatically clocked out at scheduled end (forgot to clock out)"
+                >
+                  Auto
+                </span>
               )}
             </>
           )}

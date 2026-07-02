@@ -1053,6 +1053,8 @@ export interface Schedule {
   /** effective_rate 출처 레이어 */
   effective_rate_source: "schedule" | "user" | "store" | "org" | null;
   status: "draft" | "requested" | "confirmed" | "rejected" | "cancelled" | "deleted";
+  /** 스케줄 출처: 'manual' = 관리자/직원 등록, 'walk_in' = 키오스크 워크인 클락인으로 자동 생성. */
+  origin: "manual" | "walk_in";
   submitted_at: string | null;
   is_modified: boolean;
   rejected_by: string | null;
