@@ -36,7 +36,7 @@ export default function LicenseInactivePage(): React.ReactElement {
             This organization&apos;s license is currently suspended, so access is
             temporarily unavailable.
             <br />
-            Please contact the platform administrator to restore access.
+            To restore access, please contact us at hello@tigersplus.com.
           </p>
           <button
             type="button"
@@ -46,10 +46,10 @@ export default function LicenseInactivePage(): React.ReactElement {
             Go to login
           </button>
           <a
-            href="mailto:support@hermesops.site"
+            href="mailto:hello@tigersplus.com"
             className="block text-sm text-text-secondary hover:text-text underline"
           >
-            Contact support
+            hello@tigersplus.com
           </a>
         </div>
       </div>
