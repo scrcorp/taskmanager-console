@@ -32,6 +32,30 @@ export interface UserMe {
   preferred_language: PreferredLanguage;
   /** Server-persisted console filters per page (1 account, 1 dataset). */
   console_filters?: Record<string, Record<string, string>>;
+  /** [Model B] 이 계정이 소속된 모든 org + 각 접근상태 (org 스위처/차단화면용). */
+  organizations?: OrgMembership[];
+  /** 현재(선택된) org 접근 가능 여부. 차단이면 false + block_reason. */
+  current_org_accessible?: boolean;
+  current_org_block_reason?: string | null;
+}
+
+/** org 접근 차단 이유 코드 (서버 계약). */
+export type OrgBlockReason =
+  | "ORG_LICENSE_INACTIVE"
+  | "ORG_ACCESS_REVOKED"
+  | "NOT_A_MEMBER";
+
+/** 사용자의 org 소속 1건 + 접근상태. */
+export interface OrgMembership {
+  organization_id: string;
+  organization_name: string | null;
+  organization_code: string | null;
+  role_name: string | null;
+  role_priority: number | null;
+  member_status: string;
+  license_status: string | null;
+  accessible: boolean;
+  block_reason: OrgBlockReason | null;
 }
 
 // Organization
