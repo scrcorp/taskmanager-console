@@ -75,10 +75,35 @@ const processQueue = (error: unknown, token: string | null = null) => {
   failedQueue = [];
 };
 
+/** 서버 에러 코드 — 텍스트가 아닌 code 로 분기 (계약). */
+export const ERROR_CODES = {
+  ORG_LICENSE_INACTIVE: "ORG_LICENSE_INACTIVE",
+} as const;
+
+/** axios 에러에서 서버 에러 코드 추출 (detail 이 {code,message} 객체일 때). */
+export function getErrorCode(error: unknown): string | undefined {
+  const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+  if (detail && typeof detail === "object" && "code" in detail) {
+    return (detail as { code?: string }).code;
+  }
+  return undefined;
+}
+
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
+
+    // [License] org 라이센스 비활성 → 전용 화면으로 하드 리다이렉트 (미드세션 요청 포함 전역 처리).
+    if (
+      error.response?.status === 403 &&
+      getErrorCode(error) === ERROR_CODES.ORG_LICENSE_INACTIVE &&
+      typeof window !== "undefined" &&
+      !window.location.pathname.startsWith("/license-inactive")
+    ) {
+      window.location.href = "/license-inactive";
+      return Promise.reject(error);
+    }
 
     // 로그인 요청 자체의 401은 refresh 대상이 아님
     const isLoginRequest = originalRequest?.url?.includes("/auth/login");
