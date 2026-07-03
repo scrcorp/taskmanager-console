@@ -104,6 +104,8 @@ export interface Store {
 export interface UserStoreAssignment extends Store {
   is_manager: boolean;
   is_work_assignment: boolean;
+  /** 이 매장에서의 EMPID (매장 안 1부터 순번). */
+  empid?: number | null;
 }
 
 export interface StoreDetail extends Store {
@@ -200,6 +202,8 @@ export interface User {
   department?: "FOH" | "BOH" | null;
   /** 사번 — org 내 유일. null이면 미부여 */
   employee_no?: string | null;
+  /** CREWID — org 안 1부터 순번 (org 번호). */
+  crewid?: number | null;
   is_active: boolean;
   created_at: string;
 }
@@ -337,6 +341,8 @@ export interface UserCreate {
   department?: "FOH" | "BOH" | null;
   /** 사번 — org 내 유일. 생략 시 미부여 */
   employee_no?: string | null;
+  /** CREWID — org 안 1부터 순번 (org 번호). */
+  crewid?: number | null;
 }
 
 /** 사용자 수정 요청 타입.
@@ -352,6 +358,8 @@ export interface UserUpdate {
   department?: "FOH" | "BOH" | null;
   /** 사번 — org 내 유일. null이면 해제, 생략 시 변경 없음 */
   employee_no?: string | null;
+  /** CREWID — org 안 1부터 순번 (org 번호). */
+  crewid?: number | null;
 }
 
 /** 시간대 생성 요청 타입.

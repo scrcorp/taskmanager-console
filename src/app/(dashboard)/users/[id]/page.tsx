@@ -555,6 +555,11 @@ export default function UserDetailPage(): React.ReactElement {
                 <Badge variant={user.is_active ? "success" : "danger"}>
                   {user.is_active ? "Active" : "Inactive"}
                 </Badge>
+                {user.crewid != null && (
+                  <span className="text-xs font-mono font-semibold text-text-secondary bg-surface border border-border rounded px-2 py-0.5">
+                    CREWID {user.crewid}
+                  </span>
+                )}
               </div>
               <p className="text-sm text-text-muted mb-3">
                 @{user.username}
@@ -763,6 +768,9 @@ export default function UserDetailPage(): React.ReactElement {
                   const check = storeChecks[store.id];
                   const isManaged = check?.is_manager ?? false;
                   const isWork = check?.is_work ?? false;
+                  const assignedEmpid = Array.isArray(userStores)
+                    ? userStores.find((u) => u.id === store.id)?.empid
+                    : null;
 
                   // 관리 체크박스 disabled 조건
                   const managerDisabled =
@@ -786,6 +794,11 @@ export default function UserDetailPage(): React.ReactElement {
                             <StoreIcon className="h-3.5 w-3.5" />
                           </div>
                           <span className="font-medium text-text">{store.name}</span>
+                          {assignedEmpid != null && (
+                            <span className="text-xs font-mono font-semibold text-accent bg-accent-muted rounded px-1.5 py-0.5">
+                              EMPID {assignedEmpid}
+                            </span>
+                          )}
                           {!store.is_active && (
                             <Badge variant="danger">Inactive</Badge>
                           )}
