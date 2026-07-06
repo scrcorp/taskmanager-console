@@ -22,5 +22,6 @@ export { EmptyState } from "./EmptyState";
 export { LoadingSpinner } from "./LoadingSpinner";
 export { ImageUpload } from "./ImageUpload";
 export { Lightbox } from "./Lightbox";
+export { TimeWatermark } from "./TimeWatermark";
 export { MultiSelectFilter } from "./MultiSelectFilter";
 export type { MultiSelectOption } from "./MultiSelectFilter";

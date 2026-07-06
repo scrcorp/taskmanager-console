@@ -5,25 +5,31 @@
  *
  * Displays multiple photos: 1=single, 2-3=row, 4+=grid with "+N more" overlay.
  * Clicking any photo opens Lightbox gallery with left/right navigation.
+ *
+ * 그리드는 썸네일(thumbUrl)을 로드하고 Lightbox 는 원본(url)을 띄운다.
+ * 각 사진에는 찍힌 시각 워터마크(TimeWatermark)를 겹쳐 표시한다.
  */
 
 import React, { useState } from "react";
 import { cn } from "@/lib/utils";
-import { Lightbox } from "@/components/ui";
+import { Lightbox, TimeWatermark } from "@/components/ui";
+import { photoWatermarkTime, type ReviewPhoto } from "@/lib/photos";
 
 interface PhotoGridProps {
-  urls: string[];
+  photos: ReviewPhoto[];
+  /** store/org 타임존 — 워터마크 시각 변환용. */
+  timezone?: string;
   maxVisible?: number;
   className?: string;
 }
 
-export function PhotoGrid({ urls, maxVisible = 4, className }: PhotoGridProps): React.ReactElement | null {
+export function PhotoGrid({ photos, timezone, maxVisible = 4, className }: PhotoGridProps): React.ReactElement | null {
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
 
-  if (urls.length === 0) return null;
+  if (photos.length === 0) return null;
 
-  const visible = urls.slice(0, maxVisible);
-  const overflow = urls.length - maxVisible;
+  const visible = photos.slice(0, maxVisible);
+  const overflow = photos.length - maxVisible;
 
   const imgClass = "w-full h-full object-cover rounded cursor-pointer hover:opacity-80 transition-opacity";
 
@@ -40,22 +46,24 @@ export function PhotoGrid({ urls, maxVisible = 4, className }: PhotoGridProps): 
   return (
     <>
       <div className={cn(gridClass, "gap-1", className)}>
-        {visible.map((url, i) => {
+        {visible.map((photo, i) => {
           const isLast = i === visible.length - 1 && overflow > 0;
           return (
             <div
-              key={url}
+              key={photo.url}
               className={cn(
                 "relative overflow-hidden rounded",
                 visible.length === 1 ? "aspect-video" : "aspect-square",
               )}
             >
               <img
-                src={url}
+                src={photo.thumbUrl}
                 alt={`Photo ${i + 1}`}
                 className={imgClass}
                 onClick={() => setLightboxIndex(i)}
               />
+              {/* +N 오버레이가 있는 마지막 칸은 시각이 가려지므로 워터마크 생략 */}
+              {!isLast && <TimeWatermark time={photoWatermarkTime(photo)} timezone={timezone} />}
               {isLast && overflow > 0 && (
                 <button
                   type="button"
@@ -74,7 +82,10 @@ export function PhotoGrid({ urls, maxVisible = 4, className }: PhotoGridProps): 
         <Lightbox
           isOpen
           onClose={() => setLightboxIndex(null)}
-          urls={urls}
+          urls={photos.map((p) => p.url)}
+          captureTimes={photos.map((p) => photoWatermarkTime(p))}
+          captureSources={photos.map((p) => p.captureSource)}
+          timezone={timezone}
           initialIndex={lightboxIndex}
         />
       )}

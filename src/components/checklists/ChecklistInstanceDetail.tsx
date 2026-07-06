@@ -43,6 +43,9 @@ export function ChecklistInstanceDetail({
 }: ChecklistInstanceDetailProps): React.ReactElement {
   const bulkReview = useBulkReview();
 
+  // timezone prop 미전달 시 인스턴스의 store-tz 로 폴백 — 호출처가 잊어도 사진 워터마크가 store-tz 로 표시됨.
+  const tz = timezone ?? instance.timezone ?? undefined;
+
   const items = instance.items ?? [];
 
   const percentage =
@@ -176,7 +179,7 @@ export function ChecklistInstanceDetail({
                 instanceId={instance.id}
                 itemIndex={item.item_index}
                 workDate={instance.work_date}
-                timezone={timezone}
+                timezone={tz}
                 onReviewChange={onRefetch}
               />
             ))}

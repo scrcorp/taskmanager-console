@@ -154,6 +154,27 @@ export function formatActionTime(
   });
 }
 
+/** 사진 워터마크용 시각 포맷 — 항상 날짜+시간+타임존 라벨을 store-tz 로 보여준다.
+ *  찍힌 시각(capture_time) 1순위, 없으면 수신시각(received_at) 폴백을 사진 위에 표시하는 용도라
+ *  referenceDate 비교 없이 절대 시각 고정. 타임존 라벨(PDT/KST 등)을 붙여 모호함을 없앤다.
+ *  예: "Jun 22, 3:30 PM PDT". timezone 미지정 시 브라우저 로컬 존 라벨이 붙는다.
+ *
+ * @param dateStr - ISO 8601 UTC 문자열 (서버 capture_time / received_at)
+ * @param timezone - store/org 타임존 (없으면 브라우저 로컬)
+ */
+export function formatWatermarkTime(dateStr: string, timezone?: string): string {
+  const date = new Date(dateStr);
+  const opts: Intl.DateTimeFormatOptions = {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+    timeZoneName: "short",
+  };
+  if (timezone) opts.timeZone = timezone;
+  return new Intl.DateTimeFormat("en-US", opts).format(date);
+}
+
 /** 타임존 기준 오늘 날짜를 YYYY-MM-DD 문자열로 반환.
  *  timezone이 없으면 브라우저 로컬 기준 (toISOString() 은 UTC 라 사용 금지).
  */

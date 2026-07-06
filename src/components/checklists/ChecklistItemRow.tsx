@@ -16,6 +16,7 @@ import { cn, formatActionTime } from "@/lib/utils";
 import { ReviewChatModal } from "./ReviewChatModal";
 import { EvidencePopover } from "./EvidencePopover";
 import { useUpsertItemReview, useDeleteItemReview } from "@/hooks/useChecklistInstances";
+import { toReviewPhotos, type ReviewPhoto } from "@/lib/photos";
 import type { ChecklistInstanceItem } from "@/types";
 
 interface ChecklistItemRowProps {
@@ -51,14 +52,15 @@ export function ChecklistItemRow({
   const upsertReview = useUpsertItemReview();
   const deleteReview = useDeleteItemReview();
 
-  // Latest submission's photo URLs only
+  // Latest submission's photos only (thumb/full + 서버 수신시각 워터마크용 메타 포함)
   const lastSubmission = item.submissions[item.submissions.length - 1] ?? null;
   const latestSubId = lastSubmission?.id;
-  const photoUrls: string[] = item.files
-    .filter((f) => f.context === "submission" && (latestSubId ? f.context_id === latestSubId : true))
-    .sort((a, b) => a.sort_order - b.sort_order)
-    .map((f) => f.file_url);
-  const hasPhoto = photoUrls.length > 0;
+  const photos: ReviewPhoto[] = toReviewPhotos(
+    item.files
+      .filter((f) => f.context === "submission" && (latestSubId ? f.context_id === latestSubId : true))
+      .sort((a, b) => a.sort_order - b.sort_order),
+  );
+  const hasPhoto = photos.length > 0;
   const note = lastSubmission?.note ?? null;
   const hasNote = !!note;
 
@@ -192,7 +194,7 @@ export function ChecklistItemRow({
         {/* Evidence indicator */}
         {(hasPhoto || hasNote) && (
           <EvidencePopover
-            photoUrls={photoUrls}
+            photos={photos}
             note={note}
             completedAt={item.completed_at ?? null}
             workDate={workDate}
@@ -202,7 +204,7 @@ export function ChecklistItemRow({
             <button
               type="button"
               className="w-8 h-8 rounded-md border border-border text-text-muted flex items-center justify-center transition-colors hover:border-accent hover:text-accent hover:bg-accent-muted"
-              title={hasPhoto && hasNote ? `${photoUrls.length} photo(s) + note` : hasPhoto ? `${photoUrls.length} photo(s)` : "Note"}
+              title={hasPhoto && hasNote ? `${photos.length} photo(s) + note` : hasPhoto ? `${photos.length} photo(s)` : "Note"}
             >
               <Paperclip size={13} />
             </button>
@@ -266,6 +268,7 @@ export function ChecklistItemRow({
         itemTitle={item.title}
         reviewResult={currentResult}
         item={item}
+        timezone={timezone}
         onReviewChange={onReviewChange}
       />
     </div>
