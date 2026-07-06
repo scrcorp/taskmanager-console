@@ -47,15 +47,16 @@ interface StoreCheck {
 interface UserFormData {
   username: string;
   password: string;
-  full_name: string;
+  /** 이름 — first/middle/last. full_name 은 서버가 합성 */
+  first_name: string;
+  middle_name: string;
+  last_name: string;
   email: string;
   phone: string;
   role_id: string;
   hourly_rate: string;
   /** FOH/BOH 분류 — "" = 미지정 */
   department: "" | "FOH" | "BOH";
-  /** 사번 — "" = 미부여. org 내 유일 */
-  employee_no: string;
   store_checks: Record<string, StoreCheck>;
 }
 
@@ -63,13 +64,14 @@ interface UserFormData {
 const INITIAL_FORM: UserFormData = {
   username: "",
   password: "",
-  full_name: "",
+  first_name: "",
+  middle_name: "",
+  last_name: "",
   email: "",
   phone: "",
   role_id: "",
   hourly_rate: "",
   department: "",
-  employee_no: "",
   store_checks: {},
 };
 
@@ -315,7 +317,7 @@ export default function UsersPage(): React.ReactElement {
     if (
       !createForm.username.trim() ||
       !createForm.password.trim() ||
-      !createForm.full_name.trim() ||
+      !createForm.first_name.trim() ||
       !createForm.role_id
     )
       return;
@@ -331,13 +333,14 @@ export default function UsersPage(): React.ReactElement {
       await createUser.mutateAsync({
         username: createForm.username.trim(),
         password: createForm.password,
-        full_name: createForm.full_name.trim(),
+        first_name: createForm.first_name.trim(),
+        middle_name: createForm.middle_name.trim() || undefined,
+        last_name: createForm.last_name.trim() || undefined,
         email: createForm.email.trim() || undefined,
         phone: createForm.phone.trim() || undefined,
         role_id: createForm.role_id,
         hourly_rate: parsedRate ? Number(parsedRate) : null,
         department: createForm.department || undefined,
-        employee_no: createForm.employee_no.trim() || undefined,
         store_assignments: store_assignments.length > 0 ? store_assignments : undefined,
       });
       setIsCreateOpen(false);
@@ -801,7 +804,7 @@ export default function UsersPage(): React.ReactElement {
               disabled={
                 !createForm.username.trim() ||
                 !createForm.password.trim() ||
-                !createForm.full_name.trim() ||
+                !createForm.first_name.trim() ||
                 !createForm.role_id
               }
             >
@@ -835,13 +838,35 @@ export default function UsersPage(): React.ReactElement {
             }
           />
           <Input
-            label="Full Name"
-            placeholder="Enter full name"
-            value={createForm.full_name}
+            label="First Name"
+            placeholder="Enter first name"
+            value={createForm.first_name}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
               setCreateForm((prev: UserFormData) => ({
                 ...prev,
-                full_name: e.target.value,
+                first_name: e.target.value,
+              }))
+            }
+          />
+          <Input
+            label="Middle Name (optional)"
+            placeholder="Enter middle name"
+            value={createForm.middle_name}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setCreateForm((prev: UserFormData) => ({
+                ...prev,
+                middle_name: e.target.value,
+              }))
+            }
+          />
+          <Input
+            label="Last Name (optional)"
+            placeholder="Enter last name"
+            value={createForm.last_name}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setCreateForm((prev: UserFormData) => ({
+                ...prev,
+                last_name: e.target.value,
               }))
             }
           />
@@ -873,10 +898,13 @@ export default function UsersPage(): React.ReactElement {
             label="Role"
             options={[
               { value: "", label: "Select a role" },
-              ...roleList.map((role: Role) => ({
-                value: role.id,
-                label: role.name,
-              })),
+              // super_owner(org 최상위, priority < OWNER)는 직원 생성 시 부여 불가 → 제외
+              ...roleList
+                .filter((role: Role) => role.priority >= ROLE_PRIORITY.OWNER)
+                .map((role: Role) => ({
+                  value: role.id,
+                  label: role.name,
+                })),
             ]}
             value={createForm.role_id}
             onChange={(e: React.ChangeEvent<HTMLSelectElement>) =>
@@ -912,17 +940,6 @@ export default function UsersPage(): React.ReactElement {
               setCreateForm((prev: UserFormData) => ({
                 ...prev,
                 hourly_rate: e.target.value,
-              }))
-            }
-          />
-          <Input
-            label="Employee No. (optional)"
-            placeholder="Company employee number — unique; retired numbers cannot be reused"
-            value={createForm.employee_no}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-              setCreateForm((prev: UserFormData) => ({
-                ...prev,
-                employee_no: e.target.value,
               }))
             }
           />

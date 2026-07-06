@@ -111,13 +111,13 @@ describe("useUsers hooks", () => {
 
     const { result } = renderHook(() => useCreateUser(), { wrapper: createWrapper() });
     result.current.mutate({
-      username: "staff1", password: "pass", full_name: "Staff One", role_id: "r3",
+      username: "staff1", password: "pass", first_name: "Staff", last_name: "One", role_id: "r3",
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(result.current.data?.username).toBe("staff1");
     expect(api.post).toHaveBeenCalledWith("/console/users", {
-      username: "staff1", password: "pass", full_name: "Staff One", role_id: "r3",
+      username: "staff1", password: "pass", first_name: "Staff", last_name: "One", role_id: "r3",
     });
   });
 
