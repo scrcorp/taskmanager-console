@@ -318,6 +318,7 @@ export default function UsersPage(): React.ReactElement {
       !createForm.username.trim() ||
       !createForm.password.trim() ||
       !createForm.first_name.trim() ||
+      !createForm.last_name.trim() ||
       !createForm.role_id
     )
       return;
@@ -805,6 +806,7 @@ export default function UsersPage(): React.ReactElement {
                 !createForm.username.trim() ||
                 !createForm.password.trim() ||
                 !createForm.first_name.trim() ||
+                !createForm.last_name.trim() ||
                 !createForm.role_id
               }
             >
@@ -860,7 +862,7 @@ export default function UsersPage(): React.ReactElement {
             }
           />
           <Input
-            label="Last Name (optional)"
+            label="Last Name"
             placeholder="Enter last name"
             value={createForm.last_name}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
