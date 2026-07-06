@@ -183,6 +183,16 @@ export function ScheduleSettings({ onBack }: Props) {
     return orgSettings.some((s) => s.key === key);
   }
 
+  /** store scope 에서 org 레벨에 override 가 존재하는지 (3-state 배지 계산용) */
+  function isOrgOverridden(key: string): boolean {
+    return orgSettings.some((s) => s.key === key);
+  }
+
+  /** key가 draft 에서 delete 예약되었는지 (per-key inherit 배지/토글용) */
+  function isPendingDelete(key: string): boolean {
+    return draft.deletedKeys.includes(key);
+  }
+
   function isLockedAtOrg(key: string): boolean {
     return orgSettings.find((s) => s.key === key)?.force_locked ?? false;
   }
@@ -328,6 +338,8 @@ export function ScheduleSettings({ onBack }: Props) {
           queueDeleteKey={queueDeleteKey}
           unqueueDeleteKey={unqueueDeleteKey}
           isOverridden={isOverridden}
+          isOrgOverridden={isOrgOverridden}
+          isPendingDelete={isPendingDelete}
           isLocked={isLockedAtOrg}
           isChanged={isChanged}
           scope={isStoreScope ? "store" : "org"}
@@ -341,6 +353,8 @@ export function ScheduleSettings({ onBack }: Props) {
           queueDeleteKey={queueDeleteKey}
           unqueueDeleteKey={unqueueDeleteKey}
           isOverridden={isOverridden}
+          isOrgOverridden={isOrgOverridden}
+          isPendingDelete={isPendingDelete}
           isLocked={isLockedAtOrg}
           isChanged={isChanged}
           scope={isStoreScope ? "store" : "org"}
@@ -354,6 +368,8 @@ export function ScheduleSettings({ onBack }: Props) {
           queueDeleteKey={queueDeleteKey}
           unqueueDeleteKey={unqueueDeleteKey}
           isOverridden={isOverridden}
+          isOrgOverridden={isOrgOverridden}
+          isPendingDelete={isPendingDelete}
           isLocked={isLockedAtOrg}
           isChanged={isChanged}
           scope={isStoreScope ? "store" : "org"}
@@ -367,6 +383,8 @@ export function ScheduleSettings({ onBack }: Props) {
           queueDeleteKey={queueDeleteKey}
           unqueueDeleteKey={unqueueDeleteKey}
           isOverridden={isOverridden}
+          isOrgOverridden={isOrgOverridden}
+          isPendingDelete={isPendingDelete}
           isLocked={isLockedAtOrg}
           isChanged={isChanged}
           scope={isStoreScope ? "store" : "org"}
@@ -380,6 +398,8 @@ export function ScheduleSettings({ onBack }: Props) {
           queueDeleteKey={queueDeleteKey}
           unqueueDeleteKey={unqueueDeleteKey}
           isOverridden={isOverridden}
+          isOrgOverridden={isOrgOverridden}
+          isPendingDelete={isPendingDelete}
           isLocked={isLockedAtOrg}
           isChanged={isChanged}
           scope={isStoreScope ? "store" : "org"}
@@ -390,6 +410,8 @@ export function ScheduleSettings({ onBack }: Props) {
           getValue={getDraftOrEffective}
           queueChange={queueChange}
           isOverridden={isOverridden}
+          isOrgOverridden={isOrgOverridden}
+          isPendingDelete={isPendingDelete}
           isLocked={isLockedAtOrg}
           isChanged={isChanged}
           scope={isStoreScope ? "store" : "org"}
@@ -397,8 +419,6 @@ export function ScheduleSettings({ onBack }: Props) {
           forceQueueChange={forceQueueChange}
           queueDeleteKey={queueDeleteKey}
           unqueueDeleteKey={unqueueDeleteKey}
-          deletedKeys={draft.deletedKeys}
-          draftKeys={Object.keys(draft.values)}
         />
 
         {/* Work Roles — store level */}
@@ -448,16 +468,12 @@ interface CardProps {
   title: string;
   subtitle?: string;
   locked?: boolean;
-  inheritState?: {
-    isInherited: boolean;
-    onToggle: () => void;
-  };
+  /** 섹션 내 모든 커스텀 key를 한 번에 inherit으로 되돌리는 벌크 액션 (개별 key 토글과 별개) */
+  onResetSection?: () => void;
   children: React.ReactNode;
 }
 
-function Card({ title, subtitle, locked, inheritState, children }: CardProps) {
-  const showInheritToggle = inheritState !== undefined && !locked;
-  const isCustom = inheritState && !inheritState.isInherited;
+function Card({ title, subtitle, locked, onResetSection, children }: CardProps) {
   return (
     <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl overflow-hidden">
       <div className="px-5 py-3 border-b border-[var(--color-border)] bg-[var(--color-bg)]/50 flex items-center gap-3">
@@ -472,23 +488,18 @@ function Card({ title, subtitle, locked, inheritState, children }: CardProps) {
           </div>
           {subtitle && <p className="text-[11px] text-[var(--color-text-muted)] mt-0.5">{subtitle}</p>}
         </div>
-        {showInheritToggle && (
+        {onResetSection && !locked && (
           <button
             type="button"
-            onClick={inheritState!.onToggle}
-            className="flex items-center gap-1.5 shrink-0 group"
-            title={isCustom ? "Click to inherit from Organization" : "Click to override at store level"}
+            onClick={onResetSection}
+            className="shrink-0 text-[11px] font-semibold text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-colors"
+            title="Reset every setting in this section back to inherited"
           >
-            <span className={`text-[10px] font-bold uppercase tracking-wider transition-colors ${isCustom ? "text-[var(--color-accent)]" : "text-[var(--color-text-muted)] group-hover:text-[var(--color-text-secondary)]"}`}>
-              {isCustom ? "Custom" : "Inherited"}
-            </span>
-            <span className={`relative w-8 h-[18px] rounded-full transition-colors duration-150 ${isCustom ? "bg-[var(--color-accent)]" : "bg-[var(--color-border)]"}`}>
-              <span className={`absolute top-[2px] w-3.5 h-3.5 rounded-full bg-white shadow-sm transition-transform duration-150 ${isCustom ? "left-[16px]" : "left-[2px]"}`} />
-            </span>
+            Reset section to inherited
           </button>
         )}
       </div>
-      <div className={`px-5 py-4 ${inheritState?.isInherited ? "opacity-50 pointer-events-none" : ""}`}>{children}</div>
+      <div className="px-5 py-4">{children}</div>
     </div>
   );
 }
@@ -502,6 +513,10 @@ interface SectionCommonProps {
   queueDeleteKey: (key: string) => void;
   unqueueDeleteKey: (key: string) => void;
   isOverridden: (key: string) => boolean;
+  /** store scope에서만 의미 있음: org 레벨에 override가 있는지 (3-state 배지) */
+  isOrgOverridden: (key: string) => boolean;
+  /** key가 draft에서 delete 예약(= inherit로 되돌리기 대기) 상태인지 */
+  isPendingDelete: (key: string) => boolean;
   isLocked: (key: string) => boolean;
   isChanged: (key: string) => boolean;
   scope: "org" | "store";
@@ -519,53 +534,87 @@ function ChangedMark({ changed, children }: { changed: boolean; children: React.
   );
 }
 
-/** localStorage key for preserving custom values when switching to Inherit */
-function customCacheKey(storeId: string, settingKey: string): string {
-  return `schedSettings:${storeId}:${settingKey}`;
+/** localStorage key for preserving custom values when switching to Inherit. scopeId: storeId 또는 "org" */
+function customCacheKey(scopeId: string, settingKey: string): string {
+  return `schedSettings:${scopeId}:${settingKey}`;
 }
 
-/**
- * Section의 inherit toggle — draft 기반.
- * Inherit 전환 시 custom 값을 localStorage에 보존.
- * Custom 복귀 시 localStorage에서 복원.
+function scopeCacheId(props: SectionCommonProps): string | undefined {
+  return props.scope === "store" ? props.storeId : "org";
+}
+
+/** 값 존재 여부(row presence) 기준 — value 동등성과 무관하게 custom 여부를 판단.
+ * draft에 pending delete가 있으면 저장 시 inherit으로 전환될 예정 → 즉시 inherited로 표시.
+ * draft에 pending value(server override 없이)가 있으면 저장 시 custom row가 생길 예정 → 즉시 custom으로 표시.
  */
-function useSectionInherit(props: SectionCommonProps, keys: string[]) {
-  if (props.scope !== "store" || !props.storeId) return null;
-  const storeId = props.storeId;
+function isEffectivelyCustom(props: SectionCommonProps, key: string): boolean {
+  if (props.isPendingDelete(key)) return false;
+  if (props.isOverridden(key)) return true;
+  return props.isChanged(key);
+}
 
-  const hasServerOverride = keys.some((k) => props.isOverridden(k));
-  // draft에 custom 값이 추가됨 (force-queued, 아직 서버에 없음)
-  const hasDraftCustom = keys.some((k) => props.isChanged(k) && !props.isOverridden(k));
-  // 서버에 override 있는데 delete 예정
-  const allServerDeletePending = hasServerOverride && keys.every((k) => props.isChanged(k));
+/** Per-key: custom → inherit. 되돌릴 수 있도록 현재 값을 localStorage에 보존 후 delete 큐잉 */
+function makeKeyInherited(props: SectionCommonProps, key: string, currentValue: unknown) {
+  const scopeId = scopeCacheId(props);
+  if (scopeId && currentValue !== undefined && currentValue !== null) {
+    localStorage.setItem(customCacheKey(scopeId, key), JSON.stringify(currentValue));
+  }
+  props.queueDeleteKey(key);
+}
 
-  const isInherited = allServerDeletePending || (!hasServerOverride && !hasDraftCustom);
+/** Per-key: inherit → custom. localStorage에 보존된 값이 있으면 복원, 없으면 현재 effective 값을 그대로 사용 */
+function makeKeyCustom(props: SectionCommonProps, key: string, currentValue: unknown) {
+  props.unqueueDeleteKey(key);
+  const scopeId = scopeCacheId(props);
+  const cached = scopeId ? localStorage.getItem(customCacheKey(scopeId, key)) : null;
+  const value = cached ? JSON.parse(cached) : currentValue;
+  if (value !== undefined && value !== null) {
+    props.forceQueueChange(key, value);
+  }
+}
 
-  const toggleInherit = () => {
-    if (isInherited) {
-      // → Custom: localStorage에서 복원, 없으면 현재 effective 사용
-      keys.forEach((key) => {
-        // delete 예약 취소
-        props.unqueueDeleteKey(key);
-        const cached = localStorage.getItem(customCacheKey(storeId, key));
-        const value = cached ? JSON.parse(cached) : props.getValue(key);
-        if (value !== undefined && value !== null) {
-          props.forceQueueChange(key, value);
-        }
-      });
-    } else {
-      // → Inherit: custom 값을 localStorage에 보존 후 delete 예약
-      keys.forEach((key) => {
-        const currentVal = props.getValue(key);
-        if (currentVal !== undefined && currentVal !== null) {
-          localStorage.setItem(customCacheKey(storeId, key), JSON.stringify(currentVal));
-        }
-        props.queueDeleteKey(key);
-      });
+/** 섹션 전체를 한 번에 inherit으로 되돌리는 벌크 액션 — Card 헤더의 "Reset section" 버튼용 */
+function resetSectionToInherited(props: SectionCommonProps, keys: string[]) {
+  keys.forEach((key) => {
+    if (isEffectivelyCustom(props, key)) {
+      makeKeyInherited(props, key, props.getValue(key));
     }
-  };
+  });
+}
 
-  return { isInherited, onToggle: toggleInherit };
+/** Per-key source badge + inherit/customize 토글. Locked 상태에선 토글 숨김(읽기 전용) */
+function SourceBadge({ props, fieldKey }: { props: SectionCommonProps; fieldKey: string }) {
+  // Inherit/Custom 은 store 전용 개념 — org 는 최상위(위에서 상속받을 값이 없고,
+  // "inherited" = registry default 일 뿐)라 배지/토글을 표시하지 않는다.
+  if (props.scope !== "store") return null;
+
+  const custom = isEffectivelyCustom(props, fieldKey);
+  const locked = props.isLocked(fieldKey);
+  // 회사(org) 입장에선 org 세팅값이 곧 "기본값"이다. 상속 출처(org 행이냐 registry
+  // default냐)는 매장 관점에서 무의미 — "커스텀했나 / 회사 기본을 따르나" 2가지로 충분.
+  const label = custom ? "Custom" : "Inherited";
+
+  return (
+    <span className="inline-flex items-center gap-1.5 shrink-0">
+      <span
+        className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded whitespace-nowrap ${
+          custom ? "bg-[var(--color-accent-muted)] text-[var(--color-accent)]" : "bg-[var(--color-bg)] text-[var(--color-text-muted)]"
+        }`}
+      >
+        {label}
+      </span>
+      {!locked && (
+        <button
+          type="button"
+          onClick={() => (custom ? makeKeyInherited(props, fieldKey, props.getValue(fieldKey)) : makeKeyCustom(props, fieldKey, props.getValue(fieldKey)))}
+          className="text-[9px] font-semibold text-[var(--color-text-muted)] hover:text-[var(--color-accent)] underline underline-offset-2 whitespace-nowrap"
+          title={custom ? "Revert to inherited value" : "Override at this level"}
+        >
+          {custom ? "Inherit" : "Customize"}
+        </button>
+      )}
+    </span>
+  );
 }
 
 // ─── 1. Work Hour Alerts ─────────────────────────────────
@@ -579,8 +628,9 @@ function WorkHourAlertsSection(props: SectionCommonProps) {
   const cautionMax = Number(props.getValue(CAUTION_KEY) ?? 7.5);
   const maxShiftHours = Number(props.getValue(MAX_SHIFT_KEY) ?? 16);
 
+  const SECTION_KEYS = [NORMAL_KEY, CAUTION_KEY, MAX_SHIFT_KEY];
   const locked = props.isLocked(NORMAL_KEY) || props.isLocked(CAUTION_KEY) || props.isLocked(MAX_SHIFT_KEY);
-  const inheritState = useSectionInherit(props, [NORMAL_KEY, CAUTION_KEY, MAX_SHIFT_KEY]);
+  const hasAnyCustom = SECTION_KEYS.some((k) => isEffectivelyCustom(props, k));
 
   const normalPct = Math.min(100, (normalMax / 12) * 100);
   const cautionPct = Math.min(100 - normalPct, Math.max(0, (cautionMax - normalMax) / 12) * 100);
@@ -599,14 +649,22 @@ function WorkHourAlertsSection(props: SectionCommonProps) {
   }
 
   return (
-    <Card title="Work Hour Alerts" subtitle="Color thresholds for daily work hours" locked={locked} inheritState={inheritState ?? undefined}>
+    <Card
+      title="Work Hour Alerts"
+      subtitle="Color thresholds for daily work hours"
+      locked={locked}
+      onResetSection={props.scope === "store" && hasAnyCustom ? () => resetSectionToInherited(props, SECTION_KEYS) : undefined}
+    >
       <div className="space-y-4">
         <div className="grid grid-cols-3 gap-4">
           <ChangedMark changed={props.isChanged(NORMAL_KEY)}>
             <div>
-              <label className="text-[12px] font-medium text-[var(--color-success)] mb-1.5 flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded-full bg-[var(--color-success)]" />
-                Normal (Green)
+              <label className="text-[12px] font-medium text-[var(--color-success)] mb-1.5 flex items-center justify-between gap-1.5">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-3 h-3 rounded-full bg-[var(--color-success)]" />
+                  Normal (Green)
+                </span>
+                <SourceBadge props={props} fieldKey={NORMAL_KEY} />
               </label>
               <div className="flex items-center gap-2">
                 <span className="text-[13px] text-[var(--color-text-secondary)]">Up to</span>
@@ -626,9 +684,12 @@ function WorkHourAlertsSection(props: SectionCommonProps) {
           </ChangedMark>
           <ChangedMark changed={props.isChanged(CAUTION_KEY)}>
             <div>
-              <label className="text-[12px] font-medium text-[var(--color-warning)] mb-1.5 flex items-center gap-1.5">
-                <span className="w-3 h-3 rounded-full bg-[var(--color-warning)]" />
-                Caution (Orange)
+              <label className="text-[12px] font-medium text-[var(--color-warning)] mb-1.5 flex items-center justify-between gap-1.5">
+                <span className="flex items-center gap-1.5">
+                  <span className="w-3 h-3 rounded-full bg-[var(--color-warning)]" />
+                  Caution (Orange)
+                </span>
+                <SourceBadge props={props} fieldKey={CAUTION_KEY} />
               </label>
               <div className="flex items-center gap-2">
                 <span className="text-[13px] text-[var(--color-text-secondary)]">Up to</span>
@@ -670,8 +731,9 @@ function WorkHourAlertsSection(props: SectionCommonProps) {
         </div>
         <ChangedMark changed={props.isChanged(MAX_SHIFT_KEY)}>
           <div className="pt-2 border-t border-[var(--color-border)]">
-            <label className="text-[12px] font-medium text-[var(--color-text)] mb-1.5 block">
+            <label className="text-[12px] font-medium text-[var(--color-text)] mb-1.5 flex items-center justify-between gap-1.5">
               Max shift duration warning
+              <SourceBadge props={props} fieldKey={MAX_SHIFT_KEY} />
             </label>
             <div className="flex items-center gap-2">
               <span className="text-[13px] text-[var(--color-text-secondary)]">Shifts longer than</span>
@@ -703,8 +765,9 @@ function WeeklyLimitsSection(props: SectionCommonProps) {
   const limit = Number(props.getValue(LIMIT_KEY) ?? 40);
   const warn = Number(props.getValue(WARN_KEY) ?? 35);
 
+  const SECTION_KEYS = [LIMIT_KEY, WARN_KEY];
   const locked = props.isLocked(LIMIT_KEY) || props.isLocked(WARN_KEY);
-  const inheritState = useSectionInherit(props, [LIMIT_KEY, WARN_KEY]);
+  const hasAnyCustom = SECTION_KEYS.some((k) => isEffectivelyCustom(props, k));
 
   // 양방향 1h GAP
   const GAP = 1;
@@ -720,11 +783,19 @@ function WeeklyLimitsSection(props: SectionCommonProps) {
   }
 
   return (
-    <Card title="Weekly Hour Limits" subtitle="Maximum hours and overtime thresholds" locked={locked} inheritState={inheritState ?? undefined}>
+    <Card
+      title="Weekly Hour Limits"
+      subtitle="Maximum hours and overtime thresholds"
+      locked={locked}
+      onResetSection={props.scope === "store" && hasAnyCustom ? () => resetSectionToInherited(props, SECTION_KEYS) : undefined}
+    >
       <div className="space-y-4">
         <ChangedMark changed={props.isChanged(LIMIT_KEY)}>
           <div>
-            <label className="text-[12px] font-medium text-[var(--color-text-secondary)] mb-1.5 block">Max weekly hours</label>
+            <label className="text-[12px] font-medium text-[var(--color-text-secondary)] mb-1.5 flex items-center justify-between gap-1.5">
+              Max weekly hours
+              <SourceBadge props={props} fieldKey={LIMIT_KEY} />
+            </label>
             <div className="flex items-center gap-2">
               <input
                 type="number"
@@ -741,7 +812,10 @@ function WeeklyLimitsSection(props: SectionCommonProps) {
         </ChangedMark>
         <ChangedMark changed={props.isChanged(WARN_KEY)}>
           <div>
-            <label className="text-[12px] font-medium text-[var(--color-text-secondary)] mb-1.5 block">Warning threshold</label>
+            <label className="text-[12px] font-medium text-[var(--color-text-secondary)] mb-1.5 flex items-center justify-between gap-1.5">
+              Warning threshold
+              <SourceBadge props={props} fieldKey={WARN_KEY} />
+            </label>
             <div className="flex items-center gap-2">
               <input
                 type="number"
@@ -771,11 +845,17 @@ function ApprovalSection(props: SectionCommonProps) {
   const required = Boolean(props.getValue(REQ_KEY));
   const autoConfirm = Boolean(props.getValue(AUTO_KEY));
 
+  const SECTION_KEYS = [REQ_KEY, AUTO_KEY];
   const locked = props.isLocked(REQ_KEY) || props.isLocked(AUTO_KEY);
-  const inheritState = useSectionInherit(props, [REQ_KEY, AUTO_KEY]);
+  const hasAnyCustom = SECTION_KEYS.some((k) => isEffectivelyCustom(props, k));
 
   return (
-    <Card title="Approval Workflow" subtitle="Schedule approval requirements" locked={locked} inheritState={inheritState ?? undefined}>
+    <Card
+      title="Approval Workflow"
+      subtitle="Schedule approval requirements"
+      locked={locked}
+      onResetSection={props.scope === "store" && hasAnyCustom ? () => resetSectionToInherited(props, SECTION_KEYS) : undefined}
+    >
       <div className="divide-y divide-[var(--color-border)]">
         <ChangedMark changed={props.isChanged(REQ_KEY)}>
           <ToggleRow
@@ -784,6 +864,7 @@ function ApprovalSection(props: SectionCommonProps) {
             value={required}
             locked={locked}
             onChange={(v) => props.queueChange(REQ_KEY, v)}
+            badge={<SourceBadge props={props} fieldKey={REQ_KEY} />}
           />
         </ChangedMark>
         <ChangedMark changed={props.isChanged(AUTO_KEY)}>
@@ -793,6 +874,7 @@ function ApprovalSection(props: SectionCommonProps) {
             value={autoConfirm}
             locked={locked}
             onChange={(v) => props.queueChange(AUTO_KEY, v)}
+            badge={<SourceBadge props={props} fieldKey={AUTO_KEY} />}
           />
         </ChangedMark>
       </div>
@@ -800,18 +882,21 @@ function ApprovalSection(props: SectionCommonProps) {
   );
 }
 
-function ToggleRow({ label, description, value, locked, onChange }: { label: string; description: string; value: boolean; locked?: boolean; onChange: (v: boolean) => void }) {
+function ToggleRow({ label, description, value, locked, onChange, badge }: { label: string; description: string; value: boolean; locked?: boolean; onChange: (v: boolean) => void; badge?: React.ReactNode }) {
   return (
-    <div className="flex items-center justify-between py-3">
-      <div>
-        <div className="text-[13px] font-medium text-[var(--color-text)]">{label}</div>
+    <div className="flex items-center justify-between py-3 gap-3">
+      <div className="min-w-0">
+        <div className="flex items-center gap-1.5">
+          <div className="text-[13px] font-medium text-[var(--color-text)]">{label}</div>
+          {badge}
+        </div>
         <div className="text-[11px] text-[var(--color-text-muted)] mt-0.5">{description}</div>
       </div>
       <button
         type="button"
         disabled={locked}
         onClick={() => onChange(!value)}
-        className={`relative w-10 h-[22px] rounded-full transition-colors duration-150 ${value ? "bg-[var(--color-accent)]" : "bg-[var(--color-border)]"} ${locked ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+        className={`relative w-10 h-[22px] rounded-full transition-colors duration-150 shrink-0 ${value ? "bg-[var(--color-accent)]" : "bg-[var(--color-border)]"} ${locked ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
       >
         <span className={`absolute top-[3px] w-4 h-4 rounded-full bg-white shadow-sm transition-transform duration-150 ${value ? "left-[22px]" : "left-[3px]"}`} />
       </button>
@@ -828,8 +913,9 @@ function WorkRulesSection(props: SectionCommonProps) {
   const shiftDuration = Number(props.getValue(SHIFT_DURATION_KEY) ?? 330);
   const breakDuration = Number(props.getValue(BREAK_DURATION_KEY) ?? 30);
 
+  const SECTION_KEYS = [SHIFT_DURATION_KEY, BREAK_DURATION_KEY];
   const locked = props.isLocked(SHIFT_DURATION_KEY) || props.isLocked(BREAK_DURATION_KEY);
-  const inheritState = useSectionInherit(props, [SHIFT_DURATION_KEY, BREAK_DURATION_KEY]);
+  const hasAnyCustom = SECTION_KEYS.some((k) => isEffectivelyCustom(props, k));
 
   function handleShiftDurationChange(value: number) {
     props.queueChange(SHIFT_DURATION_KEY, Math.max(30, Math.min(1440, value)));
@@ -839,11 +925,19 @@ function WorkRulesSection(props: SectionCommonProps) {
   }
 
   return (
-    <Card title="Work Rules" subtitle="Default schedule and break duration" locked={locked} inheritState={inheritState ?? undefined}>
+    <Card
+      title="Default Shift Length"
+      subtitle="Default shift duration used for walk-in clock-ins (walk-in start = actual clock-in time) and quick add"
+      locked={locked}
+      onResetSection={props.scope === "store" && hasAnyCustom ? () => resetSectionToInherited(props, SECTION_KEYS) : undefined}
+    >
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <ChangedMark changed={props.isChanged(SHIFT_DURATION_KEY)}>
           <div>
-            <label className="text-[12px] font-medium text-[var(--color-text-secondary)] mb-1.5 block">Default schedule duration</label>
+            <label className="text-[12px] font-medium text-[var(--color-text-secondary)] mb-1.5 flex items-center justify-between gap-1.5">
+              Default schedule duration
+              <SourceBadge props={props} fieldKey={SHIFT_DURATION_KEY} />
+            </label>
             <div className="flex items-center gap-2">
               <input
                 type="number"
@@ -862,7 +956,10 @@ function WorkRulesSection(props: SectionCommonProps) {
         </ChangedMark>
         <ChangedMark changed={props.isChanged(BREAK_DURATION_KEY)}>
           <div>
-            <label className="text-[12px] font-medium text-[var(--color-text-secondary)] mb-1.5 block">Default break</label>
+            <label className="text-[12px] font-medium text-[var(--color-text-secondary)] mb-1.5 flex items-center justify-between gap-1.5">
+              Default break
+              <SourceBadge props={props} fieldKey={BREAK_DURATION_KEY} />
+            </label>
             <div className="flex items-center gap-2">
               <input
                 type="number"
@@ -889,18 +986,24 @@ function AttendanceSettingsSection(props: SectionCommonProps) {
   const LATE_KEY = "attendance.late_buffer_minutes";
   const EARLY_LEAVE_KEY = "attendance.early_leave_threshold_minutes";
   const EARLY_IN_KEY = "attendance.early_clock_in_threshold_minutes";
+  const AUTO_OUT_ENABLED_KEY = "attendance.auto_clock_out_enabled";
   const AUTO_OUT_KEY = "attendance.auto_clock_out_after_minutes";
   const ALERT_INT_KEY = "attendance.alert_interval_minutes";
+  const WALK_IN_ALLOWED_KEY = "attendance.walk_in_allowed";
 
   const lateBuffer = Number(props.getValue(LATE_KEY) ?? 5);
   const earlyLeave = Number(props.getValue(EARLY_LEAVE_KEY) ?? 5);
   const earlyClockIn = Number(props.getValue(EARLY_IN_KEY) ?? 5);
+  const autoClockOutEnabled = props.getValue(AUTO_OUT_ENABLED_KEY);
+  // default true: registry default가 true (undefined면 ON으로 간주)
+  const autoOutOn = autoClockOutEnabled === undefined || autoClockOutEnabled === null ? true : Boolean(autoClockOutEnabled);
   const autoClockOut = Number(props.getValue(AUTO_OUT_KEY) ?? 30);
   const alertInterval = Number(props.getValue(ALERT_INT_KEY) ?? 10);
+  const walkInAllowed = Boolean(props.getValue(WALK_IN_ALLOWED_KEY));
 
-  const allKeys = [LATE_KEY, EARLY_LEAVE_KEY, EARLY_IN_KEY, AUTO_OUT_KEY, ALERT_INT_KEY];
+  const allKeys = [LATE_KEY, EARLY_LEAVE_KEY, EARLY_IN_KEY, AUTO_OUT_ENABLED_KEY, AUTO_OUT_KEY, ALERT_INT_KEY, WALK_IN_ALLOWED_KEY];
   const locked = allKeys.some((k) => props.isLocked(k));
-  const inheritState = useSectionInherit(props, allKeys);
+  const hasAnyCustom = allKeys.some((k) => isEffectivelyCustom(props, k));
 
   const renderField = (
     key: string,
@@ -912,8 +1015,9 @@ function AttendanceSettingsSection(props: SectionCommonProps) {
   ) => (
     <ChangedMark changed={props.isChanged(key)}>
       <div>
-        <label className="text-[12px] font-medium text-[var(--color-text-secondary)] mb-1.5 block">
+        <label className="text-[12px] font-medium text-[var(--color-text-secondary)] mb-1.5 flex items-center justify-between gap-1.5">
           {label}
+          <SourceBadge props={props} fieldKey={key} />
         </label>
         <div className="flex items-center gap-2">
           <input
@@ -947,7 +1051,7 @@ function AttendanceSettingsSection(props: SectionCommonProps) {
       title="Attendance"
       subtitle="Clock-in/out tolerances, auto-completion, and overdue alerts"
       locked={locked}
-      inheritState={inheritState ?? undefined}
+      onResetSection={props.scope === "store" && hasAnyCustom ? () => resetSectionToInherited(props, allKeys) : undefined}
     >
       <div className="space-y-5">
         <div>
@@ -961,11 +1065,44 @@ function AttendanceSettingsSection(props: SectionCommonProps) {
         </div>
         <div>
           {subheader("Clock-out")}
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-1">
             {renderField(EARLY_LEAVE_KEY, "Early clock-out threshold", earlyLeave, "min before end", 120,
               "Clock-out earlier than this requires a reason and is flagged as early.")}
-            {renderField(AUTO_OUT_KEY, "Auto clock-out delay", autoClockOut, "min after end", 1440,
-              "Forgot-to-clock-out → auto closed at scheduled end. 0 disables.")}
+          </div>
+          {subheader("Auto Clock-out")}
+          <div className="border-t border-[var(--color-border)] pt-1">
+            <ChangedMark changed={props.isChanged(AUTO_OUT_ENABLED_KEY)}>
+              <ToggleRow
+                label="Auto clock-out"
+                description="Close shifts left open after the scheduled end. Turn off to leave them for manual review."
+                value={autoOutOn}
+                locked={locked}
+                onChange={(v) => props.queueChange(AUTO_OUT_ENABLED_KEY, v)}
+                badge={<SourceBadge props={props} fieldKey={AUTO_OUT_ENABLED_KEY} />}
+              />
+            </ChangedMark>
+            <div className={`grid grid-cols-1 md:grid-cols-2 gap-4 mt-2 ${autoOutOn ? "" : "opacity-50 pointer-events-none"}`}>
+              {renderField(AUTO_OUT_KEY, "Auto clock-out delay", autoClockOut, "min after end", 1440,
+                "Forgot-to-clock-out → auto closed at scheduled end + this delay.")}
+            </div>
+          </div>
+        </div>
+        <div>
+          {subheader("Walk-in")}
+          <div className="border-t border-[var(--color-border)] pt-1">
+            <ChangedMark changed={props.isChanged(WALK_IN_ALLOWED_KEY)}>
+              <ToggleRow
+                label="Allow walk-in clock-in"
+                description="When off, staff without a schedule for today are blocked at the kiosk (current behavior)."
+                value={walkInAllowed}
+                locked={locked}
+                onChange={(v) => props.queueChange(WALK_IN_ALLOWED_KEY, v)}
+                badge={<SourceBadge props={props} fieldKey={WALK_IN_ALLOWED_KEY} />}
+              />
+            </ChangedMark>
+            <p className="text-[11px] text-[var(--color-text-muted)] mt-1">
+              Walk-in start = actual clock-in time; end = clock-in + default shift duration.
+            </p>
           </div>
         </div>
         <div>
@@ -1040,11 +1177,6 @@ function formatRangeSummary(range: Record<string, { start: string; end: string }
   return "Per-day custom";
 }
 
-interface ScheduleRangeSectionProps extends SectionCommonProps {
-  deletedKeys: string[];
-  draftKeys: string[];
-}
-
 /** schedule.range 데이터 구조:
  * { mode: "all"|"per_day", all: {start,end}, per_day: {sun:{start,end}, mon:...} }
  * all과 per_day는 항상 별도 저장. mode가 어느 쪽이 활성인지 결정.
@@ -1084,14 +1216,12 @@ function normalizeRange(raw: unknown): RangeData {
   return { mode: "all", all: defaultAll, per_day: defaultPerDay };
 }
 
-function ScheduleRangeSection(props: ScheduleRangeSectionProps) {
+function ScheduleRangeSection(props: SectionCommonProps) {
   const RANGE_KEY = "schedule.range";
   const isStore = props.scope === "store";
 
-  const isPendingDelete = props.deletedKeys.includes(RANGE_KEY);
-  const hasStoreOverride = props.isOverridden(RANGE_KEY);
-  const hasDraftValue = props.draftKeys.includes(RANGE_KEY);
-  const isInherited = isStore && (isPendingDelete || (!hasStoreOverride && !hasDraftValue));
+  const hasDraftValue = props.isChanged(RANGE_KEY) && !props.isPendingDelete(RANGE_KEY);
+  const isInherited = isStore && !isEffectivelyCustom(props, RANGE_KEY);
   const locked = props.isLocked(RANGE_KEY);
 
   const currentValue = props.getValue(RANGE_KEY);
@@ -1115,22 +1245,6 @@ function ScheduleRangeSection(props: ScheduleRangeSectionProps) {
     save({ ...range, mode: newMode });
   }
 
-  function handleInheritToggle(inherit: boolean) {
-    if (inherit) {
-      // custom 값을 localStorage에 보존
-      if (props.storeId) {
-        localStorage.setItem(customCacheKey(props.storeId, RANGE_KEY), JSON.stringify(range));
-      }
-      props.queueDeleteKey(RANGE_KEY);
-    } else {
-      props.unqueueDeleteKey(RANGE_KEY);
-      // localStorage에서 복원, 없으면 현재 effective
-      const cached = props.storeId ? localStorage.getItem(customCacheKey(props.storeId, RANGE_KEY)) : null;
-      const restored = cached ? JSON.parse(cached) : range;
-      props.forceQueueChange(RANGE_KEY, restored);
-    }
-  }
-
   // Per day에서 "Fill from Same" — all 값으로 모든 요일 채우기
   function fillPerDayFromAll() {
     save({ ...range, per_day: Object.fromEntries(DAYS.map((d) => [d, range.all])) });
@@ -1143,14 +1257,12 @@ function ScheduleRangeSection(props: ScheduleRangeSectionProps) {
   const inheritedRange = isInherited ? range : null;
 
   return (
-    <Card
-      title="Schedule Range"
-      locked={locked}
-      inheritState={isStore ? {
-        isInherited,
-        onToggle: () => handleInheritToggle(!isInherited),
-      } : undefined}
-    >
+    <Card title="Schedule Range" locked={locked}>
+      {isStore && (
+        <div className="flex justify-end mb-2">
+          <SourceBadge props={props} fieldKey={RANGE_KEY} />
+        </div>
+      )}
       {/* Inherited mode */}
       {isInherited ? (
         <div className="opacity-50">

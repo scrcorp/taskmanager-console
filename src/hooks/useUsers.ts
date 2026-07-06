@@ -78,7 +78,10 @@ export const useUser = (
 interface CreateUserData {
   username: string;
   password: string;
-  full_name: string;
+  /** 이름 — first 필수, middle/last 선택. full_name 은 서버가 합성 */
+  first_name: string;
+  middle_name?: string;
+  last_name?: string;
   email?: string;
   phone?: string;
   role_id: string;
@@ -86,8 +89,6 @@ interface CreateUserData {
   hourly_rate?: number | null;
   /** FOH/BOH 분류 — null/생략 시 미지정 */
   department?: "FOH" | "BOH" | null;
-  /** 사번 — org 내 유일. 생략 시 미부여 */
-  employee_no?: string | null;
   /** 생성 직후 Store Assignment 상세 (각 매장별 Manager/Work 플래그) */
   store_assignments?: { store_id: string; is_manager: boolean; is_work_assignment: boolean }[];
 }

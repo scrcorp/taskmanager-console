@@ -767,6 +767,7 @@ export default function BulkScheduleView({
         effective_rate_source: null,
         // PreviewEntry의 실제 status를 그대로 전달 — BlockEditModal에서 현재값으로 보여야 함.
         status: e.status,
+        origin: "manual",
         submitted_at: null,
         is_modified: false,
         rejected_by: null,

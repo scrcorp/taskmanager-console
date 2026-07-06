@@ -284,8 +284,16 @@ export default function SchedulesCalendarView() {
       dsh: "",
       esort: "bottom",
       ehide: "",
+      walkin: "",
     },
     { transient: ["week", "day", "my"] },
+  );
+
+  // Show walk-in 토글 — 기본 ON. OFF("0")면 origin==='walk_in' 스케줄 숨김.
+  const showWalkIn = params.walkin !== "0";
+  const setShowWalkIn = useCallback(
+    (show: boolean) => setParams({ walkin: show ? null : "0" }),
+    [setParams],
   );
 
   const view = (params.view === "daily" || params.view === "monthly" ? params.view : "weekly") as ViewMode;
@@ -772,6 +780,7 @@ export default function SchedulesCalendarView() {
     // active 칩 필터(status/position/shift)는 블록 단위로도 적용 — 비매칭 블록 숨김.
     return schedules.filter((s) => {
       if (s.user_id !== userId || s.work_date !== date) return false;
+      if (!showWalkIn && s.origin === "walk_in") return false;
       if (filters.statuses.length > 0 && !filters.statuses.includes(s.status)) return false;
       if (filters.positions.length > 0 && !(s.position_snapshot && filters.positions.includes(s.position_snapshot))) return false;
       if (filters.shifts.length > 0) {
@@ -1657,6 +1666,15 @@ export default function SchedulesCalendarView() {
             </button>
             <button
               type="button"
+              onClick={() => setShowWalkIn(!showWalkIn)}
+              aria-pressed={showWalkIn}
+              className={`px-3 py-2 rounded-lg text-[12px] sm:text-[13px] font-semibold transition-colors shrink-0 whitespace-nowrap border ${showWalkIn ? "bg-[var(--color-accent-muted)] border-[var(--color-accent)]/40 text-[var(--color-accent)]" : "bg-[var(--color-surface)] border-[var(--color-border)] text-[var(--color-text-secondary)] hover:text-[var(--color-text)]"}`}
+              title={showWalkIn ? "Walk-in schedules visible — click to hide" : "Walk-in schedules hidden — click to show"}
+            >
+              {showWalkIn ? "Walk-in: On" : "Walk-in: Off"}
+            </button>
+            <button
+              type="button"
               onClick={() => setLegendOpen(true)}
               className="w-8 h-8 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] flex items-center justify-center text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)] shrink-0"
               title="View legend"
@@ -1691,7 +1709,7 @@ export default function SchedulesCalendarView() {
           <MonthlyGrid
             year={monthYear.year}
             month={monthYear.month}
-            schedules={schedules.filter((s) => matchesStoreFilter(s.store_id))}
+            schedules={schedules.filter((s) => matchesStoreFilter(s.store_id) && (showWalkIn || s.origin !== "walk_in"))}
             shifts={shiftsQ.data ?? []}
             workRoles={monthlyWorkRolesQ.data ?? []}
             isSingleStore={isSingleStore}

@@ -360,32 +360,24 @@ export function DailyReportTemplatesView({
 
   return (
     <div>
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-4">
-        {showHeader && (
-          <>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => router.push("/reports?type=daily")}
-            >
-              <ChevronLeft size={16} />
-            </Button>
-            <div className="flex-1">
-              <h1 className="text-xl md:text-2xl font-extrabold text-text">Report Templates</h1>
-              <p className="text-sm text-text-muted mt-0.5">
-                Manage daily report templates for your organization
-              </p>
-            </div>
-          </>
-        )}
-        <div className={cn("flex items-center gap-2", !showHeader && "ml-auto")}>
-          <Button onClick={openCreateForm}>
-            <Plus className="h-4 w-4 mr-1" />
-            New Template
+      {/* Header (제목만 — New Template 버튼은 아래 Templates 영역으로 이동) */}
+      {showHeader && (
+        <div className="flex items-center gap-3 mb-4">
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => router.push("/reports?type=daily")}
+          >
+            <ChevronLeft size={16} />
           </Button>
+          <div className="flex-1">
+            <h1 className="text-xl md:text-2xl font-extrabold text-text">Report Templates</h1>
+            <p className="text-sm text-text-muted mt-0.5">
+              Manage daily report templates for your organization
+            </p>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Organization-wide report periods (daily report types). Per-store
           overrides live on the store detail Reports tab.
@@ -396,6 +388,19 @@ export function DailyReportTemplatesView({
           <ReportTypesManager />
         </div>
       )}
+
+      {/* Templates 영역 헤더 + New Template 버튼 (period 영역과 분리해 여기 위치) */}
+      <div className="flex items-center justify-between gap-3 mb-3">
+        {showHeader ? (
+          <h2 className="text-base font-bold text-text">Templates</h2>
+        ) : (
+          <span />
+        )}
+        <Button onClick={openCreateForm}>
+          <Plus className="h-4 w-4 mr-1" />
+          New Template
+        </Button>
+      </div>
 
       {/* Template list — grouped by store */}
       {isLoading ? (

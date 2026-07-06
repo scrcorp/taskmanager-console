@@ -32,6 +32,30 @@ export interface UserMe {
   preferred_language: PreferredLanguage;
   /** Server-persisted console filters per page (1 account, 1 dataset). */
   console_filters?: Record<string, Record<string, string>>;
+  /** [Model B] 이 계정이 소속된 모든 org + 각 접근상태 (org 스위처/차단화면용). */
+  organizations?: OrgMembership[];
+  /** 현재(선택된) org 접근 가능 여부. 차단이면 false + block_reason. */
+  current_org_accessible?: boolean;
+  current_org_block_reason?: string | null;
+}
+
+/** org 접근 차단 이유 코드 (서버 계약). */
+export type OrgBlockReason =
+  | "ORG_LICENSE_INACTIVE"
+  | "ORG_ACCESS_REVOKED"
+  | "NOT_A_MEMBER";
+
+/** 사용자의 org 소속 1건 + 접근상태. */
+export interface OrgMembership {
+  organization_id: string;
+  organization_name: string | null;
+  organization_code: string | null;
+  role_name: string | null;
+  role_priority: number | null;
+  member_status: string;
+  license_status: string | null;
+  accessible: boolean;
+  block_reason: OrgBlockReason | null;
 }
 
 // Organization
@@ -80,6 +104,8 @@ export interface Store {
 export interface UserStoreAssignment extends Store {
   is_manager: boolean;
   is_work_assignment: boolean;
+  /** 이 매장에서의 EMPID (매장 안 1부터 순번). */
+  empid?: number | null;
 }
 
 export interface StoreDetail extends Store {
@@ -176,6 +202,8 @@ export interface User {
   department?: "FOH" | "BOH" | null;
   /** 사번 — org 내 유일. null이면 미부여 */
   employee_no?: string | null;
+  /** CREWID — org 안 1부터 순번 (org 번호). */
+  crewid?: number | null;
   is_active: boolean;
   created_at: string;
 }
@@ -313,6 +341,8 @@ export interface UserCreate {
   department?: "FOH" | "BOH" | null;
   /** 사번 — org 내 유일. 생략 시 미부여 */
   employee_no?: string | null;
+  /** CREWID — org 안 1부터 순번 (org 번호). */
+  crewid?: number | null;
 }
 
 /** 사용자 수정 요청 타입.
@@ -328,6 +358,8 @@ export interface UserUpdate {
   department?: "FOH" | "BOH" | null;
   /** 사번 — org 내 유일. null이면 해제, 생략 시 변경 없음 */
   employee_no?: string | null;
+  /** CREWID — org 안 1부터 순번 (org 번호). */
+  crewid?: number | null;
 }
 
 /** 시간대 생성 요청 타입.
@@ -1053,6 +1085,8 @@ export interface Schedule {
   /** effective_rate 출처 레이어 */
   effective_rate_source: "schedule" | "user" | "store" | "org" | null;
   status: "draft" | "requested" | "confirmed" | "rejected" | "cancelled" | "deleted";
+  /** 스케줄 출처: 'manual' = 관리자/직원 등록, 'walk_in' = 키오스크 워크인 클락인으로 자동 생성. */
+  origin: "manual" | "walk_in";
   submitted_at: string | null;
   is_modified: boolean;
   rejected_by: string | null;

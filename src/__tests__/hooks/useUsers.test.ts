@@ -40,7 +40,8 @@ vi.mock("@/lib/api", () => ({
 const mockUsers: User[] = [
   {
     id: "u1", username: "admin", full_name: "Admin", email: null,
-    phone: null, role_name: "admin", role_priority: 1, is_active: true,
+    email_verified: false, phone: null, role_name: "admin", role_priority: 1,
+    hourly_rate: null, is_active: true,
     created_at: "2026-01-01T00:00:00Z",
   },
 ];
@@ -102,20 +103,21 @@ describe("useUsers hooks", () => {
     const { default: api } = await import("@/lib/api");
     const newUser: User = {
       id: "u2", username: "staff1", full_name: "Staff One", email: null,
-      phone: null, role_name: "staff", role_priority: 3, is_active: true,
+      email_verified: false, phone: null, role_name: "staff", role_priority: 3,
+      hourly_rate: null, is_active: true,
       created_at: "2026-02-01T00:00:00Z",
     };
     vi.mocked(api.post).mockResolvedValueOnce({ data: newUser });
 
     const { result } = renderHook(() => useCreateUser(), { wrapper: createWrapper() });
     result.current.mutate({
-      username: "staff1", password: "pass", full_name: "Staff One", role_id: "r3",
+      username: "staff1", password: "pass", first_name: "Staff", last_name: "One", role_id: "r3",
     });
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
 
     expect(result.current.data?.username).toBe("staff1");
     expect(api.post).toHaveBeenCalledWith("/console/users", {
-      username: "staff1", password: "pass", full_name: "Staff One", role_id: "r3",
+      username: "staff1", password: "pass", first_name: "Staff", last_name: "One", role_id: "r3",
     });
   });
 
@@ -156,7 +158,7 @@ describe("useUsers hooks", () => {
   it("fetches user stores", async () => {
     const { default: api } = await import("@/lib/api");
     const stores: Store[] = [
-      { id: "b1", organization_id: "o1", name: "Store A", address: null, is_active: true, operating_hours: null, day_start_time: null, max_work_hours_weekly: null, timezone: null, created_at: "2026-01-01T00:00:00Z" },
+      { id: "b1", organization_id: "o1", name: "Store A", code: null, address: null, phone: null, email: null, status: "open", sort_order: 0, is_active: true, require_approval: false, operating_hours: null, day_start_time: null, max_work_hours_weekly: null, state_code: null, timezone: null, default_hourly_rate: null, accepting_signups: true, created_at: "2026-01-01T00:00:00Z" },
     ];
     vi.mocked(api.get).mockResolvedValueOnce({ data: stores });
 
