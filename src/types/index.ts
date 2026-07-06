@@ -496,6 +496,8 @@ export interface ChecklistInstance {
   store_name?: string;
   user_name?: string;
   template_title?: string;
+  /** 인스턴스 소속 store 의 타임존(store→org→default 해석). 사진 워터마크 등 시각 표시를 store-tz 로 고정. */
+  timezone?: string | null;
 }
 
 /** 체크리스트 인스턴스 아이템 파일 (제출/리뷰/채팅 첨부).
@@ -505,8 +507,16 @@ export interface ChecklistItemFile {
   context: "submission" | "review" | "chat";
   context_id: string | null;
   file_url: string;
+  /** Thumbnail URL for grids; server falls back to full when no derivative exists. */
+  thumb_url: string | null;
   file_type: string;
   sort_order: number;
+  /** Claimed capture time from the device (live shutter or gallery EXIF), or null for legacy rows. */
+  capture_time: string | null;
+  /** Provenance of capture_time: "live" | "gallery" | "unknown". */
+  capture_source: string | null;
+  /** Server-received time — the trust anchor rendered as the photo watermark. */
+  received_at: string | null;
 }
 
 /** 체크리스트 아이템 제출 기록.

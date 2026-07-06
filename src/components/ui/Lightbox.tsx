@@ -14,6 +14,7 @@
 
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { X, ZoomIn, ZoomOut, RotateCcw, ChevronLeft, ChevronRight } from "lucide-react";
+import { TimeWatermark } from "./TimeWatermark";
 
 interface LightboxProps {
   isOpen: boolean;
@@ -22,6 +23,12 @@ interface LightboxProps {
   src?: string;
   /** Multiple images for gallery mode */
   urls?: string[];
+  /** Per-url 워터마크 시각(찍힌 시점 우선, 폴백 수신시각) — urls 와 인덱스 정렬. */
+  captureTimes?: (string | null)[];
+  /** Per-url capture 출처("live"|"gallery"|"unknown") — urls 와 인덱스 정렬. 갤러리 사진 표시 구분용. */
+  captureSources?: (string | null)[];
+  /** store/org 타임존 — 워터마크 시각 변환용. */
+  timezone?: string;
   /** Starting index when urls is provided */
   initialIndex?: number;
   alt?: string;
@@ -32,7 +39,7 @@ function isVideo(url: string): boolean {
   return /\.(mp4|mov|webm|avi|mkv)(\?|$)/i.test(url);
 }
 
-export function Lightbox({ isOpen, onClose, src, urls, initialIndex = 0, alt }: LightboxProps): React.ReactElement | null {
+export function Lightbox({ isOpen, onClose, src, urls, captureTimes, captureSources, timezone, initialIndex = 0, alt }: LightboxProps): React.ReactElement | null {
   const allUrls = urls && urls.length > 0 ? urls : src ? [src] : [];
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   const [scale, setScale] = useState(1);
@@ -44,6 +51,8 @@ export function Lightbox({ isOpen, onClose, src, urls, initialIndex = 0, alt }: 
 
   const hasMultiple = allUrls.length > 1;
   const currentSrc = allUrls[currentIndex] ?? "";
+  const currentCaptureTime = captureTimes?.[currentIndex] ?? null;
+  const currentCaptureSource = captureSources?.[currentIndex] ?? null;
 
   const resetView = useCallback(() => {
     setScale(1);
@@ -245,6 +254,20 @@ export function Lightbox({ isOpen, onClose, src, urls, initialIndex = 0, alt }: 
             }}
             onClick={(e) => e.stopPropagation()}
           />
+        )}
+
+        {/* 찍힌 시각 캡션 — 뷰어 상단 중앙에 도킹(이미지 위). 줌/팬과 무관하게 고정 HUD.
+            상단 바(닫기/줌)는 미디어 영역 밖 별도 행이라 top-4 캡션과 겹치지 않는다.
+            검수 시 시각을 가장 먼저 읽도록 상단에 크게 배치. */}
+        {!isVid && (
+          <div className="pointer-events-none absolute top-4 left-1/2 z-10 -translate-x-1/2">
+            <TimeWatermark
+              time={currentCaptureTime}
+              timezone={timezone}
+              captureSource={currentCaptureSource}
+              variant="caption"
+            />
+          </div>
         )}
 
         {/* Right arrow */}

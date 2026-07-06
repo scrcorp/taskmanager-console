@@ -10,9 +10,10 @@ import React, { useState, useRef } from "react";
 import { FileText, Clock } from "lucide-react";
 import { cn, formatActionTime } from "@/lib/utils";
 import { PhotoGrid } from "./PhotoGrid";
+import type { ReviewPhoto } from "@/lib/photos";
 
 interface EvidencePopoverProps {
-  photoUrls: string[];
+  photos: ReviewPhoto[];
   note: string | null;
   completedAt: string | null;
   workDate: string;
@@ -22,7 +23,7 @@ interface EvidencePopoverProps {
 }
 
 export function EvidencePopover({
-  photoUrls,
+  photos,
   note,
   completedAt,
   workDate,
@@ -34,7 +35,7 @@ export function EvidencePopover({
   const wrapRef = useRef<HTMLDivElement>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const hasEvidence = photoUrls.length > 0 || !!note;
+  const hasEvidence = photos.length > 0 || !!note;
   if (!hasEvidence) return <>{children}</>;
 
   const handleMouseEnter = () => {
@@ -69,8 +70,8 @@ export function EvidencePopover({
           <div className="absolute -top-1.5 left-3 w-2.5 h-2.5 rotate-45 border-t border-l border-border bg-card" />
 
           {/* Photo thumbnails */}
-          {photoUrls.length > 0 && (
-            <PhotoGrid urls={photoUrls} maxVisible={4} />
+          {photos.length > 0 && (
+            <PhotoGrid photos={photos} timezone={timezone} maxVisible={4} />
           )}
 
           {/* Note text */}
