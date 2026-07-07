@@ -4,7 +4,7 @@
  * 테스트 범위:
  * - thumb_url 이 있으면 thumbUrl 로 사용, null 이면 file_url 폴백
  * - capture_time / received_at 패스스루, 없으면 null
- * - photoWatermarkTime: capture_time 우선, 없으면 received_at 폴백, 둘 다 없으면 null
+ * - photoWatermarkTime: capture_time 만 (없으면 null — received_at 로 폴백하지 않음)
  */
 
 import { describe, it, expect } from "vitest";
@@ -74,12 +74,12 @@ describe("photoWatermarkTime", () => {
     expect(photoWatermarkTime(p)).toBe("2026-06-22T09:00:00Z");
   });
 
-  it("falls back to received_at when capture_time is null (레거시·EXIF없음)", () => {
+  it("does NOT fall back to received_at — null when capture_time missing (업로드시각 표시 금지)", () => {
     const [p] = toReviewPhotos([makeFile({ capture_time: null })]);
-    expect(photoWatermarkTime(p)).toBe("2026-06-22T09:30:00Z");
+    expect(photoWatermarkTime(p)).toBeNull();
   });
 
-  it("yields null when neither capture_time nor received_at exists", () => {
+  it("yields null when capture_time is missing (received_at 있어도 무시)", () => {
     const [p] = toReviewPhotos([makeFile({ capture_time: null, received_at: null })]);
     expect(photoWatermarkTime(p)).toBeNull();
   });
