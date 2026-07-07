@@ -72,6 +72,13 @@ export default function DashboardLayout({
     }
   }, [user]);
 
+  // org 접근 차단(라이센스 정지/본인 밴) → 전용 차단 화면으로 (대시보드 렌더 방지 = 403 루프 방지)
+  useEffect(() => {
+    if (user && user.current_org_accessible === false) {
+      router.replace("/license-inactive");
+    }
+  }, [user]);
+
   // 초기 비밀번호 강제 변경 — Super Owner 발급 직후 첫 로그인 등
   useEffect(() => {
     if (user && user.must_change_password) {
@@ -99,8 +106,8 @@ export default function DashboardLayout({
     setForbidden(!!requiredPerm && !userPerms.has(requiredPerm));
   }, [user, pathname]);
 
-  // user 로드 전 / 이메일 미인증 / 비밀번호 강제 변경 대기 → 로딩 화면 (깜빡임 방지)
-  if (!user || !user.email_verified || user.must_change_password) {
+  // user 로드 전 / 이메일 미인증 / 비밀번호 강제 변경 / org 차단 대기 → 로딩 화면 (깜빡임 방지)
+  if (!user || !user.email_verified || user.must_change_password || user.current_org_accessible === false) {
     return (
       <div className="flex h-screen items-center justify-center bg-bg">
         <div className="animate-spin w-8 h-8 border-3 border-accent border-t-transparent rounded-full" />

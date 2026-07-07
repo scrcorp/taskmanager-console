@@ -1,22 +1,40 @@
 "use client";
 
-import React from "react";
-import { ChangelogListClient } from "@/components/changelog/ChangelogListClient";
+import React, { useEffect } from "react";
 
 /**
- * 대시보드 "What's New" 뷰 — console 카테고리 변경 이력 (읽기 전용).
+ * "What's New" — 홈페이지 공개 changelog 로 리다이렉트한다.
  *
- * 작성/관리는 별도 백오피스에서 처리하므로 여기서는 생성/수정/삭제를 노출하지 않는다.
- * 인증된 모든 콘솔 사용자가 접근 가능 (별도 permission 게이트 없음 — 공개 정보).
+ * 콘솔은 더 이상 자체 카테고리 뷰를 렌더하지 않고, 제품 전체 업데이트 내역이
+ * 모이는 홈페이지 `/changelog` 를 단일 소스로 사용한다.
+ *
+ * 대상 URL 은 환경별로 결정된다(NEXT_PUBLIC_* 는 빌드 타임 인라인):
+ * - `NEXT_PUBLIC_SITE_BASE_URL` 우선 (예: https://hermesops.site)
+ * - 없으면 `NEXT_PUBLIC_SIGNUP_BASE_URL` 재사용 (이미 prod/staging 에 설정됨)
+ * - 둘 다 없으면(local) 같은 앱의 상대경로 `/changelog` (호스트 무관 동작)
  */
-export default function DashboardWhatsNewPage(): React.ReactElement {
+const SITE_BASE: string = (
+  process.env.NEXT_PUBLIC_SITE_BASE_URL ||
+  process.env.NEXT_PUBLIC_SIGNUP_BASE_URL ||
+  ""
+).replace(/\/$/, "");
+
+const CHANGELOG_URL: string = SITE_BASE ? `${SITE_BASE}/changelog` : "/changelog";
+
+export default function WhatsNewRedirectPage(): React.ReactElement {
+  useEffect(() => {
+    window.location.replace(CHANGELOG_URL);
+  }, []);
+
   return (
-    <div>
-      <h1 className="mb-1 text-2xl font-extrabold text-text">What&apos;s New</h1>
-      <p className="mb-6 text-sm text-text-secondary">
-        Latest console updates.
-      </p>
-      <ChangelogListClient basePath="/whats-new" fixedCategory="console" />
+    <div className="flex flex-col items-center justify-center py-24 text-center text-text-secondary">
+      <p className="text-sm">Opening What&apos;s New…</p>
+      <a
+        href={CHANGELOG_URL}
+        className="mt-2 text-sm text-accent hover:underline"
+      >
+        Click here if you are not redirected
+      </a>
     </div>
   );
 }

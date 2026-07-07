@@ -75,10 +75,46 @@ const processQueue = (error: unknown, token: string | null = null) => {
   failedQueue = [];
 };
 
+/** 서버 에러 코드 — 텍스트가 아닌 code 로 분기 (계약). */
+export const ERROR_CODES = {
+  ORG_LICENSE_INACTIVE: "ORG_LICENSE_INACTIVE",
+  ORG_ACCESS_REVOKED: "ORG_ACCESS_REVOKED",
+  NOT_A_MEMBER: "NOT_A_MEMBER",
+} as const;
+
+/** org 접근 차단 코드 — 이 코드들은 전용 차단화면으로 보낸다. */
+const ORG_BLOCK_CODES: readonly string[] = [
+  ERROR_CODES.ORG_LICENSE_INACTIVE,
+  ERROR_CODES.ORG_ACCESS_REVOKED,
+];
+
+/** axios 에러에서 서버 에러 코드 추출 (detail 이 {code,message} 객체일 때). */
+export function getErrorCode(error: unknown): string | undefined {
+  const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
+  if (detail && typeof detail === "object" && "code" in detail) {
+    return (detail as { code?: string }).code;
+  }
+  return undefined;
+}
+
 api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config;
+
+    // [Access] org 접근 차단(라이센스 정지/본인 밴) → 전용 화면으로 하드 리다이렉트.
+    // 미드세션 요청 포함 전역 처리. 화면은 /me(차단돼도 200)에서 사유/org/전환목록을 읽는다.
+    const code = getErrorCode(error);
+    if (
+      error.response?.status === 403 &&
+      code !== undefined &&
+      ORG_BLOCK_CODES.includes(code) &&
+      typeof window !== "undefined" &&
+      !window.location.pathname.startsWith("/license-inactive")
+    ) {
+      window.location.href = "/license-inactive";
+      return Promise.reject(error);
+    }
 
     // 로그인 요청 자체의 401은 refresh 대상이 아님
     const isLoginRequest = originalRequest?.url?.includes("/auth/login");

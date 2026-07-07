@@ -13,7 +13,7 @@
 import React, { useState, useRef, useEffect, useMemo } from "react";
 import { Send, Paperclip, Loader2, Trash2, RotateCcw, CheckCircle } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Modal, Lightbox } from "@/components/ui";
+import { Modal, Lightbox, TimeWatermark } from "@/components/ui";
 import {
   useAddReviewContent,
   useDeleteReviewContent,
@@ -22,13 +22,14 @@ import {
   useDeleteItemReview,
 } from "@/hooks/useChecklistInstances";
 import { useAuthStore } from "@/stores/authStore";
+import { toReviewPhotos, photoWatermarkTime, type ReviewPhoto } from "@/lib/photos";
 import type { ChecklistInstanceItem, ChecklistItemMessage } from "@/types";
 
 type TimelineEvent =
-  | { type: "initial_completion"; created_at: string; photoUrls: string[]; note: string | null }
+  | { type: "initial_completion"; created_at: string; photos: ReviewPhoto[]; note: string | null }
   | { type: "review_change"; created_at: string; data: { id: string; old_result: string | null; new_result: string | null; changed_by_name: string | null; comment: string | null; created_at: string } }
-  | { type: "comment"; created_at: string; data: ChecklistItemMessage; fileUrl?: string }
-  | { type: "resubmission"; created_at: string; data: { id: string; note: string | null; submitted_at: string; photoUrls: string[] }; currentPhotoUrls: string[] };
+  | { type: "comment"; created_at: string; data: ChecklistItemMessage; file?: ReviewPhoto }
+  | { type: "resubmission"; created_at: string; data: { id: string; note: string | null; submitted_at: string }; currentPhotos: ReviewPhoto[] };
 
 interface ReviewChatModalProps {
   isOpen: boolean;
@@ -38,6 +39,8 @@ interface ReviewChatModalProps {
   itemTitle: string;
   reviewResult: string | null;
   item: ChecklistInstanceItem;
+  /** store/org 타임존 — 사진 워터마크 시각 변환용. */
+  timezone?: string;
   onReviewChange?: () => void;
 }
 
@@ -70,30 +73,43 @@ function resultColor(result: string): string {
   return "text-warning";
 }
 
-function PhotoDisplay({ urls, onLightbox }: { urls: string[]; onLightbox: (src: string) => void }): React.ReactElement | null {
-  if (urls.length === 0) return null;
-  if (urls.length === 1) {
-    const url = urls[0];
-    return isVideo(url) ? (
-      <video src={url} controls className="max-w-full max-h-[200px] rounded mx-auto" />
+function PhotoDisplay({
+  photos,
+  timezone,
+  onLightbox,
+}: {
+  photos: ReviewPhoto[];
+  timezone?: string;
+  onLightbox: (photo: ReviewPhoto) => void;
+}): React.ReactElement | null {
+  if (photos.length === 0) return null;
+  if (photos.length === 1) {
+    const photo = photos[0];
+    return isVideo(photo.url) ? (
+      <video src={photo.url} controls className="max-w-full max-h-[200px] rounded mx-auto" />
     ) : (
-      <button type="button" onClick={() => onLightbox(url)} className="cursor-pointer block">
-        <img src={url} alt="Evidence" className="max-w-full max-h-[200px] rounded mx-auto hover:opacity-80 transition-opacity" />
+      <button type="button" onClick={() => onLightbox(photo)} className="cursor-pointer block relative">
+        <img src={photo.thumbUrl} alt="Evidence" className="max-w-full max-h-[200px] rounded mx-auto hover:opacity-80 transition-opacity" />
+        <TimeWatermark time={photoWatermarkTime(photo)} timezone={timezone} />
       </button>
     );
   }
   return (
     <div className="grid grid-cols-2 gap-1">
-      {urls.slice(0, 4).map((url, i) => (
-        <button key={url} type="button" onClick={() => onLightbox(url)} className="cursor-pointer block aspect-square overflow-hidden rounded relative">
-          <img src={url} alt={`Photo ${i + 1}`} className="w-full h-full object-cover hover:opacity-80 transition-opacity" />
-          {i === 3 && urls.length > 4 && (
-            <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white text-xs font-bold rounded">
-              +{urls.length - 3}
-            </div>
-          )}
-        </button>
-      ))}
+      {photos.slice(0, 4).map((photo, i) => {
+        const isOverflow = i === 3 && photos.length > 4;
+        return (
+          <button key={photo.url} type="button" onClick={() => onLightbox(photo)} className="cursor-pointer block aspect-square overflow-hidden rounded relative">
+            <img src={photo.thumbUrl} alt={`Photo ${i + 1}`} className="w-full h-full object-cover hover:opacity-80 transition-opacity" />
+            {!isOverflow && <TimeWatermark time={photoWatermarkTime(photo)} timezone={timezone} />}
+            {isOverflow && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white text-xs font-bold rounded">
+                +{photos.length - 3}
+              </div>
+            )}
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -106,6 +122,7 @@ export function ReviewChatModal({
   itemTitle,
   reviewResult,
   item,
+  timezone,
   onReviewChange,
 }: ReviewChatModalProps): React.ReactElement {
   const user = useAuthStore((s) => s.user);
@@ -120,7 +137,7 @@ export function ReviewChatModal({
   const [isSending, setIsSending] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [isActing, setIsActing] = useState(false);
-  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [lightboxPhoto, setLightboxPhoto] = useState<ReviewPhoto | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -132,11 +149,11 @@ export function ReviewChatModal({
       .filter((f) => f.context === "submission")
       .sort((a, b) => a.sort_order - b.sort_order);
 
-    const getPhotosForSubmission = (subId: string) =>
-      allSubmissionFiles.filter((f) => f.context_id === subId).map((f) => f.file_url);
+    const getPhotosForSubmission = (subId: string): ReviewPhoto[] =>
+      toReviewPhotos(allSubmissionFiles.filter((f) => f.context_id === subId));
 
     // Fallback: all submission photos (legacy items without context_id)
-    const allSubmissionPhotoUrls = allSubmissionFiles.map((f) => f.file_url);
+    const allSubmissionPhotos = toReviewPhotos(allSubmissionFiles);
 
     // First submission = initial completion
     const firstSubmission = item.submissions[0] ?? null;
@@ -145,14 +162,14 @@ export function ReviewChatModal({
       events.push({
         type: "initial_completion",
         created_at: firstSubmission.submitted_at,
-        photoUrls: photos.length > 0 ? photos : allSubmissionPhotoUrls,
+        photos: photos.length > 0 ? photos : allSubmissionPhotos,
         note: firstSubmission.note,
       });
     } else if (item.is_completed && item.completed_at) {
       events.push({
         type: "initial_completion",
         created_at: item.completed_at,
-        photoUrls: allSubmissionPhotoUrls,
+        photos: allSubmissionPhotos,
         note: null,
       });
     }
@@ -163,8 +180,8 @@ export function ReviewChatModal({
       events.push({
         type: "resubmission",
         created_at: sub.submitted_at,
-        data: { id: sub.id, note: sub.note, submitted_at: sub.submitted_at, photoUrls: subPhotos },
-        currentPhotoUrls: subPhotos,
+        data: { id: sub.id, note: sub.note, submitted_at: sub.submitted_at },
+        currentPhotos: subPhotos,
       });
     }
 
@@ -178,7 +195,8 @@ export function ReviewChatModal({
     for (const msg of item.messages) {
       // Find any chat file associated with this message via context_id
       const chatFile = chatFiles.find((f) => f.context_id === msg.id);
-      events.push({ type: "comment", created_at: msg.created_at, data: msg, fileUrl: chatFile?.file_url });
+      const file = chatFile ? toReviewPhotos([chatFile])[0] : undefined;
+      events.push({ type: "comment", created_at: msg.created_at, data: msg, file });
     }
 
     events.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
@@ -321,7 +339,7 @@ export function ReviewChatModal({
                       <CheckCircle size={12} />
                       <span className="font-medium">Completed</span>
                     </div>
-                    <PhotoDisplay urls={event.photoUrls} onLightbox={setLightboxSrc} />
+                    <PhotoDisplay photos={event.photos} timezone={timezone} onLightbox={setLightboxPhoto} />
                     {event.note && (
                       <p className="text-xs text-text-secondary mt-1 break-words">{event.note}</p>
                     )}
@@ -366,7 +384,7 @@ export function ReviewChatModal({
             if (event.type === "comment") {
               const c = event.data;
               const isMe = user?.id === c.author_id;
-              const fileUrl = event.fileUrl ?? null;
+              const file = event.file ?? null;
               return (
                 <div key={`c-${c.id}`} className={`flex ${isMe ? "justify-end" : "justify-start"}`}>
                   <div className={`max-w-[80%] ${isMe ? "items-end" : "items-start"}`}>
@@ -374,12 +392,13 @@ export function ReviewChatModal({
                       {c.author_name ?? "Unknown"}
                     </p>
                     <div className={`relative group rounded-lg px-3 py-2 ${isMe ? "bg-accent/10 text-text" : "bg-surface-hover text-text"}`}>
-                      {fileUrl ? (
-                        isVideo(fileUrl) ? (
-                          <video src={fileUrl} controls className="max-w-full max-h-[200px] rounded" />
+                      {file ? (
+                        isVideo(file.url) ? (
+                          <video src={file.url} controls className="max-w-full max-h-[200px] rounded" />
                         ) : (
-                          <button type="button" onClick={() => setLightboxSrc(fileUrl)} className="cursor-pointer block">
-                            <img src={fileUrl} alt="Review media" className="max-w-full max-h-[200px] rounded hover:opacity-80 transition-opacity" />
+                          <button type="button" onClick={() => setLightboxPhoto(file)} className="cursor-pointer block relative">
+                            <img src={file.thumbUrl} alt="Review media" className="max-w-full max-h-[200px] rounded hover:opacity-80 transition-opacity" />
+                            <TimeWatermark time={photoWatermarkTime(file)} timezone={timezone} />
                           </button>
                         )
                       ) : c.content ? (
@@ -405,7 +424,7 @@ export function ReviewChatModal({
 
             if (event.type === "resubmission") {
               const ch = event.data;
-              const currUrls = event.currentPhotoUrls;
+              const currPhotos = event.currentPhotos;
               return (
                 <div key={`rs-${ch.id}`} className="flex justify-start">
                   <div className="bg-accent-muted rounded-lg px-4 py-2 max-w-[90%]">
@@ -419,10 +438,10 @@ export function ReviewChatModal({
                       <p className="text-xs text-text-muted line-through break-words mb-2">{ch.note}</p>
                     )}
                     {/* Current/latest photos */}
-                    {currUrls.length > 0 && (
+                    {currPhotos.length > 0 && (
                       <div className="mt-1">
                         <p className="text-[10px] text-text-muted mb-1">Current submission</p>
-                        <PhotoDisplay urls={currUrls} onLightbox={setLightboxSrc} />
+                        <PhotoDisplay photos={currPhotos} timezone={timezone} onLightbox={setLightboxPhoto} />
                       </div>
                     )}
                   </div>
@@ -474,8 +493,15 @@ export function ReviewChatModal({
         </div>
       </Modal>
 
-      {lightboxSrc && (
-        <Lightbox isOpen onClose={() => setLightboxSrc(null)} src={lightboxSrc} />
+      {lightboxPhoto && (
+        <Lightbox
+          isOpen
+          onClose={() => setLightboxPhoto(null)}
+          urls={[lightboxPhoto.url]}
+          captureTimes={[photoWatermarkTime(lightboxPhoto)]}
+          captureSources={[lightboxPhoto.captureSource]}
+          timezone={timezone}
+        />
       )}
     </>
   );

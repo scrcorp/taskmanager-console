@@ -5,8 +5,9 @@
  * 공개 홈페이지(hermesops.site/changelog)와 콘솔 대시보드 "What's New" 뷰가 동일한 타입을 공유한다.
  */
 
-/** 변경 이력이 속한 제품 표면 (4종). */
+/** 변경 이력 카테고리 (general = 제품 전반/통합, 나머지는 표면별). */
 export type ChangelogCategory =
+  | "general"
   | "staff_app"
   | "attendance_app"
   | "console"
@@ -14,14 +15,16 @@ export type ChangelogCategory =
 
 /** 카테고리 표시 라벨 (UI 영문). */
 export const CHANGELOG_CATEGORY_LABELS: Record<ChangelogCategory, string> = {
+  general: "General",
   staff_app: "Staff App",
   attendance_app: "Attendance App",
   console: "Console",
   homepage: "Homepage",
 };
 
-/** 탭/필터 순서대로 나열된 카테고리. */
+/** 탭/필터 순서대로 나열된 카테고리. general(전반/통합) 먼저. */
 export const CHANGELOG_CATEGORIES: ChangelogCategory[] = [
+  "general",
   "staff_app",
   "attendance_app",
   "console",
