@@ -52,6 +52,8 @@ interface Props {
   prefilledDate?: string;
   /** "HH:MM" — daily view에서 시간 클릭 시 전달. start time 자동 채우기. */
   prefilledStartTime?: string;
+  /** Daily 그리드 +1 시간대(1A+1 등) gap 클릭 시 시작 달력일 오프셋 (영업일+N). */
+  prefilledStartOffsetDays?: number;
   users: User[];
   storeId: string;
   /** 선택 가능한 store 목록 — store가 2개 이상이면 드롭다운 표시 */
@@ -192,7 +194,7 @@ function computeAutoBreak(startHHMM: string, endHHMM: string, breakMin: number):
   return { start: minutesToTime(mid), end: minutesToTime(mid + breakMin) };
 }
 
-export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefilledDate, prefilledStartTime, users, storeId, stores, selectedStoreIds, inheritedRate, inheritedRateSource, showCost = true, errorMessage, onDismissError, onClose, onSave, onDeleted, isSaving }: Props) {
+export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefilledDate, prefilledStartTime, prefilledStartOffsetDays, users, storeId, stores, selectedStoreIds, inheritedRate, inheritedRateSource, showCost = true, errorMessage, onDismissError, onClose, onSave, onDeleted, isSaving }: Props) {
   // Delete 흐름은 공유 hook 사용 — confirm 메시지/톤/시스템이 Detail/Calendar 어디서 호출되든 동일.
   // hook 이 confirm + mutation 까지 처리하고, 우리는 성공 후 후처리(onClose/onDeleted)만 콜백으로 전달.
   const deleteFlow = useDeleteScheduleFlow();
@@ -336,12 +338,14 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
       setUserId(prefilledUserId || users[0]?.id || "");
       const addDate = prefilledDate || todayInTimezone(stores?.find((s) => s.id === (modalStoreId || storeId))?.timezone ?? orgTimezone);
       setDate(addDate);
-      setStartDate(addDate);
+      // +1 시간대(1A+1 등) gap 클릭이면 시작 달력일 = 영업일 + offset (새벽조 의도 보존)
+      const initStartDate = addDay(addDate, prefilledStartOffsetDays ?? 0);
+      setStartDate(initStartDate);
       const initStart = prefilledStartTime || "09:00";
       const initEnd2 = minutesToTime(timeToMinutes(initStart) + defaultShiftMin);
       setStartTime(initStart);
       setEndTime(initEnd2);
-      setEndDate(isOvernight(initStart, initEnd2) ? addDay(addDate, 1) : addDate);
+      setEndDate(isOvernight(initStart, initEnd2) ? addDay(initStartDate, 1) : initStartDate);
       setSplitEnabled(false);
       setBreakStart("");
       setBreakEnd("");

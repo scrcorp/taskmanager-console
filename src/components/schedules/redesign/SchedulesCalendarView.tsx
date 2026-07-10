@@ -11,7 +11,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useQueries } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { parseApiError, todayInTimezone } from "@/lib/utils";
-import { addDay, dawnStartOffset, rollEndDate, shiftIsoFields } from "@/lib/scheduleTime";
+import { addDay, dawnStartOffset, dayDiff, rollEndDate, shiftIsoFields, startOffsetDaysOf } from "@/lib/scheduleTime";
 import { useRouter } from "next/navigation";
 import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import { useSchedules, useScheduleRoster, useConfirmSchedule, useRejectSchedule, useDeleteScheduleFlow, useSubmitSchedule, useRevertSchedule, useCancelSchedule, useCreateSchedule, useUpdateSchedule, useSwitchSchedule, type RosterColumnData } from "@/hooks/useSchedules";
@@ -25,7 +25,7 @@ import { useAuthStore } from "@/stores/authStore";
 import type { Schedule, Store, User } from "@/types";
 import { ScheduleBlock } from "./ScheduleBlock";
 import { StatsHeader } from "./StatsHeader";
-import { hourOccupancy, slotOverlap } from "./scheduleStats";
+import { absShiftHours, hourOccupancy, slotOverlap } from "./scheduleStats";
 import { ContextMenu } from "./ContextMenu";
 import { HistoryPanel } from "./HistoryPanel";
 import { SwapModal } from "./SwapModal";
@@ -114,14 +114,14 @@ function fmtH(h: number): string {
 }
 
 function formatHourLabel(h: number): string {
-  const hNorm = h % 24; // overnight hours (24, 25, ...) → (0, 1, ...)
-  const isNextDay = h >= 24;
+  const dayOff = Math.floor(h / 24); // overnight hours (24, 25, ...) → +1, (48, ...) → +2
+  const hNorm = h % 24;
   const base =
     hNorm === 0 ? "0A" :
     hNorm < 12 ? `${hNorm}A` :
     hNorm === 12 ? "12P" :
     `${hNorm - 12}P`;
-  return isNextDay ? `${base}+1` : base;
+  return dayOff > 0 ? `${base}+${dayOff}` : base;
 }
 
 function rolePriorityToBadge(p: number): string {
@@ -379,7 +379,7 @@ export default function SchedulesCalendarView() {
   );
   const [changeStaffOpen, setChangeStaffOpen] = useState(false);
   const [changeStaffSourceId, setChangeStaffSourceId] = useState<string | null>(null);
-  const [editModal, setEditModal] = useState<{ open: boolean; mode: "add" | "edit"; blockId?: string; staffId?: string; date?: string; startTime?: string }>({ open: false, mode: "add" });
+  const [editModal, setEditModal] = useState<{ open: boolean; mode: "add" | "edit"; blockId?: string; staffId?: string; date?: string; startTime?: string; startOffsetDays?: number }>({ open: false, mode: "add" });
   const [editModalError, setEditModalError] = useState<string | null>(null);
   const modal = useModal();
   const filters: FilterState = useMemo(
@@ -731,6 +731,29 @@ export default function SchedulesCalendarView() {
     return null;
   }, []);
 
+  const filteredUsers = useMemo(() => {
+    let result = users;
+    // 스토어 필터링은 useUsers(store_id)에서 서버사이드로 처리됨
+    if (filters.staffIds.length > 0) {
+      result = result.filter((u) => filters.staffIds.includes(u.id));
+    }
+    if (filters.roles.length > 0) {
+      result = result.filter((u) => filters.roles.includes(rolePriorityToBadge(u.role_priority).toLowerCase()));
+    }
+    if (filters.departments.length > 0) {
+      // department 는 user 속성 — 미지정(null)은 "unassigned" 로 매칭
+      result = result.filter((u) => filters.departments.includes(u.department ?? "unassigned"));
+    }
+    if (filters.statuses.length > 0) {
+      result = result.filter((u) => {
+        const userScheds = schedules.filter((s) => s.user_id === u.id);
+        return userScheds.some((s) => filters.statuses.includes(s.status));
+      });
+    }
+    return result;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [users, filters, schedules]);
+
   const { openHour, closeHour, configuredOpenHour, configuredCloseHour } = useMemo(() => {
     const DEFAULT_OH = 6;
     const DEFAULT_CH = 23;
@@ -755,18 +778,21 @@ export default function SchedulesCalendarView() {
     const configuredOh = found ? Math.floor(globalOh) : DEFAULT_OH;
     const configuredCh = found ? Math.ceil(globalCh) : DEFAULT_CH;
 
-    // A-7: Daily view는 실제 스케줄 범위로 동적 확장 (클리핑 방지)
+    // A-7: Daily view는 실제 스케줄 범위로 동적 확장 (클리핑 방지).
+    // 물리 위치는 영업일 축 기준 — +1d 새벽 근무(start_at 날짜=영업일+1)는 당일 아침이
+    // 아니라 25시(1A+1) 쪽에 위치하므로 startOffsetDaysOf 로 보정해서 판정한다.
+    // (보정 없으면 range 4A–2A+1 "안"에 있는 새벽조가 hour 1로 오판돼 축이 0A로 확장되던 버그)
+    // 모집단 = 렌더러와 동일: "보이는 행(filteredUsers)의 해당일 전 스케줄" (매장 무관 —
+    // 렌더러는 다른 매장 블록도 dim 으로 그리므로 축에서 빼면 블록이 그리드 밖으로 사라진다).
     let effectiveOh = configuredOh;
     let effectiveCh = configuredCh;
     if (view === "daily" && selectedDay) {
-      const dayScheds = schedules.filter((s) => s.work_date === selectedDay && matchesStoreFilter(s.store_id));
+      const visibleIds = new Set(filteredUsers.map((u) => u.id));
+      const dayScheds = schedules.filter((s) => s.work_date === selectedDay && visibleIds.has(s.user_id));
       for (const s of dayScheds) {
-        const sH = Math.floor(parseTimeToHours(s.start_time));
-        const eH = Math.ceil(parseTimeToHours(s.end_time));
-        // overnight: end <= start → effective end = end + 24
-        const eff = eH <= sH ? eH + 24 : eH;
-        effectiveOh = Math.min(effectiveOh, sH);
-        effectiveCh = Math.max(effectiveCh, eff);
+        const { startH, endH } = absShiftHours(s.start_time, s.end_time, startOffsetDaysOf(s));
+        effectiveOh = Math.min(effectiveOh, Math.floor(startH));
+        effectiveCh = Math.max(effectiveCh, Math.ceil(endH));
       }
     }
 
@@ -777,7 +803,7 @@ export default function SchedulesCalendarView() {
       configuredCloseHour: configuredCh,
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rangeQueries, orgRangeQ.data, view, selectedDay, extractRange, schedules, selectedStores, isAllStores]);
+  }, [rangeQueries, orgRangeQ.data, view, selectedDay, extractRange, schedules, filteredUsers]);
 
   // axis가 configured range 밖으로 확장됐는지 여부 (Daily view에서 경고 표시용)
   const axisExpandedOutsideRange = view === "daily" && (openHour < configuredOpenHour || closeHour > configuredCloseHour);
@@ -785,15 +811,14 @@ export default function SchedulesCalendarView() {
   // Daily view 현재 시간 indicator 위치 (% in 0..100). selectedDay가 오늘이 아니면 null.
   // openHour..closeHour 범위 밖이면 null (영업시간 밖이라 표시 안 함).
   const nowPct: number | null = useMemo(() => {
-    if (view !== "daily" || selectedDay !== todayStr) return null;
+    if (view !== "daily" || !selectedDay) return null;
     const openMin = openHour * 60;
     const closeMin = closeHour * 60;
     if (closeMin <= openMin) return null;
-    // overnight (closeHour > 24): nowMin이 openMin보다 작은데 closeHour가 24를 넘으면
-    // 다음날 새벽으로 간주해 +24h 보정. 그래도 자정 넘으면 todayStr이 다음날로 바뀌어
-    // selectedDay !== todayStr 이 되므로 indicator 자동 제거됨.
-    let n = nowMin;
-    if (n < openMin && closeMin > 24 * 60) n += 24 * 60;
+    // '지금'을 영업일 축 절대분으로 환산 — 오늘 그리드는 offset 0, 어제 영업일 그리드의
+    // 새벽(+1) 구간을 보고 있으면 +24h. 축 범위 밖이면 자동 null.
+    // (이전 +24h 휴리스틱은 매장시간 새벽에 24시간-미래 위치로 오표시하던 결함)
+    const n = dayDiff(selectedDay, todayStr) * 24 * 60 + nowMin;
     if (n < openMin || n >= closeMin) return null;
     return ((n - openMin) / (closeMin - openMin)) * 100;
   }, [view, selectedDay, todayStr, openHour, closeHour, nowMin]);
@@ -820,29 +845,6 @@ export default function SchedulesCalendarView() {
 
   // ─── Filter + sort ────────────────────────────────────
 
-  const filteredUsers = useMemo(() => {
-    let result = users;
-    // 스토어 필터링은 useUsers(store_id)에서 서버사이드로 처리됨
-    if (filters.staffIds.length > 0) {
-      result = result.filter((u) => filters.staffIds.includes(u.id));
-    }
-    if (filters.roles.length > 0) {
-      result = result.filter((u) => filters.roles.includes(rolePriorityToBadge(u.role_priority).toLowerCase()));
-    }
-    if (filters.departments.length > 0) {
-      // department 는 user 속성 — 미지정(null)은 "unassigned" 로 매칭
-      result = result.filter((u) => filters.departments.includes(u.department ?? "unassigned"));
-    }
-    if (filters.statuses.length > 0) {
-      result = result.filter((u) => {
-        const userScheds = schedules.filter((s) => s.user_id === u.id);
-        return userScheds.some((s) => filters.statuses.includes(s.status));
-      });
-    }
-    return result;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [users, filters, schedules]);
-
   const sortCol = view === "weekly" ? weeklySortCol : dailySortCol;
   const sortState = view === "weekly" ? weeklySortState : dailySortState;
   // weekly 에는 half 개념 없음. daily 에서만 30분 슬롯 정렬.
@@ -862,7 +864,7 @@ export default function SchedulesCalendarView() {
         // null 이면 시간 전체 [hour, hour+1) (구버전 dsh 없는 영속값 호환).
         const slotStart = openHour + sortCol + (sortHalf === 1 ? 0.5 : 0);
         const slotLen = sortHalf === null ? 1 : 0.5;
-        const matchSlot = (s: Schedule) => slotOverlap(s.start_time, s.end_time, slotStart, slotLen) > 0;
+        const matchSlot = (s: Schedule) => slotOverlap(s.start_time, s.end_time, slotStart, slotLen, startOffsetDaysOf(s)) > 0;
         blocks = schedules.filter((s) => s.user_id === uid && s.work_date === selectedDay && matchesStoreFilter(s.store_id) && matchSlot(s));
       }
       return blocks.find((s) => s.status === "confirmed") ? "confirmed" : blocks.find((s) => s.status === "requested") ? "requested" : blocks.length > 0 ? "draft" : "none";
@@ -952,7 +954,7 @@ export default function SchedulesCalendarView() {
   const dailyColumns = useMemo(() => dailyHourRange.map((h) => {
     // 이 1시간 슬롯 [h, h+1) 안에서 스케줄이 차지하는 비율(0~1). 30분 grid라 0/0.5/1 로 떨어짐.
     // 30분만 걸친 사람은 0.5인으로 계산 (한 시간 전부 일하면 1인).
-    const occupancy = (s: Schedule): number => hourOccupancy(s.start_time, s.end_time, h);
+    const occupancy = (s: Schedule): number => hourOccupancy(s.start_time, s.end_time, h, startOffsetDaysOf(s));
     const daySchedules = schedules.filter(
       (s) => s.work_date === selectedDay && matchesStoreFilter(s.store_id) && occupancy(s) > 0,
     );
@@ -963,7 +965,7 @@ export default function SchedulesCalendarView() {
     const sumCost = (arr: Schedule[]) => arr.reduce((sum, s) => sum + occupancy(s) * (s.hourly_rate ?? 0), 0);
     // 30분 슬롯 인원 — [첫30분(h..h+0.5), 둘째30분(h+0.5..h+1)]. overlap>0 카운트 (서버 _occupies_slot 미러).
     const halfCount = (arr: Schedule[], slotStart: number) =>
-      arr.filter((s) => slotOverlap(s.start_time, s.end_time, slotStart, 0.5) > 0).length;
+      arr.filter((s) => slotOverlap(s.start_time, s.end_time, slotStart, 0.5, startOffsetDaysOf(s)) > 0).length;
     return {
       key: `h${h}`,
       hour: h,
@@ -1076,7 +1078,11 @@ export default function SchedulesCalendarView() {
   const effectiveColumns = useMemo(() => {
     if (!roster) return columns;
     return columns.map((c) => {
-      const rc = rosterColByKey[c.key];
+      // [전환기] +1d 새벽 물리배치로 daily 키가 h1→h25 등으로 이동. 구 서버(offset 미반영)와의
+      // 배포 스큐 창에서 헤더가 0으로 비지 않도록 h{n-24} 별칭 폴백. 서버 배포 완료 후 자연 소멸.
+      const cHour = (c as { hour?: number }).hour;
+      const rc = rosterColByKey[c.key]
+        ?? (typeof cHour === "number" && cHour >= 24 ? rosterColByKey[`h${cHour - 24}`] : undefined);
       return {
         ...c,
         teamConfirmed: rc?.team_confirmed ?? 0,
@@ -1243,8 +1249,8 @@ export default function SchedulesCalendarView() {
     }
   }
 
-  function openAddModal(staffId?: string, date?: string, startTime?: string) {
-    setEditModal({ open: true, mode: "add", staffId, date, startTime });
+  function openAddModal(staffId?: string, date?: string, startTime?: string, startOffsetDays?: number) {
+    setEditModal({ open: true, mode: "add", staffId, date, startTime, startOffsetDays });
   }
 
   function closeEditModal() {
@@ -1335,26 +1341,6 @@ export default function SchedulesCalendarView() {
         setEditModalError(msg);
       },
     });
-  }
-
-  // ─── Daily view helper ────────────────────────────────
-
-  function getDailyScheduleAtHour(userId: string, hour: number): Schedule | undefined {
-    // 같은 시간대 겹치면 현재 매장 우선, 그 다음 다른 매장 (dimmed로 표시).
-    // floor(start) <= hour: 12:30 시작도 12시 칸에서 매칭
-    // Overnight(end<=start): work_date 기준 시작일 셀만 표시 → [floor(start), 24) 범위
-    const matches = schedules.filter((s) => {
-      if (s.user_id !== userId || s.work_date !== selectedDay) return false;
-      const startH = parseTimeToHours(s.start_time);
-      const endH = parseTimeToHours(s.end_time);
-      const floorStart = Math.floor(startH);
-      if (endH > startH) {
-        return floorStart <= hour && Math.ceil(endH) > hour;
-      }
-      // overnight: 시작 시간 이후 ~ 자정 전까지만 현재 날짜 타임라인에 표시
-      return floorStart <= hour;
-    });
-    return matches.find((s) => matchesStoreFilter(s.store_id)) ?? matches[0];
   }
 
   // ─── Stats helpers per user ───────────────────────────
@@ -1518,6 +1504,7 @@ export default function SchedulesCalendarView() {
             prefilledUserId={editModal.staffId}
             prefilledDate={editModal.date}
             prefilledStartTime={editModal.startTime}
+            prefilledStartOffsetDays={editModal.startOffsetDays}
             users={users}
             storeId={selectedStore}
             stores={stores}
@@ -1906,7 +1893,9 @@ export default function SchedulesCalendarView() {
                           const totalMin = (closeHour - openHour) * 60;
                           const userScheds = schedules
                             .filter((s) => s.user_id === u.id && s.work_date === selectedDay)
-                            .sort((a, b) => parseTimeToHours(a.start_time) - parseTimeToHours(b.start_time));
+                            .sort((a, b) =>
+                              absShiftHours(a.start_time, a.end_time, startOffsetDaysOf(a)).startH -
+                              absShiftHours(b.start_time, b.end_time, startOffsetDaysOf(b)).startH);
                           // 구간 분할: gap → sched → gap → sched → gap
                           type Seg = { type: "gap"; startMin: number; endMin: number } | { type: "sched"; sched: Schedule; startMin: number; endMin: number };
                           const segments: Seg[] = [];
@@ -1915,11 +1904,10 @@ export default function SchedulesCalendarView() {
                           for (const s of userScheds) {
                             if (seen.has(s.id)) continue;
                             seen.add(s.id);
-                            const startH = parseTimeToHours(s.start_time);
-                            const endH = parseTimeToHours(s.end_time);
+                            // 영업일 축 절대시각 — +1d 새벽 근무는 25시(1A+1)부터 (당일 아침 아님).
+                            // overnight(end<=start) 은 absShiftHours 가 end+24 처리.
+                            const { startH, endH: endAbsH } = absShiftHours(s.start_time, s.end_time, startOffsetDaysOf(s));
                             const sStart = Math.max(0, startH * 60 - openHour * 60);
-                            // Overnight(end<=start): 종료를 다음날 00:00 기준 절대시간(24+endH)으로 환산
-                            const endAbsH = endH > startH ? endH : 24 + endH;
                             const sEnd = Math.min(totalMin, endAbsH * 60 - openHour * 60);
                             if (sEnd <= sStart) continue;
                             if (sStart > cursor) segments.push({ type: "gap", startMin: cursor, endMin: sStart });
@@ -1944,7 +1932,7 @@ export default function SchedulesCalendarView() {
                                           <div
                                             key={clickH}
                                             className="group/cell flex-1 cursor-pointer hover:bg-[var(--color-surface-hover)] relative"
-                                            onClick={() => openAddModal(u.id, selectedDay, `${String(clickH).padStart(2, "0")}:00`)}
+                                            onClick={() => openAddModal(u.id, selectedDay, `${String(clickH % 24).padStart(2, "0")}:00`, Math.floor(clickH / 24))}
                                             role="button"
                                           >
                                             <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/cell:opacity-100 transition-opacity text-[var(--color-accent)]">
