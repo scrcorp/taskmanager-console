@@ -11,6 +11,7 @@ import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useQueries } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { parseApiError, todayInTimezone } from "@/lib/utils";
+import { addDay, dawnStartOffset, rollEndDate, shiftIsoFields } from "@/lib/scheduleTime";
 import { useRouter } from "next/navigation";
 import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import { useSchedules, useScheduleRoster, useConfirmSchedule, useRejectSchedule, useDeleteScheduleFlow, useSubmitSchedule, useRevertSchedule, useCancelSchedule, useCreateSchedule, useUpdateSchedule, useSwitchSchedule, type RosterColumnData } from "@/hooks/useSchedules";
@@ -422,33 +423,64 @@ export default function SchedulesCalendarView() {
       // 1. Creates — per-entry status (user picks in Apply/Review modal).
       //    Non-GM+ requests for "confirmed" will be downgraded server-side per Decision #10.
       if (payload.creates.length > 0) {
-        const creates = payload.creates.map((e) => ({
-          user_id: e.userId,
-          store_id: e.storeId,
-          work_role_id: e.workRoleId,
-          work_date: e.workDate,
-          start_time: e.startTime,
-          end_time: e.endTime,
-          break_start_time: e.breakStartTime,
-          break_end_time: e.breakEndTime,
-          status: e.status,
-        }));
+        const creates = payload.creates.map((e) => {
+          // 벌크 그리드: 영업일=work_date. 복사된 새벽근무(+1d)의 시작 오프셋 보존,
+          // end는 end≤start면 익일 자동.
+          // 복사 엔트리는 원본 오프셋, 신규 입력은 경계 규칙으로 추론(벌크는 날짜 UI 없음)
+          const startDate = addDay(e.workDate, e.startOffsetDays ?? dawnStartOffset(e.startTime));
+          const endDate = rollEndDate(startDate, e.startTime, e.endTime);
+          const iso = shiftIsoFields(
+            e.workDate, startDate, e.startTime, endDate, e.endTime,
+            e.breakStartTime ?? null, e.breakEndTime ?? null,
+          );
+          return {
+            user_id: e.userId,
+            store_id: e.storeId,
+            work_role_id: e.workRoleId,
+            work_date: e.workDate,
+            start_time: e.startTime,
+            end_time: e.endTime,
+            break_start_time: e.breakStartTime,
+            break_end_time: e.breakEndTime,
+            operating_day: iso.operating_day,
+            start_at: iso.start_at,
+            end_at: iso.end_at,
+            break_start_at: iso.break_start_at,
+            break_end_at: iso.break_end_at,
+            status: e.status,
+          };
+        });
         await bulkCreateMutation.mutateAsync({ entries: creates, skip_on_conflict: true });
         created = payload.creates.length;
       }
       // 2. Updates — also forwards status if the modification carries one.
       phase = "updates";
       if (payload.updates.length > 0) {
-        const updates = payload.updates.map((u) => ({
-          id: u.id,
-          work_role_id: u.data.workRoleId,
-          start_time: u.data.startTime,
-          end_time: u.data.endTime,
-          break_start_time: u.data.breakStartTime,
-          break_end_time: u.data.breakEndTime,
-          reset_checklist: u.data.resetChecklist,
-          status: u.data.status,
-        }));
+        const updates = payload.updates.map((u) => {
+          // 시간 수정 시 신 인코딩 동봉 — 주간↔새벽 전환이 표현되도록(경계 규칙).
+          // HH:MM만 보내면 서버가 기존 오프셋을 보존해 전환이 불가능했다.
+          let iso: Partial<Record<"operating_day" | "start_at" | "end_at" | "break_start_at" | "break_end_at", string | null>> = {};
+          if (u.operatingDay && u.data.startTime && u.data.endTime) {
+            const off = dawnStartOffset(u.data.startTime);
+            const sd = addDay(u.operatingDay, off);
+            const ed = rollEndDate(sd, u.data.startTime, u.data.endTime);
+            iso = shiftIsoFields(
+              u.operatingDay, sd, u.data.startTime, ed, u.data.endTime,
+              u.data.breakStartTime ?? null, u.data.breakEndTime ?? null,
+            );
+          }
+          return {
+            id: u.id,
+            work_role_id: u.data.workRoleId,
+            start_time: u.data.startTime,
+            end_time: u.data.endTime,
+            break_start_time: u.data.breakStartTime,
+            break_end_time: u.data.breakEndTime,
+            ...iso,
+            reset_checklist: u.data.resetChecklist,
+            status: u.data.status,
+          };
+        });
         await bulkUpdateMutation.mutateAsync({ updates });
         updated = payload.updates.length;
       }
@@ -1241,6 +1273,12 @@ export default function SchedulesCalendarView() {
         end_time: payload.endTime,
         break_start_time: payload.breakStartTime,
         break_end_time: payload.breakEndTime,
+        // 전환기: 신 datetime 인코딩 동시 전송(서버가 우선 사용)
+        operating_day: payload.operatingDay,
+        start_at: payload.startAt,
+        end_at: payload.endAt,
+        break_start_at: payload.breakStartAt,
+        break_end_at: payload.breakEndAt,
         // GM+: 바로 confirmed, SV: requested
         status: isGMView ? "confirmed" : "requested",
         note: payload.notes || null,
@@ -1269,6 +1307,11 @@ export default function SchedulesCalendarView() {
         end_time: payload.endTime,
         break_start_time: payload.breakStartTime,
         break_end_time: payload.breakEndTime,
+        operating_day: payload.operatingDay,
+        start_at: payload.startAt,
+        end_at: payload.endAt,
+        break_start_at: payload.breakStartAt,
+        break_end_at: payload.breakEndAt,
         note: payload.notes || null,
         hourly_rate: (userChanged && rateUntouched) ? null : payload.hourlyRate,
         force: payload.force,
