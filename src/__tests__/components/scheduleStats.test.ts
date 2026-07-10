@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { hourOccupancy, slotOverlap, fmtTeam, isOn30Grid } from "@/components/schedules/redesign/scheduleStats";
+import { absShiftHours, hourOccupancy, slotOverlap, fmtTeam, isOn30Grid } from "@/components/schedules/redesign/scheduleStats";
 
 describe("hourOccupancy — 일간 0.5인 환산", () => {
   it("한 시간 전부 일하면 1.0", () => {
@@ -90,5 +90,47 @@ describe("isOn30Grid — 30분 검증", () => {
   it("null/빈값 통과", () => {
     expect(isOn30Grid(null)).toBe(true);
     expect(isOn30Grid("")).toBe(true);
+  });
+});
+
+describe("absShiftHours — 영업일 축 절대시각 (+1d 오프셋)", () => {
+  it("offset 0 기본: 01:00~09:00 → 1..9 (당일 아침)", () => {
+    expect(absShiftHours("01:00", "09:00", 0)).toEqual({ startH: 1, endH: 9 });
+    expect(absShiftHours("01:00", "09:00")).toEqual({ startH: 1, endH: 9 }); // 기본 인자
+  });
+  it("offset 1: +1d 새벽 01:00~09:00 → 25..33 (1A+1 위치)", () => {
+    expect(absShiftHours("01:00", "09:00", 1)).toEqual({ startH: 25, endH: 33 });
+  });
+  it("offset 0 overnight: 22:00~02:00 → 22..26", () => {
+    expect(absShiftHours("22:00", "02:00", 0)).toEqual({ startH: 22, endH: 26 });
+  });
+  it("offset 1 + overnight: 23:00~02:00 → 47..50", () => {
+    expect(absShiftHours("23:00", "02:00", 1)).toEqual({ startH: 47, endH: 50 });
+  });
+});
+
+describe("hourOccupancy — +1d 오프셋 물리 배치", () => {
+  it("+1d 01:00~09:00 은 h25 를 채우고 h1(당일 아침)은 비운다", () => {
+    expect(hourOccupancy("01:00", "09:00", 25, 1)).toBe(1);
+    expect(hourOccupancy("01:00", "09:00", 1, 1)).toBe(0);
+    expect(hourOccupancy("01:00", "09:00", 32, 1)).toBe(1);
+    expect(hourOccupancy("01:00", "09:00", 33, 1)).toBe(0);
+  });
+  it("+1d 30분 경계: 00:30~02:00 → h24 = 0.5", () => {
+    expect(hourOccupancy("00:30", "02:00", 24, 1)).toBe(0.5);
+  });
+  it("offset 생략 시 기존 동작 회귀 없음", () => {
+    expect(hourOccupancy("22:00", "02:00", 25)).toBe(1);
+  });
+});
+
+describe("slotOverlap — +1d 오프셋 30분 슬롯", () => {
+  it("+1d 01:00~02:00: slot 25.0 점유, 24.5/1.0 은 비점유", () => {
+    expect(slotOverlap("01:00", "02:00", 25.0, 0.5, 1)).toBe(0.5);
+    expect(slotOverlap("01:00", "02:00", 24.5, 0.5, 1)).toBe(0);
+    expect(slotOverlap("01:00", "02:00", 1.0, 0.5, 1)).toBe(0);
+  });
+  it("offset 생략(4-인자) 기존 호출 하위호환", () => {
+    expect(slotOverlap("22:00", "02:00", 25.5, 0.5)).toBe(0.5);
   });
 });
