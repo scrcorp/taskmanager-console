@@ -12,6 +12,7 @@ import { useState, useMemo, useEffect, useRef } from "react";
 import type { Schedule, Store, User, WorkRole } from "@/types";
 import { ScheduleBlock } from "./ScheduleBlock";
 import { ApplyToSelectedModal, type PreviewEntry } from "./ApplyToSelectedModal";
+import { startOffsetDaysOf } from "@/lib/scheduleTime";
 import { BlockEditModal } from "./BlockEditModal";
 import { WeekPickerCalendar, getWeekStart } from "./WeekPickerCalendar";
 import { FilterBar, type FilterState } from "./FilterBar";
@@ -91,7 +92,8 @@ interface ScheduleModification {
 
 interface SavePayload {
   creates: PreviewEntry[];
-  updates: { id: string; data: ScheduleModification }[];
+  /** operatingDay: 원본의 영업일 라벨 — 시간 수정 시 신 인코딩(start_at) 조립 앵커 */
+  updates: { id: string; data: ScheduleModification; operatingDay?: string }[];
   deletes: string[];
 }
 
@@ -156,7 +158,7 @@ export default function BulkScheduleView({
   type ClipboardType = "row" | "column" | "block";
   type ClipboardData = {
     type: ClipboardType;
-    entries: { workRoleId: string | null; workRoleName: string | null; startTime: string; endTime: string; breakStartTime: string | null; breakEndTime: string | null; dayIndex?: number; sourceUserId?: string }[];
+    entries: { workRoleId: string | null; workRoleName: string | null; startTime: string; endTime: string; breakStartTime: string | null; breakEndTime: string | null; startOffsetDays?: number; dayIndex?: number; sourceUserId?: string }[];
     sourceUserId?: string;
     sourceDate?: string;
   };
@@ -351,10 +353,10 @@ export default function BulkScheduleView({
     const result: ClipboardData["entries"] = [];
     for (const s of getSchedulesForCell(userId, date).filter((x) => !isDeleted(x.id))) {
       const eff = getEffectiveSchedule(s);
-      result.push({ workRoleId: eff.work_role_id, workRoleName: eff.work_role_name, startTime: eff.start_time ?? "", endTime: eff.end_time ?? "", breakStartTime: eff.break_start_time, breakEndTime: eff.break_end_time, dayIndex, sourceUserId: userId });
+      result.push({ workRoleId: eff.work_role_id, workRoleName: eff.work_role_name, startTime: eff.start_time ?? "", endTime: eff.end_time ?? "", breakStartTime: eff.break_start_time, breakEndTime: eff.break_end_time, startOffsetDays: startOffsetDaysOf(s), dayIndex, sourceUserId: userId });
     }
     for (const p of getPreviewsForCell(userId, date)) {
-      result.push({ workRoleId: p.workRoleId, workRoleName: p.workRoleName, startTime: p.startTime, endTime: p.endTime, breakStartTime: p.breakStartTime, breakEndTime: p.breakEndTime, dayIndex, sourceUserId: userId });
+      result.push({ workRoleId: p.workRoleId, workRoleName: p.workRoleName, startTime: p.startTime, endTime: p.endTime, breakStartTime: p.breakStartTime, breakEndTime: p.breakEndTime, startOffsetDays: p.startOffsetDays, dayIndex, sourceUserId: userId });
     }
     return result;
   }
@@ -398,6 +400,7 @@ export default function BulkScheduleView({
           userId, storeId, workRoleId: e.workRoleId, workRoleName: e.workRoleName,
           workDate: targetDate, startTime: e.startTime, endTime: e.endTime,
           breakStartTime: e.breakStartTime, breakEndTime: e.breakEndTime,
+          startOffsetDays: e.startOffsetDays,
           status: "confirmed",
         });
       }
@@ -413,6 +416,7 @@ export default function BulkScheduleView({
           userId, storeId, workRoleId: e.workRoleId, workRoleName: e.workRoleName,
           workDate: date, startTime: e.startTime, endTime: e.endTime,
           breakStartTime: e.breakStartTime, breakEndTime: e.breakEndTime,
+          startOffsetDays: e.startOffsetDays,
           status: "confirmed",
         });
       }
@@ -432,6 +436,7 @@ export default function BulkScheduleView({
       userId, storeId, workRoleId: e.workRoleId, workRoleName: e.workRoleName,
       workDate: date, startTime: e.startTime, endTime: e.endTime,
       breakStartTime: e.breakStartTime, breakEndTime: e.breakEndTime,
+      startOffsetDays: e.startOffsetDays,
       status: "confirmed",
     }));
     setPreviewEntries((prev) => [...prev, ...newEntries]);
@@ -450,6 +455,7 @@ export default function BulkScheduleView({
           userId, storeId, workRoleId: e.workRoleId, workRoleName: e.workRoleName,
           workDate: date, startTime: e.startTime, endTime: e.endTime,
           breakStartTime: e.breakStartTime, breakEndTime: e.breakEndTime,
+          startOffsetDays: e.startOffsetDays,
           status: "confirmed",
         });
       }
@@ -651,8 +657,12 @@ export default function BulkScheduleView({
     const updates = Array.from(modifiedSchedules.entries())
       .filter(([id]) => !excluded?.has(id))
       .map(([id, data]) => {
+        const orig = schedules.find((s) => s.id === id);
+        const operatingDay = orig ? (orig.operating_day ?? orig.work_date) : undefined;
         const targetStatus = statusOverrides?.get(id);
-        return targetStatus ? { id, data: { ...data, status: targetStatus } } : { id, data };
+        return targetStatus
+          ? { id, data: { ...data, status: targetStatus }, operatingDay }
+          : { id, data, operatingDay };
       });
     const deletes = Array.from(deletedScheduleIds)
       .filter((id) => !excluded?.has(id));
@@ -690,6 +700,7 @@ export default function BulkScheduleView({
         endTime: s.end_time ?? "18:00",
         breakStartTime: s.break_start_time,
         breakEndTime: s.break_end_time,
+        startOffsetDays: startOffsetDaysOf(s),
         // 복사 시 원본 status가 confirmed가 아닐 수 있지만, 사용자가 명시적으로 새로 생성하는 흐름이므로 default confirmed.
         // Review 모달에서 entry/cluster/group 단위로 변경 가능.
         status: "confirmed",
@@ -1036,6 +1047,7 @@ export default function BulkScheduleView({
                                         userId: uid, storeId, workRoleId: entry.workRoleId, workRoleName: entry.workRoleName,
                                         workDate: day.date, startTime: entry.startTime, endTime: entry.endTime,
                                         breakStartTime: entry.breakStartTime, breakEndTime: entry.breakEndTime,
+                                        startOffsetDays: entry.startOffsetDays,
                                         status: "confirmed",
                                       });
                                     }
@@ -1055,6 +1067,7 @@ export default function BulkScheduleView({
                                         userId: u.id, storeId, workRoleId: entry.workRoleId, workRoleName: entry.workRoleName,
                                         workDate: day.date, startTime: entry.startTime, endTime: entry.endTime,
                                         breakStartTime: entry.breakStartTime, breakEndTime: entry.breakEndTime,
+                                        startOffsetDays: entry.startOffsetDays,
                                         status: "confirmed",
                                       });
                                     }

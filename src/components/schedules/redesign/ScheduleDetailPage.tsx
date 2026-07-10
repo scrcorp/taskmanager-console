@@ -155,11 +155,15 @@ const attendanceMeta: Record<string, { label: string; bg: string; text: string; 
 export function ScheduleDetailPage({ schedule, user, attendance, auditEvents, relatedSchedules, users, showCost, currentEffectiveRate, onSyncRate, isSyncingRate, onBack, onEdit, onSwitch, onConfirm, onRevert, onDelete, onDeleteHistoryEntry }: Props) {
   const startH = parseTimeToHours(schedule.start_time);
   const endH = parseTimeToHours(schedule.end_time);
-  const grossHours = Math.max(0, endH - startH);
+  // 자정 넘김(end ≤ start) 근무가 'Total 0 hours/$0'로 표시되던 버그 —
+  // net_work_minutes(서버 계산, 자정보정 내장) 우선, 없으면 overnight wrap으로 계산.
+  const grossHours = endH > startH ? endH - startH : (endH < startH ? 24 - startH + endH : 0);
   const breakHours = (schedule.break_start_time && schedule.break_end_time)
     ? Math.max(0, parseTimeToHours(schedule.break_end_time) - parseTimeToHours(schedule.break_start_time))
     : 0;
-  const hours = Math.max(0, grossHours - breakHours);
+  const hours = schedule.net_work_minutes > 0
+    ? Math.round((schedule.net_work_minutes / 60) * 100) / 100
+    : Math.max(0, grossHours - breakHours);
   // stored rate만 사용 — NULL이면 No cost (preview/fallback 안 함).
   // 사용자가 명시적으로 sync 버튼 눌러서 cascade rate를 박아넣어야 함.
   const storedRate = schedule.hourly_rate || 0;

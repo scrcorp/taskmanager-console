@@ -20,6 +20,12 @@ const FIELD_LABELS: Record<string, string> = {
   end_time: "End",
   break_start_time: "Break Start",
   break_end_time: "Break End",
+  // 신 datetime 인코딩 필드 (전환기) — raw key 노출 방지
+  operating_day: "Operating Day",
+  start_at: "Start (date+time)",
+  end_at: "End (date+time)",
+  break_start_at: "Break Start (date+time)",
+  break_end_at: "Break End (date+time)",
   note: "Note",
   status: "Status",
   store_id: "Store",
@@ -45,6 +51,15 @@ function resolveValue(field: string, value: unknown, nameHint: string | undefine
     if (u) return u.full_name || u.username || str;
   }
   if (field === "hourly_rate" && !isNaN(Number(str))) return `$${str}`;
+  // datetime 인코딩("YYYY-MM-DDTHH:MM" 또는 "YYYY-MM-DD HH:MM:SS") → "Jul 9, 1:00 AM"
+  if (field.endsWith("_at") && (str.includes("T") || str.includes(" "))) {
+    const [d, t] = str.replace(" ", "T").split("T");
+    if (d && t) {
+      const [, mo, dd] = d.split("-").map(Number);
+      const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+      return `${MONTHS[(mo ?? 1) - 1]} ${dd}, ${fmtTime(t.slice(0, 5))}`;
+    }
+  }
   return str;
 }
 

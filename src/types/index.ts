@@ -1087,6 +1087,13 @@ export interface Schedule {
   end_time: string | null;
   break_start_time: string | null;
   break_end_time: string | null;
+  /** 영업일 라벨(전환기: work_date와 동기화). 물리 시각은 start_at/end_at. */
+  operating_day?: string | null;
+  /** 벽시계 datetime "YYYY-MM-DDTHH:MM" (store tz 해석). start_time보다 정확(자정 넘김). */
+  start_at?: string | null;
+  end_at?: string | null;
+  break_start_at?: string | null;
+  break_end_at?: string | null;
   net_work_minutes: number;
   /** 저장된 스냅샷 시급 (0이면 override 없음) */
   hourly_rate: number;
@@ -1118,11 +1125,18 @@ export interface ScheduleCreate {
   user_id: string;
   store_id: string;
   work_role_id?: string | null;
-  work_date: string;
-  start_time: string;
-  end_time: string;
+  /** 전환기: 구(work_date+HH:MM) 또는 신(operating_day+ISO datetime) 중 하나. 신 우선. */
+  work_date?: string | null;
+  start_time?: string | null;
+  end_time?: string | null;
   break_start_time?: string | null;
   break_end_time?: string | null;
+  operating_day?: string | null;
+  /** 벽시계 ISO "YYYY-MM-DDTHH:MM" */
+  start_at?: string | null;
+  end_at?: string | null;
+  break_start_at?: string | null;
+  break_end_at?: string | null;
   /** Override the auto-calculated hourly rate. Omit to use org/store/user cascade. */
   hourly_rate?: number | null;
   note?: string | null;
@@ -1158,6 +1172,11 @@ export interface ScheduleUpdate {
   end_time?: string | null;
   break_start_time?: string | null;
   break_end_time?: string | null;
+  operating_day?: string | null;
+  start_at?: string | null;
+  end_at?: string | null;
+  break_start_at?: string | null;
+  break_end_at?: string | null;
   /** Override the auto-calculated hourly rate. Omit to use org/store/user cascade. */
   hourly_rate?: number | null;
   note?: string | null;
@@ -1215,6 +1234,11 @@ export interface BulkUpdateItem {
   end_time?: string | null;
   break_start_time?: string | null;
   break_end_time?: string | null;
+  operating_day?: string | null;
+  start_at?: string | null;
+  end_at?: string | null;
+  break_start_at?: string | null;
+  break_end_at?: string | null;
   note?: string | null;
   hourly_rate?: number | null;
   reset_checklist?: boolean | null;
