@@ -159,12 +159,18 @@ export function ScheduleBlock({ schedule, showCost, attendance, currentStoreId, 
   // overnight: 종료 시각이 시작 시각보다 작으면 다음날 걸침.
   const isOvernight = endH <= startH && endH > 0;
   const nextDayTag = isOvernight ? <sup className="text-[8px] font-bold text-[var(--color-accent)] ml-0.5" title="Ends next day">+1</sup> : null;
+  // 새벽 근무: start_at 날짜가 영업일보다 뒤 — 당일 새벽 시작과 구분되게 표기.
+  const opDay = schedule.operating_day ?? schedule.work_date;
+  const startsNextDay = !!(schedule.start_at && opDay && schedule.start_at.slice(0, 10) > opDay);
+  const startNextDayTag = startsNextDay
+    ? <sup className="text-[8px] font-bold text-[var(--color-warning)] mr-0.5" title="Starts the day after the operating day">+1d</sup>
+    : null;
   const timeRange = hasBreak
     ? <>
-        {formatTime(schedule.start_time)}–{formatTime(schedule.break_start_time)} · {formatTime(schedule.break_end_time)}–{formatTime(schedule.end_time)}{nextDayTag}
+        {startNextDayTag}{formatTime(schedule.start_time)}–{formatTime(schedule.break_start_time)} · {formatTime(schedule.break_end_time)}–{formatTime(schedule.end_time)}{nextDayTag}
       </>
     : <>
-        {formatTime(schedule.start_time)}–{formatTime(schedule.end_time)}{nextDayTag}
+        {startNextDayTag}{formatTime(schedule.start_time)}–{formatTime(schedule.end_time)}{nextDayTag}
       </>;
 
   // "__all__" = All 모드 → dimming 없이 모든 스토어 표시

@@ -9,6 +9,7 @@
  * Reset 버튼: 행별 커스텀을 기본값으로 되돌림.
  */
 
+import { dawnStartOffset } from "@/lib/scheduleTime";
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { User, WorkRole, Store } from "@/types";
 
@@ -25,6 +26,8 @@ export interface PreviewEntry {
   endTime: string;
   breakStartTime: string | null;
   breakEndTime: string | null;
+  /** 새벽근무(+1d) 시작 달력일 오프셋 (영업일 대비, 0|1). 복사·붙여넣기 시 보존. */
+  startOffsetDays?: number;
   /** Status to apply when saved. Default 'confirmed'. */
   status: PreviewStatus;
 }
@@ -273,6 +276,8 @@ export function ApplyToSelectedModal({
           endTime: row.endTime || globalEnd || "18:00",
           breakStartTime: row.breakStartTime || null,
           breakEndTime: row.breakEndTime || null,
+          // 벌크 그리드는 날짜 UI가 없음 — 경계 이전 새벽 시각은 영업일+1일로 추론
+          startOffsetDays: dawnStartOffset(row.startTime || globalStart || "09:00"),
           status: globalStatus,
         };
       })

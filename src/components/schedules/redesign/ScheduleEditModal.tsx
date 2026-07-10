@@ -12,6 +12,7 @@ import { useValidateSchedule, useDeleteScheduleFlow } from "@/hooks/useSchedules
 import { useModal } from "@/components/ui/imperative-modal";
 import { useAuthStore } from "@/stores/authStore";
 import { todayInTimezone } from "@/lib/utils";
+import { addDay, dayDiff, shiftIsoFields } from "@/lib/scheduleTime";
 import type { Schedule, User, WorkRole, Store } from "@/types";
 import { ROLE_PRIORITY } from "@/lib/permissions";
 import { isOn30Grid } from "./scheduleStats";
@@ -31,6 +32,13 @@ export interface ScheduleEditPayload {
   hourlyRate: number | null;
   /** 서버 경고(overtime 등)를 사용자가 확인한 경우 true. 서버는 warning 을 무시하고 저장. */
   force?: boolean;
+  /** 영업일 라벨(= date). 벽시계 datetime 인코딩. */
+  operatingDay: string;
+  /** "YYYY-MM-DDTHH:MM" — end는 end≤start면 익일 자동. */
+  startAt: string;
+  endAt: string;
+  breakStartAt: string | null;
+  breakEndAt: string | null;
 }
 
 // Status 전환은 dedicated actions (submit / confirm / reject / revert / cancel)로만.
@@ -164,6 +172,14 @@ function isOvernight(startHHMM: string, endHHMM: string): boolean {
   return timeToMinutes(endHHMM) <= timeToMinutes(startHHMM);
 }
 
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** "YYYY-MM-DD" → "Jul 9" (라이브 피드백 줄 표기, 로컬 tz 파싱 없이 문자열 성분만) */
+function fmtFeedbackDate(d: string): string {
+  const [, m, dd] = d.split("-").map(Number);
+  return `${MONTHS[(m ?? 1) - 1]} ${dd}`;
+}
+
+
 /**
  * Start/End 사이에서 설정된 break 길이로 break 구간 산출.
  * 중간점에 고정 길이 break 배치. overnight 대응.
@@ -194,7 +210,9 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
   const initialStore = stores?.find((s) => s.id === storeId);
   const initialTz = initialStore?.timezone ?? orgTimezone;
   const [userId, setUserId] = useState(prefilledUserId || users[0]?.id || "");
-  const [date, setDate] = useState(prefilledDate || todayInTimezone(initialTz));
+  const [date, setDate] = useState(prefilledDate || todayInTimezone(initialTz));  // 영업일(operating_day)
+  const [startDate, setStartDate] = useState(prefilledDate || todayInTimezone(initialTz));  // 실제 시작 달력일
+  const [endDate, setEndDate] = useState(prefilledDate || todayInTimezone(initialTz));      // 실제 종료 달력일
   const [startTime, setStartTime] = useState("09:00");
   const [endTime, setEndTime] = useState("17:00");
   const [splitEnabled, setSplitEnabled] = useState(false);
@@ -208,6 +226,7 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
   // Edit 모드 원본 값 스냅샷 — 변경 여부 비교용
   const originalRef = useRef<{
     userId: string; storeId: string; date: string;
+    startDate: string; endDate: string;
     startTime: string; endTime: string;
     breakStart: string; breakEnd: string; splitEnabled: boolean;
     workRoleId: string; notes: string; hourlyRate: string;
@@ -252,6 +271,7 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
   const timeDirtyRef = useRef(false);
   const endTimeDirtyRef = useRef(false); // end만 별도로 편집했는지
   const breakDirtyRef = useRef(false);
+  const endDateDirtyRef = useRef(false); // end 날짜를 수동 편집했는지 (auto-roll 억제)
 
   const workRolesQ = useWorkRoles(effectiveStoreId || undefined);
   const workRoles = workRolesQ.data ?? [];
@@ -270,13 +290,20 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
     timeDirtyRef.current = false;
     endTimeDirtyRef.current = false;
     breakDirtyRef.current = false;
+    endDateDirtyRef.current = false;
     if (mode === "edit" && schedule) {
       // edit 모드: shift의 store/work_role을 정확히 반영 (그리드 필터값 무시)
       const initStore = schedule.store_id;
       const initUser = schedule.user_id;
-      const initDate = schedule.work_date;
-      const initStart = schedule.start_time?.slice(0, 5) ?? "09:00";
-      const initEnd = schedule.end_time?.slice(0, 5) ?? "17:00";
+      // 영업일 라벨 + 실제 시작/종료 달력일. start_at/end_at 우선, 없으면 work_date 폴백.
+      const initDate = schedule.operating_day ?? schedule.work_date;
+      const initStartDate = schedule.start_at?.slice(0, 10) ?? schedule.work_date;
+      const initStartFromAt = schedule.start_at?.slice(11, 16);
+      const initEndFromAt = schedule.end_at?.slice(11, 16);
+      const initStart = initStartFromAt ?? schedule.start_time?.slice(0, 5) ?? "09:00";
+      const initEnd = initEndFromAt ?? schedule.end_time?.slice(0, 5) ?? "17:00";
+      const initEndDate = schedule.end_at?.slice(0, 10)
+        ?? (isOvernight(initStart, initEnd) ? addDay(initStartDate, 1) : initStartDate);
       const hasBreak = !!(schedule.break_start_time && schedule.break_end_time);
       const initBreakStart = schedule.break_start_time?.slice(0, 5) ?? "";
       const initBreakEnd = schedule.break_end_time?.slice(0, 5) ?? "";
@@ -286,6 +313,8 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
       setModalStoreId(initStore);
       setUserId(initUser);
       setDate(initDate);
+      setStartDate(initStartDate);
+      setEndDate(initEndDate);
       setStartTime(initStart);
       setEndTime(initEnd);
       setSplitEnabled(hasBreak);
@@ -297,6 +326,7 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
       // 변경 감지용 스냅샷
       originalRef.current = {
         userId: initUser, storeId: initStore, date: initDate,
+        startDate: initStartDate, endDate: initEndDate,
         startTime: initStart, endTime: initEnd,
         breakStart: initBreakStart, breakEnd: initBreakEnd, splitEnabled: hasBreak,
         workRoleId: initRole, notes: initNotes, hourlyRate: initRate,
@@ -304,10 +334,14 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
     } else if (mode === "add") {
       setModalStoreId(storeId || availableStores[0]?.id || stores?.[0]?.id || "");
       setUserId(prefilledUserId || users[0]?.id || "");
-      setDate(prefilledDate || todayInTimezone(stores?.find((s) => s.id === (modalStoreId || storeId))?.timezone ?? orgTimezone));
+      const addDate = prefilledDate || todayInTimezone(stores?.find((s) => s.id === (modalStoreId || storeId))?.timezone ?? orgTimezone);
+      setDate(addDate);
+      setStartDate(addDate);
       const initStart = prefilledStartTime || "09:00";
+      const initEnd2 = minutesToTime(timeToMinutes(initStart) + defaultShiftMin);
       setStartTime(initStart);
-      setEndTime(minutesToTime(timeToMinutes(initStart) + defaultShiftMin));
+      setEndTime(initEnd2);
+      setEndDate(isOvernight(initStart, initEnd2) ? addDay(addDate, 1) : addDate);
       setSplitEnabled(false);
       setBreakStart("");
       setBreakEnd("");
@@ -351,6 +385,8 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
       orig.userId !== userId ||
       orig.storeId !== modalStoreId ||
       orig.date !== date ||
+      orig.startDate !== startDate ||
+      orig.endDate !== endDate ||
       orig.startTime !== startTime ||
       orig.endTime !== endTime ||
       orig.breakStart !== breakStart ||
@@ -396,18 +432,43 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
   const changedCls = "border-[var(--color-accent)] bg-[var(--color-accent-muted)]";
 
   // 핸들러들 — 사용자 편집 시 dirty flag 세팅
+  // end 날짜를 수동 편집 안 했으면 start시각/end시각 관계로 자동 결정(end≤start면 익일)
+  function autoRollEndDate(sTime: string, eTime: string, sDate: string) {
+    if (endDateDirtyRef.current) return;
+    setEndDate(isOvernight(sTime, eTime) ? addDay(sDate, 1) : sDate);
+  }
   function onChangeStart(v: string) {
     timeDirtyRef.current = true;
     setStartTime(v);
     // end를 아직 직접 편집 안 했으면 start + defaultShiftMin로 자동 이동 (30분 grid 스냅)
     if (!endTimeDirtyRef.current) {
-      setEndTime(snapTo30(minutesToTime(timeToMinutes(v) + defaultShiftMin)));
+      const newEnd = snapTo30(minutesToTime(timeToMinutes(v) + defaultShiftMin));
+      setEndTime(newEnd);
+      autoRollEndDate(v, newEnd, startDate);
+    } else {
+      autoRollEndDate(v, endTime, startDate);
     }
   }
   function onChangeEnd(v: string) {
     timeDirtyRef.current = true;
     endTimeDirtyRef.current = true;
     setEndTime(v);
+    autoRollEndDate(startTime, v, startDate);
+  }
+  function onChangeStartDate(v: string) {
+    setStartDate(v);
+    autoRollEndDate(startTime, endTime, v);
+  }
+  // 영업일(Operating day)을 옮기면 실제 start/end 달력일도 같은 일수만큼 이동 —
+  // "근무를 다른 날로 옮기기"의 흔한 조작이 물리 시각을 영업일 라벨과 어긋나게 두지 않도록.
+  // (이후 Start/End 날짜를 개별 수정해 의도적으로 분리하는 건 그대로 가능)
+  function onChangeOperatingDay(v: string) {
+    const delta = dayDiff(date, v);
+    setDate(v);
+    if (delta !== 0) {
+      setStartDate((prev) => addDay(prev, delta));
+      setEndDate((prev) => addDay(prev, delta));
+    }
   }
   function onChangeBreakStart(v: string) {
     breakDirtyRef.current = true;
@@ -441,9 +502,10 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
     }
   }
 
-  // 파생 값: 구간 계산 (overnight 대응)
-  const shiftTotalMin = durationMinutes(startTime, endTime);
-  const overnightShift = isOvernight(startTime, endTime);
+  // 파생 값: 구간 계산 — 벽시계 성분 산술(DST 무관, 브라우저 로컬 tz 파싱 금지)
+  const rawShiftMin = dayDiff(startDate, endDate) * 1440 + timeToMinutes(endTime) - timeToMinutes(startTime);
+  const shiftTotalMin = Math.max(0, rawShiftMin);
+  const overnightShift = endDate !== startDate;
   const breakMinutes = splitEnabled && breakStart && breakEnd
     ? durationMinutes(breakStart, breakEnd)
     : 0;
@@ -451,8 +513,9 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
 
   // Validation
   const validationError: string | null = (() => {
-    if (startTime === endTime) return "Start and end time cannot be the same.";
-    if (shiftTotalMin > 1440 - 1) return "Shift cannot exceed 24 hours."; // safety
+    if (rawShiftMin === 0) return "Start and end cannot be the same.";
+    if (rawShiftMin < 0) return "End must be after start.";
+    if (shiftTotalMin > 1440) return "Shift cannot exceed 24 hours."; // safety
     // 30분 grid 강제 — 반올림하지 않고 reject. 키보드로 :17 등 입력 시 차단.
     if (!isOn30Grid(startTime) || !isOn30Grid(endTime)) return "Start and end must be on the hour or half-hour (:00 or :30).";
     if (splitEnabled) {
@@ -474,18 +537,27 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
       const parsedRate = trimmed === "" ? null : Number(trimmed);
       hourlyRate = parsedRate != null && Number.isFinite(parsedRate) && parsedRate > 0 ? parsedRate : null;
     }
+    // 벽시계 datetime 인코딩 — 명시 start/end 달력일 + 시각 (공용 헬퍼로 조립).
+    const bStart = splitEnabled && breakStart ? breakStart : null;
+    const bEnd = splitEnabled && breakEnd ? breakEnd : null;
+    const iso = shiftIsoFields(date, startDate, startTime, endDate, endTime, bStart, bEnd);
     return {
       userId,
       storeId: effectiveStoreId,
       date,
       startTime,
       endTime,
-      breakStartTime: splitEnabled && breakStart ? breakStart : null,
-      breakEndTime: splitEnabled && breakEnd ? breakEnd : null,
+      breakStartTime: bStart,
+      breakEndTime: bEnd,
       workRoleId: workRoleId || null,
       notes,
       hourlyRate,
       force,
+      operatingDay: iso.operating_day,
+      startAt: iso.start_at,
+      endAt: iso.end_at,
+      breakStartAt: iso.break_start_at,
+      breakEndAt: iso.break_end_at,
     };
   }
 
@@ -502,6 +574,13 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
         end_time: payload.endTime,
         break_start_time: payload.breakStartTime,
         break_end_time: payload.breakEndTime,
+        // 신 인코딩 동시 전송 — 서버 프리플라이트가 실제 instant(새벽근무 +1d) 기준으로
+        // 경고(경계 초과 등)/겹침을 계산하도록
+        operating_day: payload.operatingDay,
+        start_at: payload.startAt,
+        end_at: payload.endAt,
+        break_start_at: payload.breakStartAt,
+        break_end_at: payload.breakEndAt,
         work_role_id: payload.workRoleId,
         hourly_rate: payload.hourlyRate,
         note: payload.notes || null,
@@ -572,13 +651,13 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
 
         {/* Form */}
         <div className="px-5 py-4 space-y-3.5">
-          {/* Date */}
+          {/* Operating day (operating_day) — 이 근무가 표시/집계되는 영업일. 실제 시각은 Start/End. */}
           <div>
-            <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">Date</label>
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">Operating day</label>
             <input
               type="date"
               value={date}
-              onChange={(e) => setDate(e.target.value)}
+              onChange={(e) => onChangeOperatingDay(e.target.value)}
               className={`w-full px-3 py-2 border rounded-lg text-[13px] bg-[var(--color-surface)] ${changed("date", date) ? changedCls : "border-[var(--color-border)]"}`}
             />
           </div>
@@ -647,24 +726,51 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
 
           {/* Time — single or split (2 segments) */}
           {!splitEnabled ? (
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">Start</label>
-                <TimeSelect
-                  value={startTime}
-                  onChange={onChangeStart}
-                  className={`w-full px-3 py-2 border rounded-lg text-[13px] bg-[var(--color-surface)] ${changed("startTime", startTime) ? changedCls : "border-[var(--color-border)]"}`}
-                />
+            <div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">
+                    Start {startDate !== date && <span className="text-[var(--color-warning)] normal-case font-bold">+1d</span>}
+                  </label>
+                  {/* 날짜 위 + 시각 아래 2단 스택 — 한 줄 배치의 모달 폭 오버플로우 해결.
+                      날짜는 영업일 기본, 새벽 근무만 +1일로 직접 변경(min/max로 당일~+1일 제한). */}
+                  <input
+                    type="date"
+                    value={startDate}
+                    min={date}
+                    max={addDay(date, 1)}
+                    onChange={(e) => onChangeStartDate(e.target.value)}
+                    className="w-full px-3 py-2 mb-1.5 border border-[var(--color-border)] rounded-lg text-[12px] bg-[var(--color-surface)]"
+                  />
+                  <TimeSelect
+                    value={startTime}
+                    onChange={onChangeStart}
+                    className={`w-full px-3 py-2 border rounded-lg text-[13px] bg-[var(--color-surface)] ${changed("startTime", startTime) ? changedCls : "border-[var(--color-border)]"}`}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">
+                    End {endDate !== startDate && <span className="text-[var(--color-warning)] normal-case font-bold">+1d</span>}
+                  </label>
+                  <input
+                    type="date"
+                    value={endDate}
+                    min={startDate}
+                    max={addDay(startDate, 1)}
+                    onChange={(e) => { endDateDirtyRef.current = true; setEndDate(e.target.value); }}
+                    className="w-full px-3 py-2 mb-1.5 border border-[var(--color-border)] rounded-lg text-[12px] bg-[var(--color-surface)]"
+                  />
+                  <TimeSelect
+                    value={endTime}
+                    onChange={onChangeEnd}
+                    className={`w-full px-3 py-2 border rounded-lg text-[13px] bg-[var(--color-surface)] ${changed("endTime", endTime) ? changedCls : "border-[var(--color-border)]"}`}
+                  />
+                </div>
               </div>
-              <div>
-                <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">
-                  End {overnightShift && <span className="text-[var(--color-warning)] normal-case font-bold">+1d</span>}
-                </label>
-                <TimeSelect
-                  value={endTime}
-                  onChange={onChangeEnd}
-                  className={`w-full px-3 py-2 border rounded-lg text-[13px] bg-[var(--color-surface)] ${changed("endTime", endTime) ? changedCls : "border-[var(--color-border)]"}`}
-                />
+              {/* 절대날짜 라이브 피드백 (2026-05-29 결정) — 저장될 실제 구간을 즉시 확인 */}
+              <div className="mt-1.5 text-[12px] text-[var(--color-text-secondary)]">
+                → {fmtFeedbackDate(startDate)} {startTime} – {fmtFeedbackDate(endDate)} {endTime}
+                {" "}({Math.floor(shiftTotalMin / 60)}h{shiftTotalMin % 60 ? ` ${shiftTotalMin % 60}m` : ""})
               </div>
             </div>
           ) : (
