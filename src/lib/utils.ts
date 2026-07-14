@@ -321,6 +321,13 @@ export function calculateShiftMinutes(startTime: string, endTime: string): numbe
   return endMin - startMin;
 }
 
+/** 짧은 근무시간 표기: "12h" / "9h 25m" (분 → 사람이 읽는 라벨). */
+export function formatDurationShort(mins: number): string {
+  const h: number = Math.floor(mins / 60);
+  const m: number = mins % 60;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
 /** 전체 아이템 수와 페이지당 아이템 수로 총 페이지 수 계산 */
 export function getTotalPages(total: number, perPage: number): number {
   return Math.max(1, Math.ceil(total / perPage));

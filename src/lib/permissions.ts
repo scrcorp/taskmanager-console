@@ -146,6 +146,10 @@ export const PERMISSIONS = {
   TIPS_PERIOD_CONFIRM: "tips:period_confirm",
   TIPS_PERIOD_OVERRIDE: "tips:period_override",
   TIPS_FORM_VIEW: "tips:form_view",
+
+  // ── Work Availability (직원 주간 근무 가용성) ──
+  AVAILABILITY_READ: "availability:read",
+  AVAILABILITY_MANAGE: "availability:manage",
 } as const;
 
 /**
@@ -160,6 +164,7 @@ export const PAGE_PERMISSIONS: Record<string, string> = {
   "/hiring": PERMISSIONS.HIRING_READ,
   "/users": PERMISSIONS.USERS_READ,
   "/users/bulk": PERMISSIONS.USERS_UPDATE,
+  "/users/bulk/availability": PERMISSIONS.AVAILABILITY_MANAGE,
   "/schedules": PERMISSIONS.SCHEDULES_READ,
   "/schedules/history": PERMISSIONS.SCHEDULE_HISTORY_READ,
   "/schedules/settings": PERMISSIONS.SCHEDULE_SETTINGS_MANAGE,

@@ -13,6 +13,9 @@ import { useRouter } from "next/navigation";
 import { Plus, Search, Layers } from "lucide-react";
 import { useUsers, useCreateUser } from "@/hooks/useUsers";
 import { useWarningCounts } from "@/hooks/useWarnings";
+import { useAvailabilityBulk } from "@/hooks/useAvailability";
+import { AvailabilityStrip, WeekKey } from "@/components/availability/AvailabilityStrip";
+import { AvailabilityEditModal } from "@/components/availability/AvailabilityEditModal";
 import { WarnRangeFilter, WARN_MAX } from "@/components/warnings/WarnRangeFilter";
 import { useRoles } from "@/hooks/useRoles";
 import { useStores } from "@/hooks/useStores";
@@ -26,7 +29,8 @@ import { formatDate } from "@/lib/utils";
 import { useTimezone } from "@/hooks/useTimezone";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS, ROLE_PRIORITY } from "@/lib/permissions";
-import type { User, Role, Store } from "@/types";
+import { DAY_LABELS, fmtDay, toRoutine, AVAIL_COLORS } from "@/types";
+import type { User, Role, Store, AvailabilityMember, AvailabilityDay } from "@/types";
 
 /** comma-separated string → trimmed string array (used for URL-stored multi-selects) */
 function csvToArr(v: string): string[] {
@@ -185,6 +189,24 @@ export default function UsersPage(): React.ReactElement {
     [warnCounts],
   );
   const createUser = useCreateUser();
+
+  // 직원별 주간 근무 가용성 (Work Availability 칼럼) — availability:read 있을 때만 조회.
+  const canSeeAvailability = hasPermission(PERMISSIONS.AVAILABILITY_READ);
+  const canManageAvailability = hasPermission(PERMISSIONS.AVAILABILITY_MANAGE);
+  const { data: availData } = useAvailabilityBulk(undefined, canSeeAvailability);
+  const availMap = useMemo(
+    () => new Map((availData ?? []).map((m: AvailabilityMember) => [m.user_id, m])),
+    [availData],
+  );
+
+  // 가용성 hover 팝오버 + 편집 모달 상태
+  const [availHover, setAvailHover] = useState<{
+    member: AvailabilityMember;
+    name: string;
+    x: number;
+    y: number;
+  } | null>(null);
+  const [availEdit, setAvailEdit] = useState<{ userId: string; name: string } | null>(null);
 
   const handleToggleInactive = useCallback((checked: boolean) => {
     setParams({ inactive: checked ? "1" : null });
@@ -486,6 +508,46 @@ export default function UsersPage(): React.ReactElement {
       });
     }
 
+    // Work Availability 칼럼 — availability:read 있을 때만. 7-tile 주간 스트립.
+    // hover → 요일별 시간 + 최근 변경 팝오버, click → 편집 모달.
+    if (canSeeAvailability) {
+      cols.push({
+        key: "availability",
+        header: (
+          <span className="inline-flex flex-col gap-1 normal-case">
+            <span className="uppercase">Work Availability</span>
+            <WeekKey />
+          </span>
+        ),
+        render: (user: User) => {
+          const member = availMap.get(user.id);
+          const routine: AvailabilityDay[] = toRoutine(member?.days);
+          return (
+            <div
+              className="inline-flex cursor-pointer items-center gap-2 rounded-lg -mx-1 px-1 py-0.5 hover:bg-accent-muted/40"
+              onClick={(e) => {
+                e.stopPropagation();
+                setAvailHover(null);
+                setAvailEdit({ userId: user.id, name: user.full_name || user.username });
+              }}
+              onMouseEnter={(e) =>
+                member &&
+                setAvailHover({ member, name: user.full_name || user.username, x: e.clientX, y: e.clientY })
+              }
+              onMouseMove={(e) =>
+                setAvailHover((h) =>
+                  h && h.member.user_id === user.id ? { ...h, x: e.clientX, y: e.clientY } : h,
+                )
+              }
+              onMouseLeave={() => setAvailHover(null)}
+            >
+              <AvailabilityStrip routine={routine} />
+            </div>
+          );
+        },
+      });
+    }
+
     cols.push({
       key: "created_at",
       header: "Created",
@@ -499,7 +561,7 @@ export default function UsersPage(): React.ReactElement {
     });
 
     return cols;
-  }, [getRoleBadgeVariant, tz, showInactive, canSeeWarnings, warnMap]);
+  }, [getRoleBadgeVariant, tz, showInactive, canSeeWarnings, warnMap, canSeeAvailability, availMap]);
 
   /** 고유 역할 이름 목록 / Unique role names from users */
   const uniqueRoleNames: string[] = useMemo(() => {
@@ -1004,6 +1066,57 @@ export default function UsersPage(): React.ReactElement {
           })()}
         </div>
       </Modal>
+
+      {/* Work Availability hover popover — fixed so the table doesn't clip it */}
+      {availHover && (
+        <div
+          className="pointer-events-none fixed z-[70]"
+          style={{
+            left: Math.min(availHover.x + 14, (typeof window !== "undefined" ? window.innerWidth : 1200) - 250),
+            top: Math.min(availHover.y + 14, (typeof window !== "undefined" ? window.innerHeight : 800) - 280),
+          }}
+        >
+          <div className="w-60 rounded-xl border border-border bg-surface p-3 shadow-[0_8px_24px_rgba(0,0,0,0.16)]">
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-[13px] font-bold text-text">{availHover.name}</span>
+              <span className="text-[11px] text-text-muted">click to edit</span>
+            </div>
+            <ul className="space-y-1">
+              {toRoutine(availHover.member.days).map((d: AvailabilityDay, i: number) => (
+                <li key={i} className="flex items-center justify-between text-[12px]">
+                  <span className="text-text-secondary">{DAY_LABELS[i]}</span>
+                  <span
+                    className="font-semibold tabular-nums"
+                    style={{
+                      color:
+                        d.state === "off"
+                          ? "var(--color-text-muted)"
+                          : d.state === "range"
+                            ? AVAIL_COLORS.range
+                            : AVAIL_COLORS.full,
+                    }}
+                  >
+                    {fmtDay(d)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+            <div className="mt-2 border-t border-border pt-2 text-[11px] text-text-muted">
+              {availHover.member.updated_at
+                ? `Last updated ${formatDate(availHover.member.updated_at, tz)}`
+                : "Not set yet"}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Work Availability edit modal */}
+      <AvailabilityEditModal
+        userId={availEdit?.userId ?? null}
+        userName={availEdit?.name ?? ""}
+        canManage={canManageAvailability}
+        onClose={() => setAvailEdit(null)}
+      />
     </div>
   );
 }
