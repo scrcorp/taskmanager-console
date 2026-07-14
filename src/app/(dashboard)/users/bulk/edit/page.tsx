@@ -15,7 +15,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Badge, Select } from "@/components/ui";
 import { useModal } from "@/components/ui/imperative-modal";
-import type { User } from "@/types";
+import { type User } from "@/types";
 
 /** 일괄 변경 payload — useBulkUpdateUsers 와 구조 호환 (보낸 필드만 적용) */
 interface BulkPayload {
@@ -124,12 +124,11 @@ export default function BulkEditPage(): React.ReactElement {
     });
     if (!ok) return;
 
-    const payload: BulkPayload = { user_ids: Array.from(selectedIds) };
-    if (applyDept) payload.department = deptVal === "unassigned" ? null : deptVal;
-    if (applyActive) payload.is_active = activeVal === "activate";
-    if (applyHourly) payload.hourly_rate = hourlyVal.trim() ? Number(hourlyVal) : null;
-
     try {
+      const payload: BulkPayload = { user_ids: Array.from(selectedIds) };
+      if (applyDept) payload.department = deptVal === "unassigned" ? null : deptVal;
+      if (applyActive) payload.is_active = activeVal === "activate";
+      if (applyHourly) payload.hourly_rate = hourlyVal.trim() ? Number(hourlyVal) : null;
       await bulkUpdate.mutateAsync(payload);
       setSelectedIds(new Set());
       setApplyDept(false);
@@ -137,7 +136,7 @@ export default function BulkEditPage(): React.ReactElement {
       setApplyHourly(false);
       setHourlyVal("");
     } catch {
-      // hook 이 결과 모달 자동 표시
+      // mutation hooks 이 각자 결과 모달 자동 표시
     }
   }, [
     selectedIds, anyFieldEnabled, applyDept, deptVal, applyActive, activeVal,
@@ -153,7 +152,8 @@ export default function BulkEditPage(): React.ReactElement {
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
       {/* Left — filter + list */}
       <div className="lg:col-span-2 bg-card border border-border rounded-xl p-4">
         <div className="flex items-center gap-2 flex-wrap mb-3">
@@ -322,13 +322,18 @@ export default function BulkEditPage(): React.ReactElement {
             variant="primary"
             onClick={() => void apply()}
             isLoading={bulkUpdate.isPending}
-            disabled={selectedIds.size === 0 || !anyFieldEnabled || bulkUpdate.isPending}
+            disabled={
+              selectedIds.size === 0 ||
+              !anyFieldEnabled ||
+              bulkUpdate.isPending
+            }
             className="w-full"
           >
             Apply to {selectedIds.size} staff
           </Button>
           <p className="text-[11px] text-text-muted">Role and store assignment will be added here next.</p>
         </div>
+      </div>
       </div>
     </div>
   );

@@ -797,6 +797,28 @@ export type {
 } from "./changelog";
 export { CHANGELOG_CATEGORY_LABELS, CHANGELOG_CATEGORIES } from "./changelog";
 
+// Work Availability — canonical types live in ./availability, re-exported below.
+export type {
+  AvailabilityState,
+  AvailabilityDay,
+  AvailabilityDayInput,
+  AvailabilityMember,
+  AvailabilityHistory,
+  AvailabilityDetail,
+  Preset,
+} from "./availability";
+export {
+  DAY_LABELS,
+  AVAIL_COLORS,
+  OFF_HATCH,
+  DEFAULT_RANGE,
+  toRoutine,
+  fmtDay,
+  toDaysInput,
+  validateRoutine,
+  routinesEqual,
+} from "./availability";
+
 // Daily Report
 export interface DailyReport {
   id: string;

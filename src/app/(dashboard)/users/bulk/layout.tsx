@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * Bulk 직원 관리 공용 레이아웃 — [Edit Existing | Add New] 탭.
- * edit/add 페이지가 이 layout 을 공유한다.
+ * Bulk 직원 관리 공용 레이아웃 — [Edit Existing | Work Availability | Add New] 탭.
+ * edit/availability/add 페이지가 이 layout 을 공유한다. Add New 는 아직 준비중(badge).
  */
 
 import React from "react";
@@ -10,9 +10,10 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ArrowLeft } from "lucide-react";
 
-const TABS = [
+const TABS: { href: string; label: string; badge?: string }[] = [
   { href: "/users/bulk/edit", label: "Edit Existing" },
-  { href: "/users/bulk/add", label: "Add New" },
+  { href: "/users/bulk/availability", label: "Work Availability" },
+  { href: "/users/bulk/add", label: "Add New", badge: "Coming soon" },
 ];
 
 export default function BulkLayout({
@@ -40,13 +41,18 @@ export default function BulkLayout({
             <Link
               key={t.href}
               href={t.href}
-              className={`px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${
+              className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold border-b-2 -mb-px transition-colors ${
                 active
                   ? "border-accent text-accent"
                   : "border-transparent text-text-muted hover:text-text"
               }`}
             >
               {t.label}
+              {t.badge && (
+                <span className="rounded-full bg-warning-muted px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide text-warning">
+                  {t.badge}
+                </span>
+              )}
             </Link>
           );
         })}
