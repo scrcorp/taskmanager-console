@@ -154,10 +154,38 @@ export function formatActionTime(
   });
 }
 
-/** 사진 워터마크용 시각 포맷 — 항상 날짜+시간+타임존 라벨을 store-tz 로 보여준다.
+/** 타임존 라벨을 짧은 약어로 뽑는다 — Asia/Seoul → "KST".
+ *
+ *  Intl 의 timeZoneName:"short" 는 미주/유럽 일부만 약어를 주고(PDT/EDT), 그 외
+ *  아시아권은 "GMT+9" 같은 오프셋을 준다. 그 경우 long 이름("Korean Standard Time")의
+ *  각 단어 첫 글자를 따 약어(KST/JST/IST...)를 만든다. 약어를 못 만들면 short 그대로.
+ */
+function tzLabel(date: Date, timezone?: string): string {
+  const pick = (style: "short" | "long") => {
+    const opts: Intl.DateTimeFormatOptions = { timeZoneName: style };
+    if (timezone) opts.timeZone = timezone;
+    return (
+      new Intl.DateTimeFormat("en-US", opts)
+        .formatToParts(date)
+        .find((p) => p.type === "timeZoneName")?.value ?? ""
+    );
+  };
+  const short = pick("short");
+  // "PDT" 처럼 이미 약어면 그대로. "GMT+9"/"UTC+9" 형태일 때만 long 에서 약어 유도.
+  if (!/^(GMT|UTC)[+-]/.test(short)) return short;
+  const initials = pick("long")
+    .split(/\s+/)
+    .filter((w) => w && w[0] === w[0].toUpperCase() && w[0] !== w[0].toLowerCase())
+    .map((w) => w[0])
+    .join("");
+  return initials.length >= 2 ? initials : short;
+}
+
+/** 사진 워터마크용 시각 포맷 — 항상 날짜(연도 포함)+시간+타임존 라벨을 store-tz 로 보여준다.
  *  찍힌 시각(capture_time) 1순위, 없으면 수신시각(received_at) 폴백을 사진 위에 표시하는 용도라
  *  referenceDate 비교 없이 절대 시각 고정. 타임존 라벨(PDT/KST 등)을 붙여 모호함을 없앤다.
- *  예: "Jun 22, 3:30 PM PDT". timezone 미지정 시 브라우저 로컬 존 라벨이 붙는다.
+ *  연도를 넣는 이유: 작년 사진 등 오래된 촬영본을 구분할 수 있어야 한다.
+ *  예: "Jun 22, 2026, 3:30 PM PDT". timezone 미지정 시 브라우저 로컬 존 라벨이 붙는다.
  *
  * @param dateStr - ISO 8601 UTC 문자열 (서버 capture_time / received_at)
  * @param timezone - store/org 타임존 (없으면 브라우저 로컬)
@@ -165,14 +193,14 @@ export function formatActionTime(
 export function formatWatermarkTime(dateStr: string, timezone?: string): string {
   const date = new Date(dateStr);
   const opts: Intl.DateTimeFormatOptions = {
+    year: "numeric",
     month: "short",
     day: "numeric",
     hour: "numeric",
     minute: "2-digit",
-    timeZoneName: "short",
   };
   if (timezone) opts.timeZone = timezone;
-  return new Intl.DateTimeFormat("en-US", opts).format(date);
+  return `${new Intl.DateTimeFormat("en-US", opts).format(date)} ${tzLabel(date, timezone)}`;
 }
 
 /** 타임존 기준 오늘 날짜를 YYYY-MM-DD 문자열로 반환.
