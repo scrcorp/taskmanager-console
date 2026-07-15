@@ -63,8 +63,29 @@ describe("utils", () => {
     it("appends the timezone label so the reader knows which zone the time is in", () => {
       // 핵심 요구사항: 워터마크 시각은 어느 타임존인지 라벨이 함께 보여야 한다.
       expect(formatWatermarkTime("2026-01-15T10:30:00Z", "UTC")).toContain("UTC");
-      // Seoul 은 ICU 버전에 따라 'GMT+9' 또는 'KST' 로 표기 — 둘 다 허용.
-      expect(formatWatermarkTime(iso, "Asia/Seoul")).toMatch(/GMT\+9|KST/);
+    });
+
+    it("always includes the year (오래된 촬영본 구분)", () => {
+      expect(formatWatermarkTime(iso, "Asia/Seoul")).toContain("2026");
+      expect(formatWatermarkTime("2025-01-15T10:30:00Z", "UTC")).toContain("2025");
+    });
+
+    it("uses a short zone abbreviation, not a long name or GMT offset", () => {
+      // Seoul 은 Intl short 가 'GMT+9' 라 long('Korean Standard Time')에서 KST 를 유도한다.
+      const seoul = formatWatermarkTime(iso, "Asia/Seoul");
+      expect(seoul).toContain("KST");
+      expect(seoul).not.toMatch(/GMT\+9|Standard Time/);
+    });
+
+    it("keeps native abbreviations where Intl already provides them", () => {
+      // 미주권은 short 가 이미 약어 → 그대로 사용(약어 유도 로직이 건드리지 않음).
+      expect(formatWatermarkTime(iso, "America/New_York")).toContain("EDT");
+      expect(formatWatermarkTime(iso, "America/Los_Angeles")).toContain("PDT");
+    });
+
+    it("abbreviates other offset-only zones too (JST/IST)", () => {
+      expect(formatWatermarkTime(iso, "Asia/Tokyo")).toContain("JST");
+      expect(formatWatermarkTime(iso, "Asia/Kolkata")).toContain("IST");
     });
   });
 });
