@@ -10,10 +10,11 @@
  */
 
 import React, { useState, useEffect, useRef } from "react";
-import { Check, X, Clock, MessageCircle, Paperclip } from "lucide-react";
+import { Check, X, Clock, MessageCircle, Paperclip, ChevronDown, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui";
 import { cn, formatActionTime } from "@/lib/utils";
 import { ReviewChatModal } from "./ReviewChatModal";
+import { ReviewThread } from "./ReviewThread";
 import { EvidencePopover } from "./EvidencePopover";
 import { useUpsertItemReview, useDeleteItemReview } from "@/hooks/useChecklistInstances";
 import { toReviewPhotos, type ReviewPhoto } from "@/lib/photos";
@@ -25,6 +26,9 @@ interface ChecklistItemRowProps {
   itemIndex: number;
   workDate: string;
   timezone?: string;
+  /** 펼침 여부. 펼치면 제출내용·대화 타임라인·입력칸을 인라인 표시. */
+  isExpanded?: boolean;
+  onToggleExpand?: () => void;
   onReviewChange?: () => void;
 }
 
@@ -34,6 +38,8 @@ export function ChecklistItemRow({
   itemIndex,
   workDate,
   timezone,
+  isExpanded = false,
+  onToggleExpand,
   onReviewChange,
 }: ChecklistItemRowProps): React.ReactElement {
   const isCompleted = !!item.is_completed;
@@ -126,10 +132,23 @@ export function ChecklistItemRow({
   return (
     <div
       className={cn(
-        "flex items-start gap-3 p-3 rounded-lg border transition-colors hover:shadow-sm",
+        "rounded-lg border transition-colors hover:shadow-sm",
         rowState,
       )}
     >
+      {/* Header row */}
+      <div className="flex items-start gap-3 p-3">
+      {/* Expand/collapse toggle */}
+      <button
+        type="button"
+        onClick={onToggleExpand}
+        className="mt-0.5 flex-shrink-0 w-5 h-5 rounded flex items-center justify-center text-text-muted hover:text-text hover:bg-surface-hover transition-colors"
+        title={isExpanded ? "Collapse" : "Expand"}
+        aria-expanded={isExpanded}
+      >
+        {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+      </button>
+
       {/* Completion icon */}
       <div
         className={cn(
@@ -191,8 +210,8 @@ export function ChecklistItemRow({
 
       {/* Right actions: evidence + O/X + chat */}
       <div className="flex items-center gap-1.5 flex-shrink-0 mt-0.5">
-        {/* Evidence indicator */}
-        {(hasPhoto || hasNote) && (
+        {/* Evidence indicator — 펼치면 스레드에 인라인 표시되므로 접힘 상태에서만 */}
+        {!isExpanded && (hasPhoto || hasNote) && (
           <EvidencePopover
             photos={photos}
             note={note}
@@ -243,23 +262,40 @@ export function ChecklistItemRow({
           X
         </button>
 
-        {/* Chat button */}
-        <button
-          type="button"
-          onClick={() => setIsChatOpen(true)}
-          className="relative w-8 h-8 rounded-md border border-border text-text-muted flex items-center justify-center transition-colors hover:border-accent hover:text-accent hover:bg-accent-muted"
-          title="Comments"
-        >
-          <MessageCircle size={14} />
-          {contentsCount > 0 && (
-            <span className="absolute -top-1.5 -right-1.5 min-w-[15px] h-[15px] rounded-full bg-accent text-white text-[9px] font-bold flex items-center justify-center px-0.5">
-              {contentsCount}
-            </span>
-          )}
-        </button>
+        {/* Chat button — 펼치면 스레드가 인라인이므로 접힘 상태에서만 */}
+        {!isExpanded && (
+          <button
+            type="button"
+            onClick={() => setIsChatOpen(true)}
+            className="relative w-8 h-8 rounded-md border border-border text-text-muted flex items-center justify-center transition-colors hover:border-accent hover:text-accent hover:bg-accent-muted"
+            title="Comments"
+          >
+            <MessageCircle size={14} />
+            {contentsCount > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 min-w-[15px] h-[15px] rounded-full bg-accent text-white text-[9px] font-bold flex items-center justify-center px-0.5">
+                {contentsCount}
+              </span>
+            )}
+          </button>
+        )}
+      </div>
       </div>
 
-      {/* Chat modal */}
+      {/* Expanded — 제출내용 + 대화 타임라인 + 입력 인라인 */}
+      {isExpanded && (
+        <div className="border-t border-border/60 px-3 pt-3 pb-3">
+          <ReviewThread
+            instanceId={instanceId}
+            itemIndex={itemIndex}
+            item={item}
+            reviewResult={currentResult}
+            timezone={timezone}
+            onReviewChange={onReviewChange}
+          />
+        </div>
+      )}
+
+      {/* Chat modal (collapsed 상태 전용) */}
       <ReviewChatModal
         isOpen={isChatOpen}
         onClose={() => setIsChatOpen(false)}

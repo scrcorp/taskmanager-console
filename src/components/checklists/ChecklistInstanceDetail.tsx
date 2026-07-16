@@ -10,7 +10,8 @@
  *   ScoreSection (score, note, send report)
  */
 
-import React, { useMemo } from "react";
+import React, { useMemo, useState } from "react";
+import { ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 import { Card, Badge, EmptyState } from "@/components/ui";
 import { Button } from "@/components/ui/Button";
 import { formatFixedDate } from "@/lib/utils";
@@ -47,6 +48,27 @@ export function ChecklistInstanceDetail({
   const tz = timezone ?? instance.timezone ?? undefined;
 
   const items = instance.items ?? [];
+
+  // 항목 접기/펼치기 상태 — 기본값은 전 항목 펼침(D1).
+  const [expanded, setExpanded] = useState<Set<number>>(
+    () => new Set(items.map((i) => i.item_index)),
+  );
+
+  const allExpanded =
+    items.length > 0 && items.every((i) => expanded.has(i.item_index));
+
+  const toggleItem = (idx: number) => {
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      if (next.has(idx)) next.delete(idx);
+      else next.add(idx);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    setExpanded(allExpanded ? new Set() : new Set(items.map((i) => i.item_index)));
+  };
 
   const percentage =
     instance.total_items > 0
@@ -167,7 +189,26 @@ export function ChecklistInstanceDetail({
 
       {/* Checklist Items */}
       <Card className="mb-0">
-        <h2 className="text-base font-semibold text-text mb-3">Checklist Items</h2>
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <h2 className="text-base font-semibold text-text">Checklist Items</h2>
+          {items.length > 0 && (
+            <button
+              type="button"
+              onClick={toggleAll}
+              className="flex items-center gap-1.5 text-xs font-semibold text-text-secondary hover:text-text border border-border rounded-lg px-2.5 py-1.5 transition-colors cursor-pointer bg-transparent"
+            >
+              {allExpanded ? (
+                <>
+                  <ChevronsDownUp size={14} /> Collapse all
+                </>
+              ) : (
+                <>
+                  <ChevronsUpDown size={14} /> Expand all
+                </>
+              )}
+            </button>
+          )}
+        </div>
         {items.length === 0 ? (
           <EmptyState message="No checklist items available." />
         ) : (
@@ -180,6 +221,8 @@ export function ChecklistInstanceDetail({
                 itemIndex={item.item_index}
                 workDate={instance.work_date}
                 timezone={tz}
+                isExpanded={expanded.has(item.item_index)}
+                onToggleExpand={() => toggleItem(item.item_index)}
                 onReviewChange={onRefetch}
               />
             ))}
