@@ -165,6 +165,7 @@ export const PAGE_PERMISSIONS: Record<string, string> = {
   "/users": PERMISSIONS.USERS_READ,
   "/users/bulk": PERMISSIONS.USERS_UPDATE,
   "/users/bulk/availability": PERMISSIONS.AVAILABILITY_MANAGE,
+  "/users/bulk/empid": PERMISSIONS.USERS_UPDATE,
   "/schedules": PERMISSIONS.SCHEDULES_READ,
   "/schedules/history": PERMISSIONS.SCHEDULE_HISTORY_READ,
   "/schedules/settings": PERMISSIONS.SCHEDULE_SETTINGS_MANAGE,

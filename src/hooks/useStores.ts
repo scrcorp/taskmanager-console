@@ -66,6 +66,8 @@ interface CreateStoreData {
   email?: string | null;
   status?: StoreStatus;
   timezone?: string | null;
+  group_id?: string | null; // 소속 그룹 (null/미지정 = 미그룹)
+  number_range_start?: number | null; // 매장 empid 번호대 시작값
 }
 
 /**
@@ -112,6 +114,8 @@ interface UpdateStoreData {
   max_work_hours_weekly?: number | null;
   timezone?: string | null;
   default_hourly_rate?: number | null;
+  group_id?: string | null; // 소속 그룹 변경 (명시적 null = 그룹 해제)
+  number_range_start?: number | null; // 매장 empid 번호대 시작값
 }
 
 /**

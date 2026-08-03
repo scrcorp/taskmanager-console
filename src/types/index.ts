@@ -99,6 +99,32 @@ export interface Store {
   default_hourly_rate: number | null;
   accepting_signups: boolean;
   created_at: string;
+  /** 소속 그룹 ID (없으면 Ungrouped). Optional — 기존 mock/test 리터럴 호환. */
+  group_id?: string | null;
+  /** Per-store numbering 시작 번호 (null = 기본). Optional — 기존 mock/test 리터럴 호환. */
+  number_range_start?: number | null;
+  /** 그룹 편성 변경 PUT 응답에서만 비어있지 않음 / Only populated on group-changing PUT responses. */
+  duplicate_empids?: DuplicateEmpid[];
+}
+
+/** 그룹/매장 numbering 범위 안에서 중복된 EMPID / Duplicated EMPID within a numbering scope */
+export interface DuplicateEmpid {
+  empid: number;
+  count: number;
+}
+
+// Store Group
+export interface StoreGroup {
+  id: string;
+  organization_id: string;
+  name: string;
+  sort_order: number;
+  /** "group" = shared numbering across the group, "store" = per-store numbering */
+  numbering_mode: "group" | "store";
+  number_range_start: number | null;
+  store_count: number;
+  duplicate_empids: DuplicateEmpid[];
+  created_at: string;
 }
 
 export interface UserStoreAssignment extends Store {
