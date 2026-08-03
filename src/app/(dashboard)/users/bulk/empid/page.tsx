@@ -5,8 +5,9 @@
  *
  * 3-step flow (page form of the ImportProductsModal UX):
  *   1. Upload  — drag & drop / pick a .xlsx/.csv legacy roster.
- *   2. Preview — counts summary + per-person cards; operator checks
- *                rebind / new-assignment rows, then applies.
+ *   2. Preview — counts summary + per-person cards; operator picks
+ *                Current vs Upload on rebind rows, checks
+ *                new-assignment rows, then applies.
  *   3. Result  — applied / renumbered / skipped / rejected report.
  */
 
@@ -31,9 +32,15 @@ import {
 
 type Step = "upload" | "preview" | "result";
 
-/** Stable key for a person×entry checkbox. */
+/** Stable key for a person×entry selection (checkbox or rebind choice). */
 const entryKey = (personIdx: number, entryIdx: number): string =>
   `${personIdx}:${entryIdx}`;
+
+/** Rebind pill options — Current (DB value) vs Upload (file value, default). */
+const REBIND_OPTIONS: { value: "current" | "upload"; label: string }[] = [
+  { value: "current", label: "Current" },
+  { value: "upload", label: "Upload" },
+];
 
 /** Only rebind / new_assignment rows with complete ids can be committed. */
 const isSelectable = (
@@ -125,6 +132,11 @@ export default function EmpidImportPage(): React.ReactElement {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [preview, setPreview] = useState<EmpidImportPreviewResult | null>(null);
+  /**
+   * Keys of entries that will be written on commit:
+   * - rebind rows: in the set = "Upload" chosen (default); absent = keep Current
+   * - new_assignment rows: plain checkbox state
+   */
   const [checked, setChecked] = useState<Set<string>>(new Set());
   const [result, setResult] = useState<EmpidCommitResult | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -177,7 +189,8 @@ export default function EmpidImportPage(): React.ReactElement {
     previewImport.mutate(formData, {
       onSuccess: (data) => {
         setPreview(data);
-        // Default-check every committable rebind / new_assignment row.
+        // Default every committable row to "will be written":
+        // rebind → Upload selected, new_assignment → checked.
         const initial = new Set<string>();
         data.people.forEach((person, pi) => {
           person.entries.forEach((entry, ei) => {
@@ -192,6 +205,7 @@ export default function EmpidImportPage(): React.ReactElement {
   }, [selectedFile, previewImport]);
 
   // ── Step 2: selection ──
+  /** new_assignment checkbox toggle. */
   const toggle = useCallback((key: string) => {
     setChecked((prev) => {
       const n = new Set(prev);
@@ -200,6 +214,19 @@ export default function EmpidImportPage(): React.ReactElement {
       return n;
     });
   }, []);
+
+  /** Rebind choice — "upload" puts the key in the set, "current" removes it. */
+  const setRebindChoice = useCallback(
+    (key: string, choice: "current" | "upload") => {
+      setChecked((prev) => {
+        const n = new Set(prev);
+        if (choice === "upload") n.add(key);
+        else n.delete(key);
+        return n;
+      });
+    },
+    [],
+  );
 
   const selectedAssignments: EmpidCommitAssignment[] = useMemo(() => {
     if (!preview) return [];
@@ -517,7 +544,76 @@ export default function EmpidImportPage(): React.ReactElement {
                     );
                   }
 
-                  // rebind / new_assignment — checkbox rows
+                  // rebind — the two values conflict; pick Current vs Upload
+                  // (Upload = write the file value, Current = leave untouched).
+                  if (entry.action === "rebind") {
+                    const choice: "current" | "upload" = checked.has(key)
+                      ? "upload"
+                      : "current";
+                    return (
+                      <div
+                        key={key}
+                        className={cn(
+                          "flex items-center gap-2 flex-wrap rounded-lg px-2 py-1.5 -mx-2",
+                          !selectable && "opacity-50",
+                        )}
+                      >
+                        <span className="text-sm text-text">{entry.store_name}:</span>
+                        <span
+                          role="radiogroup"
+                          aria-label={`${entry.store_name ?? entry.company} — keep current number or use uploaded number`}
+                          className="inline-flex items-center gap-1"
+                        >
+                          {REBIND_OPTIONS.map(({ value, label }) => {
+                            const empid =
+                              value === "upload" ? entry.emp_id : entry.current_empid;
+                            const selected = choice === value;
+                            return (
+                              <label
+                                key={value}
+                                className={selectable ? "cursor-pointer" : "cursor-not-allowed"}
+                              >
+                                <input
+                                  type="radio"
+                                  name={`rebind-${key}`}
+                                  className="sr-only peer"
+                                  checked={selected}
+                                  onChange={() => setRebindChoice(key, value)}
+                                  disabled={!selectable}
+                                />
+                                <span
+                                  className={cn(
+                                    "inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs transition-colors peer-focus-visible:ring-2 peer-focus-visible:ring-accent/50",
+                                    selected
+                                      ? "border-accent bg-accent-muted text-accent font-semibold"
+                                      : "border-border text-text-secondary hover:bg-surface-hover",
+                                  )}
+                                >
+                                  {label}
+                                  <span className="font-semibold">
+                                    · {empid ?? "—"}
+                                  </span>
+                                </span>
+                              </label>
+                            );
+                          })}
+                        </span>
+                        {entry.dormant && (
+                          <Badge variant="warning" className="text-[10px] uppercase tracking-wide">
+                            Dormant
+                          </Badge>
+                        )}
+                        {entry.dormant && (
+                          <span className="text-[11px] text-text-muted">
+                            number is written; person stays out of work assignment
+                          </span>
+                        )}
+                        {entry.warning && <EntryWarning text={entry.warning} />}
+                      </div>
+                    );
+                  }
+
+                  // new_assignment — checkbox row
                   return (
                     <label
                       key={key}
@@ -537,26 +633,14 @@ export default function EmpidImportPage(): React.ReactElement {
                       />
                       <span className="text-sm text-text">
                         {entry.store_name}:{" "}
-                        {entry.action === "rebind" ? (
-                          <>
-                            <span className="text-text-muted">{entry.current_empid ?? "—"}</span>
-                            {" → "}
-                            <span className="font-semibold">{entry.emp_id}</span>
-                          </>
-                        ) : (
-                          <span className="font-semibold">{entry.emp_id}</span>
-                        )}
+                        <span className="font-semibold">{entry.emp_id}</span>
                       </span>
-                      {entry.action === "new_assignment" && (
-                        <Badge variant="accent" className="text-[10px] uppercase tracking-wide">
-                          New assignment
-                        </Badge>
-                      )}
-                      {entry.action === "new_assignment" && (
-                        <span className="text-[11px] text-text-muted">
-                          store assignment will be created
-                        </span>
-                      )}
+                      <Badge variant="accent" className="text-[10px] uppercase tracking-wide">
+                        New assignment
+                      </Badge>
+                      <span className="text-[11px] text-text-muted">
+                        store assignment will be created
+                      </span>
                       {entry.dormant && (
                         <Badge variant="warning" className="text-[10px] uppercase tracking-wide">
                           Dormant
@@ -592,7 +676,8 @@ export default function EmpidImportPage(): React.ReactElement {
       {/* Apply bar */}
       <div className="bg-card border border-border rounded-xl p-4 flex items-center justify-between gap-3 flex-wrap">
         <p className="text-xs text-text-muted">
-          Only checked rows are applied. Existing numbers may be renumbered.
+          Rebind rows set to Upload and checked new-assignment rows are applied.
+          Existing numbers may be renumbered.
         </p>
         <Button
           variant="primary"
