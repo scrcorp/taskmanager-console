@@ -114,17 +114,17 @@ export const useUpdateStoreGroup = (options?: {
 /**
  * 그룹 삭제 훅 -- 그룹을 삭제하고 캐시에서 제거합니다.
  * 서버가 소속 매장들을 그룹 해제(Ungrouped)하므로 stores 캐시도 무효화합니다.
+ * silent — 일괄 저장(Manage Groups) 등 호출부가 결과 표시를 직접 담당할 때.
  *
  * Mutation hook to delete a store group. The server detaches its stores
  * (they become ungrouped), so the stores caches are invalidated too.
+ * With silent, the caller owns success/error feedback (e.g. batched saves).
  *
  * @returns 그룹 삭제 뮤테이션 결과 (Group deletion mutation result)
  */
-export const useDeleteStoreGroup = (): UseMutationResult<
-  void,
-  Error,
-  string
-> => {
+export const useDeleteStoreGroup = (options?: {
+  silent?: boolean;
+}): UseMutationResult<void, Error, string> => {
   const queryClient: QueryClient = useQueryClient();
   const { success, error } = useMutationToast();
   return useMutation<void, Error, string>({
@@ -137,26 +137,26 @@ export const useDeleteStoreGroup = (): UseMutationResult<
       );
       // 소속 매장들의 group_id 가 서버에서 null 로 바뀜 → stores 계열 캐시 재조회
       queryClient.invalidateQueries({ queryKey: ["stores"] });
-      success("Group deleted. Its stores moved to Ungrouped.");
+      if (!options?.silent) success("Group deleted. Its stores moved to Ungrouped.");
     },
-    onError: error("Failed to delete group"),
+    onError: options?.silent ? undefined : error("Failed to delete group"),
   });
 };
 
 /**
  * 그룹 순서 변경 훅 -- 드래그로 정렬한 순서를 서버에 일괄 저장합니다.
  * 낙관적으로 캐시를 재정렬하고 실패 시 무효화합니다 (useReorderStores 패턴).
+ * silent — 에러 표시를 호출부가 담당 (캐시 재동기화는 항상 수행).
  *
  * Mutation hook to persist a new group display order (drag reorder).
  * Optimistically reorders the cached list; invalidates on failure.
+ * With silent, the caller owns error feedback (cache resync always runs).
  *
  * @returns 순서 변경 뮤테이션 결과 (Reorder mutation result)
  */
-export const useReorderStoreGroups = (): UseMutationResult<
-  void,
-  Error,
-  string[]
-> => {
+export const useReorderStoreGroups = (options?: {
+  silent?: boolean;
+}): UseMutationResult<void, Error, string[]> => {
   const queryClient: QueryClient = useQueryClient();
   const { error } = useMutationToast();
   return useMutation<void, Error, string[]>({
@@ -176,7 +176,7 @@ export const useReorderStoreGroups = (): UseMutationResult<
     },
     onError: (err, _vars, _ctx): void => {
       queryClient.invalidateQueries({ queryKey: ["store-groups"] });
-      error("Failed to reorder groups")(err);
+      if (!options?.silent) error("Failed to reorder groups")(err);
     },
   });
 };

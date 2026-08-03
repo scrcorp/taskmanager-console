@@ -46,6 +46,7 @@ import { Select } from "@/components/ui/Select";
 import { Table, Badge, Modal } from "@/components/ui";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useModal } from "@/components/ui/imperative-modal";
+import { useMutationToast } from "@/lib/mutationToast";
 import { formatDate, parseApiError } from "@/lib/utils";
 import { previewStoreCode } from "@/lib/storeCode";
 import { useTimezone } from "@/hooks/useTimezone";
@@ -122,6 +123,21 @@ function parseRangeStart(value: string): number | null {
   return Number.isFinite(parsed) && parsed >= 1 ? parsed : null;
 }
 
+/**
+ * 번호대 입력 유효성 — 빈 값(=기본값) 또는 1 이상의 정수만 허용. 무효 입력은
+ * parseRangeStart 가 조용히 null 로 만들기 때문에(의도치 않은 해제 PUT 위험)
+ * 저장 전에 인라인 경고 + Save 비활성으로 차단한다.
+ *
+ * Range input validity: empty (= default) or an integer >= 1. Invalid input
+ * would silently become null in parseRangeStart (risking an unintended
+ * clearing PUT), so it blocks Save with an inline warning instead.
+ */
+function isValidRangeInput(value: string): boolean {
+  const trimmed: string = value.trim();
+  if (trimmed === "") return true;
+  return /^\d+$/.test(trimmed) && parseInt(trimmed, 10) >= 1;
+}
+
 /** 그룹 섹션 (마지막은 Ungrouped) / One rendered store section (last = Ungrouped) */
 interface StoreSection {
   groupId: string | null;
@@ -189,38 +205,261 @@ function DraggableStringRow({
   );
 }
 
-/** 그룹 관리 모달의 드래그 가능한 그룹 행 / Sortable group row inside the Manage Groups modal */
+/**
+ * Manage Groups 모달의 draft 모델 — 모달 안의 모든 편집(이름/채번 모드/번호대/순서/
+ * 매장 편성/그룹 추가/삭제)을 로컬에 쌓았다가 Save 로 일괄 적용, Cancel 로 폐기한다.
+ *
+ * Draft model for the Manage Groups modal. Every edit accumulates locally and
+ * commits as a batch on Save (or is discarded on Cancel).
+ */
+
+/** 아직 서버에 없는 신규 그룹의 tempId 접두사 / Prefix for not-yet-created group ids */
+const TEMP_GROUP_ID_PREFIX = "new-";
+
+/** draft 그룹 id 가 신규(tempId)인지 / Whether a draft group id is a tempId */
+function isTempGroupId(id: string): boolean {
+  return id.startsWith(TEMP_GROUP_ID_PREFIX);
+}
+
+/** draft 상의 그룹 한 건 — 입력값은 raw 로 두고 저장 시 trim/parse / One draft group (raw inputs, normalized on save) */
+interface DraftGroup {
+  /** 기존 그룹 id 또는 "new-N" tempId / Existing id or "new-N" tempId */
+  id: string;
+  name: string;
+  numbering_mode: "group" | "store";
+  /** number_range_start raw 입력 ("" = null) / Raw range-start input, empty = null */
+  rangeStart: string;
+}
+
+/** Manage Groups 모달의 draft 전체 / The whole modal draft */
+interface GroupsDraft {
+  groups: Record<string, DraftGroup>;
+  /** 표시 순서 (삭제 표시 그룹 포함) / Display order, including deletion-marked rows */
+  order: string[];
+  /** 삭제 표시 — 기존 그룹은 Save 시 DELETE, tempId 는 생성 취소 / Marked for deletion */
+  deleted: string[];
+  /** 매장별 소속: storeId → groupId | tempId | null / Store assignment map */
+  storeAssign: Record<string, string | null>;
+  /** 매장별 number_range_start raw 입력 ("" = null) — Per-store 모드에서 편집 / Raw per-store range inputs */
+  storeRange: Record<string, string>;
+}
+
+/** 서버 데이터로 draft 초기화 / Build a fresh draft from server data */
+function buildGroupsDraft(groups: StoreGroup[], stores: Store[]): GroupsDraft {
+  // stores 캐시가 groups 보다 오래돼 이미 사라진 그룹을 가리켜도 Ungrouped 로 정규화
+  // Stale store→group refs (group gone from the groups cache) normalize to null
+  const knownIds = new Set<string>(groups.map((g: StoreGroup) => g.id));
+  return {
+    groups: Object.fromEntries(
+      groups.map((g: StoreGroup) => [
+        g.id,
+        {
+          id: g.id,
+          name: g.name,
+          numbering_mode: g.numbering_mode,
+          rangeStart: g.number_range_start != null ? String(g.number_range_start) : "",
+        },
+      ]),
+    ),
+    order: groups.map((g: StoreGroup) => g.id),
+    deleted: [],
+    storeAssign: Object.fromEntries(
+      stores.map((s: Store) => [
+        s.id,
+        s.group_id != null && knownIds.has(s.group_id) ? s.group_id : null,
+      ]),
+    ),
+    storeRange: Object.fromEntries(
+      stores.map((s: Store) => [
+        s.id,
+        s.number_range_start != null ? String(s.number_range_start) : "",
+      ]),
+    ),
+  };
+}
+
+/** Save 가 실행할 서버 연산 계획 — footer 의 (N) 과 실행 로직이 공유 / Planned server ops (footer count + Save share this) */
+interface GroupSaveOps {
+  /** ① 생성할 신규 그룹 (draft 순서) / Groups to POST, in draft order */
+  creates: DraftGroup[];
+  /** ② 변경 필드만 담은 기존 그룹 수정 / Changed fields per existing group to PUT */
+  updates: {
+    id: string;
+    data: { name?: string; numbering_mode?: "group" | "store"; number_range_start?: number | null };
+  }[];
+  /**
+   * ③ 변경 필드만 담은 매장 수정 — 필드 생략 = 미변경. target 은 tempId 일 수 있고,
+   * 매장당 PUT 1회에 두 필드가 함께 실릴 수 있다.
+   * Per-store PUTs carrying only changed fields (omitted = unchanged). target
+   * may be a tempId; one PUT per store can carry both fields.
+   */
+  moves: { storeId: string; target?: string | null; rangeStart?: number | null }[];
+  /** ④ 삭제할 기존 그룹 / Existing groups to DELETE */
+  deletes: string[];
+  /** ⑤ 순서 저장 필요 여부 / Whether a reorder PUT is needed */
+  reorder: boolean;
+  /** 최종 순서 (tempId 포함, 삭제 제외) / Final order (tempIds included, deleted excluded) */
+  finalOrder: string[];
+  /** 총 연산 수 = Save 버튼의 N / Total op count shown on the Save button */
+  count: number;
+}
+
+/**
+ * draft 와 서버 상태의 차이를 서버 연산 목록으로 계산. dirty 판정(count > 0)과
+ * Save 실행이 같은 계산을 공유하므로 버튼의 N 과 실제 적용이 항상 일치한다.
+ *
+ * Diff the draft against server state into a list of server ops. Dirty
+ * detection (count > 0) and Save share this computation, so the button's N
+ * always matches what gets applied.
+ */
+function computeGroupSaveOps(
+  draft: GroupsDraft,
+  serverGroups: StoreGroup[],
+  serverStores: Store[],
+): GroupSaveOps {
+  const deleted = new Set<string>(draft.deleted);
+  const serverById = new Map<string, StoreGroup>(serverGroups.map((g: StoreGroup) => [g.id, g]));
+
+  // 삭제 표시 제외 + 서버에서 이미 사라진 비-temp 행 제외 (부분 실패 후 Undo 잔재가
+  // reorder/영구 dirty 를 만들지 않게) / Drop deletion-marked rows and non-temp rows the
+  // server no longer has (leftovers after a partial failure must not keep us dirty)
+  const finalOrder: string[] = draft.order.filter(
+    (id: string) => !deleted.has(id) && (isTempGroupId(id) || serverById.has(id)),
+  );
+
+  const creates: DraftGroup[] = finalOrder
+    .filter(isTempGroupId)
+    .map((id: string) => draft.groups[id])
+    .filter((g): g is DraftGroup => g !== undefined);
+
+  const updates: GroupSaveOps["updates"] = [];
+  for (const id of finalOrder) {
+    const server = serverById.get(id);
+    const d = draft.groups[id];
+    if (!server || !d) continue;
+    const data: GroupSaveOps["updates"][number]["data"] = {};
+    const name: string = d.name.trim();
+    if (name && name !== server.name) data.name = name;
+    if (d.numbering_mode !== server.numbering_mode) data.numbering_mode = d.numbering_mode;
+    const range: number | null = parseRangeStart(d.rangeStart);
+    if (range !== (server.number_range_start ?? null)) data.number_range_start = range;
+    if (Object.keys(data).length > 0) updates.push({ id, data });
+  }
+
+  // 매장별 변경 합산 — 소속(group_id)과 번호대(number_range_start)를 매장당 PUT 1회로.
+  // 삭제 표시 그룹으로의 배정은 Ungrouped 로 해석하고, 삭제될 그룹에 그대로 남는 매장은
+  // 서버 DELETE 의 SET NULL 이 처리하므로 소속 PUT 을 만들지 않는다.
+  // Per-store diffs: group_id and number_range_start combine into one PUT per
+  // store. Deleted-marked targets resolve to null; stores simply left in a
+  // deleted group are covered by the server's SET NULL on DELETE (no group PUT).
+  const moves: GroupSaveOps["moves"] = [];
+  for (const store of serverStores) {
+    const rawOriginal: string | null = store.group_id ?? null;
+    // 서버에 없는 그룹을 가리키는 잔재는 Ungrouped 취급 / Stale refs count as ungrouped
+    const original: string | null =
+      rawOriginal != null && serverById.has(rawOriginal) ? rawOriginal : null;
+    const assigned = draft.storeAssign[store.id];
+    const raw: string | null = assigned === undefined ? original : assigned;
+    const effective: string | null = raw != null && deleted.has(raw) ? null : raw;
+    // 저장 불가능한 대상(서버에 없고 tempId 도 아님)으로의 배정은 계획에서 제외
+    // Unsavable targets (gone on the server, not a tempId) never become ops
+    const targetSavable: boolean =
+      effective == null || isTempGroupId(effective) || serverById.has(effective);
+    const groupChanged: boolean =
+      targetSavable &&
+      effective !== original &&
+      !(effective === null && rawOriginal != null && deleted.has(rawOriginal));
+
+    const rawRange: string | undefined = draft.storeRange[store.id];
+    const originalRange: number | null = store.number_range_start ?? null;
+    const desiredRange: number | null =
+      rawRange === undefined ? originalRange : parseRangeStart(rawRange);
+    const rangeChanged: boolean = desiredRange !== originalRange;
+
+    if (!groupChanged && !rangeChanged) continue;
+    const move: GroupSaveOps["moves"][number] = { storeId: store.id };
+    if (groupChanged) move.target = effective;
+    if (rangeChanged) move.rangeStart = desiredRange;
+    moves.push(move);
+  }
+
+  const deletes: string[] = draft.deleted.filter((id: string) => serverById.has(id));
+
+  // ①~④ 반영 후 서버가 갖게 될 순서(기존 상대 순서 + 신규 append)와 draft 순서 비교
+  // Order the server would hold after ①-④ (existing relative order + creations appended)
+  const expected: string[] = [
+    ...serverGroups.filter((g: StoreGroup) => !deleted.has(g.id)).map((g: StoreGroup) => g.id),
+    ...creates.map((g: DraftGroup) => g.id),
+  ];
+  const reorder: boolean =
+    finalOrder.length !== expected.length ||
+    finalOrder.some((v: string, i: number) => v !== expected[i]);
+
+  return {
+    creates,
+    updates,
+    moves,
+    deletes,
+    reorder,
+    finalOrder,
+    count: creates.length + updates.length + moves.length + deletes.length + (reorder ? 1 : 0),
+  };
+}
+
+/**
+ * 그룹 관리 모달의 드래그 가능한 그룹 행 — 모든 편집은 draft 콜백으로만 전달되고
+ * 서버 반영은 모달의 Save 가 일괄 처리한다 (행 자체는 아무것도 저장하지 않음).
+ *
+ * Sortable group row inside the Manage Groups modal. Every edit flows through
+ * draft callbacks only; the modal's Save commits the batch (the row itself
+ * never saves anything).
+ */
 function SortableGroupRow({
-  group,
+  draftGroup,
+  isNew,
+  isDeleted,
   members,
   candidates,
+  effectiveGroupIds,
   groupNamesById,
-  assignPending,
-  onUpdate,
+  storeRanges,
+  disabled,
+  onPatch,
   onDelete,
+  onUndoDelete,
   onRemoveStore,
   onAddStore,
+  onStoreRangeChange,
 }: {
-  group: StoreGroup;
-  /** 이 그룹 소속 매장 (칩 표시) / Stores currently in this group, shown as chips */
+  /** draft 상의 그룹 값 / Draft values for this row */
+  draftGroup: DraftGroup;
+  /** 신규(미생성) 그룹 — Save 시 생성 / Not yet created on the server */
+  isNew: boolean;
+  /** 삭제 표시 — Save 시 삭제, Undo 로 복구 / Marked for deletion (Undo restores) */
+  isDeleted: boolean;
+  /** draft 기준 이 그룹 소속 매장 (칩 표시) / Stores in this group per the draft */
   members: Store[];
-  /** 추가 가능한 매장 (미그룹 + 타그룹) / Stores addable to this group (ungrouped + other groups) */
+  /** 추가 가능한 매장 (draft 기준 미그룹 + 타그룹) / Stores addable per the draft */
   candidates: Store[];
-  /** "(current: 그룹명)" 라벨용 그룹명 맵 / Group id → name for option labels */
+  /** draft 기준 매장별 소속 그룹 — "(current: ...)" 라벨용 / Store id → effective draft group id */
+  effectiveGroupIds: Record<string, string | null>;
+  /** 미삭제 그룹의 draft 이름 맵 / Draft names of surviving groups */
   groupNamesById: Record<string, string>;
-  /** 매장 이동 저장 중 — select 잠금 / A store assignment is saving (locks the select) */
-  assignPending: boolean;
-  /** 저장 시도 — 성공 여부 반환 (실패 시 로컬 값 복원용) / Attempt save, resolves success (false → revert local edit) */
-  onUpdate: (data: {
-    name?: string;
-    numbering_mode?: "group" | "store";
-    number_range_start?: number | null;
-  }) => Promise<boolean>;
+  /** 매장별 number_range_start raw 입력 (draft) / Raw per-store range inputs from the draft */
+  storeRanges: Record<string, string>;
+  /** 저장 중 — 조작 전체 잠금 / Saving in progress, all controls locked */
+  disabled: boolean;
+  /** draft 필드 갱신 / Patch draft fields */
+  onPatch: (fields: Partial<Omit<DraftGroup, "id">>) => void;
+  /** 삭제 표시 (즉시 삭제 아님) / Mark for deletion (not immediate) */
   onDelete: () => void;
-  /** 칩 × — 그룹에서 제거 / Remove a store from this group */
+  onUndoDelete: () => void;
+  /** 칩 × — 그룹에서 제거 (draft) / Remove a store from this group in the draft */
   onRemoveStore: (store: Store) => void;
-  /** select 선택 — 그룹에 추가 / Add a store to this group */
+  /** select 선택 — 그룹에 추가 (draft) / Add a store to this group in the draft */
   onAddStore: (store: Store) => void;
+  /** Per-store 모드의 매장별 번호대 입력 갱신 (draft) / Update one store's raw range input */
+  onStoreRangeChange: (storeId: string, value: string) => void;
 }): React.ReactElement {
   const {
     attributes,
@@ -229,48 +468,11 @@ function SortableGroupRow({
     transform,
     transition,
     isDragging,
-  } = useSortable({ id: group.id });
+  } = useSortable({ id: draftGroup.id, disabled: disabled || isDeleted });
 
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
-  };
-
-  /** 인라인 편집 로컬 상태 — 저장 성공 시 서버 값으로 재동기화 / Local inline-edit state, re-synced from server values */
-  const [name, setName] = useState<string>(group.name);
-  const [rangeStart, setRangeStart] = useState<string>(
-    group.number_range_start != null ? String(group.number_range_start) : "",
-  );
-  useEffect(() => {
-    setName(group.name);
-  }, [group.name]);
-  useEffect(() => {
-    setRangeStart(group.number_range_start != null ? String(group.number_range_start) : "");
-  }, [group.number_range_start]);
-
-  /** 이름 커밋 (blur/Enter) — 저장 실패 시 서버 값 복원 / Commit name edit, revert on failed save */
-  const commitName = (): void => {
-    const trimmed: string = name.trim();
-    if (!trimmed) {
-      setName(group.name);
-      return;
-    }
-    if (trimmed !== group.name) {
-      void onUpdate({ name: trimmed }).then((ok) => {
-        if (!ok) setName(group.name);
-      });
-    }
-  };
-
-  /** 시작 번호 커밋 (blur/Enter, 빈값 = null) — 저장 실패 시 서버 값 복원 / Commit range-start edit (empty = null), revert on failed save */
-  const commitRangeStart = (): void => {
-    const parsed: number | null = parseRangeStart(rangeStart);
-    setRangeStart(parsed != null ? String(parsed) : "");
-    if (parsed !== (group.number_range_start ?? null)) {
-      void onUpdate({ number_range_start: parsed }).then((ok) => {
-        if (!ok) setRangeStart(group.number_range_start != null ? String(group.number_range_start) : "");
-      });
-    }
   };
 
   const blurOnEnter = (e: React.KeyboardEvent<HTMLInputElement>): void => {
@@ -279,6 +481,38 @@ function SortableGroupRow({
       e.currentTarget.blur();
     }
   };
+
+  const displayName: string = draftGroup.name.trim() || "Untitled group";
+  /** Per-store 채번 모드 — 매장 칩마다 번호대 입력 노출 / Per-store numbering shows a range input per chip */
+  const perStore: boolean = draftGroup.numbering_mode === "store";
+  const groupRangeBad: boolean = !isValidRangeInput(draftGroup.rangeStart);
+
+  // 삭제 표시 행 — 편집 대신 Undo 만 제공 (Save 전까지 복구 가능, 실수 방지)
+  // Deletion-marked row: no editing, just Undo until Save (mistake-proofing)
+  if (isDeleted) {
+    return (
+      <div
+        ref={setNodeRef}
+        style={style}
+        className="rounded-lg bg-surface border border-danger/40 px-3 py-2"
+      >
+        <div className="flex items-center gap-2">
+          <span className="flex-1 min-w-0 truncate px-2 py-1 text-sm text-text-muted line-through">
+            {displayName}
+          </span>
+          <span className="text-xs text-danger shrink-0">Will be deleted on save</span>
+          <button
+            type="button"
+            onClick={onUndoDelete}
+            disabled={disabled}
+            className="shrink-0 rounded-md border border-border px-2.5 py-1 text-xs text-text hover:bg-surface-hover transition-colors disabled:opacity-50"
+          >
+            Undo
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div
@@ -289,8 +523,9 @@ function SortableGroupRow({
       <div className="flex items-center gap-2">
         <button
           type="button"
-          className="cursor-grab active:cursor-grabbing text-text-muted hover:text-text transition-colors touch-none shrink-0"
+          className="cursor-grab active:cursor-grabbing text-text-muted hover:text-text transition-colors touch-none shrink-0 disabled:opacity-50"
           aria-label="Drag to reorder"
+          disabled={disabled}
           {...attributes}
           {...listeners}
         >
@@ -298,21 +533,23 @@ function SortableGroupRow({
         </button>
         <input
           type="text"
-          value={name}
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
-          onBlur={commitName}
+          value={draftGroup.name}
+          disabled={disabled}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => onPatch({ name: e.target.value })}
           onKeyDown={blurOnEnter}
-          aria-label={`Group name for ${group.name}`}
-          className="flex-1 min-w-0 rounded-md border border-transparent bg-transparent px-2 py-1 text-sm text-text hover:border-border focus:border-accent focus:bg-surface focus:outline-none focus:ring-2 focus:ring-accent/50 transition-colors"
+          aria-label={`Group name for ${displayName}`}
+          className="flex-1 min-w-0 rounded-md border border-transparent bg-transparent px-2 py-1 text-sm text-text hover:border-border focus:border-accent focus:bg-surface focus:outline-none focus:ring-2 focus:ring-accent/50 transition-colors disabled:opacity-50"
         />
+        {isNew && <Badge variant="accent">New</Badge>}
         <span className="text-xs text-text-muted shrink-0">
-          {group.store_count} {group.store_count === 1 ? "store" : "stores"}
+          {members.length} {members.length === 1 ? "store" : "stores"}
         </span>
         <button
           type="button"
           onClick={onDelete}
-          className="p-1.5 rounded-md text-text-muted hover:text-danger hover:bg-danger-muted transition-colors shrink-0"
-          aria-label={`Delete group ${group.name}`}
+          disabled={disabled}
+          className="p-1.5 rounded-md text-text-muted hover:text-danger hover:bg-danger-muted transition-colors shrink-0 disabled:opacity-50"
+          aria-label={`Delete group ${displayName}`}
         >
           <Trash2 className="h-4 w-4" />
         </button>
@@ -323,11 +560,12 @@ function SortableGroupRow({
             <button
               key={mode}
               type="button"
+              disabled={disabled}
               onClick={() => {
-                if (group.numbering_mode !== mode) void onUpdate({ numbering_mode: mode });
+                if (draftGroup.numbering_mode !== mode) onPatch({ numbering_mode: mode });
               }}
-              className={`px-2.5 py-1 text-xs transition-colors ${
-                group.numbering_mode === mode
+              className={`px-2.5 py-1 text-xs transition-colors disabled:opacity-50 ${
+                draftGroup.numbering_mode === mode
                   ? "bg-accent-muted text-accent font-medium"
                   : "text-text-muted hover:text-text hover:bg-surface-hover"
               }`}
@@ -337,66 +575,116 @@ function SortableGroupRow({
           ))}
         </div>
         <label className="flex items-center gap-1.5 text-xs text-text-muted">
-          Range start
+          {/* Per-store 모드에선 매장 미설정 시 폴백이라 "Default range" / Fallback label in per-store mode */}
+          {perStore ? "Default range" : "Range start"}
           <input
             type="number"
             min={1}
-            value={rangeStart}
+            value={draftGroup.rangeStart}
             placeholder="Default"
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRangeStart(e.target.value)}
-            onBlur={commitRangeStart}
+            disabled={disabled}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              onPatch({ rangeStart: e.target.value })
+            }
             onKeyDown={blurOnEnter}
-            aria-label={`Number range start for ${group.name}`}
-            className="w-20 rounded-md border border-border bg-surface px-2 py-1 text-xs text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent"
+            aria-label={`Number range start for ${displayName}`}
+            aria-invalid={groupRangeBad || undefined}
+            className={`w-20 rounded-md border bg-surface px-2 py-1 text-xs text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent disabled:opacity-50 ${groupRangeBad ? "border-danger" : "border-border"}`}
           />
         </label>
+        {groupRangeBad && (
+          <span className="text-xs text-danger">Whole number of 1 or more.</span>
+        )}
       </div>
-      {/* 소속 매장 칩 + 추가 select / Member store chips + add-store select */}
+      {/* 소속 매장 칩 + 추가 select — draft 만 갱신. Per-store 모드에선 칩마다 번호대
+          입력을 노출 (Shared 모드에선 숨김 — 값은 draft 에 보존) / Member chips +
+          add-store select (draft only); per-store mode adds a range input per chip
+          (hidden in shared mode, values kept in the draft) */}
       <div className="mt-2 flex flex-wrap items-center gap-1.5 pl-7">
-        {members.map((store: Store) => (
-          <span
-            key={store.id}
-            className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2 py-0.5 text-xs text-text-secondary"
-          >
-            {store.name}
-            <button
-              type="button"
-              onClick={() => onRemoveStore(store)}
-              className="p-0.5 text-text-muted hover:text-danger transition-colors"
-              aria-label={`Remove ${store.name} from ${group.name}`}
+        {members.map((store: Store) => {
+          const rawRange: string = storeRanges[store.id] ?? "";
+          const rangeBad: boolean = perStore && !isValidRangeInput(rawRange);
+          return (
+            <span
+              key={store.id}
+              className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2 py-0.5 text-xs text-text-secondary"
             >
-              <X className="h-3 w-3" />
-            </button>
-          </span>
-        ))}
+              {store.name}
+              {perStore && (
+                <label className="ml-1 flex items-center gap-1 text-text-muted">
+                  Range
+                  <input
+                    type="number"
+                    min={1}
+                    value={rawRange}
+                    placeholder="—"
+                    disabled={disabled}
+                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                      onStoreRangeChange(store.id, e.target.value)
+                    }
+                    onKeyDown={blurOnEnter}
+                    aria-label={`Number range start for ${store.name}`}
+                    aria-invalid={rangeBad || undefined}
+                    className={`w-16 rounded-md border bg-surface px-1.5 py-0.5 text-xs text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent disabled:opacity-50 ${rangeBad ? "border-danger" : "border-border"}`}
+                  />
+                </label>
+              )}
+              <button
+                type="button"
+                onClick={() => onRemoveStore(store)}
+                disabled={disabled}
+                className="p-0.5 text-text-muted hover:text-danger transition-colors disabled:opacity-50"
+                aria-label={`Remove ${store.name} from ${displayName}`}
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          );
+        })}
         {members.length === 0 && (
           <span className="text-xs text-text-muted">No stores in this group yet.</span>
         )}
         <select
           value=""
-          disabled={assignPending || candidates.length === 0}
+          disabled={disabled || candidates.length === 0}
           onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
             const store = candidates.find((s: Store) => s.id === e.target.value);
             if (store) onAddStore(store);
           }}
-          aria-label={`Add store to ${group.name}`}
+          aria-label={`Add store to ${displayName}`}
           className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-text focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent disabled:opacity-50"
         >
           <option value="">Add store...</option>
-          {candidates.map((store: Store) => (
-            <option key={store.id} value={store.id}>
-              {store.group_id && groupNamesById[store.group_id]
-                ? `${store.name} (current: ${groupNamesById[store.group_id]})`
-                : store.name}
-            </option>
-          ))}
+          {candidates.map((store: Store) => {
+            const currentId: string | null = effectiveGroupIds[store.id] ?? null;
+            return (
+              <option key={store.id} value={store.id}>
+                {currentId && groupNamesById[currentId]
+                  ? `${store.name} (current: ${groupNamesById[currentId]})`
+                  : store.name}
+              </option>
+            );
+          })}
         </select>
       </div>
+      {perStore && members.some((s: Store) => !isValidRangeInput(storeRanges[s.id] ?? "")) && (
+        <p className="mt-1 pl-7 text-xs text-danger">
+          Store range must be a whole number of 1 or more.
+        </p>
+      )}
     </div>
   );
 }
 
-/** 그룹 관리 모달 — 목록 정렬/이름 수정/모드 토글/삭제/추가 / Manage Groups modal */
+/**
+ * 그룹 관리 모달 — 이름/채번 모드/번호대/순서/매장 편성/그룹 추가/삭제를 draft 에
+ * 쌓고 Save 로 일괄 적용 (① 생성 → ② 수정 → ③ 편성 → ④ 삭제 → ⑤ 순서),
+ * Cancel/ESC/backdrop 은 dirty 면 확인 후 폐기한다.
+ *
+ * Manage Groups modal. All edits accumulate in a local draft and commit on
+ * Save (create → update → reassign → delete → reorder); Cancel/ESC/backdrop
+ * discards after confirmation when dirty.
+ */
 function ManageGroupsModal({
   isOpen,
   onClose,
@@ -405,21 +693,27 @@ function ManageGroupsModal({
   onClose: () => void;
 }): React.ReactElement {
   const modal = useModal();
+  const { success } = useMutationToast();
   const queryClient = useQueryClient();
   const { data: groups, isLoading } = useStoreGroups();
   // 그룹별 매장 칩/추가 select 용 — 기본 뷰(closed 제외), 페이지와 ["stores"] 캐시 공유
   const { data: stores } = useStores();
-  // silent — 인라인 저장마다 결과 모달이 뜨지 않도록, 에러는 아래서 직접 표시 (handleCreate 패턴)
+  // 전부 silent + mutateAsync — per-op 모달/토스트 없이 Save 흐름이 결과를 직접 표시
   const createGroup = useCreateStoreGroup({ silent: true });
   const updateGroup = useUpdateStoreGroup({ silent: true });
-  const deleteGroup = useDeleteStoreGroup();
-  const reorderGroups = useReorderStoreGroups();
-  // 그룹 편성/해제는 반복 호출이라 silent — 실패는 handleAssignStore 의 catch 가 처리.
+  const deleteGroup = useDeleteStoreGroup({ silent: true });
+  const reorderGroups = useReorderStoreGroups({ silent: true });
   const updateStore = useUpdateStore({ silent: true });
 
   const [newName, setNewName] = useState<string>("");
-  /** 그룹별 EMPID 중복 경고 (group.id 키) — 다른 그룹 저장에 덮이지 않음 / Per-group duplicate-EMPID warnings keyed by group id */
+  /** 그룹별 EMPID 중복 경고 (실제 group id 키) / Per-group duplicate-EMPID warnings keyed by real group id */
   const [dupWarnings, setDupWarnings] = useState<Record<string, { groupName: string; count: number }>>({});
+  /** 모달 안의 모든 편집이 쌓이는 draft — null 이면 서버 데이터로 (재)초기화 대기 / Local draft; null = awaiting (re)init */
+  const [draft, setDraft] = useState<GroupsDraft | null>(null);
+  /** Save 진행 중 — 모달 전체 잠금 / Save in flight, whole modal locked */
+  const [isSaving, setIsSaving] = useState<boolean>(false);
+  /** 신규 그룹 tempId 카운터 / tempId counter for new groups */
+  const tempIdCounter = useRef(0);
 
   const groupList: StoreGroup[] = useMemo(
     () =>
@@ -433,150 +727,337 @@ function ManageGroupsModal({
     [stores],
   );
 
-  /** "(current: 그룹명)" 라벨용 그룹명 맵 / Group id → name for add-select labels */
-  const groupNamesById: Record<string, string> = useMemo(
-    () => Object.fromEntries(groupList.map((g: StoreGroup) => [g.id, g.name])),
-    [groupList],
+  // 모달 오픈 시 draft 리셋 — 아래 초기화 effect 가 서버 데이터로 채움
+  // Reset the draft when the modal opens; the init effect below refills it
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (isOpen && !wasOpen.current) {
+      setDraft(null);
+      setNewName("");
+    }
+    wasOpen.current = isOpen;
+  }, [isOpen]);
+
+  useEffect(() => {
+    if (isOpen && draft === null && Array.isArray(groups) && Array.isArray(stores)) {
+      setDraft(buildGroupsDraft(groupList, storeList));
+    }
+  }, [isOpen, draft, groups, stores, groupList, storeList]);
+
+  /** 적용될 서버 연산 계획 — footer 의 (N) 과 Save 가 공유 / Planned ops (footer count + Save) */
+  const ops: GroupSaveOps | null = useMemo(
+    () => (draft ? computeGroupSaveOps(draft, groupList, storeList) : null),
+    [draft, groupList, storeList],
   );
+  /** dirty = 적용될 서버 연산이 1개 이상 / Dirty when at least one server op would apply */
+  const dirty: boolean = (ops?.count ?? 0) > 0;
+
+  /**
+   * 무효 번호대 입력 존재 여부 — 그룹(미삭제 행) + 매장 전부. parseRangeStart 가 무효
+   * 입력을 조용히 null 로 저장해 버리지 않도록 Save 를 막는다 (인라인 경고와 짝).
+   * Any invalid range input across surviving group rows and all stores. Blocks
+   * Save so parseRangeStart never silently persists an invalid entry as null.
+   */
+  const invalidRanges: boolean = useMemo(() => {
+    if (!draft) return false;
+    const deleted = new Set<string>(draft.deleted);
+    const badGroup: boolean = draft.order.some(
+      (id: string) => !deleted.has(id) && !isValidRangeInput(draft.groups[id]?.rangeStart ?? ""),
+    );
+    const badStore: boolean = Object.values(draft.storeRange).some(
+      (v: string) => !isValidRangeInput(v),
+    );
+    return badGroup || badStore;
+  }, [draft]);
+
+  /** draft 기준 매장별 소속 그룹 (삭제 표시 그룹 소속 → Ungrouped) / Effective store→group per draft */
+  const effectiveGroupIds: Record<string, string | null> = useMemo(() => {
+    if (!draft) return {};
+    const deleted = new Set<string>(draft.deleted);
+    const result: Record<string, string | null> = {};
+    for (const store of storeList) {
+      const assigned = draft.storeAssign[store.id];
+      const raw: string | null = assigned === undefined ? (store.group_id ?? null) : assigned;
+      result[store.id] = raw != null && deleted.has(raw) ? null : raw;
+    }
+    return result;
+  }, [draft, storeList]);
+
+  /** "(current: 그룹명)" 라벨용 — 미삭제 그룹의 draft 이름 / Surviving groups' draft names for labels */
+  const groupNamesById: Record<string, string> = useMemo(() => {
+    if (!draft) return {};
+    const deleted = new Set<string>(draft.deleted);
+    return Object.fromEntries(
+      draft.order
+        .filter((id: string) => !deleted.has(id))
+        .map((id: string) => [id, draft.groups[id]?.name.trim() || "Untitled group"]),
+    );
+  }, [draft]);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
   );
 
-  /** 그룹 드래그 정렬 / Group drag-and-drop reorder */
-  const handleDragEnd = useCallback(
-    (event: DragEndEvent): void => {
-      const { active, over } = event;
-      if (!over || active.id === over.id) return;
-      const ids: string[] = groupList.map((g) => g.id);
-      const oldIndex: number = ids.indexOf(String(active.id));
-      const newIndex: number = ids.indexOf(String(over.id));
-      if (oldIndex === -1 || newIndex === -1) return;
-      reorderGroups.mutate(arrayMove(ids, oldIndex, newIndex));
-    },
-    [groupList, reorderGroups],
-  );
+  /** 그룹 드래그 정렬 — draft 순서만 변경 / Drag reorder (draft only) */
+  const handleDragEnd = useCallback((event: DragEndEvent): void => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    setDraft((prev) => {
+      if (!prev) return prev;
+      const oldIndex: number = prev.order.indexOf(String(active.id));
+      const newIndex: number = prev.order.indexOf(String(over.id));
+      if (oldIndex === -1 || newIndex === -1) return prev;
+      return { ...prev, order: arrayMove(prev.order, oldIndex, newIndex) };
+    });
+  }, []);
 
-  /** 그룹 저장 — 해당 그룹의 EMPID 중복 경고만 갱신, 성공 여부 반환 / Save group, refresh only its warning, return success */
-  const handleUpdate = useCallback(
-    async (
-      group: StoreGroup,
-      data: {
-        name?: string;
-        numbering_mode?: "group" | "store";
-        number_range_start?: number | null;
-      },
-    ): Promise<boolean> => {
-      try {
-        const updated = await updateGroup.mutateAsync({ id: group.id, ...data });
-        setDupWarnings((prev) => {
-          const next = { ...prev };
-          if (updated.duplicate_empids.length > 0) {
-            next[group.id] = { groupName: updated.name, count: updated.duplicate_empids.length };
-          } else {
-            delete next[group.id];
-          }
-          return next;
-        });
-        return true;
-      } catch (err) {
-        void modal.alert({ type: "error", message: parseApiError(err, "Couldn't update group") });
-        return false;
-      }
-    },
-    [updateGroup, modal],
-  );
+  /** draft 그룹 필드 갱신 / Patch one draft group's fields */
+  const patchGroup = useCallback((id: string, fields: Partial<Omit<DraftGroup, "id">>): void => {
+    setDraft((prev) => {
+      const current = prev?.groups[id];
+      if (!prev || !current) return prev;
+      return { ...prev, groups: { ...prev.groups, [id]: { ...current, ...fields } } };
+    });
+  }, []);
 
-  /**
-   * 매장을 그룹에 추가(group 지정)/제거(null) — 성공 시 stores/store-groups 재조회,
-   * 추가 시 응답의 duplicate_empids 로 대상 그룹의 EMPID 중복 경고 갱신 (handleUpdate 패턴).
-   *
-   * Move a store into a group (or out with null). Refreshes stores/store-groups
-   * on success; on add, refreshes the target group's duplicate-EMPID warning
-   * from the response (same pattern as handleUpdate).
-   */
-  const handleAssignStore = useCallback(
-    async (store: Store, group: StoreGroup | null): Promise<void> => {
-      const prevGroupId = store.group_id ?? null;
-      try {
-        const updated = await updateStore.mutateAsync({
-          id: store.id,
-          group_id: group ? group.id : null,
-        });
-        queryClient.invalidateQueries({ queryKey: ["stores"] });
-        queryClient.invalidateQueries({ queryKey: ["store-groups"] });
-        setDupWarnings((prev) => {
-          const next = { ...prev };
-          // 매장이 빠진 그룹은 중복이 늘 수 없다 — 이전 그룹의 남은 경고 제거.
-          // A store leaving a group can't add duplicates there — drop its stale warning.
-          if (prevGroupId && prevGroupId !== (group?.id ?? null)) {
-            delete next[prevGroupId];
-          }
-          if (group) {
-            const dupes = updated.duplicate_empids ?? [];
-            if (dupes.length > 0) {
-              next[group.id] = { groupName: group.name, count: dupes.length };
-            } else {
-              delete next[group.id];
-            }
-          }
-          return next;
-        });
-      } catch (err) {
-        // silent 훅이라 여기서 직접 에러 표시 / silent hook — surface the error here
-        void modal.alert({ type: "error", message: parseApiError(err, "Couldn't move store") });
-      }
-    },
-    [updateStore, queryClient, modal],
-  );
+  /** 삭제 표시 — Save 전까지 Undo 가능 (실수 방지) / Mark for deletion, undoable until Save */
+  const markDeleted = useCallback((id: string): void => {
+    setDraft((prev) =>
+      prev && !prev.deleted.includes(id) ? { ...prev, deleted: [...prev.deleted, id] } : prev,
+    );
+  }, []);
 
-  /** 그룹 추가 / Add a new group */
-  const handleAdd = useCallback(async (): Promise<void> => {
+  const undoDelete = useCallback((id: string): void => {
+    setDraft((prev) =>
+      prev ? { ...prev, deleted: prev.deleted.filter((d: string) => d !== id) } : prev,
+    );
+  }, []);
+
+  /** 매장 편성 변경 (null = Ungrouped) — draft 만 / Reassign a store in the draft */
+  const assignStore = useCallback((storeId: string, groupId: string | null): void => {
+    setDraft((prev) =>
+      prev ? { ...prev, storeAssign: { ...prev.storeAssign, [storeId]: groupId } } : prev,
+    );
+  }, []);
+
+  /** 매장별 번호대 raw 입력 갱신 — draft 만 / Update one store's raw range input in the draft */
+  const setStoreRange = useCallback((storeId: string, value: string): void => {
+    setDraft((prev) =>
+      prev ? { ...prev, storeRange: { ...prev.storeRange, [storeId]: value } } : prev,
+    );
+  }, []);
+
+  /** 그룹 추가 — tempId 로 draft 에만 추가, POST 는 Save 에서 / Add a group to the draft only */
+  const handleAdd = useCallback((): void => {
     const trimmed: string = newName.trim();
     if (!trimmed) return;
-    try {
-      await createGroup.mutateAsync({ name: trimmed });
-      setNewName("");
-    } catch (err) {
-      void modal.alert({ type: "error", message: parseApiError(err, "Couldn't create group") });
-    }
-  }, [newName, createGroup, modal]);
+    tempIdCounter.current += 1;
+    const tempId: string = `${TEMP_GROUP_ID_PREFIX}${tempIdCounter.current}`;
+    setDraft((prev) =>
+      prev
+        ? {
+            ...prev,
+            groups: {
+              ...prev.groups,
+              [tempId]: { id: tempId, name: trimmed, numbering_mode: "group", rangeStart: "" },
+            },
+            order: [...prev.order, tempId],
+          }
+        : prev,
+    );
+    setNewName("");
+  }, [newName]);
 
-  /** 그룹 삭제 — 매장은 Ungrouped 로 이동 / Delete group (stores become ungrouped) */
-  const handleDelete = useCallback(
-    async (group: StoreGroup): Promise<void> => {
-      const ok = await modal.confirm({
-        title: "Delete group",
-        message:
-          `Delete "${group.name}"? Its ${group.store_count} ${group.store_count === 1 ? "store" : "stores"} will move to Ungrouped. ` +
-          `Stores themselves are not deleted.`,
-        confirmLabel: "Delete",
-        variant: "danger",
-      });
-      if (!ok) return;
+  /** 폐기 확인 모달 표시 중 재진입 방지 (ESC 연타 등) / Guards re-entrant discard confirms (e.g. ESC mashing) */
+  const confirmingRef = useRef(false);
+
+  /** 닫기 요청 — dirty 면 폐기 확인, 저장/확인 중엔 무시 / Close request (confirm when dirty; ignored while saving or already confirming) */
+  const requestClose = useCallback(async (): Promise<void> => {
+    if (isSaving || confirmingRef.current) return;
+    if (dirty) {
+      confirmingRef.current = true;
       try {
-        await deleteGroup.mutateAsync(group.id);
-        // 사라진 그룹의 경고 제거 / Drop the deleted group's warning
-        setDupWarnings((prev) => {
-          const next = { ...prev };
-          delete next[group.id];
-          return next;
+        const ok = await modal.confirm({
+          title: "Discard changes",
+          message: "Discard unsaved changes?",
+          confirmLabel: "Discard",
+          variant: "danger",
         });
-      } catch {
-        // hook 이 자동으로 에러 모달
+        if (!ok) return;
+      } finally {
+        confirmingRef.current = false;
       }
-    },
-    [modal, deleteGroup],
-  );
+    }
+    onClose();
+  }, [isSaving, dirty, modal, onClose]);
+
+  /**
+   * Save — 계획된 연산을 ① 생성 → ② 수정 → ③ 매장 편성 → ④ 삭제 → ⑤ 순서로 순차
+   * 적용. 실패 시 그 지점에서 중단: 이미 생성된 그룹은 draft 의 tempId 를 실제 id 로
+   * 치환해 재시도가 중복 생성하지 않게 하고, 캐시를 무효화해 서버 상태로 재동기화한다
+   * (모달은 유지). 전부 성공 시 ②③ 응답의 duplicate_empids 로 경고를 갱신하고 캐시
+   * 무효화 + draft 재초기화(모달 유지, 경고 배너 확인 가능) + 성공 안내 1회.
+   *
+   * Save applies the planned ops in order (create → update → reassign →
+   * delete → reorder), stopping at the first failure: already-created groups
+   * get their tempIds remapped in the draft so a retry can't create
+   * duplicates, and caches are invalidated to resync (modal stays open). On
+   * full success, duplicate-EMPID warnings update from the ②③ responses,
+   * caches invalidate, and the draft re-initializes with the modal kept open.
+   */
+  const handleSave = useCallback(async (): Promise<void> => {
+    if (!draft || !ops || ops.count === 0 || isSaving || invalidRanges) return;
+    // 빈 이름은 서버 요청 전에 차단 / Block empty names before any request
+    const unnamed: string[] = ops.finalOrder.filter((id: string) => !draft.groups[id]?.name.trim());
+    if (unnamed.length > 0) {
+      void modal.alert({
+        type: "error",
+        message: "Every group needs a name. Fill in the blank group name and save again.",
+      });
+      return;
+    }
+    setIsSaving(true);
+    /** tempId → 생성된 실제 id / tempId → created real id */
+    const tempIdMap: Record<string, string> = {};
+    const realId = (id: string): string => tempIdMap[id] ?? id;
+    /** ②③ 응답으로 모으는 경고 변화 (null = 해제) / Warning changes from ②③ (null clears) */
+    const warningChanges: Record<string, { groupName: string; count: number } | null> = {};
+    try {
+      // ① 신규 그룹 생성 — tempId 매핑 확보 / Create new groups, capture id mapping
+      for (const g of ops.creates) {
+        const created = await createGroup.mutateAsync({
+          name: g.name.trim(),
+          numbering_mode: g.numbering_mode,
+          number_range_start: parseRangeStart(g.rangeStart),
+        });
+        tempIdMap[g.id] = created.id;
+      }
+      // ② 기존 그룹 변경분 — 변경 필드만 / Update changed fields of existing groups
+      for (const u of ops.updates) {
+        const updated = await updateGroup.mutateAsync({ id: u.id, ...u.data });
+        warningChanges[u.id] =
+          updated.duplicate_empids.length > 0
+            ? { groupName: updated.name, count: updated.duplicate_empids.length }
+            : null;
+      }
+      // ③ 매장 수정 — 변경 필드(group_id/number_range_start)만 담아 매장당 PUT 1회,
+      // tempId 는 ① 매핑으로 해석 / Per-store PUTs carrying only the changed fields
+      // (group_id and/or number_range_start); tempIds resolved via ①
+      for (const m of ops.moves) {
+        const targetId: string | null = m.target != null ? realId(m.target) : null;
+        const data: { group_id?: string | null; number_range_start?: number | null } = {};
+        if (m.target !== undefined) data.group_id = targetId;
+        if (m.rangeStart !== undefined) data.number_range_start = m.rangeStart;
+        const updated = await updateStore.mutateAsync({ id: m.storeId, ...data });
+        // EMPID 중복 경고 갱신은 편성(group_id)이 바뀐 매장에만 해당 / Duplicate-EMPID
+        // warning updates only apply to moves that changed group_id
+        if (m.target !== undefined) {
+          // 매장이 빠진 그룹은 중복이 늘 수 없다 — 이전 그룹의 남은 경고 해제
+          // A store leaving a group can't add duplicates there — drop its stale warning
+          const prevGroupId: string | null =
+            storeList.find((s: Store) => s.id === m.storeId)?.group_id ?? null;
+          if (prevGroupId && prevGroupId !== targetId && !(prevGroupId in warningChanges)) {
+            warningChanges[prevGroupId] = null;
+          }
+          if (targetId != null && m.target != null) {
+            const dupes = updated.duplicate_empids ?? [];
+            const groupName: string = draft.groups[m.target]?.name.trim() || "Group";
+            warningChanges[targetId] =
+              dupes.length > 0 ? { groupName, count: dupes.length } : null;
+          }
+        }
+      }
+      // ④ 그룹 삭제 — 남은 소속 매장은 서버가 SET NULL / Delete groups (server SET NULLs members)
+      for (const id of ops.deletes) {
+        await deleteGroup.mutateAsync(id);
+        warningChanges[id] = null;
+      }
+      // ⑤ 순서 저장 — 실제 id 순서 / Persist the final order with real ids
+      if (ops.reorder) {
+        await reorderGroups.mutateAsync(ops.finalOrder.map(realId));
+      }
+      // 전부 성공 — 경고 반영, 서버 재동기화, draft 재초기화 (모달은 열린 채 유지)
+      // All succeeded: apply warnings, resync, re-init draft (modal stays open)
+      setDupWarnings((prev) => {
+        const next = { ...prev };
+        for (const [gid, warning] of Object.entries(warningChanges)) {
+          if (warning) next[gid] = warning;
+          else delete next[gid];
+        }
+        return next;
+      });
+      // refetch 완료를 기다린 뒤에 draft 를 비워야 초기화 effect 가 stale 캐시로
+      // 재초기화하지 않는다 (팬텀 dirty 방지) / Await the refetches before clearing the
+      // draft so the init effect never rebuilds from a stale cache (phantom dirty)
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["stores"] }),
+        queryClient.invalidateQueries({ queryKey: ["store-groups"] }),
+      ]);
+      setDraft(null); // 초기화 effect 가 최신 캐시로 다시 채움 / init effect refills from fresh cache
+      success("Groups saved.");
+    } catch (err) {
+      // 실패 지점에서 중단 — 생성 완료분의 tempId 를 실제 id 로 치환 (재시도 시 중복 생성 방지)
+      // Stop at the failure point; remap created tempIds so a retry can't duplicate them
+      if (Object.keys(tempIdMap).length > 0) {
+        setDraft((prev) => {
+          if (!prev) return prev;
+          return {
+            groups: Object.fromEntries(
+              Object.values(prev.groups).map((g: DraftGroup) => [
+                realId(g.id),
+                { ...g, id: realId(g.id) },
+              ]),
+            ),
+            order: prev.order.map(realId),
+            deleted: prev.deleted.map(realId),
+            storeAssign: Object.fromEntries(
+              Object.entries(prev.storeAssign).map(([sid, gid]) => [
+                sid,
+                gid != null ? realId(gid) : null,
+              ]),
+            ),
+            // storeRange 는 storeId 키라 remap 불필요 / Keyed by store id, no remap needed
+            storeRange: prev.storeRange,
+          };
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: ["stores"] });
+      queryClient.invalidateQueries({ queryKey: ["store-groups"] });
+      void modal.alert({
+        type: "error",
+        title: "Couldn't save all changes",
+        message: parseApiError(err, "Something went wrong while saving."),
+        details: [
+          "Changes applied before the error were kept. The rest are still here — review and save again.",
+        ],
+      });
+    } finally {
+      setIsSaving(false);
+    }
+  }, [
+    draft,
+    ops,
+    isSaving,
+    invalidRanges,
+    createGroup,
+    updateGroup,
+    updateStore,
+    deleteGroup,
+    reorderGroups,
+    storeList,
+    queryClient,
+    modal,
+    success,
+  ]);
 
   return (
     <Modal
       isOpen={isOpen}
-      onClose={onClose}
+      onClose={() => void requestClose()}
       title="Manage Groups"
       size="lg"
-      closeOnBackdrop={false}
+      closeOnBackdrop
     >
       <div className="space-y-4">
         {Object.entries(dupWarnings).map(([groupId, warning]) => (
@@ -588,35 +1069,42 @@ function ManageGroupsModal({
             {duplicateEmpidMessage(warning.count)}
           </div>
         ))}
-        {isLoading ? (
+        {isLoading || !draft ? (
           <div className="flex items-center justify-center py-8">
             <LoadingSpinner />
           </div>
-        ) : groupList.length === 0 ? (
+        ) : draft.order.length === 0 ? (
           <p className="py-4 text-center text-sm text-text-muted">
             No groups yet. Add one below to organize stores into sections.
           </p>
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-            <SortableContext
-              items={groupList.map((g) => g.id)}
-              strategy={verticalListSortingStrategy}
-            >
+            <SortableContext items={draft.order} strategy={verticalListSortingStrategy}>
               <div className="space-y-2">
-                {groupList.map((group: StoreGroup) => (
-                  <SortableGroupRow
-                    key={group.id}
-                    group={group}
-                    members={storeList.filter((s: Store) => (s.group_id ?? null) === group.id)}
-                    candidates={storeList.filter((s: Store) => (s.group_id ?? null) !== group.id)}
-                    groupNamesById={groupNamesById}
-                    assignPending={updateStore.isPending}
-                    onUpdate={(data) => handleUpdate(group, data)}
-                    onDelete={() => void handleDelete(group)}
-                    onRemoveStore={(store: Store) => void handleAssignStore(store, null)}
-                    onAddStore={(store: Store) => void handleAssignStore(store, group)}
-                  />
-                ))}
+                {draft.order.map((id: string) => {
+                  const draftGroup = draft.groups[id];
+                  if (!draftGroup) return null;
+                  return (
+                    <SortableGroupRow
+                      key={id}
+                      draftGroup={draftGroup}
+                      isNew={isTempGroupId(id)}
+                      isDeleted={draft.deleted.includes(id)}
+                      members={storeList.filter((s: Store) => effectiveGroupIds[s.id] === id)}
+                      candidates={storeList.filter((s: Store) => effectiveGroupIds[s.id] !== id)}
+                      effectiveGroupIds={effectiveGroupIds}
+                      groupNamesById={groupNamesById}
+                      storeRanges={draft.storeRange}
+                      disabled={isSaving}
+                      onPatch={(fields) => patchGroup(id, fields)}
+                      onDelete={() => markDeleted(id)}
+                      onUndoDelete={() => undoDelete(id)}
+                      onRemoveStore={(store: Store) => assignStore(store.id, null)}
+                      onAddStore={(store: Store) => assignStore(store.id, id)}
+                      onStoreRangeChange={setStoreRange}
+                    />
+                  );
+                })}
               </div>
             </SortableContext>
           </DndContext>
@@ -626,27 +1114,42 @@ function ManageGroupsModal({
             type="text"
             placeholder="New group name"
             value={newName}
+            disabled={isSaving || !draft}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewName(e.target.value)}
             onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
               if (e.key === "Enter") {
                 e.preventDefault();
-                void handleAdd();
+                handleAdd();
               }
             }}
-            className="flex-1 rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent"
+            className="flex-1 rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent disabled:opacity-50"
           />
           <Button
             variant="secondary"
             size="sm"
-            onClick={() => void handleAdd()}
-            disabled={!newName.trim() || createGroup.isPending}
+            onClick={handleAdd}
+            disabled={!newName.trim() || isSaving || !draft}
           >
             Add
           </Button>
         </div>
-        <div className="flex justify-end pt-2">
-          <Button variant="secondary" onClick={onClose}>
-            Close
+        {/* Footer — draft 폐기(dirty 면 확인) / 일괄 저장 (N = 적용될 서버 연산 수) */}
+        <div className="flex items-center justify-end gap-2 pt-2">
+          {invalidRanges && (
+            <span className="mr-auto text-xs text-danger">
+              Range inputs must be whole numbers of 1 or more.
+            </span>
+          )}
+          <Button variant="secondary" onClick={() => void requestClose()} disabled={isSaving}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            onClick={() => void handleSave()}
+            isLoading={isSaving}
+            disabled={!dirty || isSaving || invalidRanges}
+          >
+            {isSaving ? "Saving..." : dirty ? `Save changes (${ops?.count ?? 0})` : "Save changes"}
           </Button>
         </div>
       </div>
