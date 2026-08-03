@@ -192,10 +192,24 @@ function DraggableStringRow({
 /** 그룹 관리 모달의 드래그 가능한 그룹 행 / Sortable group row inside the Manage Groups modal */
 function SortableGroupRow({
   group,
+  members,
+  candidates,
+  groupNamesById,
+  assignPending,
   onUpdate,
   onDelete,
+  onRemoveStore,
+  onAddStore,
 }: {
   group: StoreGroup;
+  /** 이 그룹 소속 매장 (칩 표시) / Stores currently in this group, shown as chips */
+  members: Store[];
+  /** 추가 가능한 매장 (미그룹 + 타그룹) / Stores addable to this group (ungrouped + other groups) */
+  candidates: Store[];
+  /** "(current: 그룹명)" 라벨용 그룹명 맵 / Group id → name for option labels */
+  groupNamesById: Record<string, string>;
+  /** 매장 이동 저장 중 — select 잠금 / A store assignment is saving (locks the select) */
+  assignPending: boolean;
   /** 저장 시도 — 성공 여부 반환 (실패 시 로컬 값 복원용) / Attempt save, resolves success (false → revert local edit) */
   onUpdate: (data: {
     name?: string;
@@ -203,6 +217,10 @@ function SortableGroupRow({
     number_range_start?: number | null;
   }) => Promise<boolean>;
   onDelete: () => void;
+  /** 칩 × — 그룹에서 제거 / Remove a store from this group */
+  onRemoveStore: (store: Store) => void;
+  /** select 선택 — 그룹에 추가 / Add a store to this group */
+  onAddStore: (store: Store) => void;
 }): React.ReactElement {
   const {
     attributes,
@@ -333,6 +351,47 @@ function SortableGroupRow({
           />
         </label>
       </div>
+      {/* 소속 매장 칩 + 추가 select / Member store chips + add-store select */}
+      <div className="mt-2 flex flex-wrap items-center gap-1.5 pl-7">
+        {members.map((store: Store) => (
+          <span
+            key={store.id}
+            className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2 py-0.5 text-xs text-text-secondary"
+          >
+            {store.name}
+            <button
+              type="button"
+              onClick={() => onRemoveStore(store)}
+              className="p-0.5 text-text-muted hover:text-danger transition-colors"
+              aria-label={`Remove ${store.name} from ${group.name}`}
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </span>
+        ))}
+        {members.length === 0 && (
+          <span className="text-xs text-text-muted">No stores in this group yet.</span>
+        )}
+        <select
+          value=""
+          disabled={assignPending || candidates.length === 0}
+          onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
+            const store = candidates.find((s: Store) => s.id === e.target.value);
+            if (store) onAddStore(store);
+          }}
+          aria-label={`Add store to ${group.name}`}
+          className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-text focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent disabled:opacity-50"
+        >
+          <option value="">Add store...</option>
+          {candidates.map((store: Store) => (
+            <option key={store.id} value={store.id}>
+              {store.group_id && groupNamesById[store.group_id]
+                ? `${store.name} (current: ${groupNamesById[store.group_id]})`
+                : store.name}
+            </option>
+          ))}
+        </select>
+      </div>
     </div>
   );
 }
@@ -346,12 +405,17 @@ function ManageGroupsModal({
   onClose: () => void;
 }): React.ReactElement {
   const modal = useModal();
+  const queryClient = useQueryClient();
   const { data: groups, isLoading } = useStoreGroups();
+  // 그룹별 매장 칩/추가 select 용 — 기본 뷰(closed 제외), 페이지와 ["stores"] 캐시 공유
+  const { data: stores } = useStores();
   // silent — 인라인 저장마다 결과 모달이 뜨지 않도록, 에러는 아래서 직접 표시 (handleCreate 패턴)
   const createGroup = useCreateStoreGroup({ silent: true });
   const updateGroup = useUpdateStoreGroup({ silent: true });
   const deleteGroup = useDeleteStoreGroup();
   const reorderGroups = useReorderStoreGroups();
+  // 그룹 편성/해제는 반복 호출이라 silent — 실패는 handleAssignStore 의 catch 가 처리.
+  const updateStore = useUpdateStore({ silent: true });
 
   const [newName, setNewName] = useState<string>("");
   /** 그룹별 EMPID 중복 경고 (group.id 키) — 다른 그룹 저장에 덮이지 않음 / Per-group duplicate-EMPID warnings keyed by group id */
@@ -361,6 +425,18 @@ function ManageGroupsModal({
     () =>
       Array.isArray(groups) ? [...groups].sort((a, b) => a.sort_order - b.sort_order) : [],
     [groups],
+  );
+
+  /** 캐시 순서(전역 sort_order) 그대로의 매장 목록 / Stores in cached (global) order */
+  const storeList: Store[] = useMemo(
+    () => (Array.isArray(stores) ? stores : []),
+    [stores],
+  );
+
+  /** "(current: 그룹명)" 라벨용 그룹명 맵 / Group id → name for add-select labels */
+  const groupNamesById: Record<string, string> = useMemo(
+    () => Object.fromEntries(groupList.map((g: StoreGroup) => [g.id, g.name])),
+    [groupList],
   );
 
   const sensors = useSensors(
@@ -410,6 +486,49 @@ function ManageGroupsModal({
       }
     },
     [updateGroup, modal],
+  );
+
+  /**
+   * 매장을 그룹에 추가(group 지정)/제거(null) — 성공 시 stores/store-groups 재조회,
+   * 추가 시 응답의 duplicate_empids 로 대상 그룹의 EMPID 중복 경고 갱신 (handleUpdate 패턴).
+   *
+   * Move a store into a group (or out with null). Refreshes stores/store-groups
+   * on success; on add, refreshes the target group's duplicate-EMPID warning
+   * from the response (same pattern as handleUpdate).
+   */
+  const handleAssignStore = useCallback(
+    async (store: Store, group: StoreGroup | null): Promise<void> => {
+      const prevGroupId = store.group_id ?? null;
+      try {
+        const updated = await updateStore.mutateAsync({
+          id: store.id,
+          group_id: group ? group.id : null,
+        });
+        queryClient.invalidateQueries({ queryKey: ["stores"] });
+        queryClient.invalidateQueries({ queryKey: ["store-groups"] });
+        setDupWarnings((prev) => {
+          const next = { ...prev };
+          // 매장이 빠진 그룹은 중복이 늘 수 없다 — 이전 그룹의 남은 경고 제거.
+          // A store leaving a group can't add duplicates there — drop its stale warning.
+          if (prevGroupId && prevGroupId !== (group?.id ?? null)) {
+            delete next[prevGroupId];
+          }
+          if (group) {
+            const dupes = updated.duplicate_empids ?? [];
+            if (dupes.length > 0) {
+              next[group.id] = { groupName: group.name, count: dupes.length };
+            } else {
+              delete next[group.id];
+            }
+          }
+          return next;
+        });
+      } catch (err) {
+        // silent 훅이라 여기서 직접 에러 표시 / silent hook — surface the error here
+        void modal.alert({ type: "error", message: parseApiError(err, "Couldn't move store") });
+      }
+    },
+    [updateStore, queryClient, modal],
   );
 
   /** 그룹 추가 / Add a new group */
@@ -488,8 +607,14 @@ function ManageGroupsModal({
                   <SortableGroupRow
                     key={group.id}
                     group={group}
+                    members={storeList.filter((s: Store) => (s.group_id ?? null) === group.id)}
+                    candidates={storeList.filter((s: Store) => (s.group_id ?? null) !== group.id)}
+                    groupNamesById={groupNamesById}
+                    assignPending={updateStore.isPending}
                     onUpdate={(data) => handleUpdate(group, data)}
                     onDelete={() => void handleDelete(group)}
+                    onRemoveStore={(store: Store) => void handleAssignStore(store, null)}
+                    onAddStore={(store: Store) => void handleAssignStore(store, group)}
                   />
                 ))}
               </div>

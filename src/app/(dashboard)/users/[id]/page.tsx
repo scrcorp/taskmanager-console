@@ -22,6 +22,7 @@ import {
   X as XIcon,
   Pencil,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   useUser,
   useUpdateUser,
@@ -29,6 +30,7 @@ import {
   useUserStores,
   useSyncUserStores,
 } from "@/hooks/useUsers";
+import { useCommitEmpidImport } from "@/hooks/useEmpidImport";
 import { useStores } from "@/hooks/useStores";
 import { useRoles } from "@/hooks/useRoles";
 import { Button } from "@/components/ui/Button";
@@ -768,9 +770,9 @@ export default function UserDetailPage(): React.ReactElement {
                   const check = storeChecks[store.id];
                   const isManaged = check?.is_manager ?? false;
                   const isWork = check?.is_work ?? false;
-                  const assignedEmpid = Array.isArray(userStores)
-                    ? userStores.find((u) => u.id === store.id)?.empid
-                    : null;
+                  const assignment = Array.isArray(userStores)
+                    ? userStores.find((u) => u.id === store.id)
+                    : undefined;
 
                   // 관리 체크박스 disabled 조건
                   const managerDisabled =
@@ -794,10 +796,13 @@ export default function UserDetailPage(): React.ReactElement {
                             <StoreIcon className="h-3.5 w-3.5" />
                           </div>
                           <span className="font-medium text-text">{store.name}</span>
-                          {assignedEmpid != null && (
-                            <span className="text-xs font-mono font-semibold text-accent bg-accent-muted rounded px-1.5 py-0.5">
-                              EMPID {assignedEmpid}
-                            </span>
+                          {assignment && (
+                            <StoreEmpidCell
+                              userId={userId}
+                              storeId={store.id}
+                              empid={assignment.empid ?? null}
+                              canEdit={canManageUsers && !isStoreEditing}
+                            />
                           )}
                           {!store.is_active && (
                             <Badge variant="danger">Inactive</Badge>
@@ -1405,6 +1410,176 @@ function ProfilePinRow({ userId }: ProfilePinRowProps): React.ReactElement {
         )}
       </span>
     </div>
+  );
+}
+
+// ─── Store EMPID Cell ───────────────────────────────────────────────────────
+
+interface StoreEmpidCellProps {
+  userId: string;
+  storeId: string;
+  /** 현재 배정된 EMPID (null = 배정 행만 있고 번호는 없음). */
+  empid: number | null;
+  canEdit: boolean;
+}
+
+/**
+ * 매장 배정 행의 EMPID 뱃지 + 인라인 편집.
+ *
+ * 권한: `users:update` — 연필 아이콘으로 인라인 편집 모드 진입 (PIN 행과 동일 패턴).
+ * 저장은 useCommitEmpidImport 재사용 — 빈 값으로 저장하면 번호 삭제(배정 행은 유지),
+ * 다른 직원이 재채번되면 결과 모달로 안내.
+ */
+function StoreEmpidCell({
+  userId,
+  storeId,
+  empid,
+  canEdit,
+}: StoreEmpidCellProps): React.ReactElement | null {
+  const queryClient = useQueryClient();
+  const modal = useModal();
+  const commitEmpid = useCommitEmpidImport();
+  const [editing, setEditing] = useState<boolean>(false);
+  const [draft, setDraft] = useState<string>("");
+
+  // 편집 중 권한이 회수되면 편집 모드를 강제 종료 / Close the editor if edit rights go away.
+  useEffect(() => {
+    if (!canEdit) {
+      setEditing(false);
+      setDraft("");
+    }
+  }, [canEdit]);
+
+  const startEdit = (): void => {
+    setDraft(empid != null ? String(empid) : "");
+    setEditing(true);
+  };
+  const cancelEdit = (): void => {
+    setEditing(false);
+    setDraft("");
+  };
+
+  // 빈 값 = 번호 삭제(null). 숫자는 1 이상만 유효.
+  const nextEmpid: number | null = draft === "" ? null : Number(draft);
+  const draftValid = nextEmpid === null || nextEmpid >= 1;
+
+  const saveEdit = (): void => {
+    if (!draftValid || commitEmpid.isPending) return;
+    if (nextEmpid === empid) {
+      cancelEdit();
+      return;
+    }
+    commitEmpid.mutate(
+      { assignments: [{ user_id: userId, store_id: storeId, empid: nextEmpid }] },
+      {
+        onSuccess: (result): void => {
+          // 미적용이면 입력을 유지해 바로 재시도할 수 있게 한다.
+          // Close the editor only if something was applied — otherwise keep the draft for retry.
+          const applied = result.applied ?? [];
+          if (applied.length > 0) {
+            setEditing(false);
+            setDraft("");
+          }
+          // 이 페이지가 쓰는 쿼리: 상세 ["users", userId], 배정 ["users", userId, "stores"]
+          void queryClient.invalidateQueries({ queryKey: ["users", userId] });
+          void queryClient.invalidateQueries({
+            queryKey: ["users", userId, "stores"],
+          });
+          const renumbered = result.renumbered ?? [];
+          if (renumbered.length > 0) {
+            void modal.alert({
+              type: "info",
+              title: "Numbers shifted",
+              message: `${renumbered.length} other member${
+                renumbered.length === 1 ? " was" : "s were"
+              } renumbered to keep numbers unique.`,
+              details: renumbered.map(
+                (r) => `${r.user} — ${r.store}: ${r.old} → ${r.new}`,
+              ),
+            });
+          }
+          const rejected = result.rejected ?? [];
+          const skipped = result.skipped ?? [];
+          if (rejected.length > 0 || skipped.length > 0) {
+            void modal.alert({
+              type: "error",
+              title: "Not applied",
+              message: "The change was not applied:",
+              details: [
+                ...rejected.map((r) => r.reason),
+                ...skipped.map((s) => `#${s.empid}: ${s.reason}`),
+              ],
+            });
+          }
+        },
+      },
+    );
+  };
+
+  if (editing) {
+    return (
+      <span className="flex items-center gap-1.5">
+        <input
+          type="text"
+          inputMode="numeric"
+          maxLength={6}
+          value={draft}
+          onChange={(e) =>
+            setDraft(e.target.value.replace(/\D/g, "").slice(0, 6))
+          }
+          onKeyDown={(e) => {
+            if (e.key === "Enter") saveEdit();
+            if (e.key === "Escape") cancelEdit();
+          }}
+          placeholder={empid != null ? "Empty to remove" : "Number"}
+          className="w-28 px-2 py-0.5 rounded bg-surface border border-border text-xs font-mono text-text focus:outline-none focus:border-accent"
+          autoFocus
+        />
+        <button
+          type="button"
+          onClick={saveEdit}
+          disabled={!draftValid || commitEmpid.isPending}
+          className="text-success hover:opacity-80 disabled:opacity-30 transition"
+          title="Save"
+          aria-label="Save EMPID"
+        >
+          <Check className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={cancelEdit}
+          disabled={commitEmpid.isPending}
+          className="text-text-muted hover:text-text transition"
+          title="Cancel"
+          aria-label="Cancel EMPID edit"
+        >
+          <XIcon className="h-4 w-4" />
+        </button>
+      </span>
+    );
+  }
+
+  if (empid == null && !canEdit) return null;
+
+  return (
+    <span className="flex items-center gap-1.5">
+      {empid != null && (
+        <span className="text-xs font-mono font-semibold text-accent bg-accent-muted rounded px-1.5 py-0.5">
+          EMPID {empid}
+        </span>
+      )}
+      {canEdit && (
+        <button
+          type="button"
+          onClick={startEdit}
+          className="text-text-muted hover:text-accent transition-colors"
+          title={empid != null ? "Edit EMPID" : "Assign EMPID"}
+          aria-label={empid != null ? "Edit EMPID" : "Assign EMPID"}
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </span>
   );
 }
 

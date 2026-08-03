@@ -27,7 +27,9 @@ export type EmpidEntryAction =
   | "rebind"
   | "new_assignment"
   | "unmatched_store"
-  | "invalid";
+  | "invalid"
+  /** Store & number valid, but the user is unresolved (placeholder/deferred) — operator picks a user. */
+  | "needs_user";
 
 /** One person × store row from the uploaded file. */
 export interface EmpidImportEntry {
@@ -49,6 +51,15 @@ export interface EmpidImportEntry {
   action: EmpidEntryAction;
   /** Non-blocking warning (e.g. group-scope conflict). */
   warning: string | null;
+  /** Person name from the file row — per-row label for shared-email (placeholder) rows. */
+  person_name: string | null;
+}
+
+/** User-picker prefill candidate (deferred bucket; placeholder has an empty list). */
+export interface EmpidSimilarUser {
+  user_id: string;
+  full_name: string;
+  email: string | null;
 }
 
 /** One person group in the preview response. */
@@ -60,10 +71,12 @@ export interface EmpidImportPerson {
   user_full_name: string | null;
   entries: EmpidImportEntry[];
   note: string;
-  /** deferred bucket — similar-name DB user hints. */
+  /** deferred bucket — similar-name DB user hints (display only). */
   similar: string[];
   /** placeholder bucket — people in the file sharing the dummy email. */
   members: string[];
+  /** User-picker prefill candidates (deferred only; empty for placeholder). */
+  similar_users: EmpidSimilarUser[];
 }
 
 export interface EmpidImportCounts {
@@ -73,6 +86,7 @@ export interface EmpidImportCounts {
   new_assignment: number;
   unmatched_store: number;
   invalid: number;
+  needs_user: number;
   placeholder: number;
   deferred: number;
   excluded_rows: number;
@@ -96,7 +110,8 @@ export interface EmpidImportPreviewResult {
 export interface EmpidCommitAssignment {
   user_id: string;
   store_id: string;
-  empid: number;
+  /** null = clear the number (assignment row is kept, number released). */
+  empid: number | null;
 }
 
 export interface EmpidCommitRequest {
@@ -106,7 +121,8 @@ export interface EmpidCommitRequest {
 export interface EmpidCommitApplied {
   user: string;
   store: string;
-  empid: number;
+  /** null = the number was cleared. */
+  empid: number | null;
   created: boolean;
 }
 

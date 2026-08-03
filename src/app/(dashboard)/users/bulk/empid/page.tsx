@@ -7,7 +7,9 @@
  *   1. Upload  — drag & drop / pick a .xlsx/.csv legacy roster.
  *   2. Preview — counts summary + per-person cards; operator picks
  *                Current vs Upload on rebind rows, checks
- *                new-assignment rows, then applies.
+ *                new-assignment rows, then applies. Placeholder/deferred
+ *                rows (user unresolved) get a per-row user picker so the
+ *                operator can still register them.
  *   3. Result  — applied / renumbered / skipped / rejected report.
  */
 
@@ -19,6 +21,8 @@ import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui";
 import { useModal } from "@/components/ui/imperative-modal";
 import { cn } from "@/lib/utils";
+import { useUsers } from "@/hooks/useUsers";
+import type { User } from "@/types";
 import {
   usePreviewEmpidImport,
   useCommitEmpidImport,
@@ -32,9 +36,12 @@ import {
 
 type Step = "upload" | "preview" | "result";
 
-/** Stable key for a person×entry selection (checkbox or rebind choice). */
-const entryKey = (personIdx: number, entryIdx: number): string =>
-  `${personIdx}:${entryIdx}`;
+/**
+ * Stable key for a bucket×person×entry selection (checkbox, rebind choice,
+ * or user pick). Buckets: "p" = people, "ph" = placeholder, "df" = deferred.
+ */
+const entryKey = (bucket: string, personIdx: number, entryIdx: number): string =>
+  `${bucket}:${personIdx}:${entryIdx}`;
 
 /** Rebind pill options — Current (DB value) vs Upload (file value, default). */
 const REBIND_OPTIONS: { value: "current" | "upload"; label: string }[] = [
@@ -59,6 +66,7 @@ const COUNT_ITEMS: { key: keyof EmpidImportCounts; label: string }[] = [
   { key: "new_assignment", label: "New assignment" },
   { key: "unmatched_store", label: "Unmatched" },
   { key: "invalid", label: "Invalid" },
+  { key: "needs_user", label: "Needs user" },
   { key: "placeholder", label: "Placeholder" },
   { key: "deferred", label: "Deferred" },
 ];
@@ -73,51 +81,207 @@ function EntryWarning({ text }: { text: string }): React.ReactElement {
   );
 }
 
-/** Collapsed report section for placeholder / deferred buckets. */
-function ReportSection({
+/**
+ * Compact combobox for picking a DB user: filter input on top, select below.
+ * The selected user stays visible in the options even when filtered out.
+ */
+function UserPicker({
+  users,
+  isLoading,
+  value,
+  suggestedId,
+  onChange,
+}: {
+  users: User[];
+  isLoading: boolean;
+  value: string;
+  suggestedId: string | null;
+  onChange: (userId: string) => void;
+}): React.ReactElement {
+  const [filter, setFilter] = useState("");
+
+  const options = useMemo(() => {
+    const q = filter.trim().toLowerCase();
+    let list = users;
+    if (q) {
+      list = users.filter(
+        (u) =>
+          (u.full_name?.toLowerCase().includes(q) ?? false) ||
+          u.username.toLowerCase().includes(q) ||
+          (u.email?.toLowerCase().includes(q) ?? false),
+      );
+    }
+    if (value && !list.some((u) => u.id === value)) {
+      const selected = users.find((u) => u.id === value);
+      if (selected) list = [selected, ...list];
+    }
+    return list;
+  }, [users, filter, value]);
+
+  return (
+    <span className="inline-flex flex-col gap-1">
+      <input
+        value={filter}
+        onChange={(e) => setFilter(e.target.value)}
+        placeholder="Filter users…"
+        className="w-56 px-2 py-1 rounded-md bg-surface border border-border text-xs text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/20"
+      />
+      <span className="inline-flex items-center gap-1.5">
+        <select
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          disabled={isLoading}
+          aria-label="Pick a user to register"
+          className="w-56 px-2 py-1 rounded-md bg-surface border border-border text-xs text-text focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
+        >
+          <option value="">{isLoading ? "Loading users…" : "Select user…"}</option>
+          {options.map((u) => (
+            <option key={u.id} value={u.id}>
+              {u.full_name || u.username}
+              {u.email ? ` (${u.email})` : ""}
+            </option>
+          ))}
+        </select>
+        {suggestedId && value === suggestedId && (
+          <span className="text-[11px] text-accent font-medium">suggested</span>
+        )}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * Actionable section for placeholder / deferred buckets — the user is
+ * unresolved, so the operator picks a DB user per needs_user row to register
+ * it anyway. unmatched_store / invalid rows stay report-only.
+ */
+function PickUserSection({
   title,
+  hint,
+  prefix,
   people,
-  emptyHint,
+  users,
+  usersLoading,
+  checked,
+  pickedUsers,
+  duplicateKeys,
+  onToggle,
+  onPickUser,
 }: {
   title: string;
+  hint: string;
+  prefix: string;
   people: EmpidImportPerson[];
-  emptyHint: string;
+  users: User[];
+  usersLoading: boolean;
+  checked: Set<string>;
+  pickedUsers: Record<string, string>;
+  duplicateKeys: Set<string>;
+  onToggle: (key: string) => void;
+  onPickUser: (key: string, userId: string) => void;
 }): React.ReactElement | null {
   if (people.length === 0) return null;
   return (
-    <details className="bg-card border border-border rounded-xl">
-      <summary className="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-text-secondary hover:text-text transition-colors">
-        {title} ({people.length}) — {emptyHint}
-      </summary>
-      <div className="px-4 pb-4 space-y-3">
-        {people.map((p, i) => (
-          <div key={i} className="border-t border-border/60 pt-3">
-            <p className="text-sm font-medium text-text">
-              {p.name}
-              {p.email && (
-                <span className="text-xs text-text-muted ml-2">{p.email}</span>
-              )}
-            </p>
-            {p.note && <p className="text-xs text-text-muted mt-0.5">{p.note}</p>}
-            {p.members.length > 0 && (
-              <p className="text-xs text-text-secondary mt-1">
-                File members: {p.members.join(", ")}
-              </p>
-            )}
-            {p.similar.length > 0 && (
-              <p className="text-xs text-text-secondary mt-1">
-                Similar users: {p.similar.join(", ")}
-              </p>
-            )}
-            {p.entries.length > 0 && (
-              <p className="text-xs text-text-muted mt-1">
-                Rows: {p.entries.map((e) => `${e.company} · ${e.emp_id_raw}`).join("  /  ")}
-              </p>
-            )}
-          </div>
-        ))}
+    <div className="bg-card border border-border rounded-xl p-4 space-y-3">
+      <div>
+        <p className="text-sm font-bold text-text">
+          {title} ({people.length})
+        </p>
+        <p className="text-xs text-text-muted mt-0.5">{hint}</p>
       </div>
-    </details>
+      {people.map((person, pi) => {
+        const suggestedId = person.similar_users?.[0]?.user_id ?? null;
+        return (
+          <div key={pi} className="border-t border-border/60 pt-3">
+            <div className="mb-1.5">
+              <p className="text-sm font-medium text-text">
+                {person.name}
+                {person.email && (
+                  <span className="text-xs text-text-muted font-normal ml-2">
+                    {person.email}
+                  </span>
+                )}
+              </p>
+              {person.note && (
+                <p className="text-xs text-text-muted mt-0.5">{person.note}</p>
+              )}
+              {person.members.length > 0 && (
+                <p className="text-xs text-text-secondary mt-0.5">
+                  File members: {person.members.join(", ")}
+                </p>
+              )}
+              {person.similar.length > 0 && (
+                <p className="text-xs text-text-secondary mt-0.5">
+                  Similar users: {person.similar.join(", ")}
+                </p>
+              )}
+            </div>
+            <div className="space-y-1.5">
+              {person.entries.map((entry, ei) => {
+                const key = entryKey(prefix, pi, ei);
+
+                if (entry.action === "unmatched_store") {
+                  return (
+                    <div key={key} className="flex items-center gap-2 pl-6 text-sm text-text-muted">
+                      <span>
+                        {entry.person_name ?? person.name} — {entry.company}: no
+                        matching store — skipped
+                      </span>
+                      {entry.warning && <EntryWarning text={entry.warning} />}
+                    </div>
+                  );
+                }
+
+                if (entry.action === "invalid") {
+                  return (
+                    <div key={key} className="flex items-center gap-2 pl-6 text-sm text-danger/80">
+                      <span>
+                        {entry.person_name ?? person.name} —{" "}
+                        {entry.store_name || entry.company}: &quot;{entry.emp_id_raw}&quot; —{" "}
+                        {entry.warning || "invalid emp_id"}
+                      </span>
+                    </div>
+                  );
+                }
+
+                if (entry.action !== "needs_user") return null;
+
+                const pickedUser = pickedUsers[key] ?? "";
+                return (
+                  <div
+                    key={key}
+                    className="flex items-center gap-2 flex-wrap rounded-lg px-2 py-1.5 -mx-2 hover:bg-surface-hover transition-colors"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked.has(key)}
+                      onChange={() => onToggle(key)}
+                      disabled={!pickedUser}
+                      className="cursor-pointer accent-accent disabled:cursor-not-allowed"
+                    />
+                    <span className="text-sm text-text">
+                      {entry.person_name ?? person.name} — {entry.store_name}:{" "}
+                      <span className="font-semibold">{entry.emp_id}</span>
+                    </span>
+                    <UserPicker
+                      users={users}
+                      isLoading={usersLoading}
+                      value={pickedUser}
+                      suggestedId={suggestedId}
+                      onChange={(userId) => onPickUser(key, userId)}
+                    />
+                    {duplicateKeys.has(key) && (
+                      <EntryWarning text="same user & store picked above — excluded from commit" />
+                    )}
+                    {entry.warning && <EntryWarning text={entry.warning} />}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -127,6 +291,12 @@ export default function EmpidImportPage(): React.ReactElement {
   const modal = useModal();
   const previewImport = usePreviewEmpidImport();
   const commitImport = useCommitEmpidImport();
+  // Whole-org user list for the placeholder/deferred user pickers.
+  const { data: usersData, isLoading: usersLoading } = useUsers();
+  const users: User[] = useMemo(
+    () => (Array.isArray(usersData) ? usersData : []),
+    [usersData],
+  );
 
   const [step, setStep] = useState<Step>("upload");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -136,8 +306,11 @@ export default function EmpidImportPage(): React.ReactElement {
    * Keys of entries that will be written on commit:
    * - rebind rows: in the set = "Upload" chosen (default); absent = keep Current
    * - new_assignment rows: plain checkbox state
+   * - needs_user rows (placeholder/deferred): checked once a user is picked
    */
   const [checked, setChecked] = useState<Set<string>>(new Set());
+  /** needs_user rows — entry key → picked user id ("" / absent = none). */
+  const [pickedUsers, setPickedUsers] = useState<Record<string, string>>({});
   const [result, setResult] = useState<EmpidCommitResult | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -147,6 +320,7 @@ export default function EmpidImportPage(): React.ReactElement {
     setIsDragging(false);
     setPreview(null);
     setChecked(new Set());
+    setPickedUsers({});
     setResult(null);
   }, []);
 
@@ -194,10 +368,23 @@ export default function EmpidImportPage(): React.ReactElement {
         const initial = new Set<string>();
         data.people.forEach((person, pi) => {
           person.entries.forEach((entry, ei) => {
-            if (isSelectable(person, entry)) initial.add(entryKey(pi, ei));
+            if (isSelectable(person, entry)) initial.add(entryKey("p", pi, ei));
+          });
+        });
+        // Deferred rows with a similar-user candidate: prefill the first
+        // suggestion but leave the row unchecked — committing a guessed match
+        // must be an explicit operator decision (pickUser still auto-checks).
+        const initialPicks: Record<string, string> = {};
+        data.deferred.forEach((person, pi) => {
+          const suggested = person.similar_users?.[0]?.user_id;
+          if (!suggested) return;
+          person.entries.forEach((entry, ei) => {
+            if (entry.action !== "needs_user") return;
+            initialPicks[entryKey("df", pi, ei)] = suggested;
           });
         });
         setChecked(initial);
+        setPickedUsers(initialPicks);
         setStep("preview");
       },
       // hook shows the error modal
@@ -228,22 +415,67 @@ export default function EmpidImportPage(): React.ReactElement {
     [],
   );
 
-  const selectedAssignments: EmpidCommitAssignment[] = useMemo(() => {
-    if (!preview) return [];
-    const out: EmpidCommitAssignment[] = [];
+  /** needs_user rows — picking a user auto-checks; clearing unchecks. */
+  const pickUser = useCallback((key: string, userId: string) => {
+    setPickedUsers((prev) => ({ ...prev, [key]: userId }));
+    setChecked((prev) => {
+      const n = new Set(prev);
+      if (userId) n.add(key);
+      else n.delete(key);
+      return n;
+    });
+  }, []);
+
+  /**
+   * Commit list = checked matched-people rows + checked needs_user rows with a
+   * picked user. A needs_user row whose (user, store) pair already appeared in
+   * an earlier row is excluded and flagged (duplicateKeys → inline warning).
+   */
+  const { selectedAssignments, duplicateKeys } = useMemo(() => {
+    const assignments: EmpidCommitAssignment[] = [];
+    const duplicates = new Set<string>();
+    if (!preview) return { selectedAssignments: assignments, duplicateKeys: duplicates };
+    const seenPairs = new Set<string>();
     preview.people.forEach((person, pi) => {
       person.entries.forEach((entry, ei) => {
-        if (!checked.has(entryKey(pi, ei))) return;
+        if (!checked.has(entryKey("p", pi, ei))) return;
         if (!isSelectable(person, entry)) return;
-        out.push({
+        seenPairs.add(`${person.user_id}|${entry.store_id}`);
+        assignments.push({
           user_id: person.user_id as string,
           store_id: entry.store_id as string,
           empid: entry.emp_id as number,
         });
       });
     });
-    return out;
-  }, [preview, checked]);
+    const pickerBuckets: { prefix: string; people: EmpidImportPerson[] }[] = [
+      { prefix: "ph", people: preview.placeholder },
+      { prefix: "df", people: preview.deferred },
+    ];
+    pickerBuckets.forEach(({ prefix, people }) => {
+      people.forEach((person, pi) => {
+        person.entries.forEach((entry, ei) => {
+          if (entry.action !== "needs_user") return;
+          const key = entryKey(prefix, pi, ei);
+          if (!checked.has(key)) return;
+          const userId = pickedUsers[key];
+          if (!userId || !entry.store_id || entry.emp_id === null) return;
+          const pair = `${userId}|${entry.store_id}`;
+          if (seenPairs.has(pair)) {
+            duplicates.add(key);
+            return;
+          }
+          seenPairs.add(pair);
+          assignments.push({
+            user_id: userId,
+            store_id: entry.store_id,
+            empid: entry.emp_id,
+          });
+        });
+      });
+    });
+    return { selectedAssignments: assignments, duplicateKeys: duplicates };
+  }, [preview, checked, pickedUsers]);
 
   const apply = useCallback(async () => {
     if (selectedAssignments.length === 0) return;
@@ -508,7 +740,7 @@ export default function EmpidImportPage(): React.ReactElement {
 
               <div className="space-y-1.5">
                 {person.entries.map((entry, ei) => {
-                  const key = entryKey(pi, ei);
+                  const key = entryKey("p", pi, ei);
                   const selectable = isSelectable(person, entry);
 
                   if (entry.action === "same") {
@@ -661,23 +893,39 @@ export default function EmpidImportPage(): React.ReactElement {
         )}
       </div>
 
-      {/* Report sections */}
-      <ReportSection
+      {/* Placeholder / deferred — pick a user per row to register anyway */}
+      <PickUserSection
         title="Placeholder emails"
+        hint="Shared/dummy emails — pick a user to register each row."
+        prefix="ph"
         people={preview.placeholder}
-        emptyHint="shared/dummy emails, not imported"
+        users={users}
+        usersLoading={usersLoading}
+        checked={checked}
+        pickedUsers={pickedUsers}
+        duplicateKeys={duplicateKeys}
+        onToggle={toggle}
+        onPickUser={pickUser}
       />
-      <ReportSection
+      <PickUserSection
         title="Deferred"
+        hint="No matching user in DB — pick a user to register each row."
+        prefix="df"
         people={preview.deferred}
-        emptyHint="no matching user in DB, not imported"
+        users={users}
+        usersLoading={usersLoading}
+        checked={checked}
+        pickedUsers={pickedUsers}
+        duplicateKeys={duplicateKeys}
+        onToggle={toggle}
+        onPickUser={pickUser}
       />
 
       {/* Apply bar */}
       <div className="bg-card border border-border rounded-xl p-4 flex items-center justify-between gap-3 flex-wrap">
         <p className="text-xs text-text-muted">
-          Rebind rows set to Upload and checked new-assignment rows are applied.
-          Existing numbers may be renumbered.
+          Rebind rows set to Upload, checked new-assignment rows, and checked
+          picked-user rows are applied. Existing numbers may be renumbered.
         </p>
         <Button
           variant="primary"
