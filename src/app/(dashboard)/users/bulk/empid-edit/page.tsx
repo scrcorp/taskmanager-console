@@ -226,6 +226,10 @@ export default function EmpidEditPage(): React.ReactElement {
           setResult(data);
           reset();
           void queryClient.invalidateQueries({ queryKey: ["empid-roster"] });
+          // 결과 패널은 페이지 상단 — 긴 로스터 하단에서 저장해도 보이게 스크롤 (QA 발견)
+          requestAnimationFrame(() => {
+            window.scrollTo({ top: 0, behavior: "smooth" });
+          });
         },
         // hook shows the error modal
       },

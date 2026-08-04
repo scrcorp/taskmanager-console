@@ -741,6 +741,17 @@ function ManageGroupsModal({
   useEffect(() => {
     if (isOpen && draft === null && Array.isArray(groups) && Array.isArray(stores)) {
       setDraft(buildGroupsDraft(groupList, storeList));
+      // 목록 API 의 duplicate_empids 로 경고 배너 시드 — 재오픈해도 기존 중복이 계속 보이게
+      // Seed dup warnings from the list response so reopening keeps existing warnings visible
+      setDupWarnings(() => {
+        const seeded: Record<string, { groupName: string; count: number }> = {};
+        for (const g of groupList) {
+          if ((g.duplicate_empids?.length ?? 0) > 0) {
+            seeded[g.id] = { groupName: g.name, count: g.duplicate_empids.length };
+          }
+        }
+        return seeded;
+      });
     }
   }, [isOpen, draft, groups, stores, groupList, storeList]);
 

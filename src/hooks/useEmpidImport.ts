@@ -200,8 +200,16 @@ export const useCommitEmpidImport = (): UseMutationResult<
     },
     onSuccess: (result): void => {
       queryClient.invalidateQueries({ queryKey: ["users"] });
-      const count = result.applied?.length ?? 0;
-      success(`${count} number${count === 1 ? "" : "s"} applied.`);
+      // 삭제(cleared)·재채번(renumbered) 부수효과까지 요약 — 결과 패널을 못 봐도 알 수 있게
+      const applied = result.applied ?? [];
+      const cleared = applied.filter((a) => a.empid === null).length;
+      const written = applied.length - cleared;
+      const renumbered = result.renumbered?.length ?? 0;
+      const parts: string[] = [];
+      if (written > 0) parts.push(`${written} applied`);
+      if (cleared > 0) parts.push(`${cleared} cleared`);
+      if (renumbered > 0) parts.push(`${renumbered} renumbered`);
+      success(parts.length > 0 ? `${parts.join(", ")}.` : "No changes applied.");
     },
     onError: error("Couldn't apply EMPID import"),
   });
