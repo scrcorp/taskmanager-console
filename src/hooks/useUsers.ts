@@ -17,6 +17,13 @@ interface UserFilters {
   store_ids?: string[];
   role_id?: string;
   is_active?: boolean;
+  /**
+   * 미가입(유령) 계정을 is_active 필터에서 면제.
+   * 유령은 is_active=false 로 오므로, 스태프 목록에서 보이게 하려면 켜야 한다.
+   */
+  include_provisional?: boolean;
+  /** 미가입(유령) 계정만 조회 */
+  provisional_only?: boolean;
 }
 
 /**
@@ -42,6 +49,8 @@ export const useUsers = (
       if (filters?.role_id) params.role_id = filters.role_id;
       if (filters?.is_active !== undefined)
         params.is_active = filters.is_active;
+      if (filters?.include_provisional) params.include_provisional = true;
+      if (filters?.provisional_only) params.provisional_only = true;
 
       const response: AxiosResponse<User[]> = await api.get("/console/users", {
         params,
@@ -128,6 +137,112 @@ export const useCreateUser = (): UseMutationResult<
       success("Staff added.");
     },
     onError: error("Failed to add staff"),
+  });
+};
+
+/** 미가입(유령) 직원 생성 요청 데이터 (Provisional staff creation request) */
+export interface CreateProvisionalUserData {
+  /** 표시 이름 — 서버가 그대로 full_name 으로 사용 */
+  full_name: string;
+  role_id: string;
+  store_ids: string[];
+  /** FOH/BOH 분류 — 생략 시 미지정 */
+  department?: "FOH" | "BOH" | null;
+  hourly_rate?: number | null;
+}
+
+/**
+ * 미가입 직원 생성 훅 -- 아직 앱에 가입하지 않은 직원 자리를 만듭니다.
+ *
+ * Mutation hook to create a provisional (not-yet-signed-up) staff placeholder.
+ * 응답의 claim_code 를 직원에게 전달하면 본인이 가입할 때 이 계정을 인수한다.
+ */
+export const useCreateProvisionalUser = (): UseMutationResult<
+  User,
+  Error,
+  CreateProvisionalUserData
+> => {
+  const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationToast();
+  return useMutation<User, Error, CreateProvisionalUserData>({
+    mutationFn: async (data: CreateProvisionalUserData): Promise<User> => {
+      const response: AxiosResponse<User> = await api.post(
+        "/console/users/provisional",
+        data,
+      );
+      return response.data;
+    },
+    onSuccess: (): void => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      success("Provisional staff added.");
+    },
+    onError: error("Failed to add provisional staff"),
+  });
+};
+
+/**
+ * 미가입 직원 다건 생성 훅 -- 여러 명을 한 번에 만듭니다.
+ *
+ * Mutation hook to bulk-create provisional staff placeholders.
+ */
+export const useCreateProvisionalUsersBulk = (): UseMutationResult<
+  User[],
+  Error,
+  { people: CreateProvisionalUserData[] }
+> => {
+  const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationToast();
+  return useMutation<User[], Error, { people: CreateProvisionalUserData[] }>({
+    mutationFn: async (data: {
+      people: CreateProvisionalUserData[];
+    }): Promise<User[]> => {
+      const response: AxiosResponse<User[]> = await api.post(
+        "/console/users/provisional/bulk",
+        data,
+      );
+      return response.data;
+    },
+    onSuccess: (created: User[]): void => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      success(`Added ${created.length} provisional staff.`);
+    },
+    onError: error("Failed to add provisional staff"),
+  });
+};
+
+/** 인수 코드 재발급 응답 (Claim code regeneration response) */
+export interface ClaimCodeResult {
+  user_id: string;
+  claim_code: string;
+}
+
+/**
+ * 인수 코드 재발급 훅 -- 코드 분실·유출 시 새 코드를 발급합니다 (미가입 계정만).
+ *
+ * Mutation hook to regenerate a provisional user's claim code.
+ */
+export const useRegenerateClaimCode = (): UseMutationResult<
+  ClaimCodeResult,
+  Error,
+  string
+> => {
+  const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationToast();
+  return useMutation<ClaimCodeResult, Error, string>({
+    mutationFn: async (userId: string): Promise<ClaimCodeResult> => {
+      const response: AxiosResponse<ClaimCodeResult> = await api.post(
+        `/console/users/${userId}/claim-code`,
+      );
+      return response.data;
+    },
+    onSuccess: (res: ClaimCodeResult): void => {
+      queryClient.setQueryData<User>(["users", res.user_id], (old) =>
+        old ? { ...old, claim_code: res.claim_code } : old,
+      );
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      success("New claim code issued.");
+    },
+    onError: error("Failed to regenerate claim code"),
   });
 };
 

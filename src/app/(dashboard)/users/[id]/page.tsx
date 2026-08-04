@@ -21,6 +21,9 @@ import {
   Check,
   X as XIcon,
   Pencil,
+  Copy,
+  KeyRound,
+  RefreshCw,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -29,6 +32,7 @@ import {
   useToggleUserActive,
   useUserStores,
   useSyncUserStores,
+  useRegenerateClaimCode,
 } from "@/hooks/useUsers";
 import { useCommitEmpidImport } from "@/hooks/useEmpidImport";
 import { useStores } from "@/hooks/useStores";
@@ -117,6 +121,22 @@ export default function UserDetailPage(): React.ReactElement {
   const toggleActive = useToggleUserActive();
   const syncUserStores = useSyncUserStores();
   const adminResetPassword = useAdminResetPassword();
+  const regenerateClaimCode = useRegenerateClaimCode();
+
+  /** 미가입(유령) 계정 — 아직 앱에 가입하지 않은 직원 자리 */
+  const isProvisional: boolean = user?.is_provisional === true;
+
+  /** 인수 코드 복사 상태 */
+  const [claimCopied, setClaimCopied] = useState<boolean>(false);
+  const copyClaimCode = useCallback(async (code: string): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setClaimCopied(true);
+      window.setTimeout(() => setClaimCopied(false), 2000);
+    } catch {
+      // 클립보드 접근 불가 — 코드가 화면에 보이므로 수동 복사 가능
+    }
+  }, []);
 
   /* ---- Edit modal state -------------------------------------------------- */
   const [isEditOpen, setIsEditOpen] = useState<boolean>(false);
@@ -554,9 +574,14 @@ export default function UserDetailPage(): React.ReactElement {
                 <Badge variant={getRoleBadgeVariant(user.role_name)}>
                   {user.role_name}
                 </Badge>
-                <Badge variant={user.is_active ? "success" : "danger"}>
-                  {user.is_active ? "Active" : "Inactive"}
-                </Badge>
+                {/* 유령은 is_active=false 지만 "Inactive"가 아니라 "아직 가입 안 함" */}
+                {isProvisional ? (
+                  <Badge variant="warning">NOT SIGNED UP</Badge>
+                ) : (
+                  <Badge variant={user.is_active ? "success" : "danger"}>
+                    {user.is_active ? "Active" : "Inactive"}
+                  </Badge>
+                )}
                 {user.crewid != null && (
                   <span className="text-xs font-mono font-semibold text-text-secondary bg-surface border border-border rounded px-2 py-0.5">
                     CREWID {user.crewid}
@@ -564,7 +589,9 @@ export default function UserDetailPage(): React.ReactElement {
                 )}
               </div>
               <p className="text-sm text-text-muted mb-3">
-                @{user.username}
+                {isProvisional
+                  ? "No login yet — this account is waiting to be claimed."
+                  : `@${user.username}`}
               </p>
 
               {/* Detail Grid */}
@@ -620,28 +647,87 @@ export default function UserDetailPage(): React.ReactElement {
                 <Edit className="h-4 w-4" />
                 Edit Profile
               </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleToggleActive}
-                isLoading={toggleActive.isPending}
-              >
-                {user.is_active ? (
-                  <>
-                    <ToggleRight className="h-4 w-4" />
-                    Deactivate
-                  </>
-                ) : (
-                  <>
-                    <ToggleLeft className="h-4 w-4" />
-                    Activate
-                  </>
-                )}
-              </Button>
+              {/* 유령은 서버가 is_active 를 관리한다(인수 시 활성화) — 수동 토글 숨김 */}
+              {!isProvisional && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleToggleActive}
+                  isLoading={toggleActive.isPending}
+                >
+                  {user.is_active ? (
+                    <>
+                      <ToggleRight className="h-4 w-4" />
+                      Deactivate
+                    </>
+                  ) : (
+                    <>
+                      <ToggleLeft className="h-4 w-4" />
+                      Activate
+                    </>
+                  )}
+                </Button>
+              )}
             </div>
           )}
         </div>
       </div>
+
+      {/* Claim Code Card — 미가입 계정만. 직원이 가입할 때 이 코드로 계정을 인수한다. */}
+      {isProvisional && (
+        <div className="bg-card border border-warning/40 rounded-xl p-6 mb-6">
+          <div className="flex items-center gap-2 mb-4">
+            <KeyRound className="h-5 w-5 text-warning" />
+            <h2 className="text-lg font-bold text-text">Claim Code</h2>
+          </div>
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <p className="text-2xl md:text-3xl font-extrabold font-mono tracking-[0.2em] text-accent break-all">
+                {user.claim_code ?? "—"}
+              </p>
+              <p className="text-xs text-text-muted mt-2 max-w-md">
+                Give this code to the employee. They enter it when signing up to take
+                over this account. Regenerate it if the code was lost or shared by
+                mistake — the old code stops working.
+              </p>
+            </div>
+            {canManageUsers && (
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {user.claim_code && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => void copyClaimCode(user.claim_code as string)}
+                  >
+                    {claimCopied ? (
+                      <>
+                        <Check className="h-4 w-4" />
+                        Copied
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-4 w-4" />
+                        Copy
+                      </>
+                    )}
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  isLoading={regenerateClaimCode.isPending}
+                  onClick={() => {
+                    regenerateClaimCode.mutate(userId);
+                  }}
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Regenerate
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Role / Department / Pay — separate cards side by side */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -845,8 +931,9 @@ export default function UserDetailPage(): React.ReactElement {
         )}
       </div>
 
-      {/* Account Security Section — Owner는 전체, GM(20)은 하위 직원(SV/Staff)에만 표시 */}
-      {canManageUsers && myPriority <= ROLE_PRIORITY.GM && userRolePriority > myPriority && (
+      {/* Account Security Section — Owner는 전체, GM(20)은 하위 직원(SV/Staff)에만 표시.
+          유령은 아직 계정(비밀번호)이 없으므로 숨긴다. */}
+      {!isProvisional && canManageUsers && myPriority <= ROLE_PRIORITY.GM && userRolePriority > myPriority && (
         <div className="bg-card border border-border rounded-xl p-6 mb-6">
           <div className="flex items-center gap-2 mb-4">
             <ShieldAlert className="h-5 w-5 text-danger" />

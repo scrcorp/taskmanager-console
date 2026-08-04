@@ -231,6 +231,14 @@ export interface User {
   /** CREWID — org 안 1부터 순번 (org 번호). */
   crewid?: number | null;
   is_active: boolean;
+  /**
+   * 미가입(유령) 계정 — 아직 앱에 가입하지 않은 직원 자리.
+   * 항상 is_active=false 로 온다 (로그인 불가). 스케줄 배정·empid 부여는 가능.
+   * optional — 기존 mock/테스트 리터럴 보호.
+   */
+  is_provisional?: boolean;
+  /** 인수 코드 — 유령 계정만. 직원이 가입할 때 입력하면 이 계정을 인수한다. */
+  claim_code?: string | null;
   created_at: string;
 }
 
