@@ -20,6 +20,12 @@ export interface EmpidRosterMember {
   /** false = dormant — has the assignment row but stays out of work assignment. */
   is_work_assignment: boolean;
   is_manager: boolean;
+  /** Role name (owner/general_manager/supervisor/staff/custom; null = none). */
+  role_name: string | null;
+  /** Role sort priority — lower = higher rank (null = none). */
+  role_priority: number | null;
+  /** Department — FOH/BOH (null = unassigned). */
+  department: string | null;
 }
 
 /** One store with its member roster. */

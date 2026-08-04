@@ -23,9 +23,8 @@ import { Modal } from "@/components/ui/Modal";
 import { useModal } from "@/components/ui/imperative-modal";
 import { cn, parseApiError } from "@/lib/utils";
 import { useUsers } from "@/hooks/useUsers";
-import { useStores } from "@/hooks/useStores";
 import { useStoreGroups } from "@/hooks/useStoreGroups";
-import type { Store, StoreGroup, User } from "@/types";
+import type { StoreGroup, User } from "@/types";
 import {
   usePreviewEmpidImport,
   useCommitEmpidImport,
@@ -35,9 +34,16 @@ import {
   type EmpidImportCounts,
   type EmpidCommitAssignment,
   type EmpidCommitResult,
-  type EmpidTemplateFilters,
+  type EmpidExportItem,
+  type EmpidExportSplit,
   useDownloadEmpidTemplate,
+  useExportEmpids,
 } from "@/hooks/useEmpidImport";
+import {
+  useEmpidRoster,
+  type EmpidRosterMember,
+  type EmpidRosterStore,
+} from "@/hooks/useEmpidRoster";
 
 type Step = "upload" | "preview" | "result";
 
@@ -290,57 +296,107 @@ function PickUserSection({
   );
 }
 
-// ─── Export current — filter modal ────────────────────────────────────────────
+// ─── Export — multi-axis roster picker modal ─────────────────────────────────
 
-type ExportPeople = NonNullable<EmpidTemplateFilters["people"]>;
+/** Sentinel key for a null role / department on filter checkboxes. */
+const NO_ROLE = "__none__";
+const NO_DEPT = "__none__";
 
-/** People-scope radio options for the current-roster export. */
-const EXPORT_PEOPLE_OPTIONS: { value: ExportPeople; label: string }[] = [
+type NumbersScope = "all" | "numbered" | "unnumbered";
+
+/** Number-scope radio options for the export picker. */
+const NUMBERS_OPTIONS: { value: NumbersScope; label: string }[] = [
   { value: "all", label: "Everyone" },
   { value: "numbered", label: "Has a number" },
-  { value: "unnumbered", label: "Missing a number — fill-in sheet" },
+  { value: "unnumbered", label: "Missing a number" },
 ];
 
-/** One rendered store section in the export picker (last = Ungrouped). */
-interface ExportStoreSection {
+/** Sheet-split select options (1차/2차식 배포 — one sheet per bucket). */
+const SPLIT_OPTIONS: { value: EmpidExportSplit; label: string }[] = [
+  { value: "none", label: "None — single sheet" },
+  { value: "store", label: "By store" },
+  { value: "role", label: "By role" },
+  { value: "band", label: "By number band (hundreds)" },
+];
+
+/** One rendered store section in the store filter (last = Ungrouped). */
+interface ExportRosterSection {
   groupId: string | null;
   name: string;
-  stores: Store[];
+  stores: EmpidRosterStore[];
 }
 
+/** One distinct role across the roster, in role_priority order. */
+interface ExportRoleOption {
+  /** role_name, or NO_ROLE for members without a role. */
+  key: string;
+  label: string;
+  priority: number;
+}
+
+/** One store of the filtered result with its passing members. */
+interface ExportResultStore {
+  store: EmpidRosterStore;
+  members: EmpidRosterMember[];
+}
+
+/** Stable manual-exclusion key — survives filter changes. */
+const rowKey = (userId: string, storeId: string): string => `${userId}:${storeId}`;
+
 /**
- * "Export current" filter modal — pick stores (grouped sections), the people
- * scope, and the included columns, then download the current roster xlsx.
- * Mounted only while open, so the store/group queries fetch lazily and the
+ * Export picker modal — multi-axis filters (stores, roles, department,
+ * numbers, number band, dormant) narrow the roster on the left; the right
+ * panel lists every passing (person, store) row with a checkbox for manual
+ * include/exclude. Export POSTs exactly the checked rows; Split sheets can
+ * separate the workbook by store / role / number band for staged handouts.
+ * Mounted only while open, so the roster/group queries fetch lazily and the
  * selection resets to "everything" on each open.
  */
 function ExportEmpidModal({ onClose }: { onClose: () => void }): React.ReactElement {
   const modal = useModal();
-  const downloadTemplate = useDownloadEmpidTemplate();
+  const exportEmpids = useExportEmpids();
   const { data: groupsData } = useStoreGroups();
-  const { data: storesData, isLoading: storesLoading } = useStores();
-  const stores: Store[] = useMemo(
-    () => (Array.isArray(storesData) ? storesData : []),
-    [storesData],
+  const { data: rosterData, isLoading: rosterLoading } = useEmpidRoster();
+  const roster: EmpidRosterStore[] = useMemo(
+    () => (Array.isArray(rosterData) ? rosterData : []),
+    [rosterData],
   );
 
-  /** "all" = every store (stores param omitted); otherwise an explicit id set. */
-  const [selected, setSelected] = useState<Set<string> | "all">("all");
-  const [people, setPeople] = useState<ExportPeople>("all");
+  // ── Filter state ──
+  /** "all" = every store; otherwise an explicit id set. */
+  const [storeSel, setStoreSel] = useState<Set<string> | "all">("all");
+  /** Role keys the operator unchecked (default: every role on). */
+  const [rolesOff, setRolesOff] = useState<Set<string>>(new Set());
+  /** "all" | department value | NO_DEPT (unassigned). */
+  const [dept, setDept] = useState<string>("all");
+  const [numbers, setNumbers] = useState<NumbersScope>("all");
+  /** Optional empid range — filled = only people whose number is inside. */
+  const [bandFrom, setBandFrom] = useState("");
+  const [bandTo, setBandTo] = useState("");
   const [includeDormant, setIncludeDormant] = useState(true);
+  /** Manual per-row exclusions ("user:store" keys) — survive filter changes. */
+  const [manualOff, setManualOff] = useState<Set<string>>(new Set());
+
+  // ── Output options ──
   const [includeEmail, setIncludeEmail] = useState(true);
   const [includeNumbers, setIncludeNumbers] = useState(true);
+  const [splitBy, setSplitBy] = useState<EmpidExportSplit>("none");
   const [isExporting, setIsExporting] = useState(false);
 
-  /** Group sections in sort_order, Ungrouped last; empty sections hidden. */
-  const sections: ExportStoreSection[] = useMemo(() => {
+  // ── Store filter (grouped sections, Ungrouped last; empty hidden) ──
+  const allStoreIds: string[] = useMemo(
+    () => roster.map((s) => s.store_id),
+    [roster],
+  );
+
+  const sections: ExportRosterSection[] = useMemo(() => {
     const groupList: StoreGroup[] = Array.isArray(groupsData)
       ? [...groupsData].sort((a, b) => a.sort_order - b.sort_order)
       : [];
     const knownGroupIds = new Set(groupList.map((g) => g.id));
-    const byGroup = new Map<string, Store[]>();
-    const ungrouped: Store[] = [];
-    for (const store of stores) {
+    const byGroup = new Map<string, EmpidRosterStore[]>();
+    const ungrouped: EmpidRosterStore[] = [];
+    for (const store of roster) {
       const gid = store.group_id ?? null;
       if (gid && knownGroupIds.has(gid)) {
         const list = byGroup.get(gid);
@@ -350,99 +406,209 @@ function ExportEmpidModal({ onClose }: { onClose: () => void }): React.ReactElem
         ungrouped.push(store);
       }
     }
-    const result: ExportStoreSection[] = groupList
+    const result: ExportRosterSection[] = groupList
       .map((g) => ({ groupId: g.id, name: g.name, stores: byGroup.get(g.id) ?? [] }))
       .filter((s) => s.stores.length > 0);
     if (ungrouped.length > 0) {
       result.push({ groupId: null, name: "Ungrouped", stores: ungrouped });
     }
     return result;
-  }, [groupsData, stores]);
+  }, [groupsData, roster]);
 
-  const isChecked = useCallback(
-    (id: string): boolean => selected === "all" || selected.has(id),
-    [selected],
+  const isStoreChecked = useCallback(
+    (id: string): boolean => storeSel === "all" || storeSel.has(id),
+    [storeSel],
   );
-  const allChecked: boolean =
-    selected === "all" || (stores.length > 0 && selected.size === stores.length);
-  const selectedCount: number = selected === "all" ? stores.length : selected.size;
+  const allStoresChecked: boolean =
+    storeSel === "all" ||
+    (allStoreIds.length > 0 && storeSel.size === allStoreIds.length);
 
-  const toggleAll = useCallback((): void => {
-    setSelected((prev) => {
+  const toggleAllStores = useCallback((): void => {
+    setStoreSel((prev) => {
       const isAll =
-        prev === "all" || (stores.length > 0 && prev.size === stores.length);
+        prev === "all" ||
+        (allStoreIds.length > 0 && prev.size === allStoreIds.length);
       return isAll ? new Set<string>() : "all";
     });
-  }, [stores]);
+  }, [allStoreIds]);
 
   const toggleStore = useCallback(
     (id: string): void => {
-      setSelected((prev) => {
-        const next = new Set(prev === "all" ? stores.map((s) => s.id) : prev);
+      setStoreSel((prev) => {
+        const next = new Set(prev === "all" ? allStoreIds : prev);
         if (next.has(id)) next.delete(id);
         else next.add(id);
         return next;
       });
     },
-    [stores],
+    [allStoreIds],
   );
 
   /** Group header toggle — all on → clear the group, otherwise select it all. */
   const toggleGroup = useCallback(
-    (groupStores: Store[]): void => {
-      setSelected((prev) => {
-        const next = new Set(prev === "all" ? stores.map((s) => s.id) : prev);
-        const allOn = groupStores.every((s) => next.has(s.id));
+    (groupStores: EmpidRosterStore[]): void => {
+      setStoreSel((prev) => {
+        const next = new Set(prev === "all" ? allStoreIds : prev);
+        const allOn = groupStores.every((s) => next.has(s.store_id));
         groupStores.forEach((s) => {
-          if (allOn) next.delete(s.id);
-          else next.add(s.id);
+          if (allOn) next.delete(s.store_id);
+          else next.add(s.store_id);
         });
         return next;
       });
     },
-    [stores],
+    [allStoreIds],
+  );
+
+  // ── Role / department option lists (derived from the roster) ──
+  const roles: ExportRoleOption[] = useMemo(() => {
+    const seen = new Map<string, ExportRoleOption>();
+    for (const store of roster) {
+      for (const m of store.members) {
+        const key = m.role_name ?? NO_ROLE;
+        const priority = m.role_priority ?? Number.MAX_SAFE_INTEGER;
+        const existing = seen.get(key);
+        if (!existing || priority < existing.priority) {
+          seen.set(key, { key, label: m.role_name ?? "No role", priority });
+        }
+      }
+    }
+    return [...seen.values()].sort(
+      (a, b) => a.priority - b.priority || a.label.localeCompare(b.label),
+    );
+  }, [roster]);
+
+  const toggleRole = useCallback((key: string): void => {
+    setRolesOff((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  const { deptOptions, hasUnassignedDept } = useMemo(() => {
+    const set = new Set<string>();
+    let hasNull = false;
+    for (const store of roster) {
+      for (const m of store.members) {
+        if (m.department) set.add(m.department);
+        else hasNull = true;
+      }
+    }
+    // FOH before BOH, anything else after alphabetically.
+    const order = (d: string): number => (d === "FOH" ? 0 : d === "BOH" ? 1 : 2);
+    return {
+      deptOptions: [...set].sort((a, b) => order(a) - order(b) || a.localeCompare(b)),
+      hasUnassignedDept: hasNull,
+    };
+  }, [roster]);
+
+  // ── Filtered result — the right panel's row source ──
+  const band = useMemo((): { from: number | null; to: number | null } => {
+    const parse = (v: string): number | null => {
+      const t = v.trim();
+      if (!t) return null;
+      const n = Number(t);
+      return Number.isFinite(n) ? n : null;
+    };
+    return { from: parse(bandFrom), to: parse(bandTo) };
+  }, [bandFrom, bandTo]);
+
+  const results: ExportResultStore[] = useMemo(() => {
+    const passes = (m: EmpidRosterMember): boolean => {
+      if (rolesOff.has(m.role_name ?? NO_ROLE)) return false;
+      if (dept !== "all") {
+        if (dept === NO_DEPT) {
+          if (m.department !== null) return false;
+        } else if (m.department !== dept) return false;
+      }
+      if (numbers === "numbered" && m.empid === null) return false;
+      if (numbers === "unnumbered" && m.empid !== null) return false;
+      if (band.from !== null || band.to !== null) {
+        // 번호대 필터 — 번호 없는 사람은 제외 (a band excludes the numberless)
+        if (m.empid === null) return false;
+        if (band.from !== null && m.empid < band.from) return false;
+        if (band.to !== null && m.empid > band.to) return false;
+      }
+      if (!includeDormant && !m.is_work_assignment) return false;
+      return true;
+    };
+    return roster
+      .filter((s) => storeSel === "all" || storeSel.has(s.store_id))
+      .map((s) => ({ store: s, members: s.members.filter(passes) }))
+      .filter((r) => r.members.length > 0);
+  }, [roster, storeSel, rolesOff, dept, numbers, band, includeDormant]);
+
+  /** Final export list = filter-passing rows minus manual exclusions. */
+  const { visibleCount, selectedItems } = useMemo(() => {
+    const items: EmpidExportItem[] = [];
+    let visible = 0;
+    for (const r of results) {
+      for (const m of r.members) {
+        visible += 1;
+        if (!manualOff.has(rowKey(m.user_id, r.store.store_id))) {
+          items.push({ user_id: m.user_id, store_id: r.store.store_id });
+        }
+      }
+    }
+    return { visibleCount: visible, selectedItems: items };
+  }, [results, manualOff]);
+
+  const toggleRow = useCallback((key: string): void => {
+    setManualOff((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }, []);
+
+  /** Select all / Clear — only touches the currently visible rows. */
+  const setAllVisible = useCallback(
+    (on: boolean): void => {
+      setManualOff((prev) => {
+        const next = new Set(prev);
+        for (const r of results) {
+          for (const m of r.members) {
+            const key = rowKey(m.user_id, r.store.store_id);
+            if (on) next.delete(key);
+            else next.add(key);
+          }
+        }
+        return next;
+      });
+    },
+    [results],
   );
 
   const handleExport = useCallback(async (): Promise<void> => {
-    const filters: EmpidTemplateFilters = {
-      people,
-      include_dormant: includeDormant,
-      include_email: includeEmail,
-      include_numbers: includeNumbers,
-    };
-    // 전체 선택이면 stores 생략 (서버 기본 = 전체 매장)
-    if (selected !== "all" && selected.size !== stores.length) {
-      filters.stores = Array.from(selected);
-    }
+    if (selectedItems.length === 0) return;
     setIsExporting(true);
     try {
-      await downloadTemplate("current", filters);
+      await exportEmpids({
+        items: selectedItems,
+        include_email: includeEmail,
+        include_numbers: includeNumbers,
+        split_by: splitBy,
+      });
       onClose();
     } catch (err) {
       void modal.alert({
         type: "error",
-        message: parseApiError(err, "Failed to export the current roster."),
+        message: parseApiError(err, "Failed to export the roster."),
       });
     } finally {
       setIsExporting(false);
     }
-  }, [
-    people,
-    includeDormant,
-    includeEmail,
-    includeNumbers,
-    selected,
-    stores,
-    downloadTemplate,
-    onClose,
-    modal,
-  ]);
+  }, [selectedItems, includeEmail, includeNumbers, splitBy, exportEmpids, onClose, modal]);
 
   return (
     <Modal
       isOpen
       onClose={onClose}
-      title="Export current roster"
+      title="Export roster"
+      size="lg"
       footer={
         <div className="flex justify-end gap-2">
           <Button variant="secondary" size="sm" onClick={onClose}>
@@ -452,97 +618,178 @@ function ExportEmpidModal({ onClose }: { onClose: () => void }): React.ReactElem
             variant="primary"
             size="sm"
             onClick={() => void handleExport()}
-            disabled={selectedCount === 0 || isExporting}
+            disabled={selectedItems.length === 0 || isExporting}
             isLoading={isExporting}
           >
             <Download size={14} />
-            Export
+            Export ({selectedItems.length})
           </Button>
         </div>
       }
     >
       <div className="space-y-4">
-        {/* Store picker — group sections, Ungrouped last */}
-        <div>
-          <p className="text-xs font-semibold text-text-secondary mb-1.5">Stores</p>
-          <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-text">
-            <input
-              type="checkbox"
-              checked={allChecked}
-              onChange={toggleAll}
-              className="cursor-pointer accent-accent"
-            />
-            All stores
-          </label>
-          {storesLoading ? (
-            <p className="text-xs text-text-muted mt-2">Loading stores…</p>
-          ) : (
-            <div className="mt-2 max-h-64 overflow-y-auto rounded-lg border border-border p-3 space-y-3">
-              {sections.map((section) => {
-                const groupAllOn = section.stores.every((s) => isChecked(s.id));
-                return (
-                  <div key={section.groupId ?? "ungrouped"}>
-                    <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold uppercase tracking-wide text-text-secondary">
-                      <input
-                        type="checkbox"
-                        checked={groupAllOn}
-                        onChange={() => toggleGroup(section.stores)}
-                        className="cursor-pointer accent-accent"
-                      />
-                      {section.name}
-                    </label>
-                    <div className="mt-1.5 space-y-1 pl-5">
-                      {section.stores.map((store) => (
-                        <label
-                          key={store.id}
-                          className="flex items-center gap-2 cursor-pointer text-sm text-text"
-                        >
-                          <input
-                            type="checkbox"
-                            checked={isChecked(store.id)}
-                            onChange={() => toggleStore(store.id)}
-                            className="cursor-pointer accent-accent"
-                          />
-                          {store.name}
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                );
-              })}
-              {sections.length === 0 && (
-                <p className="text-xs text-text-muted">No stores.</p>
-              )}
-            </div>
-          )}
-        </div>
-
-        {/* People scope */}
-        <div>
-          <p className="text-xs font-semibold text-text-secondary mb-1.5">People</p>
-          <div className="space-y-1">
-            {EXPORT_PEOPLE_OPTIONS.map(({ value, label }) => (
-              <label
-                key={value}
-                className="flex items-center gap-2 cursor-pointer text-sm text-text"
-              >
+        <div className="space-y-4 md:grid md:grid-cols-[15rem_minmax(0,1fr)] md:gap-4 md:space-y-0">
+          {/* ── Left: filters ── */}
+          <div className="space-y-4 md:max-h-[55vh] md:overflow-y-auto md:pr-1">
+            {/* Stores — group sections, Ungrouped last */}
+            <div>
+              <p className="text-xs font-semibold text-text-secondary mb-1.5">Stores</p>
+              <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-text">
                 <input
-                  type="radio"
-                  name="export-people"
-                  checked={people === value}
-                  onChange={() => setPeople(value)}
+                  type="checkbox"
+                  checked={allStoresChecked}
+                  onChange={toggleAllStores}
                   className="cursor-pointer accent-accent"
                 />
-                {label}
+                All stores
               </label>
-            ))}
-          </div>
-        </div>
+              <div className="mt-2 max-h-44 overflow-y-auto rounded-lg border border-border p-2.5 space-y-2.5">
+                {sections.map((section) => {
+                  const groupAllOn = section.stores.every((s) => isStoreChecked(s.store_id));
+                  return (
+                    <div key={section.groupId ?? "ungrouped"}>
+                      <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold uppercase tracking-wide text-text-secondary">
+                        <input
+                          type="checkbox"
+                          checked={groupAllOn}
+                          onChange={() => toggleGroup(section.stores)}
+                          className="cursor-pointer accent-accent"
+                        />
+                        {section.name}
+                      </label>
+                      <div className="mt-1 space-y-1 pl-5">
+                        {section.stores.map((store) => (
+                          <label
+                            key={store.store_id}
+                            className="flex items-center gap-2 cursor-pointer text-sm text-text"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={isStoreChecked(store.store_id)}
+                              onChange={() => toggleStore(store.store_id)}
+                              className="cursor-pointer accent-accent"
+                            />
+                            {store.store_name}
+                          </label>
+                        ))}
+                      </div>
+                    </div>
+                  );
+                })}
+                {sections.length === 0 && (
+                  <p className="text-xs text-text-muted">
+                    {rosterLoading ? "Loading stores…" : "No stores."}
+                  </p>
+                )}
+              </div>
+            </div>
 
-        {/* Included columns */}
-        <div>
-          <p className="text-xs font-semibold text-text-secondary mb-1.5">Options</p>
-          <div className="space-y-1">
+            {/* Roles — distinct role_name in priority order, default all on */}
+            <div>
+              <p className="text-xs font-semibold text-text-secondary mb-1.5">Roles</p>
+              <div className="space-y-1">
+                {roles.map((role) => (
+                  <label
+                    key={role.key}
+                    className="flex items-center gap-2 cursor-pointer text-sm text-text"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={!rolesOff.has(role.key)}
+                      onChange={() => toggleRole(role.key)}
+                      className="cursor-pointer accent-accent"
+                    />
+                    {role.label}
+                  </label>
+                ))}
+                {roles.length === 0 && (
+                  <p className="text-xs text-text-muted">
+                    {rosterLoading ? "Loading…" : "No roles."}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Department — All / FOH / BOH / Unassigned (when nulls exist) */}
+            <div>
+              <p className="text-xs font-semibold text-text-secondary mb-1.5">Department</p>
+              <div className="space-y-1">
+                {[
+                  { value: "all", label: "All" },
+                  ...deptOptions.map((d) => ({ value: d, label: d })),
+                  ...(hasUnassignedDept
+                    ? [{ value: NO_DEPT, label: "Unassigned" }]
+                    : []),
+                ].map(({ value, label }) => (
+                  <label
+                    key={value}
+                    className="flex items-center gap-2 cursor-pointer text-sm text-text"
+                  >
+                    <input
+                      type="radio"
+                      name="export-dept"
+                      checked={dept === value}
+                      onChange={() => setDept(value)}
+                      className="cursor-pointer accent-accent"
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Numbers */}
+            <div>
+              <p className="text-xs font-semibold text-text-secondary mb-1.5">Numbers</p>
+              <div className="space-y-1">
+                {NUMBERS_OPTIONS.map(({ value, label }) => (
+                  <label
+                    key={value}
+                    className="flex items-center gap-2 cursor-pointer text-sm text-text"
+                  >
+                    <input
+                      type="radio"
+                      name="export-numbers"
+                      checked={numbers === value}
+                      onChange={() => setNumbers(value)}
+                      className="cursor-pointer accent-accent"
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {/* Number band — optional empid range */}
+            <div>
+              <p className="text-xs font-semibold text-text-secondary mb-1.5">Number band</p>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  value={bandFrom}
+                  onChange={(e) => setBandFrom(e.target.value)}
+                  placeholder="From"
+                  aria-label="Number band from"
+                  className="w-20 px-2 py-1 rounded-md bg-surface border border-border text-xs text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/20"
+                />
+                <span className="text-xs text-text-muted">–</span>
+                <input
+                  type="number"
+                  value={bandTo}
+                  onChange={(e) => setBandTo(e.target.value)}
+                  placeholder="To"
+                  aria-label="Number band to"
+                  className="w-20 px-2 py-1 rounded-md bg-surface border border-border text-xs text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/20"
+                />
+              </div>
+              {(band.from !== null || band.to !== null) && (
+                <p className="text-[11px] text-text-muted mt-1">
+                  Only numbers in this range — people without a number are excluded.
+                </p>
+              )}
+            </div>
+
+            {/* Dormant */}
             <label className="flex items-center gap-2 cursor-pointer text-sm text-text">
               <input
                 type="checkbox"
@@ -552,6 +799,86 @@ function ExportEmpidModal({ onClose }: { onClose: () => void }): React.ReactElem
               />
               Include dormant assignments
             </label>
+          </div>
+
+          {/* ── Right: filtered people, grouped by store ── */}
+          <div className="flex flex-col rounded-lg border border-border md:max-h-[55vh]">
+            <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2 shrink-0">
+              <p className="text-xs text-text-secondary">
+                <span className="font-semibold text-text">{selectedItems.length}</span>{" "}
+                of {visibleCount} selected
+              </p>
+              <div className="flex items-center gap-1">
+                <Button variant="ghost" size="sm" onClick={() => setAllVisible(true)}>
+                  Select all
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => setAllVisible(false)}>
+                  Clear
+                </Button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-3 space-y-3">
+              {rosterLoading ? (
+                <p className="text-xs text-text-muted">Loading roster…</p>
+              ) : results.length === 0 ? (
+                <p className="text-xs text-text-muted">No people match the filters.</p>
+              ) : (
+                results.map(({ store, members }) => (
+                  <div key={store.store_id}>
+                    <p className="text-xs font-semibold uppercase tracking-wide text-text-secondary mb-1">
+                      {store.store_name} ({members.length})
+                    </p>
+                    <div className="space-y-0.5">
+                      {members.map((m) => {
+                        const key = rowKey(m.user_id, store.store_id);
+                        return (
+                          <label
+                            key={key}
+                            className="flex items-center gap-2 flex-wrap cursor-pointer rounded-md px-1.5 py-1 hover:bg-surface-hover transition-colors"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={!manualOff.has(key)}
+                              onChange={() => toggleRow(key)}
+                              className="cursor-pointer accent-accent"
+                            />
+                            <span className="text-sm text-text">{m.full_name}</span>
+                            {m.role_name && (
+                              <Badge variant="accent" className="text-[10px]">
+                                {m.role_name}
+                              </Badge>
+                            )}
+                            {m.empid !== null ? (
+                              <Badge variant="default" className="text-[10px] font-semibold">
+                                #{m.empid}
+                              </Badge>
+                            ) : (
+                              <Badge variant="warning" className="text-[10px]">
+                                no number
+                              </Badge>
+                            )}
+                            {!m.is_work_assignment && (
+                              <Badge
+                                variant="warning"
+                                className="text-[10px] uppercase tracking-wide"
+                              >
+                                Dormant
+                              </Badge>
+                            )}
+                          </label>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* ── Output options ── */}
+        <div className="border-t border-border pt-3 space-y-2">
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2">
             <label className="flex items-center gap-2 cursor-pointer text-sm text-text">
               <input
                 type="checkbox"
@@ -561,11 +888,6 @@ function ExportEmpidModal({ onClose }: { onClose: () => void }): React.ReactElem
               />
               Include emails
             </label>
-            {!includeEmail && (
-              <div className="pl-6">
-                <EntryWarning text="Email is the matching key — a file without emails can't be re-imported." />
-              </div>
-            )}
             <label className="flex items-center gap-2 cursor-pointer text-sm text-text">
               <input
                 type="checkbox"
@@ -573,9 +895,31 @@ function ExportEmpidModal({ onClose }: { onClose: () => void }): React.ReactElem
                 onChange={() => setIncludeNumbers((v) => !v)}
                 className="cursor-pointer accent-accent"
               />
-              Include current numbers
+              Include numbers
+            </label>
+            <label className="flex items-center gap-2 text-sm text-text">
+              Split sheets
+              <select
+                value={splitBy}
+                onChange={(e) => setSplitBy(e.target.value as EmpidExportSplit)}
+                className="px-2 py-1 rounded-md bg-surface border border-border text-xs text-text focus:outline-none focus:ring-2 focus:ring-accent/20 cursor-pointer"
+              >
+                {SPLIT_OPTIONS.map(({ value, label }) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
             </label>
           </div>
+          {!includeEmail && (
+            <EntryWarning text="Email is the matching key — a file without emails can't be re-imported." />
+          )}
+          {splitBy !== "none" && (
+            <p className="text-[11px] text-text-muted">
+              Re-import reads the first sheet only.
+            </p>
+          )}
         </div>
       </div>
     </Modal>
@@ -896,8 +1240,8 @@ export default function EmpidImportPage(): React.ReactElement {
           </Button>
         </div>
 
-        {/* Mounted only while open — store/group queries fetch lazily,
-            selection resets each open. */}
+        {/* Mounted only while open — roster/group queries fetch lazily,
+            filters and selection reset each open. */}
         {exportOpen && <ExportEmpidModal onClose={() => setExportOpen(false)} />}
       </div>
     );

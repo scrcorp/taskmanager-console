@@ -216,6 +216,53 @@ export const useDownloadEmpidTemplate = (): ((
   };
 };
 
+// ─── Selected-people export ───────────────────────────────────────────────────
+
+/** Sheet split axis for the selected-people export. */
+export type EmpidExportSplit = "none" | "store" | "role" | "band";
+
+/** One selected (user, store) row to export. */
+export interface EmpidExportItem {
+  user_id: string;
+  store_id: string;
+}
+
+/** POST /console/empid-import/export body — filtering is the console's job. */
+export interface EmpidExportRequest {
+  items: EmpidExportItem[];
+  /** false = Email cells blank (share-only — the file can't be re-imported). */
+  include_email?: boolean;
+  /** false = emp_id cells blank (fill-in form). */
+  include_numbers?: boolean;
+  /** Sheet split — none (single sheet) / store / role / band (hundreds). */
+  split_by?: EmpidExportSplit;
+}
+
+/**
+ * 선택 인원 export — 콘솔에서 필터·개별 선택한 (user, store)만 임포트 형식
+ * xlsx 로 다운로드. split_by 로 시트 구분(매장별/역할별/백 단위 번호대별).
+ *
+ * Download the import-format workbook for the exact (user, store) rows the
+ * operator picked. Throws on failure — callers show the error modal.
+ */
+export const useExportEmpids = (): ((
+  request: EmpidExportRequest,
+) => Promise<void>) => {
+  return async (request: EmpidExportRequest): Promise<void> => {
+    const response: AxiosResponse<Blob> = await api.post(
+      "/console/empid-import/export",
+      request,
+      { responseType: "blob" },
+    );
+    const url = URL.createObjectURL(response.data);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "empid_export.xlsx";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+};
+
 export const usePreviewEmpidImport = (): UseMutationResult<
   EmpidImportPreviewResult,
   Error,
