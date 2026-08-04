@@ -14,7 +14,7 @@
  */
 
 import React, { useCallback, useMemo, useRef, useState } from "react";
-import { Upload, FileSpreadsheet, X, AlertTriangle } from "lucide-react";
+import { Upload, FileSpreadsheet, X, AlertTriangle, Download } from "lucide-react";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@/lib/permissions";
 import { Button } from "@/components/ui/Button";
@@ -32,6 +32,7 @@ import {
   type EmpidImportCounts,
   type EmpidCommitAssignment,
   type EmpidCommitResult,
+  useDownloadEmpidTemplate,
 } from "@/hooks/useEmpidImport";
 
 type Step = "upload" | "preview" | "result";
@@ -290,6 +291,7 @@ export default function EmpidImportPage(): React.ReactElement {
   const canUpdate = hasPermission(PERMISSIONS.USERS_UPDATE);
   const modal = useModal();
   const previewImport = usePreviewEmpidImport();
+  const downloadTemplate = useDownloadEmpidTemplate();
   const commitImport = useCommitEmpidImport();
   // Whole-org user list for the placeholder/deferred user pickers.
   const { data: usersData, isLoading: usersLoading } = useUsers();
@@ -512,12 +514,24 @@ export default function EmpidImportPage(): React.ReactElement {
     return (
       <div className="max-w-2xl space-y-4">
         <div className="bg-card border border-border rounded-xl p-5 space-y-4">
-          <div>
-            <h2 className="text-sm font-bold text-text mb-1">Upload legacy roster</h2>
-            <p className="text-sm text-text-secondary">
-              Upload the legacy roster (COMPANY, CORP_ABR_3, Name, emp_id, Email).
-              Numbers are registered per store.
-            </p>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-sm font-bold text-text mb-1">Upload legacy roster</h2>
+              <p className="text-sm text-text-secondary">
+                Upload the legacy roster (COMPANY, CORP_ABR_3, Name, emp_id, Email).
+                Numbers are registered per store.
+              </p>
+            </div>
+            <div className="flex shrink-0 flex-col items-end gap-1.5">
+              <Button variant="ghost" size="sm" onClick={() => void downloadTemplate("blank")}>
+                <Download size={14} />
+                Template
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => void downloadTemplate("current")}>
+                <Download size={14} />
+                Export current
+              </Button>
+            </div>
           </div>
 
           <div

@@ -160,6 +160,27 @@ export interface EmpidCommitResult {
  * EMPID import preview — parse the legacy roster without writing anything.
  * Pass a FormData with the file under field "file" (.xlsx/.csv).
  */
+/**
+ * 임포트용 xlsx 다운로드 훅 — blank(빈 템플릿) / current(현황 export, 왕복 편집용).
+ *
+ * Download the import-format workbook: a blank template or the current
+ * per-store EMPID roster (edit and re-upload for a round trip).
+ */
+export const useDownloadEmpidTemplate = (): ((mode: "blank" | "current") => Promise<void>) => {
+  return async (mode: "blank" | "current"): Promise<void> => {
+    const response: AxiosResponse<Blob> = await api.get(
+      "/console/empid-import/template",
+      { params: { mode }, responseType: "blob" },
+    );
+    const url = URL.createObjectURL(response.data);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = mode === "current" ? "empid_export.xlsx" : "empid_import_template.xlsx";
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+};
+
 export const usePreviewEmpidImport = (): UseMutationResult<
   EmpidImportPreviewResult,
   Error,
