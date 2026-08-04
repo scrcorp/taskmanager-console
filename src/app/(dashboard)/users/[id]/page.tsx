@@ -24,15 +24,21 @@ import {
   Copy,
   KeyRound,
   RefreshCw,
+  Merge,
+  AlertTriangle,
 } from "lucide-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useUser,
+  useUsers,
   useUpdateUser,
   useToggleUserActive,
   useUserStores,
   useSyncUserStores,
   useRegenerateClaimCode,
+  usePreviewAbsorb,
+  useAbsorbProvisional,
+  type AbsorbPlan,
 } from "@/hooks/useUsers";
 import { useCommitEmpidImport } from "@/hooks/useEmpidImport";
 import { useStores } from "@/hooks/useStores";
@@ -96,6 +102,37 @@ const INITIAL_EDIT_FORM: UserEditFormData = {
   employee_no: "",
 };
 
+/**
+ * Absorb plan 의 `moves` 키(테이블명) → 사람이 읽는 라벨.
+ * 모르는 키는 snake_case 를 그대로 풀어서 보여준다.
+ */
+const ABSORB_MOVE_LABELS: Record<string, string> = {
+  schedules: "Schedules",
+  schedule_shifts: "Shifts",
+  shifts: "Shifts",
+  time_entries: "Time entries",
+  clock_entries: "Clock entries",
+  attendance: "Attendance records",
+  warnings: "Warnings",
+  user_stores: "Store assignments",
+  store_assignments: "Store assignments",
+  availability: "Availability",
+  time_off_requests: "Time-off requests",
+  shift_swaps: "Shift swaps",
+  tasks: "Tasks",
+  task_completions: "Task completions",
+  payroll_entries: "Payroll entries",
+  notes: "Notes",
+};
+
+/** moves 키를 사람이 읽는 라벨로 (없으면 snake_case 를 문장식으로 변환) */
+function absorbMoveLabel(key: string): string {
+  const known = ABSORB_MOVE_LABELS[key];
+  if (known) return known;
+  const spaced = key.replace(/_/g, " ");
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
 /* -------------------------------------------------------------------------- */
 /*  Main Component                                                            */
 /* -------------------------------------------------------------------------- */
@@ -137,6 +174,74 @@ export default function UserDetailPage(): React.ReactElement {
       // 클립보드 접근 불가 — 코드가 화면에 보이므로 수동 복사 가능
     }
   }, []);
+
+  /* ---- Absorb (미가입 계정 흡수) state ------------------------------------ */
+  const previewAbsorb = usePreviewAbsorb();
+  const absorbProvisional = useAbsorbProvisional();
+  /** org 유저 목록 — 흡수 대상 후보. 미가입 계정만 보고 있을 때만 필요하다. */
+  const { data: orgUsers, isLoading: orgUsersLoading } = useUsers();
+  const [absorbFilter, setAbsorbFilter] = useState<string>("");
+  const [absorbTargetId, setAbsorbTargetId] = useState<string>("");
+  /** preview 결과 — 열려 있으면 확인 모달이 뜬다 */
+  const [absorbPlan, setAbsorbPlan] = useState<AbsorbPlan | null>(null);
+
+  /** 흡수 대상 후보 — 미가입 계정과 자기 자신은 제외 */
+  const absorbCandidates: User[] = useMemo(() => {
+    const list = Array.isArray(orgUsers) ? orgUsers : [];
+    return list.filter(
+      (u: User) => u.id !== userId && u.is_provisional !== true,
+    );
+  }, [orgUsers, userId]);
+
+  /** 검색어 적용 — 선택된 유저는 필터에서 밀려나도 목록에 남긴다 */
+  const absorbOptions: User[] = useMemo(() => {
+    const q = absorbFilter.trim().toLowerCase();
+    let list = absorbCandidates;
+    if (q) {
+      list = absorbCandidates.filter(
+        (u: User) =>
+          (u.full_name?.toLowerCase().includes(q) ?? false) ||
+          u.username.toLowerCase().includes(q) ||
+          (u.email?.toLowerCase().includes(q) ?? false),
+      );
+    }
+    if (absorbTargetId && !list.some((u: User) => u.id === absorbTargetId)) {
+      const selected = absorbCandidates.find((u: User) => u.id === absorbTargetId);
+      if (selected) list = [selected, ...list];
+    }
+    return list;
+  }, [absorbCandidates, absorbFilter, absorbTargetId]);
+
+  /** 미리보기 실행 — 성공 시 확인 모달 오픈 */
+  const handlePreviewAbsorb = useCallback(async (): Promise<void> => {
+    if (!absorbTargetId) return;
+    try {
+      const plan = await previewAbsorb.mutateAsync({
+        provisionalUserId: userId,
+        targetUserId: absorbTargetId,
+      });
+      setAbsorbPlan(plan);
+    } catch {
+      // hook 자동 모달 (parseApiError)
+    }
+  }, [absorbTargetId, previewAbsorb, userId]);
+
+  /** 흡수 확정 — 이 페이지의 계정은 폐기되므로 대상 유저 상세로 이동 */
+  const handleConfirmAbsorb = useCallback(async (): Promise<void> => {
+    if (!absorbTargetId) return;
+    const targetId = absorbTargetId;
+    try {
+      await absorbProvisional.mutateAsync({
+        provisionalUserId: userId,
+        targetUserId: targetId,
+      });
+      setAbsorbPlan(null);
+      setAbsorbTargetId("");
+      router.push(`/users/${targetId}`);
+    } catch {
+      // hook 자동 모달 (parseApiError)
+    }
+  }, [absorbTargetId, absorbProvisional, userId, router]);
 
   /* ---- Edit modal state -------------------------------------------------- */
   const [isEditOpen, setIsEditOpen] = useState<boolean>(false);
@@ -729,6 +834,71 @@ export default function UserDetailPage(): React.ReactElement {
         </div>
       )}
 
+      {/* Absorb Card — 미가입 계정만. 직원이 코드를 안 쓰고 따로 가입해 계정이 2개가 된 경우,
+          이 자리표의 배정·번호·스케줄을 실제 계정으로 옮기고 이 행을 폐기한다. */}
+      {isProvisional && canManageUsers && (
+        <div className="bg-card border border-border rounded-xl p-6 mb-6">
+          <div className="flex items-center gap-2 mb-2">
+            <Merge className="h-5 w-5 text-text-secondary" />
+            <h2 className="text-lg font-bold text-text">
+              Absorb into an existing account
+            </h2>
+          </div>
+          <p className="text-sm text-text-muted mb-4 max-w-2xl">
+            If this person already signed up with a separate account, move their
+            assignments, EMPIDs and schedules into that account and retire this
+            placeholder.
+          </p>
+          <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+            <div className="flex flex-col gap-1.5">
+              <label
+                htmlFor="absorb-target-filter"
+                className="text-xs font-medium text-text-secondary"
+              >
+                Existing account
+              </label>
+              <input
+                id="absorb-target-filter"
+                value={absorbFilter}
+                onChange={(e) => setAbsorbFilter(e.target.value)}
+                placeholder="Filter by name, username or email…"
+                className="w-full sm:w-72 px-3 py-1.5 rounded-lg bg-surface border border-border text-sm text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-colors"
+              />
+              <select
+                value={absorbTargetId}
+                onChange={(e) => setAbsorbTargetId(e.target.value)}
+                disabled={orgUsersLoading}
+                aria-label="Account to absorb into"
+                className="w-full sm:w-72 px-3 py-1.5 rounded-lg bg-surface border border-border text-sm text-text focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
+              >
+                <option value="">
+                  {orgUsersLoading ? "Loading staff…" : "Select an account…"}
+                </option>
+                {absorbOptions.map((u: User) => (
+                  <option key={u.id} value={u.id}>
+                    {u.full_name || u.username}
+                    {u.username ? ` (@${u.username})` : ""}
+                  </option>
+                ))}
+              </select>
+              {!orgUsersLoading && absorbOptions.length === 0 && (
+                <span className="text-xs text-text-muted">
+                  No matching accounts.
+                </span>
+              )}
+            </div>
+            <Button
+              variant="secondary"
+              onClick={() => void handlePreviewAbsorb()}
+              isLoading={previewAbsorb.isPending}
+              disabled={!absorbTargetId}
+            >
+              Preview
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Role / Department / Pay — separate cards side by side */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
         {/* Role Card */}
@@ -1072,6 +1242,132 @@ export default function UserDetailPage(): React.ReactElement {
           employeeName={user.full_name}
           employeeEmail={user.email}
         />
+      )}
+
+      {/* Absorb Preview Modal — 무엇이 옮겨지는지 보여주고 확정받는다 */}
+      {absorbPlan && (
+        <Modal
+          isOpen={true}
+          onClose={() => setAbsorbPlan(null)}
+          title="Absorb this placeholder?"
+          size="lg"
+          closeOnBackdrop={false}
+          footer={
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="secondary"
+                onClick={() => setAbsorbPlan(null)}
+                disabled={absorbProvisional.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => void handleConfirmAbsorb()}
+                isLoading={absorbProvisional.isPending}
+              >
+                Absorb
+              </Button>
+            </div>
+          }
+        >
+          <div className="space-y-5">
+            {/* Who → who */}
+            <div className="flex items-center gap-2 flex-wrap text-sm">
+              <span className="font-semibold text-text">
+                {absorbPlan.provisional_name}
+              </span>
+              <span className="text-text-muted">→</span>
+              <span className="font-semibold text-accent">
+                {absorbPlan.target_name}
+              </span>
+            </div>
+            <p className="text-xs text-text-muted">
+              This cannot be undone. The placeholder account is retired once the
+              move completes.
+            </p>
+
+            {/* Store / EMPID transfers */}
+            <div>
+              <h4 className="text-sm font-bold text-text mb-2">
+                Store numbers
+              </h4>
+              {absorbPlan.store_transfers.length === 0 ? (
+                <p className="text-sm text-text-muted">
+                  No store numbers to transfer.
+                </p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {absorbPlan.store_transfers.map((t, i) => (
+                    <li
+                      key={`${t.store_name}-${i}`}
+                      className="flex items-center justify-between gap-3 text-sm border-b border-border last:border-b-0 pb-1.5 last:pb-0"
+                    >
+                      <span className="text-text">{t.store_name}</span>
+                      <span className="text-text-secondary text-right">
+                        {t.action === "move"
+                          ? `#${t.empid ?? "—"} moves over`
+                          : `Keeps the existing number${
+                              t.empid != null ? ` (drops placeholder #${t.empid})` : ""
+                            }`}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {/* CREWID */}
+            <div>
+              <h4 className="text-sm font-bold text-text mb-1">CREWID</h4>
+              <p className="text-sm text-text-secondary">
+                {absorbPlan.crewid_action}
+              </p>
+            </div>
+
+            {/* Record moves */}
+            <div>
+              <h4 className="text-sm font-bold text-text mb-2">
+                Records moving
+              </h4>
+              {Object.keys(absorbPlan.moves).length === 0 ? (
+                <p className="text-sm text-text-muted">Nothing to move.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <tbody>
+                    {Object.entries(absorbPlan.moves).map(([key, count]) => (
+                      <tr key={key} className="border-b border-border last:border-b-0">
+                        <td className="py-1.5 text-text">
+                          {absorbMoveLabel(key)}
+                        </td>
+                        <td className="py-1.5 text-right tabular-nums text-text-secondary">
+                          {count}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Conflicts */}
+            {absorbPlan.conflicts.length > 0 && (
+              <div className="rounded-lg border border-warning/40 bg-warning/10 p-3">
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <AlertTriangle className="h-4 w-4 text-warning" />
+                  <h4 className="text-sm font-bold text-warning">
+                    Check before you continue
+                  </h4>
+                </div>
+                <ul className="list-disc pl-5 space-y-1 text-sm text-text-secondary">
+                  {absorbPlan.conflicts.map((c, i) => (
+                    <li key={i}>{c}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </Modal>
       )}
 
       {/* Unmanage Store Confirmation — 관리매장 해제 시 근무매장 유지 여부 */}

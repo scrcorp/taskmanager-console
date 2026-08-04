@@ -246,6 +246,108 @@ export const useRegenerateClaimCode = (): UseMutationResult<
   });
 };
 
+/* -------------------------------------------------------------------------- */
+/*  Absorb — 미가입 계정 흡수                                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * 매장별 번호 이관 결과 (Per-store EMPID transfer outcome).
+ *
+ * - `move`: 미가입 계정의 번호를 대상 계정으로 옮긴다.
+ * - `keep_target`: 대상이 이미 그 매장에 번호를 가지고 있어 대상 번호를 유지하고
+ *   미가입 쪽 번호(`empid`)는 버린다.
+ */
+export interface AbsorbStoreTransfer {
+  store_name: string;
+  empid: number | null;
+  action: "move" | "keep_target";
+}
+
+/**
+ * 흡수 계획 (Absorb plan) — preview 와 실행이 같은 모양을 돌려준다.
+ *
+ * `moves` 는 테이블명 → 옮겨질 행 수. `conflicts` 는 사람이 확인해야 할 경고.
+ */
+export interface AbsorbPlan {
+  provisional_name: string;
+  target_name: string;
+  /** 테이블명 → 이동 건수 (e.g. `{ schedules: 3 }`) */
+  moves: Record<string, number>;
+  store_transfers: AbsorbStoreTransfer[];
+  conflicts: string[];
+  crewid_action: string;
+}
+
+/** 흡수 요청 (Absorb request) */
+export interface AbsorbUserVariables {
+  /** 폐기될 미가입 계정 ID */
+  provisionalUserId: string;
+  /** 배정·번호·스케줄을 넘겨받을 실제 계정 ID */
+  targetUserId: string;
+}
+
+/**
+ * 흡수 미리보기 훅 -- 실제로 옮기기 전에 무엇이 옮겨지는지 계산만 한다.
+ *
+ * Mutation hook to preview absorbing a provisional user into a real account.
+ * 서버 상태를 바꾸지 않으므로 invalidate 하지 않는다.
+ */
+export const usePreviewAbsorb = (): UseMutationResult<
+  AbsorbPlan,
+  Error,
+  AbsorbUserVariables
+> => {
+  const { error } = useMutationToast();
+  return useMutation<AbsorbPlan, Error, AbsorbUserVariables>({
+    mutationFn: async ({
+      provisionalUserId,
+      targetUserId,
+    }: AbsorbUserVariables): Promise<AbsorbPlan> => {
+      const response: AxiosResponse<AbsorbPlan> = await api.post(
+        `/console/users/${provisionalUserId}/absorb/preview`,
+        { target_user_id: targetUserId },
+      );
+      return response.data;
+    },
+    onError: error("Couldn't preview the merge"),
+  });
+};
+
+/**
+ * 흡수 실행 훅 -- 미가입 계정의 배정·번호·스케줄을 실제 계정으로 옮기고 미가입 행을 폐기한다.
+ *
+ * Mutation hook to absorb a provisional user into an existing account.
+ * 미가입 계정은 사라지므로 호출 측은 대상 유저 상세로 이동해야 한다.
+ */
+export const useAbsorbProvisional = (): UseMutationResult<
+  AbsorbPlan,
+  Error,
+  AbsorbUserVariables
+> => {
+  const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationToast();
+  return useMutation<AbsorbPlan, Error, AbsorbUserVariables>({
+    mutationFn: async ({
+      provisionalUserId,
+      targetUserId,
+    }: AbsorbUserVariables): Promise<AbsorbPlan> => {
+      const response: AxiosResponse<AbsorbPlan> = await api.post(
+        `/console/users/${provisionalUserId}/absorb`,
+        { target_user_id: targetUserId },
+      );
+      return response.data;
+    },
+    onSuccess: (plan: AbsorbPlan): void => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      success(
+        `${plan.provisional_name} was merged into ${plan.target_name}. The placeholder account has been retired.`,
+        { title: "Absorbed" },
+      );
+    },
+    onError: error("Couldn't absorb this account"),
+  });
+};
+
 /** 사용자 수정 요청 데이터 타입 (User update request data type) */
 interface UpdateUserData {
   id: string;
