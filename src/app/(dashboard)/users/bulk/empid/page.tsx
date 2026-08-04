@@ -14,17 +14,22 @@
  */
 
 import React, { useCallback, useMemo, useRef, useState } from "react";
-import { Upload, FileSpreadsheet, X, AlertTriangle, Download } from "lucide-react";
+import { Upload, FileSpreadsheet, X, AlertTriangle, Download, Copy, Check } from "lucide-react";
 import { usePermissions } from "@/hooks/usePermissions";
-import { PERMISSIONS } from "@/lib/permissions";
+import { PERMISSIONS, ROLE_PRIORITY } from "@/lib/permissions";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui";
 import { Modal } from "@/components/ui/Modal";
 import { useModal } from "@/components/ui/imperative-modal";
 import { cn, parseApiError } from "@/lib/utils";
-import { useUsers } from "@/hooks/useUsers";
+import {
+  useUsers,
+  useCreateProvisionalUsersBulk,
+  type CreateProvisionalUserData,
+} from "@/hooks/useUsers";
+import { useRoles } from "@/hooks/useRoles";
 import { useStoreGroups } from "@/hooks/useStoreGroups";
-import type { StoreGroup, User } from "@/types";
+import type { Role, StoreGroup, User } from "@/types";
 import {
   usePreviewEmpidImport,
   useCommitEmpidImport,
@@ -53,6 +58,35 @@ type Step = "upload" | "preview" | "result";
  */
 const entryKey = (bucket: string, personIdx: number, entryIdx: number): string =>
   `${bucket}:${personIdx}:${entryIdx}`;
+
+/**
+ * Sentinel stored in `pickedUsers` when the operator chose "create a new
+ * provisional staff member" instead of an existing DB user. Rows carrying it
+ * get a real user id only at Apply time, after the bulk-create call returns.
+ */
+const CREATE_PROVISIONAL = "__create_provisional__";
+
+/**
+ * Group key for provisional creation: one user per (person card × file name).
+ * Deferred rows for one person across several stores collapse into a single
+ * user with several store_ids, while a placeholder card (several people
+ * sharing a dummy email) still creates one user per distinct name.
+ */
+const createGroupKey = (
+  prefix: string,
+  personIdx: number,
+  fullName: string,
+): string => `${prefix}:${personIdx}:${fullName}`;
+
+/** One provisional staff member to create, plus the rows waiting on its id. */
+interface ProvisionalCreateGroup {
+  key: string;
+  full_name: string;
+  role_id: string;
+  /** Every store the person appears in — one user, many store assignments. */
+  store_ids: string[];
+  rows: { store_id: string; empid: number }[];
+}
 
 /** Rebind pill options — Current (DB value) vs Upload (file value, default). */
 const REBIND_OPTIONS: { value: "current" | "upload"; label: string }[] = [
@@ -95,6 +129,8 @@ function EntryWarning({ text }: { text: string }): React.ReactElement {
 /**
  * Compact combobox for picking a DB user: filter input on top, select below.
  * The selected user stays visible in the options even when filtered out.
+ * The first option creates a brand-new provisional staff member instead —
+ * for people who simply aren't in the DB yet.
  */
 function UserPicker({
   users,
@@ -146,6 +182,9 @@ function UserPicker({
           className="w-56 px-2 py-1 rounded-md bg-surface border border-border text-xs text-text focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
         >
           <option value="">{isLoading ? "Loading users…" : "Select user…"}</option>
+          <option value={CREATE_PROVISIONAL}>
+            + Create as new provisional staff
+          </option>
           {options.map((u) => (
             <option key={u.id} value={u.id}>
               {u.full_name || u.username}
@@ -164,7 +203,8 @@ function UserPicker({
 /**
  * Actionable section for placeholder / deferred buckets — the user is
  * unresolved, so the operator picks a DB user per needs_user row to register
- * it anyway. unmatched_store / invalid rows stay report-only.
+ * it anyway, or creates a provisional staff member on the spot.
+ * unmatched_store / invalid rows stay report-only.
  */
 function PickUserSection({
   title,
@@ -173,11 +213,15 @@ function PickUserSection({
   people,
   users,
   usersLoading,
+  roles,
+  defaultRoleId,
   checked,
   pickedUsers,
+  pickedRoles,
   duplicateKeys,
   onToggle,
   onPickUser,
+  onPickRole,
 }: {
   title: string;
   hint: string;
@@ -185,11 +229,15 @@ function PickUserSection({
   people: EmpidImportPerson[];
   users: User[];
   usersLoading: boolean;
+  roles: Role[];
+  defaultRoleId: string;
   checked: Set<string>;
   pickedUsers: Record<string, string>;
+  pickedRoles: Record<string, string>;
   duplicateKeys: Set<string>;
   onToggle: (key: string) => void;
   onPickUser: (key: string, userId: string) => void;
+  onPickRole: (groupKey: string, roleId: string) => void;
 }): React.ReactElement | null {
   if (people.length === 0) return null;
   return (
@@ -258,6 +306,10 @@ function PickUserSection({
                 if (entry.action !== "needs_user") return null;
 
                 const pickedUser = pickedUsers[key] ?? "";
+                const willCreate = pickedUser === CREATE_PROVISIONAL;
+                const fullName = entry.person_name ?? person.name;
+                const groupKey = createGroupKey(prefix, pi, fullName);
+                const roleId = pickedRoles[groupKey] ?? defaultRoleId;
                 return (
                   <div
                     key={key}
@@ -271,7 +323,7 @@ function PickUserSection({
                       className="cursor-pointer accent-accent disabled:cursor-not-allowed"
                     />
                     <span className="text-sm text-text">
-                      {entry.person_name ?? person.name} — {entry.store_name}:{" "}
+                      {fullName} — {entry.store_name}:{" "}
                       <span className="font-semibold">{entry.emp_id}</span>
                     </span>
                     <UserPicker
@@ -281,6 +333,35 @@ function PickUserSection({
                       suggestedId={suggestedId}
                       onChange={(userId) => onPickUser(key, userId)}
                     />
+                    {willCreate && (
+                      <>
+                        <Badge
+                          variant="accent"
+                          className="text-[10px] uppercase tracking-wide"
+                        >
+                          New
+                        </Badge>
+                        <select
+                          value={roleId}
+                          onChange={(e) => onPickRole(groupKey, e.target.value)}
+                          aria-label={`Role for ${fullName}`}
+                          className="px-2 py-1 rounded-md bg-surface border border-border text-xs text-text focus:outline-none focus:ring-2 focus:ring-accent/20 cursor-pointer"
+                        >
+                          {roles.length === 0 && (
+                            <option value="">Loading roles…</option>
+                          )}
+                          {roles.map((r) => (
+                            <option key={r.id} value={r.id}>
+                              {r.name}
+                            </option>
+                          ))}
+                        </select>
+                        <span className="text-[11px] text-text-muted">
+                          Will be created as a provisional staff member (no
+                          login yet)
+                        </span>
+                      </>
+                    )}
                     {duplicateKeys.has(key) && (
                       <EntryWarning text="same user & store picked above — excluded from commit" />
                     )}
@@ -944,6 +1025,20 @@ export default function EmpidImportPage(): React.ReactElement {
     () => (Array.isArray(usersData) ? usersData : []),
     [usersData],
   );
+  // Roles for the "create as provisional staff" rows.
+  const { data: rolesData } = useRoles();
+  const roles: Role[] = useMemo(
+    () => (Array.isArray(rolesData) ? rolesData : []),
+    [rolesData],
+  );
+  /** Default role for created staff: Staff (priority 40), else the lowest rank. */
+  const defaultRoleId: string = useMemo(() => {
+    if (roles.length === 0) return "";
+    const staff = roles.find((r) => r.priority === ROLE_PRIORITY.STAFF);
+    if (staff) return staff.id;
+    return roles.reduce((a, b) => (b.priority > a.priority ? b : a)).id;
+  }, [roles]);
+  const createProvisional = useCreateProvisionalUsersBulk();
 
   const [step, setStep] = useState<Step>("upload");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
@@ -956,9 +1051,19 @@ export default function EmpidImportPage(): React.ReactElement {
    * - needs_user rows (placeholder/deferred): checked once a user is picked
    */
   const [checked, setChecked] = useState<Set<string>>(new Set());
-  /** needs_user rows — entry key → picked user id ("" / absent = none). */
+  /**
+   * needs_user rows — entry key → picked user id, "" / absent = none,
+   * CREATE_PROVISIONAL = create a new provisional staff member for this row.
+   */
   const [pickedUsers, setPickedUsers] = useState<Record<string, string>>({});
+  /** Create-group key → role id chosen for the staff member to be created. */
+  const [pickedRoles, setPickedRoles] = useState<Record<string, string>>({});
   const [result, setResult] = useState<EmpidCommitResult | null>(null);
+  /** Claim codes of staff created during the last Apply (result step). */
+  const [createdClaims, setCreatedClaims] = useState<
+    { name: string; code: string }[]
+  >([]);
+  const [claimsCopied, setClaimsCopied] = useState(false);
   /** "Export current" filter modal (upload step). */
   const [exportOpen, setExportOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -970,7 +1075,10 @@ export default function EmpidImportPage(): React.ReactElement {
     setPreview(null);
     setChecked(new Set());
     setPickedUsers({});
+    setPickedRoles({});
     setResult(null);
+    setCreatedClaims([]);
+    setClaimsCopied(false);
   }, []);
 
   // ── Step 1: file handling ──
@@ -1034,6 +1142,7 @@ export default function EmpidImportPage(): React.ReactElement {
         });
         setChecked(initial);
         setPickedUsers(initialPicks);
+        setPickedRoles({});
         setStep("preview");
       },
       // hook shows the error modal
@@ -1064,7 +1173,10 @@ export default function EmpidImportPage(): React.ReactElement {
     [],
   );
 
-  /** needs_user rows — picking a user auto-checks; clearing unchecks. */
+  /**
+   * needs_user rows — picking a user (or "create provisional") auto-checks;
+   * clearing unchecks.
+   */
   const pickUser = useCallback((key: string, userId: string) => {
     setPickedUsers((prev) => ({ ...prev, [key]: userId }));
     setChecked((prev) => {
@@ -1075,15 +1187,37 @@ export default function EmpidImportPage(): React.ReactElement {
     });
   }, []);
 
+  /** Role for a to-be-created provisional staff member (per create group). */
+  const pickRole = useCallback((groupKey: string, roleId: string) => {
+    setPickedRoles((prev) => ({ ...prev, [groupKey]: roleId }));
+  }, []);
+
   /**
    * Commit list = checked matched-people rows + checked needs_user rows with a
    * picked user. A needs_user row whose (user, store) pair already appeared in
    * an earlier row is excluded and flagged (duplicateKeys → inline warning).
+   *
+   * Rows marked CREATE_PROVISIONAL have no user id yet, so they are collected
+   * into createGroups instead — one group per person×name, carrying every
+   * store it appears in. Apply creates those users first, then folds their
+   * rows into the commit payload.
    */
-  const { selectedAssignments, duplicateKeys } = useMemo(() => {
+  const {
+    selectedAssignments,
+    duplicateKeys,
+    createGroups,
+    createRowCount,
+  } = useMemo(() => {
     const assignments: EmpidCommitAssignment[] = [];
     const duplicates = new Set<string>();
-    if (!preview) return { selectedAssignments: assignments, duplicateKeys: duplicates };
+    const groups = new Map<string, ProvisionalCreateGroup>();
+    if (!preview)
+      return {
+        selectedAssignments: assignments,
+        duplicateKeys: duplicates,
+        createGroups: [] as ProvisionalCreateGroup[],
+        createRowCount: 0,
+      };
     const seenPairs = new Set<string>();
     preview.people.forEach((person, pi) => {
       person.entries.forEach((entry, ei) => {
@@ -1109,6 +1243,32 @@ export default function EmpidImportPage(): React.ReactElement {
           if (!checked.has(key)) return;
           const userId = pickedUsers[key];
           if (!userId || !entry.store_id || entry.emp_id === null) return;
+
+          if (userId === CREATE_PROVISIONAL) {
+            const fullName = entry.person_name ?? person.name;
+            const groupKey = createGroupKey(prefix, pi, fullName);
+            // Group identity stands in for the (not-yet-known) user id.
+            const pair = `create:${groupKey}|${entry.store_id}`;
+            if (seenPairs.has(pair)) {
+              duplicates.add(key);
+              return;
+            }
+            seenPairs.add(pair);
+            const group = groups.get(groupKey) ?? {
+              key: groupKey,
+              full_name: fullName,
+              role_id: pickedRoles[groupKey] ?? defaultRoleId,
+              store_ids: [],
+              rows: [],
+            };
+            if (!group.store_ids.includes(entry.store_id)) {
+              group.store_ids.push(entry.store_id);
+            }
+            group.rows.push({ store_id: entry.store_id, empid: entry.emp_id });
+            groups.set(groupKey, group);
+            return;
+          }
+
           const pair = `${userId}|${entry.store_id}`;
           if (seenPairs.has(pair)) {
             duplicates.add(key);
@@ -1123,30 +1283,113 @@ export default function EmpidImportPage(): React.ReactElement {
         });
       });
     });
-    return { selectedAssignments: assignments, duplicateKeys: duplicates };
-  }, [preview, checked, pickedUsers]);
+    const groupList = [...groups.values()];
+    return {
+      selectedAssignments: assignments,
+      duplicateKeys: duplicates,
+      createGroups: groupList,
+      createRowCount: groupList.reduce((n, g) => n + g.rows.length, 0),
+    };
+  }, [preview, checked, pickedUsers, pickedRoles, defaultRoleId]);
+
+  /** Rows that Apply will write — existing users + rows pending creation. */
+  const applyCount = selectedAssignments.length + createRowCount;
 
   const apply = useCallback(async () => {
-    if (selectedAssignments.length === 0) return;
+    if (applyCount === 0) return;
+    const missingRole = createGroups.find((g) => !g.role_id);
+    if (missingRole) {
+      void modal.alert({
+        type: "error",
+        message: `Pick a role for ${missingRole.full_name} before applying.`,
+      });
+      return;
+    }
     const ok = await modal.confirm({
-      title: `Apply ${selectedAssignments.length} number(s)?`,
+      title: `Apply ${applyCount} number(s)?`,
       message:
-        "Numbers are written per store. Existing numbers may be renumbered to make room.",
+        "Numbers are written per store. Existing numbers may be renumbered to make room." +
+        (createGroups.length > 0
+          ? `\n${createGroups.length} will be created as provisional staff.`
+          : ""),
       confirmLabel: "Apply",
       variant: "warning",
     });
     if (!ok) return;
+
+    // Step a — create the missing people first. A failure here aborts before
+    // any number is written (the server creates them in one transaction).
+    const assignments: EmpidCommitAssignment[] = [...selectedAssignments];
+    const claims: { name: string; code: string }[] = [];
+    if (createGroups.length > 0) {
+      const people: CreateProvisionalUserData[] = createGroups.map((g) => ({
+        full_name: g.full_name,
+        role_id: g.role_id,
+        store_ids: g.store_ids,
+      }));
+      let created: User[];
+      try {
+        created = await createProvisional.mutateAsync({ people });
+      } catch {
+        return; // hook shows the error modal
+      }
+      if (created.length !== createGroups.length) {
+        void modal.alert({
+          type: "error",
+          message:
+            "The server returned a different number of created staff than requested — nothing was written.",
+        });
+        return;
+      }
+      // Step b — response order mirrors request order, so index maps group→user.
+      created.forEach((user, i) => {
+        const group = createGroups[i];
+        claims.push({
+          name: user.full_name || group.full_name,
+          code: user.claim_code ?? "—",
+        });
+        group.rows.forEach((row) => {
+          assignments.push({
+            user_id: user.id,
+            store_id: row.store_id,
+            empid: row.empid,
+          });
+        });
+      });
+    }
+
     commitImport.mutate(
-      { assignments: selectedAssignments },
+      { assignments },
       {
         onSuccess: (data) => {
+          setCreatedClaims(claims);
+          setClaimsCopied(false);
           setResult(data);
           setStep("result");
         },
         // hook shows the error modal
       },
     );
-  }, [selectedAssignments, modal, commitImport]);
+  }, [
+    applyCount,
+    selectedAssignments,
+    createGroups,
+    modal,
+    commitImport,
+    createProvisional,
+  ]);
+
+  /** Copy every claim code as "Name: CODE" lines for handing out later. */
+  const copyClaims = useCallback(async () => {
+    const text = createdClaims.map((c) => `${c.name}: ${c.code}`).join("\n");
+    try {
+      await navigator.clipboard.writeText(text);
+      setClaimsCopied(true);
+      window.setTimeout(() => setClaimsCopied(false), 2000);
+    } catch {
+      // Clipboard unavailable (non-HTTPS) — the codes are on screen anyway.
+    }
+  }, [createdClaims]);
 
   if (!canUpdate) {
     return (
@@ -1279,6 +1522,34 @@ export default function EmpidImportPage(): React.ReactElement {
               <div className="text-xs text-text-muted mt-0.5">Rejected</div>
             </div>
           </div>
+
+          {createdClaims.length > 0 && (
+            <div className="rounded-lg bg-accent-muted border border-accent/20 p-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
+                <p className="text-xs font-semibold text-accent">
+                  {createdClaims.length} provisional staff created — claim codes
+                </p>
+                <Button variant="secondary" size="sm" onClick={() => void copyClaims()}>
+                  {claimsCopied ? <Check size={14} /> : <Copy size={14} />}
+                  {claimsCopied ? "Copied" : "Copy all"}
+                </Button>
+              </div>
+              <p className="text-[11px] text-text-muted mb-2">
+                Give each code to the employee — they enter it when signing up
+                to take over the account.
+              </p>
+              <ul className="text-xs text-text-secondary space-y-0.5 max-h-48 overflow-y-auto">
+                {createdClaims.map((c, i) => (
+                  <li key={i}>
+                    {c.name} —{" "}
+                    <span className="font-mono font-semibold text-text tracking-wider">
+                      {c.code}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {result.applied.length > 0 && (
             <div>
@@ -1571,29 +1842,37 @@ export default function EmpidImportPage(): React.ReactElement {
       {/* Placeholder / deferred — pick a user per row to register anyway */}
       <PickUserSection
         title="Placeholder emails"
-        hint="Shared/dummy emails — pick a user to register each row."
+        hint="Shared/dummy emails — pick a user, or create a provisional staff member, to register each row."
         prefix="ph"
         people={preview.placeholder}
         users={users}
         usersLoading={usersLoading}
+        roles={roles}
+        defaultRoleId={defaultRoleId}
         checked={checked}
         pickedUsers={pickedUsers}
+        pickedRoles={pickedRoles}
         duplicateKeys={duplicateKeys}
         onToggle={toggle}
         onPickUser={pickUser}
+        onPickRole={pickRole}
       />
       <PickUserSection
         title="Deferred"
-        hint="No matching user in DB — pick a user to register each row."
+        hint="No matching user in DB — pick a similar user, or create a provisional staff member, to register each row."
         prefix="df"
         people={preview.deferred}
         users={users}
         usersLoading={usersLoading}
+        roles={roles}
+        defaultRoleId={defaultRoleId}
         checked={checked}
         pickedUsers={pickedUsers}
+        pickedRoles={pickedRoles}
         duplicateKeys={duplicateKeys}
         onToggle={toggle}
         onPickUser={pickUser}
+        onPickRole={pickRole}
       />
 
       {/* Apply bar */}
@@ -1601,15 +1880,26 @@ export default function EmpidImportPage(): React.ReactElement {
         <p className="text-xs text-text-muted">
           Rebind rows set to Upload, checked new-assignment rows, and checked
           picked-user rows are applied. Existing numbers may be renumbered.
+          {createGroups.length > 0 && (
+            <>
+              {" "}
+              {createGroups.length} provisional staff member(s) will be created
+              first — their claim codes appear on the result page.
+            </>
+          )}
         </p>
         <Button
           variant="primary"
           size="sm"
           onClick={() => void apply()}
-          disabled={selectedAssignments.length === 0 || commitImport.isPending}
-          isLoading={commitImport.isPending}
+          disabled={
+            applyCount === 0 ||
+            commitImport.isPending ||
+            createProvisional.isPending
+          }
+          isLoading={commitImport.isPending || createProvisional.isPending}
         >
-          Apply selected ({selectedAssignments.length})
+          Apply selected ({applyCount})
         </Button>
       </div>
     </div>
