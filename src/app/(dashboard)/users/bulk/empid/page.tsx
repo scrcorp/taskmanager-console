@@ -19,10 +19,13 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@/lib/permissions";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui";
+import { Modal } from "@/components/ui/Modal";
 import { useModal } from "@/components/ui/imperative-modal";
-import { cn } from "@/lib/utils";
+import { cn, parseApiError } from "@/lib/utils";
 import { useUsers } from "@/hooks/useUsers";
-import type { User } from "@/types";
+import { useStores } from "@/hooks/useStores";
+import { useStoreGroups } from "@/hooks/useStoreGroups";
+import type { Store, StoreGroup, User } from "@/types";
 import {
   usePreviewEmpidImport,
   useCommitEmpidImport,
@@ -32,6 +35,7 @@ import {
   type EmpidImportCounts,
   type EmpidCommitAssignment,
   type EmpidCommitResult,
+  type EmpidTemplateFilters,
   useDownloadEmpidTemplate,
 } from "@/hooks/useEmpidImport";
 
@@ -286,6 +290,298 @@ function PickUserSection({
   );
 }
 
+// ─── Export current — filter modal ────────────────────────────────────────────
+
+type ExportPeople = NonNullable<EmpidTemplateFilters["people"]>;
+
+/** People-scope radio options for the current-roster export. */
+const EXPORT_PEOPLE_OPTIONS: { value: ExportPeople; label: string }[] = [
+  { value: "all", label: "Everyone" },
+  { value: "numbered", label: "Has a number" },
+  { value: "unnumbered", label: "Missing a number — fill-in sheet" },
+];
+
+/** One rendered store section in the export picker (last = Ungrouped). */
+interface ExportStoreSection {
+  groupId: string | null;
+  name: string;
+  stores: Store[];
+}
+
+/**
+ * "Export current" filter modal — pick stores (grouped sections), the people
+ * scope, and the included columns, then download the current roster xlsx.
+ * Mounted only while open, so the store/group queries fetch lazily and the
+ * selection resets to "everything" on each open.
+ */
+function ExportEmpidModal({ onClose }: { onClose: () => void }): React.ReactElement {
+  const modal = useModal();
+  const downloadTemplate = useDownloadEmpidTemplate();
+  const { data: groupsData } = useStoreGroups();
+  const { data: storesData, isLoading: storesLoading } = useStores();
+  const stores: Store[] = useMemo(
+    () => (Array.isArray(storesData) ? storesData : []),
+    [storesData],
+  );
+
+  /** "all" = every store (stores param omitted); otherwise an explicit id set. */
+  const [selected, setSelected] = useState<Set<string> | "all">("all");
+  const [people, setPeople] = useState<ExportPeople>("all");
+  const [includeDormant, setIncludeDormant] = useState(true);
+  const [includeEmail, setIncludeEmail] = useState(true);
+  const [includeNumbers, setIncludeNumbers] = useState(true);
+  const [isExporting, setIsExporting] = useState(false);
+
+  /** Group sections in sort_order, Ungrouped last; empty sections hidden. */
+  const sections: ExportStoreSection[] = useMemo(() => {
+    const groupList: StoreGroup[] = Array.isArray(groupsData)
+      ? [...groupsData].sort((a, b) => a.sort_order - b.sort_order)
+      : [];
+    const knownGroupIds = new Set(groupList.map((g) => g.id));
+    const byGroup = new Map<string, Store[]>();
+    const ungrouped: Store[] = [];
+    for (const store of stores) {
+      const gid = store.group_id ?? null;
+      if (gid && knownGroupIds.has(gid)) {
+        const list = byGroup.get(gid);
+        if (list) list.push(store);
+        else byGroup.set(gid, [store]);
+      } else {
+        ungrouped.push(store);
+      }
+    }
+    const result: ExportStoreSection[] = groupList
+      .map((g) => ({ groupId: g.id, name: g.name, stores: byGroup.get(g.id) ?? [] }))
+      .filter((s) => s.stores.length > 0);
+    if (ungrouped.length > 0) {
+      result.push({ groupId: null, name: "Ungrouped", stores: ungrouped });
+    }
+    return result;
+  }, [groupsData, stores]);
+
+  const isChecked = useCallback(
+    (id: string): boolean => selected === "all" || selected.has(id),
+    [selected],
+  );
+  const allChecked: boolean =
+    selected === "all" || (stores.length > 0 && selected.size === stores.length);
+  const selectedCount: number = selected === "all" ? stores.length : selected.size;
+
+  const toggleAll = useCallback((): void => {
+    setSelected((prev) => {
+      const isAll =
+        prev === "all" || (stores.length > 0 && prev.size === stores.length);
+      return isAll ? new Set<string>() : "all";
+    });
+  }, [stores]);
+
+  const toggleStore = useCallback(
+    (id: string): void => {
+      setSelected((prev) => {
+        const next = new Set(prev === "all" ? stores.map((s) => s.id) : prev);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        return next;
+      });
+    },
+    [stores],
+  );
+
+  /** Group header toggle — all on → clear the group, otherwise select it all. */
+  const toggleGroup = useCallback(
+    (groupStores: Store[]): void => {
+      setSelected((prev) => {
+        const next = new Set(prev === "all" ? stores.map((s) => s.id) : prev);
+        const allOn = groupStores.every((s) => next.has(s.id));
+        groupStores.forEach((s) => {
+          if (allOn) next.delete(s.id);
+          else next.add(s.id);
+        });
+        return next;
+      });
+    },
+    [stores],
+  );
+
+  const handleExport = useCallback(async (): Promise<void> => {
+    const filters: EmpidTemplateFilters = {
+      people,
+      include_dormant: includeDormant,
+      include_email: includeEmail,
+      include_numbers: includeNumbers,
+    };
+    // 전체 선택이면 stores 생략 (서버 기본 = 전체 매장)
+    if (selected !== "all" && selected.size !== stores.length) {
+      filters.stores = Array.from(selected);
+    }
+    setIsExporting(true);
+    try {
+      await downloadTemplate("current", filters);
+      onClose();
+    } catch (err) {
+      void modal.alert({
+        type: "error",
+        message: parseApiError(err, "Failed to export the current roster."),
+      });
+    } finally {
+      setIsExporting(false);
+    }
+  }, [
+    people,
+    includeDormant,
+    includeEmail,
+    includeNumbers,
+    selected,
+    stores,
+    downloadTemplate,
+    onClose,
+    modal,
+  ]);
+
+  return (
+    <Modal
+      isOpen
+      onClose={onClose}
+      title="Export current roster"
+      footer={
+        <div className="flex justify-end gap-2">
+          <Button variant="secondary" size="sm" onClick={onClose}>
+            Cancel
+          </Button>
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={() => void handleExport()}
+            disabled={selectedCount === 0 || isExporting}
+            isLoading={isExporting}
+          >
+            <Download size={14} />
+            Export
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {/* Store picker — group sections, Ungrouped last */}
+        <div>
+          <p className="text-xs font-semibold text-text-secondary mb-1.5">Stores</p>
+          <label className="flex items-center gap-2 cursor-pointer text-sm font-medium text-text">
+            <input
+              type="checkbox"
+              checked={allChecked}
+              onChange={toggleAll}
+              className="cursor-pointer accent-accent"
+            />
+            All stores
+          </label>
+          {storesLoading ? (
+            <p className="text-xs text-text-muted mt-2">Loading stores…</p>
+          ) : (
+            <div className="mt-2 max-h-64 overflow-y-auto rounded-lg border border-border p-3 space-y-3">
+              {sections.map((section) => {
+                const groupAllOn = section.stores.every((s) => isChecked(s.id));
+                return (
+                  <div key={section.groupId ?? "ungrouped"}>
+                    <label className="flex items-center gap-2 cursor-pointer text-xs font-semibold uppercase tracking-wide text-text-secondary">
+                      <input
+                        type="checkbox"
+                        checked={groupAllOn}
+                        onChange={() => toggleGroup(section.stores)}
+                        className="cursor-pointer accent-accent"
+                      />
+                      {section.name}
+                    </label>
+                    <div className="mt-1.5 space-y-1 pl-5">
+                      {section.stores.map((store) => (
+                        <label
+                          key={store.id}
+                          className="flex items-center gap-2 cursor-pointer text-sm text-text"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={isChecked(store.id)}
+                            onChange={() => toggleStore(store.id)}
+                            className="cursor-pointer accent-accent"
+                          />
+                          {store.name}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+              {sections.length === 0 && (
+                <p className="text-xs text-text-muted">No stores.</p>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* People scope */}
+        <div>
+          <p className="text-xs font-semibold text-text-secondary mb-1.5">People</p>
+          <div className="space-y-1">
+            {EXPORT_PEOPLE_OPTIONS.map(({ value, label }) => (
+              <label
+                key={value}
+                className="flex items-center gap-2 cursor-pointer text-sm text-text"
+              >
+                <input
+                  type="radio"
+                  name="export-people"
+                  checked={people === value}
+                  onChange={() => setPeople(value)}
+                  className="cursor-pointer accent-accent"
+                />
+                {label}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {/* Included columns */}
+        <div>
+          <p className="text-xs font-semibold text-text-secondary mb-1.5">Options</p>
+          <div className="space-y-1">
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-text">
+              <input
+                type="checkbox"
+                checked={includeDormant}
+                onChange={() => setIncludeDormant((v) => !v)}
+                className="cursor-pointer accent-accent"
+              />
+              Include dormant assignments
+            </label>
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-text">
+              <input
+                type="checkbox"
+                checked={includeEmail}
+                onChange={() => setIncludeEmail((v) => !v)}
+                className="cursor-pointer accent-accent"
+              />
+              Include emails
+            </label>
+            {!includeEmail && (
+              <div className="pl-6">
+                <EntryWarning text="Email is the matching key — a file without emails can't be re-imported." />
+              </div>
+            )}
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-text">
+              <input
+                type="checkbox"
+                checked={includeNumbers}
+                onChange={() => setIncludeNumbers((v) => !v)}
+                className="cursor-pointer accent-accent"
+              />
+              Include current numbers
+            </label>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 export default function EmpidImportPage(): React.ReactElement {
   const { hasPermission } = usePermissions();
   const canUpdate = hasPermission(PERMISSIONS.USERS_UPDATE);
@@ -314,6 +610,8 @@ export default function EmpidImportPage(): React.ReactElement {
   /** needs_user rows — entry key → picked user id ("" / absent = none). */
   const [pickedUsers, setPickedUsers] = useState<Record<string, string>>({});
   const [result, setResult] = useState<EmpidCommitResult | null>(null);
+  /** "Export current" filter modal (upload step). */
+  const [exportOpen, setExportOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const reset = useCallback(() => {
@@ -527,7 +825,7 @@ export default function EmpidImportPage(): React.ReactElement {
                 <Download size={14} />
                 Template
               </Button>
-              <Button variant="ghost" size="sm" onClick={() => void downloadTemplate("current")}>
+              <Button variant="ghost" size="sm" onClick={() => setExportOpen(true)}>
                 <Download size={14} />
                 Export current
               </Button>
@@ -597,6 +895,10 @@ export default function EmpidImportPage(): React.ReactElement {
             Preview
           </Button>
         </div>
+
+        {/* Mounted only while open — store/group queries fetch lazily,
+            selection resets each open. */}
+        {exportOpen && <ExportEmpidModal onClose={() => setExportOpen(false)} />}
       </div>
     );
   }

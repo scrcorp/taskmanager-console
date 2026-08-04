@@ -161,16 +161,51 @@ export interface EmpidCommitResult {
  * Pass a FormData with the file under field "file" (.xlsx/.csv).
  */
 /**
+ * current export 필터 — mode="blank" 는 서버가 필터를 무시합니다(빈 템플릿).
+ *
+ * Filters for the current-roster export (server ignores them for blank).
+ */
+export interface EmpidTemplateFilters {
+  /** Store UUIDs to include — omit for every store. */
+  stores?: string[];
+  /** Person scope (default all). */
+  people?: "all" | "numbered" | "unnumbered";
+  /** Include dormant assignments (default true). */
+  include_dormant?: boolean;
+  /** Include emails (default true — false blanks the Email cells). */
+  include_email?: boolean;
+  /** Include current numbers (default true — false blanks the emp_id cells). */
+  include_numbers?: boolean;
+}
+
+/**
  * 임포트용 xlsx 다운로드 훅 — blank(빈 템플릿) / current(현황 export, 왕복 편집용).
+ * current 는 filters 로 매장/사람/포함 컬럼을 좁힐 수 있습니다.
  *
  * Download the import-format workbook: a blank template or the current
- * per-store EMPID roster (edit and re-upload for a round trip).
+ * per-store EMPID roster (edit and re-upload for a round trip). For
+ * mode="current", filters narrow the stores/people/columns included.
  */
-export const useDownloadEmpidTemplate = (): ((mode: "blank" | "current") => Promise<void>) => {
-  return async (mode: "blank" | "current"): Promise<void> => {
+export const useDownloadEmpidTemplate = (): ((
+  mode: "blank" | "current",
+  filters?: EmpidTemplateFilters,
+) => Promise<void>) => {
+  return async (
+    mode: "blank" | "current",
+    filters?: EmpidTemplateFilters,
+  ): Promise<void> => {
+    const { stores, ...rest } = filters ?? {};
     const response: AxiosResponse<Blob> = await api.get(
       "/console/empid-import/template",
-      { params: { mode }, responseType: "blob" },
+      {
+        params: {
+          mode,
+          ...rest,
+          // 전체 매장이면 stores 생략 (서버 기본) / omit for every store
+          ...(stores && stores.length > 0 ? { stores: stores.join(",") } : {}),
+        },
+        responseType: "blob",
+      },
     );
     const url = URL.createObjectURL(response.data);
     const a = document.createElement("a");
