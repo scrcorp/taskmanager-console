@@ -56,6 +56,7 @@ import { useAdminResetPassword } from "@/hooks/usePassword";
 import { useClockinPin, useUpdateClockinPin } from "@/hooks/useClockinPin";
 import { ResetPasswordResultModal } from "@/components/auth/ResetPasswordResultModal";
 import { StaffWarningsSection } from "@/components/warnings/StaffWarningsSection";
+import { RateChangeSection } from "@/components/users/RateChangeSection";
 import type { User, Store, Role, UserStoreAssignment } from "@/types";
 
 /* -------------------------------------------------------------------------- */
@@ -944,20 +945,13 @@ export default function UserDetailPage(): React.ReactElement {
           />
         </div>
 
-        {/* Hourly Rate Card */}
+        {/* Hourly Rate Card — rate-change flow (history-backed, R4) */}
         <div className="bg-card border border-border rounded-xl p-5">
           <h3 className="text-sm font-bold text-text mb-3">Hourly Rate</h3>
-          <HourlyRateEditor
-            value={user.hourly_rate}
+          <RateChangeSection
+            userId={userId}
+            currentRate={user.hourly_rate}
             canEdit={canManageUsers}
-            onSave={async (rate) => {
-              try {
-                await updateUser.mutateAsync({ id: userId, hourly_rate: rate });
-              } catch {
-                // hook 자동 모달
-              }
-            }}
-            isSaving={updateUser.isPending}
           />
         </div>
       </div>
@@ -1411,13 +1405,6 @@ export default function UserDetailPage(): React.ReactElement {
 
 // ─── Sub-components ─────────────────────────────────────────────────────────
 
-interface HourlyRateEditorProps {
-  value: number | null;
-  canEdit: boolean;
-  onSave: (rate: number | null) => Promise<void>;
-  isSaving: boolean;
-}
-
 // ─── Role Editor ────────────────────────────────────────────────────────────
 
 interface RoleEditorProps {
@@ -1611,72 +1598,6 @@ function DepartmentEditor({ value, canEdit, onSave, isSaving }: DepartmentEditor
         ))}
       </div>
     </>
-  );
-}
-
-// ─── Hourly Rate Editor ─────────────────────────────────────────────────────
-
-function HourlyRateEditor({ value, canEdit, onSave, isSaving }: HourlyRateEditorProps): React.ReactElement {
-  const [isEditing, setIsEditing] = useState(false);
-  const [inputVal, setInputVal] = useState("");
-
-  const displayRate = value != null ? `$${value.toFixed(2)}/hr` : "Not set";
-
-  if (!canEdit) {
-    return <span className="text-sm text-text-secondary">{displayRate}</span>;
-  }
-
-  if (!isEditing) {
-    return (
-      <div className="flex items-center gap-3">
-        <span className="text-lg font-bold text-text">{displayRate}</span>
-        <button
-          type="button"
-          onClick={() => { setInputVal(value != null ? String(value) : ""); setIsEditing(true); }}
-          className="text-xs text-accent hover:text-accent-light font-medium transition-colors"
-        >
-          Edit
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex items-center gap-2">
-      <div className="relative">
-        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted text-sm select-none">$</span>
-        <input
-          type="number"
-          min="0"
-          step="0.01"
-          value={inputVal}
-          onChange={(e) => setInputVal(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
-          className="w-28 rounded-lg border border-border bg-surface pl-6 pr-2 py-1.5 text-sm text-text focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-colors duration-150"
-          autoFocus
-        />
-      </div>
-      <button
-        type="button"
-        disabled={isSaving}
-        onClick={async () => {
-          const num = inputVal.trim() === "" ? null : Number(inputVal);
-          if (num !== null && (isNaN(num) || num < 0)) return;
-          await onSave(num);
-          setIsEditing(false);
-        }}
-        className="text-xs text-accent hover:text-accent-light font-semibold transition-colors disabled:opacity-50"
-      >
-        {isSaving ? "Saving..." : "Save"}
-      </button>
-      <button
-        type="button"
-        onClick={() => setIsEditing(false)}
-        className="text-xs text-text-muted hover:text-text font-medium transition-colors"
-      >
-        Cancel
-      </button>
-    </div>
   );
 }
 

@@ -156,6 +156,91 @@ export const useUpdateCorrectionReason = (): UseMutationResult<
   });
 };
 
+/** setQueriesData 업데이터 — list(paginated)/detail 캐시 양쪽에서 해당 attendance 만 patch. */
+function patchAttendanceInCache(
+  data: PaginatedResponse<Attendance> | Attendance | undefined,
+  attendanceId: string,
+  patch: Partial<Attendance>,
+): PaginatedResponse<Attendance> | Attendance | undefined {
+  if (!data) return data;
+  if ("items" in data && Array.isArray(data.items)) {
+    return {
+      ...data,
+      items: data.items.map((a) =>
+        a.id === attendanceId ? { ...a, ...patch } : a,
+      ),
+    };
+  }
+  const single = data as Attendance;
+  if (single.id === attendanceId) return { ...single, ...patch };
+  return data;
+}
+
+/**
+ * 자동퇴근 확인 훅 — L6 일상 확인 플로우.
+ *
+ * Confirm an auto clocked-out attendance (payroll close gate #1 basis).
+ * Optimistic: 캐시의 auto_clock_out_confirmed_at 을 즉시 채우고, 실패 시 롤백.
+ * 서버는 멱등 처리 (이미 확인된 record 는 최초 확인자/시각 보존 no-op).
+ */
+export const useConfirmAutoClockout = (): UseMutationResult<
+  Attendance,
+  Error,
+  { attendanceId: string; confirmedBy?: string },
+  { previous: Array<[readonly unknown[], unknown]> }
+> => {
+  const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
+  return useMutation<
+    Attendance,
+    Error,
+    { attendanceId: string; confirmedBy?: string },
+    { previous: Array<[readonly unknown[], unknown]> }
+  >({
+    mutationFn: async ({ attendanceId }): Promise<Attendance> => {
+      const res: AxiosResponse<Attendance> = await api.post(
+        `/console/attendances/${attendanceId}/confirm-auto-clockout`,
+      );
+      return res.data;
+    },
+    onMutate: async ({ attendanceId, confirmedBy }) => {
+      await queryClient.cancelQueries({ queryKey: ["attendances"] });
+      const previous = queryClient.getQueriesData({ queryKey: ["attendances"] });
+      queryClient.setQueriesData<PaginatedResponse<Attendance> | Attendance>(
+        { queryKey: ["attendances"] },
+        (data) =>
+          patchAttendanceInCache(data, attendanceId, {
+            auto_clock_out_confirmed_at: new Date().toISOString(),
+            auto_clock_out_confirmed_by: confirmedBy ?? null,
+          }) as PaginatedResponse<Attendance> | Attendance,
+      );
+      return { previous };
+    },
+    onError: (err, _variables, context) => {
+      // 낙관적 업데이트 롤백 후 표준 에러 모달.
+      context?.previous.forEach(([key, data]) => {
+        queryClient.setQueryData(key as readonly unknown[], data);
+      });
+      error("Couldn't confirm auto clock-out")(err);
+    },
+    onSuccess: (updated, variables) => {
+      // 서버 확정값 (최초 확인자/시각 보존) 으로 캐시 정렬.
+      queryClient.setQueriesData<PaginatedResponse<Attendance> | Attendance>(
+        { queryKey: ["attendances"] },
+        (data) =>
+          patchAttendanceInCache(data, variables.attendanceId, {
+            auto_clock_out_confirmed_at: updated.auto_clock_out_confirmed_at,
+            auto_clock_out_confirmed_by: updated.auto_clock_out_confirmed_by,
+          }) as PaginatedResponse<Attendance> | Attendance,
+      );
+      success("Auto clock-out confirmed.");
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["attendances"] });
+    },
+  });
+};
+
 /**
  * Break 세션 추가 훅. 성공 시 attendance 쿼리 invalidate.
  * Add a new break session via admin correction. Invalidates attendance queries on success.

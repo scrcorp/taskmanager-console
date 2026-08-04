@@ -693,6 +693,10 @@ export interface Attendance {
   corrections?: AttendanceCorrection[];
   /** 수정 이력 개수 — list 응답에서 corrections 본문 없이 "수정됨" 표시용. */
   correction_count?: number;
+  /** L6 자동퇴근 확인 시각 — 'auto_clocked_out' anomaly 인데 null 이면 "needs confirmation". */
+  auto_clock_out_confirmed_at?: string | null;
+  /** 확인자 UUID — 서버가 이름은 주지 않으므로 UI 에서 store users 로 resolve. */
+  auto_clock_out_confirmed_by?: string | null;
 }
 
 /** 근태 수정 이력 응답 타입.
