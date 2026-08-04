@@ -15,6 +15,8 @@ export interface EmpidRosterMember {
   user_id: string;
   full_name: string;
   email: string | null;
+  /** Org number (CREWID) — included in the export file for exact re-import matching. */
+  crewid: number | null;
   /** Current empid in this store (null = no number yet). */
   empid: number | null;
   /** false = dormant — has the assignment row but stays out of work assignment. */

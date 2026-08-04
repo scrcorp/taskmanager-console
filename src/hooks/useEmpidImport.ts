@@ -69,6 +69,8 @@ export interface EmpidImportPerson {
   /** Matched console user id (null in placeholder/deferred buckets). */
   user_id: string | null;
   user_full_name: string | null;
+  /** "crewid" = matched exactly by org number (file's crewid column), null = email/name match. */
+  matched_by: "crewid" | null;
   entries: EmpidImportEntry[];
   note: string;
   /** deferred bucket — similar-name DB user hints (display only). */

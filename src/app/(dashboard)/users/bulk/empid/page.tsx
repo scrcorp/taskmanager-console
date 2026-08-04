@@ -843,6 +843,11 @@ function ExportEmpidModal({ onClose }: { onClose: () => void }): React.ReactElem
                               className="cursor-pointer accent-accent"
                             />
                             <span className="text-sm text-text">{m.full_name}</span>
+                            {m.crewid !== null && (
+                              <span className="text-[11px] text-text-muted">
+                                CREW #{m.crewid}
+                              </span>
+                            )}
                             {m.role_name && (
                               <Badge variant="accent" className="text-[10px]">
                                 {m.role_name}
@@ -1160,8 +1165,10 @@ export default function EmpidImportPage(): React.ReactElement {
             <div>
               <h2 className="text-sm font-bold text-text mb-1">Upload legacy roster</h2>
               <p className="text-sm text-text-secondary">
-                Upload the legacy roster (COMPANY, CORP_ABR_3, Name, emp_id, Email).
-                Numbers are registered per store.
+                Upload the legacy roster (COMPANY, CORP_ABR_3, Name, emp_id,
+                Email, optional crewid). Rows with a crewid are matched exactly
+                by org number — useful when staff signed up with a different
+                email.
               </p>
             </div>
             <div className="flex shrink-0 flex-col items-end gap-1.5">
@@ -1391,6 +1398,14 @@ export default function EmpidImportPage(): React.ReactElement {
                     <span className="text-xs text-text-muted font-normal ml-2">
                       {person.email}
                     </span>
+                  )}
+                  {person.matched_by === "crewid" && (
+                    <Badge
+                      variant="accent"
+                      className="text-[10px] uppercase tracking-wide ml-2"
+                    >
+                      Matched by CREWID
+                    </Badge>
                   )}
                 </p>
                 {person.note && (
