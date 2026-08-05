@@ -16,6 +16,15 @@ import { startOffsetDaysOf } from "@/lib/scheduleTime";
 import { BlockEditModal } from "./BlockEditModal";
 import { WeekPickerCalendar, getWeekStart } from "./WeekPickerCalendar";
 import { FilterBar, type FilterState } from "./FilterBar";
+import {
+  filterBulkUsers,
+  hasBulkRowFilters,
+  hasBulkBlockFilters,
+  matchesBlockFilters,
+  selectCopyTargets,
+} from "./bulkFilters";
+import { PasteScopeModal, type PasteScope } from "./PasteScopeModal";
+import { useModal } from "@/components/ui/imperative-modal";
 import { useSchedules, useBulkPreviewSchedules } from "@/hooks/useSchedules";
 import { useUsers } from "@/hooks/useUsers";
 import { useStores } from "@/hooks/useStores";
@@ -119,6 +128,7 @@ export default function BulkScheduleView({
   onExit,
 }: BulkScheduleViewProps) {
   const { toast } = useToast();
+  const modal = useModal();
 
   // ─── Local state ──────────────────────────────────
   const [storeId, setStoreId] = useState(initialStoreId);
@@ -209,16 +219,22 @@ export default function BulkScheduleView({
   // ─── Derived data ─────────────────────────────────
 
   // Filtered users (FilterBar 적용)
-  const filteredUsers = useMemo(() => {
-    let result = allUsers;
-    if (filters.staffIds.length > 0) result = result.filter((u) => filters.staffIds.includes(u.id));
-    if (filters.roles.length > 0) result = result.filter((u) => filters.roles.includes(rolePriorityToBadge(u.role_priority).toLowerCase()));
-    return result;
-  }, [allUsers, filters]);
+  const filteredUsers = useMemo(() => filterBulkUsers(allUsers, filters), [allUsers, filters]);
+  const visibleUserIds = useMemo(() => new Set(filteredUsers.map((u) => u.id)), [filteredUsers]);
+
+  // 행/블록을 가리는 필터가 걸려 있는지 (Copy from week 안내 문구 분기용).
+  const hasVisibilityFilters = hasBulkRowFilters(filters) || hasBulkBlockFilters(filters);
 
   const weekSchedules = useMemo(() =>
     schedules.filter((s) => s.status !== "deleted"),
     [schedules],
+  );
+
+  // 블록 필터(status/position/work role)까지 통과한 것 — 그리드 표시·집계·클립보드의 모집단.
+  // weekSchedules 는 id 로 원본을 되찾는 용도로만 남긴다 (숨겨진 블록도 저장 대상에는 남아있음).
+  const visibleSchedules = useMemo(() =>
+    weekSchedules.filter((s) => matchesBlockFilters(s, filters)),
+    [weekSchedules, filters],
   );
 
   // Total changes count
@@ -246,8 +262,9 @@ export default function BulkScheduleView({
     let previewCost = 0;
     let previewCount = 0;
 
-    for (const s of weekSchedules) {
-      if (s.work_date !== day.date || isDeleted(s.id)) continue;
+    // 열 합계는 "지금 보이는 것" 기준 — 행/블록 필터를 그대로 반영해야 화면 숫자와 맞는다.
+    for (const s of visibleSchedules) {
+      if (s.work_date !== day.date || isDeleted(s.id) || !visibleUserIds.has(s.user_id)) continue;
       const eff = getEffectiveSchedule(s);
       const h = getNetHours(eff.start_time, eff.end_time, eff.break_start_time, eff.break_end_time);
       existingHrs += h;
@@ -255,14 +272,14 @@ export default function BulkScheduleView({
       existingStaff.add(s.user_id);
     }
     for (const p of previewEntries) {
-      if (p.workDate !== day.date) continue;
+      if (p.workDate !== day.date || !visibleUserIds.has(p.userId)) continue;
       const h = getNetHours(p.startTime, p.endTime, p.breakStartTime, p.breakEndTime);
       previewHrs += h;
       previewCost += h * getUserRate(p.userId);
       previewCount++;
     }
     return { existingHrs, existingCost, existingStaff: existingStaff.size, previewHrs, previewCost, previewCount };
-  }), [weekDates, weekSchedules, previewEntries, deletedScheduleIds, modifiedSchedules, allUsers]);
+  }), [weekDates, visibleSchedules, visibleUserIds, previewEntries, deletedScheduleIds, modifiedSchedules, allUsers]);
 
   // Weekly totals
   const weeklyAgg = useMemo(() => {
@@ -277,6 +294,8 @@ export default function BulkScheduleView({
   }, [dailyAgg]);
 
   // Per-user weekly hours (for overtime warning at 40h)
+  // 여기는 필터를 적용하지 않는다 — 초과근무는 "실제로 몇 시간 일하는가"의 문제라
+  // 필터로 블록을 가렸다고 시간이 줄어드는 게 아니다. (열 합계와 다른 모집단인 이유)
   const userWeeklyHrs = useMemo(() => {
     const map = new Map<string, number>();
     for (const s of weekSchedules) {
@@ -294,10 +313,16 @@ export default function BulkScheduleView({
 
   // ─── Cell/Block helpers ───────────────────────────
 
+  /** 셀에 그려지는 기존 스케줄 — 블록 필터(status/position/work role) 적용됨. */
   function getSchedulesForCell(userId: string, date: string): Schedule[] {
-    return weekSchedules.filter((s) => s.user_id === userId && s.work_date === date);
+    return visibleSchedules.filter((s) => s.user_id === userId && s.work_date === date);
   }
 
+  /**
+   * 셀의 preview — 필터를 적용하지 않는다.
+   * 아직 저장 안 된 내 작업이 필터에 가려 사라지면 "안 보이는데 저장되는" 상태가 되므로
+   * preview 는 항상 보이게 둔다.
+   */
   function getPreviewsForCell(userId: string, date: string): PreviewEntry[] {
     return previewEntries.filter((e) => e.userId === userId && e.workDate === date);
   }
@@ -425,6 +450,74 @@ export default function BulkScheduleView({
       setPreviewEntries((prev) => [...prev, ...newEntries]);
       toast({ type: "success", message: `Pasted ${newEntries.length} previews` });
     }
+  }
+
+  /**
+   * 열에 붙여넣기.
+   *  - column 클립보드: 원본 직원 행에 그대로 (직원 대응 유지)
+   *  - row/block 클립보드: 보이는 직원 전체에 같은 내용 배포
+   *
+   * column → column 은 복사 시점과 붙여넣기 시점의 필터가 다를 수 있어
+   * (필터 없이 복사 → 필터 걸고 붙여넣기) 가려진 직원이 있으면 범위를 물어본다.
+   */
+  async function pasteToColumn(date: string) {
+    if (!clipboard) return;
+    const newEntries: PreviewEntry[] = [];
+
+    if (clipboard.type === "column") {
+      const withSource = clipboard.entries.filter((e) => e.sourceUserId);
+      const visibleEntries = withSource.filter((e) => visibleUserIds.has(e.sourceUserId!));
+      const hiddenCount = withSource.length - visibleEntries.length;
+
+      let targets = visibleEntries;
+      if (hiddenCount > 0) {
+        const scope = await askPasteScope(visibleEntries.length, hiddenCount, "the clipboard");
+        if (!scope) return;
+        targets = scope === "all" ? withSource : visibleEntries;
+      }
+      if (targets.length === 0) {
+        toast({ type: "error", message: "No matching staff visible in current filter" });
+        return;
+      }
+
+      const staffCount = new Set(targets.map((e) => e.sourceUserId)).size;
+      for (const entry of targets) {
+        newEntries.push({
+          tempId: `paste-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          userId: entry.sourceUserId!, storeId, workRoleId: entry.workRoleId, workRoleName: entry.workRoleName,
+          workDate: date, startTime: entry.startTime, endTime: entry.endTime,
+          breakStartTime: entry.breakStartTime, breakEndTime: entry.breakEndTime,
+          startOffsetDays: entry.startOffsetDays,
+          status: "confirmed",
+        });
+      }
+      pushDataSnapshot();
+      setPreviewEntries((prev) => [...prev, ...newEntries]);
+      toast({ type: "success", message: `Pasted ${newEntries.length} schedule${newEntries.length !== 1 ? "s" : ""} to ${staffCount} staff` });
+      return;
+    }
+
+    // row/block 클립보드를 column target에 붙여넣기: 보이는 모든 직원에게 동일 내용 배포.
+    // (클립보드 내용이 특정 직원에 묶여있지 않으므로 "배포 대상 = 보이는 직원" 이 곧 의도. 물어볼 게 없다.)
+    if (filteredUsers.length === 0) {
+      toast({ type: "error", message: "No staff visible in current filter" });
+      return;
+    }
+    for (const u of filteredUsers) {
+      for (const entry of clipboard.entries) {
+        newEntries.push({
+          tempId: `paste-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+          userId: u.id, storeId, workRoleId: entry.workRoleId, workRoleName: entry.workRoleName,
+          workDate: date, startTime: entry.startTime, endTime: entry.endTime,
+          breakStartTime: entry.breakStartTime, breakEndTime: entry.breakEndTime,
+          startOffsetDays: entry.startOffsetDays,
+          status: "confirmed",
+        });
+      }
+    }
+    pushDataSnapshot();
+    setPreviewEntries((prev) => [...prev, ...newEntries]);
+    toast({ type: "success", message: `Pasted to ${filteredUsers.length} staff` });
   }
 
   /** 셀에 블록 붙여넣기 (모든 clipboard entries) */
@@ -669,23 +762,69 @@ export default function BulkScheduleView({
     onSave({ creates, updates, deletes });
   }
 
+  // ─── Paste scope ─────────────────────────────────
+
+  /**
+   * 붙여넣을 대상 일부가 필터에 가려져 있을 때 범위를 묻는다.
+   * 복사 시점과 붙여넣기 시점의 필터가 다를 수 있어(필터 없이 복사 → 필터 걸고 붙여넣기)
+   * 조용히 "보이는 것만" 으로 결정하지 않는다.
+   *
+   * @returns "visible" | "all", 취소 시 undefined
+   */
+  function askPasteScope(
+    visibleCount: number,
+    hiddenCount: number,
+    sourceLabel: string,
+  ): Promise<PasteScope | undefined> {
+    return modal.open<PasteScope>(
+      ({ close }) => (
+        <PasteScopeModal
+          visibleCount={visibleCount}
+          hiddenCount={hiddenCount}
+          sourceLabel={sourceLabel}
+          onClose={close}
+        />
+      ),
+      { title: "Some schedules are hidden", size: "sm", closeOnBackdrop: false },
+    );
+  }
+
   // ─── Copy from week ──────────────────────────────
 
-  function handleCopyFromWeek() {
-    pushDataSnapshot();
+  async function handleCopyFromWeek() {
     if (copySourceQ.isLoading) {
       toast({ type: "error", message: "Loading source week data…" });
       return;
     }
     const sourceDates = copySourceDates.map((d) => d.date);
-    const sourceScheds = copySourceSchedules.filter((s) =>
-      s.status !== "cancelled" && s.status !== "deleted" && s.status !== "rejected",
-    );
+    const { visible, hidden } = selectCopyTargets(copySourceSchedules, {
+      visibleUserIds,
+      blockFilters: filters,
+    });
+
+    if (visible.length === 0 && hidden.length === 0) {
+      toast({ type: "error", message: "No schedules found in source week" });
+      return;
+    }
+
+    // 일부(또는 전부)가 필터에 가려져 있으면 어디까지 가져올지 물어본다.
+    let targetScheds = visible;
+    if (hidden.length > 0) {
+      const scope = await askPasteScope(visible.length, hidden.length, "the source week");
+      if (!scope) return;
+      targetScheds = scope === "all" ? [...visible, ...hidden] : visible;
+      if (targetScheds.length === 0) {
+        toast({ type: "error", message: "Nothing to copy — every schedule is hidden by the filter" });
+        return;
+      }
+    }
+
+    pushDataSnapshot();
 
     // 전부 preview로 가져옴 (겹침은 유저가 시각적으로 판단)
     let added = 0;
     const newEntries: PreviewEntry[] = [];
-    for (const s of sourceScheds) {
+    for (const s of targetScheds) {
       const srcIdx = sourceDates.indexOf(s.work_date);
       const targetDate = weekDates[srcIdx]?.date;
       if (!targetDate) continue;
@@ -708,8 +847,13 @@ export default function BulkScheduleView({
     }
     setPreviewEntries((prev) => [...prev, ...newEntries]);
     setCopyPickerOpen(false);
-    if (added > 0) toast({ type: "success", message: `${added} schedules copied as preview` });
-    else toast({ type: "error", message: "No schedules found in source week" });
+    const dropped = visible.length + hidden.length - targetScheds.length;
+    toast({
+      type: "success",
+      message: dropped > 0
+        ? `${added} schedules copied as preview — ${dropped} skipped (hidden by filter)`
+        : `${added} schedules copied as preview`,
+    });
   }
 
   // ─── Outside click ────────────────────────────────
@@ -726,11 +870,12 @@ export default function BulkScheduleView({
     return () => document.removeEventListener("mousedown", handler);
   }, [weekPickerOpen, copyPickerOpen]);
 
-  // Store 변경 시 선택 초기화
+  // Store / 필터 변경 시 선택 초기화 — 화면에서 사라진 셀·블록이 선택된 채 남으면
+  // 보이지 않는 대상에 일괄 수정이 적용된다.
   useEffect(() => {
     setSelectedCells(new Set());
     setSelectedBlockIds(new Set());
-  }, [storeId]);
+  }, [storeId, filters]);
 
   // ─── Confirm dialogs ───────────────────────────────
   const [discardAllConfirmOpen, setDiscardAllConfirmOpen] = useState(false);
@@ -873,10 +1018,15 @@ export default function BulkScheduleView({
                 <div className="absolute top-full right-0 mt-1 z-50">
                   <WeekPickerCalendar selectedWeekStart={copyWeekStart} onSelect={(ws) => setCopyWeekStart(ws)} />
                   <div className="mt-1 bg-[var(--color-surface)] border border-[var(--color-border)] rounded-lg p-3 shadow-xl">
-                    <button type="button" onClick={handleCopyFromWeek}
+                    <button type="button" onClick={() => void handleCopyFromWeek()}
                       className="w-full px-3 py-2 rounded-lg text-[12px] font-semibold bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)] transition-colors">
                       Copy to current week
                     </button>
+                    <p className="mt-2 text-[11px] leading-snug text-[var(--color-text-muted)]">
+                      {hasVisibilityFilters
+                        ? "Filters are on — copies what matches them. You'll be asked if anything is hidden."
+                        : "Copies every schedule in the selected week."}
+                    </p>
                   </div>
                 </div>
               )}
@@ -891,6 +1041,7 @@ export default function BulkScheduleView({
           users={allUsers}
           schedules={schedules}
           selectedStoreId={storeId}
+          showDepartment
         />
 
         {/* ── Row 4: Mode toggle + actions ─────────── */}
@@ -1024,58 +1175,7 @@ export default function BulkScheduleView({
                               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" /></svg>
                             </button>
                             {clipboard && (
-                              <button type="button" onClick={(e) => {
-                                e.stopPropagation();
-                                pushDataSnapshot();
-                                const newEntries: PreviewEntry[] = [];
-                                const visibleIds = new Set(filteredUsers.map((u) => u.id));
-                                if (clipboard.type === "column") {
-                                  // 열 → 열: 원본 column의 각 직원 스케줄을 "같은 직원 행"에 붙여넣기.
-                                  // 원본 직원이 현재 필터에서 숨겨져 있으면 skip.
-                                  const bySource = new Map<string, ClipboardData["entries"]>();
-                                  for (const entry of clipboard.entries) {
-                                    const sid = entry.sourceUserId;
-                                    if (!sid || !visibleIds.has(sid)) continue;
-                                    const arr = bySource.get(sid) ?? [];
-                                    arr.push(entry);
-                                    bySource.set(sid, arr);
-                                  }
-                                  for (const [uid, entries] of bySource) {
-                                    for (const entry of entries) {
-                                      newEntries.push({
-                                        tempId: `paste-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-                                        userId: uid, storeId, workRoleId: entry.workRoleId, workRoleName: entry.workRoleName,
-                                        workDate: day.date, startTime: entry.startTime, endTime: entry.endTime,
-                                        breakStartTime: entry.breakStartTime, breakEndTime: entry.breakEndTime,
-                                        startOffsetDays: entry.startOffsetDays,
-                                        status: "confirmed",
-                                      });
-                                    }
-                                  }
-                                  setPreviewEntries((prev) => [...prev, ...newEntries]);
-                                  if (newEntries.length === 0) {
-                                    toast({ type: "error", message: "No matching staff visible in current filter" });
-                                  } else {
-                                    toast({ type: "success", message: `Pasted ${newEntries.length} schedule${newEntries.length !== 1 ? "s" : ""} to ${bySource.size} staff` });
-                                  }
-                                } else {
-                                  // row/block 클립보드를 column target에 붙여넣기: 보이는 모든 직원에게 동일 내용 배포
-                                  for (const u of filteredUsers) {
-                                    for (const entry of clipboard.entries) {
-                                      newEntries.push({
-                                        tempId: `paste-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-                                        userId: u.id, storeId, workRoleId: entry.workRoleId, workRoleName: entry.workRoleName,
-                                        workDate: day.date, startTime: entry.startTime, endTime: entry.endTime,
-                                        breakStartTime: entry.breakStartTime, breakEndTime: entry.breakEndTime,
-                                        startOffsetDays: entry.startOffsetDays,
-                                        status: "confirmed",
-                                      });
-                                    }
-                                  }
-                                  setPreviewEntries((prev) => [...prev, ...newEntries]);
-                                  toast({ type: "success", message: `Pasted to ${filteredUsers.length} staff` });
-                                }
-                              }}
+                              <button type="button" onClick={(e) => { e.stopPropagation(); void pasteToColumn(day.date); }}
                                 title="Paste to column"
                                 className="w-7 h-7 rounded-lg flex items-center justify-center text-[var(--color-accent)] hover:bg-[var(--color-accent-muted)] transition-colors">
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M15 2H9a1 1 0 0 0-1 1v2c0 .6.4 1 1 1h6c.6 0 1-.4 1-1V3c0-.6-.4-1-1-1Z" /><path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2" /></svg>
@@ -1138,8 +1238,9 @@ export default function BulkScheduleView({
                           });
                         } else {
                           // Edit mode: select/deselect all blocks for this user
+                          // 숨겨진 블록은 선택 대상이 아님 — 보이지 않는 것을 일괄 수정/삭제하면 안 된다.
                           const userBlockIds = [
-                            ...weekSchedules.filter((s) => s.user_id === u.id).map((s) => s.id),
+                            ...visibleSchedules.filter((s) => s.user_id === u.id).map((s) => s.id),
                             ...previewEntries.filter((e) => e.userId === u.id).map((e) => e.tempId),
                           ];
                           const allSelected = userBlockIds.every((id) => selectedBlockIds.has(id));
