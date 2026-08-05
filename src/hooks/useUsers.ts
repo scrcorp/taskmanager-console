@@ -17,6 +17,13 @@ interface UserFilters {
   store_ids?: string[];
   role_id?: string;
   is_active?: boolean;
+  /**
+   * 미가입(유령) 계정을 is_active 필터에서 면제.
+   * 유령은 is_active=false 로 오므로, 스태프 목록에서 보이게 하려면 켜야 한다.
+   */
+  include_provisional?: boolean;
+  /** 미가입(유령) 계정만 조회 */
+  provisional_only?: boolean;
 }
 
 /**
@@ -42,6 +49,8 @@ export const useUsers = (
       if (filters?.role_id) params.role_id = filters.role_id;
       if (filters?.is_active !== undefined)
         params.is_active = filters.is_active;
+      if (filters?.include_provisional) params.include_provisional = true;
+      if (filters?.provisional_only) params.provisional_only = true;
 
       const response: AxiosResponse<User[]> = await api.get("/console/users", {
         params,
@@ -128,6 +137,214 @@ export const useCreateUser = (): UseMutationResult<
       success("Staff added.");
     },
     onError: error("Failed to add staff"),
+  });
+};
+
+/** 미가입(유령) 직원 생성 요청 데이터 (Provisional staff creation request) */
+export interface CreateProvisionalUserData {
+  /** 표시 이름 — 서버가 그대로 full_name 으로 사용 */
+  full_name: string;
+  role_id: string;
+  store_ids: string[];
+  /** FOH/BOH 분류 — 생략 시 미지정 */
+  department?: "FOH" | "BOH" | null;
+  hourly_rate?: number | null;
+}
+
+/**
+ * 미가입 직원 생성 훅 -- 아직 앱에 가입하지 않은 직원 자리를 만듭니다.
+ *
+ * Mutation hook to create a provisional (not-yet-signed-up) staff placeholder.
+ * 응답의 claim_code 를 직원에게 전달하면 본인이 가입할 때 이 계정을 인수한다.
+ */
+export const useCreateProvisionalUser = (): UseMutationResult<
+  User,
+  Error,
+  CreateProvisionalUserData
+> => {
+  const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationToast();
+  return useMutation<User, Error, CreateProvisionalUserData>({
+    mutationFn: async (data: CreateProvisionalUserData): Promise<User> => {
+      const response: AxiosResponse<User> = await api.post(
+        "/console/users/provisional",
+        data,
+      );
+      return response.data;
+    },
+    onSuccess: (): void => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      success("Provisional staff added.");
+    },
+    onError: error("Failed to add provisional staff"),
+  });
+};
+
+/**
+ * 미가입 직원 다건 생성 훅 -- 여러 명을 한 번에 만듭니다.
+ *
+ * Mutation hook to bulk-create provisional staff placeholders.
+ */
+export const useCreateProvisionalUsersBulk = (): UseMutationResult<
+  User[],
+  Error,
+  { people: CreateProvisionalUserData[] }
+> => {
+  const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationToast();
+  return useMutation<User[], Error, { people: CreateProvisionalUserData[] }>({
+    mutationFn: async (data: {
+      people: CreateProvisionalUserData[];
+    }): Promise<User[]> => {
+      const response: AxiosResponse<User[]> = await api.post(
+        "/console/users/provisional/bulk",
+        data,
+      );
+      return response.data;
+    },
+    onSuccess: (created: User[]): void => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      success(`Added ${created.length} provisional staff.`);
+    },
+    onError: error("Failed to add provisional staff"),
+  });
+};
+
+/** 인수 코드 재발급 응답 (Claim code regeneration response) */
+export interface ClaimCodeResult {
+  user_id: string;
+  claim_code: string;
+}
+
+/**
+ * 인수 코드 재발급 훅 -- 코드 분실·유출 시 새 코드를 발급합니다 (미가입 계정만).
+ *
+ * Mutation hook to regenerate a provisional user's claim code.
+ */
+export const useRegenerateClaimCode = (): UseMutationResult<
+  ClaimCodeResult,
+  Error,
+  string
+> => {
+  const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationToast();
+  return useMutation<ClaimCodeResult, Error, string>({
+    mutationFn: async (userId: string): Promise<ClaimCodeResult> => {
+      const response: AxiosResponse<ClaimCodeResult> = await api.post(
+        `/console/users/${userId}/claim-code`,
+      );
+      return response.data;
+    },
+    onSuccess: (res: ClaimCodeResult): void => {
+      queryClient.setQueryData<User>(["users", res.user_id], (old) =>
+        old ? { ...old, claim_code: res.claim_code } : old,
+      );
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      success("New claim code issued.");
+    },
+    onError: error("Failed to regenerate claim code"),
+  });
+};
+
+/* -------------------------------------------------------------------------- */
+/*  Absorb — 미가입 계정 흡수                                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * 매장별 번호 이관 결과 (Per-store EMPID transfer outcome).
+ *
+ * - `move`: 미가입 계정의 번호를 대상 계정으로 옮긴다.
+ * - `keep_target`: 대상이 이미 그 매장에 번호를 가지고 있어 대상 번호를 유지하고
+ *   미가입 쪽 번호(`empid`)는 버린다.
+ */
+export interface AbsorbStoreTransfer {
+  store_name: string;
+  empid: number | null;
+  action: "move" | "keep_target";
+}
+
+/**
+ * 흡수 계획 (Absorb plan) — preview 와 실행이 같은 모양을 돌려준다.
+ *
+ * `moves` 는 테이블명 → 옮겨질 행 수. `conflicts` 는 사람이 확인해야 할 경고.
+ */
+export interface AbsorbPlan {
+  provisional_name: string;
+  target_name: string;
+  /** 테이블명 → 이동 건수 (e.g. `{ schedules: 3 }`) */
+  moves: Record<string, number>;
+  store_transfers: AbsorbStoreTransfer[];
+  conflicts: string[];
+  crewid_action: string;
+}
+
+/** 흡수 요청 (Absorb request) */
+export interface AbsorbUserVariables {
+  /** 폐기될 미가입 계정 ID */
+  provisionalUserId: string;
+  /** 배정·번호·스케줄을 넘겨받을 실제 계정 ID */
+  targetUserId: string;
+}
+
+/**
+ * 흡수 미리보기 훅 -- 실제로 옮기기 전에 무엇이 옮겨지는지 계산만 한다.
+ *
+ * Mutation hook to preview absorbing a provisional user into a real account.
+ * 서버 상태를 바꾸지 않으므로 invalidate 하지 않는다.
+ */
+export const usePreviewAbsorb = (): UseMutationResult<
+  AbsorbPlan,
+  Error,
+  AbsorbUserVariables
+> => {
+  const { error } = useMutationToast();
+  return useMutation<AbsorbPlan, Error, AbsorbUserVariables>({
+    mutationFn: async ({
+      provisionalUserId,
+      targetUserId,
+    }: AbsorbUserVariables): Promise<AbsorbPlan> => {
+      const response: AxiosResponse<AbsorbPlan> = await api.post(
+        `/console/users/${provisionalUserId}/absorb/preview`,
+        { target_user_id: targetUserId },
+      );
+      return response.data;
+    },
+    onError: error("Couldn't preview the merge"),
+  });
+};
+
+/**
+ * 흡수 실행 훅 -- 미가입 계정의 배정·번호·스케줄을 실제 계정으로 옮기고 미가입 행을 폐기한다.
+ *
+ * Mutation hook to absorb a provisional user into an existing account.
+ * 미가입 계정은 사라지므로 호출 측은 대상 유저 상세로 이동해야 한다.
+ */
+export const useAbsorbProvisional = (): UseMutationResult<
+  AbsorbPlan,
+  Error,
+  AbsorbUserVariables
+> => {
+  const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationToast();
+  return useMutation<AbsorbPlan, Error, AbsorbUserVariables>({
+    mutationFn: async ({
+      provisionalUserId,
+      targetUserId,
+    }: AbsorbUserVariables): Promise<AbsorbPlan> => {
+      const response: AxiosResponse<AbsorbPlan> = await api.post(
+        `/console/users/${provisionalUserId}/absorb`,
+        { target_user_id: targetUserId },
+      );
+      return response.data;
+    },
+    onSuccess: (plan: AbsorbPlan): void => {
+      queryClient.invalidateQueries({ queryKey: ["users"] });
+      success(
+        `${plan.provisional_name} was merged into ${plan.target_name}. The placeholder account has been retired.`,
+        { title: "Absorbed" },
+      );
+    },
+    onError: error("Couldn't absorb this account"),
   });
 };
 

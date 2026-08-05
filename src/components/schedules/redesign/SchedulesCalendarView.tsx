@@ -1787,7 +1787,18 @@ export default function SchedulesCalendarView() {
                       <div className="flex items-center gap-3">
                         <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 ${rolePriorityToColor(u.role_priority)}`}>{getInitials(u.full_name)}</div>
                         <div className="min-w-0">
-                          <div className="text-[13px] font-semibold text-[var(--color-text)] truncate">{u.full_name || u.username}</div>
+                          <div className="text-[13px] font-semibold text-[var(--color-text)] truncate flex items-center gap-1.5">
+                            <span className="truncate">{u.full_name || u.username}</span>
+                            {/* 미가입(유령) 직원 — 스케줄 배정은 되지만 아직 앱 계정이 없다 */}
+                            {u.is_provisional && (
+                              <span
+                                title="This employee hasn't signed up yet — they can be scheduled, but can't log in."
+                                className="shrink-0 rounded-full bg-[var(--color-warning-muted)] px-1.5 py-px text-[8px] font-bold uppercase leading-[14px] tracking-wide text-[var(--color-warning)]"
+                              >
+                                Not signed up
+                              </span>
+                            )}
+                          </div>
                           <div className="text-[10px] text-[var(--color-text-muted)]">
                             <span className={u.role_priority <= ROLE_PRIORITY.GM ? "text-[var(--color-accent)] font-semibold" : u.role_priority <= ROLE_PRIORITY.SV ? "text-[var(--color-warning)] font-semibold" : "font-semibold"}>{rolePriorityToBadge(u.role_priority)}</span>
                             {isGMView && userEffective != null ? <span title="Default rate for new schedules"> · ${userEffective}/hr{isUserCustom ? "" : " (inherited)"}</span> : null}

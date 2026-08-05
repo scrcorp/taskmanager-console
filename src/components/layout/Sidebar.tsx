@@ -34,6 +34,7 @@ import {
   AlertTriangle,
   Wallet,
   Coins,
+  Banknote,
   Sparkles,
 } from "lucide-react";
 import React, { useState, useEffect, useMemo, useCallback } from "react";
@@ -116,6 +117,7 @@ const navItems: NavItem[] = [
     icon: Wallet,
     children: [
       { href: "/pay/tips", label: "Tips", icon: Coins },
+      { href: "/pay/payroll", label: "Payroll", icon: Banknote },
     ],
   },
   { href: "/alerts", label: "Alerts", icon: Bell },

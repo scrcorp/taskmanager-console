@@ -13,6 +13,8 @@ import { ArrowLeft } from "lucide-react";
 const TABS: { href: string; label: string; badge?: string }[] = [
   { href: "/users/bulk/edit", label: "Edit Existing" },
   { href: "/users/bulk/availability", label: "Work Availability" },
+  { href: "/users/bulk/empid", label: "EMPID Import" },
+  { href: "/users/bulk/empid-edit", label: "EMPID Edit" },
   { href: "/users/bulk/add", label: "Add New", badge: "Coming soon" },
 ];
 

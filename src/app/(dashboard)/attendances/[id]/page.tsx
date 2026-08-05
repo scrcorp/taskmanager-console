@@ -15,6 +15,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import {
+  AlertTriangle,
   ArrowLeft,
   Calendar,
   Clock,
@@ -37,7 +38,11 @@ import {
   useUpdateBreakSession,
   useDeleteBreakSession,
   useUpdateCorrectionReason,
+  useConfirmAutoClockout,
 } from "@/hooks";
+import { usePermissions } from "@/hooks/usePermissions";
+import { PERMISSIONS } from "@/lib/permissions";
+import { useAuthStore } from "@/stores/authStore";
 import { useTimezone } from "@/hooks/useTimezone";
 import type { Attendance, AttendanceBreakItem } from "@/types";
 import {
@@ -164,6 +169,9 @@ export default function AttendanceDetailPage(): React.ReactElement {
       <div className="mb-6">
         <AttendanceActionBar attendance={attendance} tz={tz} />
       </div>
+
+      {/* 자동퇴근 확인 배너 (L6) — anomaly 가 있을 때만 표시. */}
+      <AutoClockoutBanner attendance={attendance} tz={tz} />
 
       {/* 상세 카드 — 전부 읽기 전용. 시간/상태/노트 수정은 모달 사용. */}
       <Card className="p-6 space-y-5">
@@ -335,6 +343,76 @@ export default function AttendanceDetailPage(): React.ReactElement {
           </div>
         )}
       </Card>
+    </div>
+  );
+}
+
+// ─── Auto clock-out confirmation banner (L6) ──────────────────────────────
+
+/**
+ * 자동퇴근 확인 배너.
+ *  - 미확인: warning 배너 + Confirm 버튼 (schedules:update 권한). clock_out 을
+ *    correction 으로 고치면 서버가 자동 확인 처리 — invalidate 로 상태 반영됨.
+ *  - 확인됨: subtle confirmed 표시 (시각 tooltip 포함).
+ */
+function AutoClockoutBanner({
+  attendance,
+  tz,
+}: {
+  attendance: Attendance;
+  tz: string | undefined;
+}): React.ReactElement | null {
+  const { hasPermission } = usePermissions();
+  const currentUserId = useAuthStore((s) => s.user?.id);
+  const confirmAutoOut = useConfirmAutoClockout();
+
+  const hasAnomaly = attendance.anomalies?.includes("auto_clocked_out") ?? false;
+  if (!hasAnomaly) return null;
+
+  const confirmedAt = attendance.auto_clock_out_confirmed_at;
+  if (confirmedAt) {
+    return (
+      <div
+        className="mb-6 flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border bg-surface text-sm text-text-secondary"
+        title={`Confirmed ${formatDateTime(confirmedAt, tz)}`}
+      >
+        <Check size={14} className="text-[var(--color-success)] shrink-0" />
+        <span>
+          Auto clock-out confirmed
+          <span className="text-text-muted"> · {formatDateTime(confirmedAt, tz)}</span>
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-6 flex items-start gap-3 px-4 py-3 rounded-lg border border-[var(--color-warning)]/40 bg-warning-muted">
+      <AlertTriangle size={16} className="text-[var(--color-warning)] mt-0.5 shrink-0" />
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-semibold text-text">
+          Auto clock-out — needs confirmation
+        </div>
+        <div className="text-xs text-text-secondary mt-0.5">
+          This shift was closed automatically because the employee didn&apos;t clock
+          out. Review the clock-out time, then confirm it. Correcting the
+          clock-out time also confirms it automatically.
+        </div>
+      </div>
+      {hasPermission(PERMISSIONS.SCHEDULES_UPDATE) && (
+        <Button
+          size="sm"
+          onClick={() =>
+            confirmAutoOut.mutate({
+              attendanceId: attendance.id,
+              confirmedBy: currentUserId,
+            })
+          }
+          isLoading={confirmAutoOut.isPending}
+          type="button"
+        >
+          <Check size={14} className="mr-1" /> Confirm
+        </Button>
+      )}
     </div>
   );
 }

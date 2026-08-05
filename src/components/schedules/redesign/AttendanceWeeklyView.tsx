@@ -16,6 +16,7 @@ import { useAttendances } from "@/hooks/useAttendances";
 import { useUsers } from "@/hooks/useUsers";
 import type { Attendance, User } from "@/types";
 import {
+  isUnconfirmedAutoClockOut,
   matchesStatusFilter,
   rolePriorityToBadgeId,
   type AttendanceUiFilters,
@@ -158,6 +159,11 @@ export function AttendanceWeeklyView({ storeId, weekStart, filters, storeUsers: 
   function passesCellFilter(r: Attendance): boolean {
     if (!matchesStatusFilter(r.status, r.anomalies, filters.statuses)) return false;
     if (filters.editedOnly && (r.correction_count ?? 0) === 0) return false;
+    if (
+      filters.unconfirmedAutoOnly &&
+      !isUnconfirmedAutoClockOut(r.anomalies, r.auto_clock_out_confirmed_at)
+    )
+      return false;
     return true;
   }
 
@@ -177,7 +183,7 @@ export function AttendanceWeeklyView({ storeId, weekStart, filters, storeUsers: 
     }
     return map;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [records, filters.statuses, filters.editedOnly]);
+  }, [records, filters.statuses, filters.editedOnly, filters.unconfirmedAutoOnly]);
 
   /** 행 단위 필터 — Staff (id), Role (badge). */
   function passesRowFilter(userId: string): boolean {

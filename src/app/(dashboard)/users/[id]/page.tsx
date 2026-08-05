@@ -21,14 +21,26 @@ import {
   Check,
   X as XIcon,
   Pencil,
+  Copy,
+  KeyRound,
+  RefreshCw,
+  Merge,
+  AlertTriangle,
 } from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   useUser,
+  useUsers,
   useUpdateUser,
   useToggleUserActive,
   useUserStores,
   useSyncUserStores,
+  useRegenerateClaimCode,
+  usePreviewAbsorb,
+  useAbsorbProvisional,
+  type AbsorbPlan,
 } from "@/hooks/useUsers";
+import { useCommitEmpidImport } from "@/hooks/useEmpidImport";
 import { useStores } from "@/hooks/useStores";
 import { useRoles } from "@/hooks/useRoles";
 import { Button } from "@/components/ui/Button";
@@ -44,6 +56,7 @@ import { useAdminResetPassword } from "@/hooks/usePassword";
 import { useClockinPin, useUpdateClockinPin } from "@/hooks/useClockinPin";
 import { ResetPasswordResultModal } from "@/components/auth/ResetPasswordResultModal";
 import { StaffWarningsSection } from "@/components/warnings/StaffWarningsSection";
+import { RateChangeSection } from "@/components/users/RateChangeSection";
 import type { User, Store, Role, UserStoreAssignment } from "@/types";
 
 /* -------------------------------------------------------------------------- */
@@ -90,6 +103,37 @@ const INITIAL_EDIT_FORM: UserEditFormData = {
   employee_no: "",
 };
 
+/**
+ * Absorb plan 의 `moves` 키(테이블명) → 사람이 읽는 라벨.
+ * 모르는 키는 snake_case 를 그대로 풀어서 보여준다.
+ */
+const ABSORB_MOVE_LABELS: Record<string, string> = {
+  schedules: "Schedules",
+  schedule_shifts: "Shifts",
+  shifts: "Shifts",
+  time_entries: "Time entries",
+  clock_entries: "Clock entries",
+  attendance: "Attendance records",
+  warnings: "Warnings",
+  user_stores: "Store assignments",
+  store_assignments: "Store assignments",
+  availability: "Availability",
+  time_off_requests: "Time-off requests",
+  shift_swaps: "Shift swaps",
+  tasks: "Tasks",
+  task_completions: "Task completions",
+  payroll_entries: "Payroll entries",
+  notes: "Notes",
+};
+
+/** moves 키를 사람이 읽는 라벨로 (없으면 snake_case 를 문장식으로 변환) */
+function absorbMoveLabel(key: string): string {
+  const known = ABSORB_MOVE_LABELS[key];
+  if (known) return known;
+  const spaced = key.replace(/_/g, " ");
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
 /* -------------------------------------------------------------------------- */
 /*  Main Component                                                            */
 /* -------------------------------------------------------------------------- */
@@ -115,6 +159,90 @@ export default function UserDetailPage(): React.ReactElement {
   const toggleActive = useToggleUserActive();
   const syncUserStores = useSyncUserStores();
   const adminResetPassword = useAdminResetPassword();
+  const regenerateClaimCode = useRegenerateClaimCode();
+
+  /** 미가입(유령) 계정 — 아직 앱에 가입하지 않은 직원 자리 */
+  const isProvisional: boolean = user?.is_provisional === true;
+
+  /** 인수 코드 복사 상태 */
+  const [claimCopied, setClaimCopied] = useState<boolean>(false);
+  const copyClaimCode = useCallback(async (code: string): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setClaimCopied(true);
+      window.setTimeout(() => setClaimCopied(false), 2000);
+    } catch {
+      // 클립보드 접근 불가 — 코드가 화면에 보이므로 수동 복사 가능
+    }
+  }, []);
+
+  /* ---- Absorb (미가입 계정 흡수) state ------------------------------------ */
+  const previewAbsorb = usePreviewAbsorb();
+  const absorbProvisional = useAbsorbProvisional();
+  /** org 유저 목록 — 흡수 대상 후보. 미가입 계정만 보고 있을 때만 필요하다. */
+  const { data: orgUsers, isLoading: orgUsersLoading } = useUsers();
+  const [absorbFilter, setAbsorbFilter] = useState<string>("");
+  const [absorbTargetId, setAbsorbTargetId] = useState<string>("");
+  /** preview 결과 — 열려 있으면 확인 모달이 뜬다 */
+  const [absorbPlan, setAbsorbPlan] = useState<AbsorbPlan | null>(null);
+
+  /** 흡수 대상 후보 — 미가입 계정과 자기 자신은 제외 */
+  const absorbCandidates: User[] = useMemo(() => {
+    const list = Array.isArray(orgUsers) ? orgUsers : [];
+    return list.filter(
+      (u: User) => u.id !== userId && u.is_provisional !== true,
+    );
+  }, [orgUsers, userId]);
+
+  /** 검색어 적용 — 선택된 유저는 필터에서 밀려나도 목록에 남긴다 */
+  const absorbOptions: User[] = useMemo(() => {
+    const q = absorbFilter.trim().toLowerCase();
+    let list = absorbCandidates;
+    if (q) {
+      list = absorbCandidates.filter(
+        (u: User) =>
+          (u.full_name?.toLowerCase().includes(q) ?? false) ||
+          u.username.toLowerCase().includes(q) ||
+          (u.email?.toLowerCase().includes(q) ?? false),
+      );
+    }
+    if (absorbTargetId && !list.some((u: User) => u.id === absorbTargetId)) {
+      const selected = absorbCandidates.find((u: User) => u.id === absorbTargetId);
+      if (selected) list = [selected, ...list];
+    }
+    return list;
+  }, [absorbCandidates, absorbFilter, absorbTargetId]);
+
+  /** 미리보기 실행 — 성공 시 확인 모달 오픈 */
+  const handlePreviewAbsorb = useCallback(async (): Promise<void> => {
+    if (!absorbTargetId) return;
+    try {
+      const plan = await previewAbsorb.mutateAsync({
+        provisionalUserId: userId,
+        targetUserId: absorbTargetId,
+      });
+      setAbsorbPlan(plan);
+    } catch {
+      // hook 자동 모달 (parseApiError)
+    }
+  }, [absorbTargetId, previewAbsorb, userId]);
+
+  /** 흡수 확정 — 이 페이지의 계정은 폐기되므로 대상 유저 상세로 이동 */
+  const handleConfirmAbsorb = useCallback(async (): Promise<void> => {
+    if (!absorbTargetId) return;
+    const targetId = absorbTargetId;
+    try {
+      await absorbProvisional.mutateAsync({
+        provisionalUserId: userId,
+        targetUserId: targetId,
+      });
+      setAbsorbPlan(null);
+      setAbsorbTargetId("");
+      router.push(`/users/${targetId}`);
+    } catch {
+      // hook 자동 모달 (parseApiError)
+    }
+  }, [absorbTargetId, absorbProvisional, userId, router]);
 
   /* ---- Edit modal state -------------------------------------------------- */
   const [isEditOpen, setIsEditOpen] = useState<boolean>(false);
@@ -552,9 +680,14 @@ export default function UserDetailPage(): React.ReactElement {
                 <Badge variant={getRoleBadgeVariant(user.role_name)}>
                   {user.role_name}
                 </Badge>
-                <Badge variant={user.is_active ? "success" : "danger"}>
-                  {user.is_active ? "Active" : "Inactive"}
-                </Badge>
+                {/* 유령은 is_active=false 지만 "Inactive"가 아니라 "아직 가입 안 함" */}
+                {isProvisional ? (
+                  <Badge variant="warning">NOT SIGNED UP</Badge>
+                ) : (
+                  <Badge variant={user.is_active ? "success" : "danger"}>
+                    {user.is_active ? "Active" : "Inactive"}
+                  </Badge>
+                )}
                 {user.crewid != null && (
                   <span className="text-xs font-mono font-semibold text-text-secondary bg-surface border border-border rounded px-2 py-0.5">
                     CREWID {user.crewid}
@@ -562,7 +695,9 @@ export default function UserDetailPage(): React.ReactElement {
                 )}
               </div>
               <p className="text-sm text-text-muted mb-3">
-                @{user.username}
+                {isProvisional
+                  ? "No login yet — this account is waiting to be claimed."
+                  : `@${user.username}`}
               </p>
 
               {/* Detail Grid */}
@@ -618,28 +753,152 @@ export default function UserDetailPage(): React.ReactElement {
                 <Edit className="h-4 w-4" />
                 Edit Profile
               </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={handleToggleActive}
-                isLoading={toggleActive.isPending}
-              >
-                {user.is_active ? (
-                  <>
-                    <ToggleRight className="h-4 w-4" />
-                    Deactivate
-                  </>
-                ) : (
-                  <>
-                    <ToggleLeft className="h-4 w-4" />
-                    Activate
-                  </>
-                )}
-              </Button>
+              {/* 유령은 서버가 is_active 를 관리한다(인수 시 활성화) — 수동 토글 숨김 */}
+              {!isProvisional && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleToggleActive}
+                  isLoading={toggleActive.isPending}
+                >
+                  {user.is_active ? (
+                    <>
+                      <ToggleRight className="h-4 w-4" />
+                      Deactivate
+                    </>
+                  ) : (
+                    <>
+                      <ToggleLeft className="h-4 w-4" />
+                      Activate
+                    </>
+                  )}
+                </Button>
+              )}
             </div>
           )}
         </div>
       </div>
+
+      {/* Claim Code Card — 미가입 계정만. 직원이 가입할 때 이 코드로 계정을 인수한다. */}
+      {isProvisional && (
+        <div className="bg-card border border-warning/40 rounded-xl p-6 mb-6">
+          <div className="flex items-center gap-2 mb-4">
+            <KeyRound className="h-5 w-5 text-warning" />
+            <h2 className="text-lg font-bold text-text">Claim Code</h2>
+          </div>
+          <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+            <div>
+              <p className="text-2xl md:text-3xl font-extrabold font-mono tracking-[0.2em] text-accent break-all">
+                {user.claim_code ?? "—"}
+              </p>
+              <p className="text-xs text-text-muted mt-2 max-w-md">
+                Give this code to the employee. They enter it when signing up to take
+                over this account. Regenerate it if the code was lost or shared by
+                mistake — the old code stops working.
+              </p>
+            </div>
+            {canManageUsers && (
+              <div className="flex items-center gap-2 flex-shrink-0">
+                {user.claim_code && (
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onClick={() => void copyClaimCode(user.claim_code as string)}
+                  >
+                    {claimCopied ? (
+                      <>
+                        <Check className="h-4 w-4" />
+                        Copied
+                      </>
+                    ) : (
+                      <>
+                        <Copy className="h-4 w-4" />
+                        Copy
+                      </>
+                    )}
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  isLoading={regenerateClaimCode.isPending}
+                  onClick={() => {
+                    regenerateClaimCode.mutate(userId);
+                  }}
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Regenerate
+                </Button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Absorb Card — 미가입 계정만. 직원이 코드를 안 쓰고 따로 가입해 계정이 2개가 된 경우,
+          이 자리표의 배정·번호·스케줄을 실제 계정으로 옮기고 이 행을 폐기한다. */}
+      {isProvisional && canManageUsers && (
+        <div className="bg-card border border-border rounded-xl p-6 mb-6">
+          <div className="flex items-center gap-2 mb-2">
+            <Merge className="h-5 w-5 text-text-secondary" />
+            <h2 className="text-lg font-bold text-text">
+              Absorb into an existing account
+            </h2>
+          </div>
+          <p className="text-sm text-text-muted mb-4 max-w-2xl">
+            If this person already signed up with a separate account, move their
+            assignments, EMPIDs and schedules into that account and retire this
+            placeholder.
+          </p>
+          <div className="flex flex-col sm:flex-row sm:items-end gap-3">
+            <div className="flex flex-col gap-1.5">
+              <label
+                htmlFor="absorb-target-filter"
+                className="text-xs font-medium text-text-secondary"
+              >
+                Existing account
+              </label>
+              <input
+                id="absorb-target-filter"
+                value={absorbFilter}
+                onChange={(e) => setAbsorbFilter(e.target.value)}
+                placeholder="Filter by name, username or email…"
+                className="w-full sm:w-72 px-3 py-1.5 rounded-lg bg-surface border border-border text-sm text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-colors"
+              />
+              <select
+                value={absorbTargetId}
+                onChange={(e) => setAbsorbTargetId(e.target.value)}
+                disabled={orgUsersLoading}
+                aria-label="Account to absorb into"
+                className="w-full sm:w-72 px-3 py-1.5 rounded-lg bg-surface border border-border text-sm text-text focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer transition-colors"
+              >
+                <option value="">
+                  {orgUsersLoading ? "Loading staff…" : "Select an account…"}
+                </option>
+                {absorbOptions.map((u: User) => (
+                  <option key={u.id} value={u.id}>
+                    {u.full_name || u.username}
+                    {u.username ? ` (@${u.username})` : ""}
+                  </option>
+                ))}
+              </select>
+              {!orgUsersLoading && absorbOptions.length === 0 && (
+                <span className="text-xs text-text-muted">
+                  No matching accounts.
+                </span>
+              )}
+            </div>
+            <Button
+              variant="secondary"
+              onClick={() => void handlePreviewAbsorb()}
+              isLoading={previewAbsorb.isPending}
+              disabled={!absorbTargetId}
+            >
+              Preview
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Role / Department / Pay — separate cards side by side */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
@@ -686,20 +945,13 @@ export default function UserDetailPage(): React.ReactElement {
           />
         </div>
 
-        {/* Hourly Rate Card */}
+        {/* Hourly Rate Card — rate-change flow (history-backed, R4) */}
         <div className="bg-card border border-border rounded-xl p-5">
           <h3 className="text-sm font-bold text-text mb-3">Hourly Rate</h3>
-          <HourlyRateEditor
-            value={user.hourly_rate}
+          <RateChangeSection
+            userId={userId}
+            currentRate={user.hourly_rate}
             canEdit={canManageUsers}
-            onSave={async (rate) => {
-              try {
-                await updateUser.mutateAsync({ id: userId, hourly_rate: rate });
-              } catch {
-                // hook 자동 모달
-              }
-            }}
-            isSaving={updateUser.isPending}
           />
         </div>
       </div>
@@ -768,9 +1020,9 @@ export default function UserDetailPage(): React.ReactElement {
                   const check = storeChecks[store.id];
                   const isManaged = check?.is_manager ?? false;
                   const isWork = check?.is_work ?? false;
-                  const assignedEmpid = Array.isArray(userStores)
-                    ? userStores.find((u) => u.id === store.id)?.empid
-                    : null;
+                  const assignment = Array.isArray(userStores)
+                    ? userStores.find((u) => u.id === store.id)
+                    : undefined;
 
                   // 관리 체크박스 disabled 조건
                   const managerDisabled =
@@ -794,10 +1046,13 @@ export default function UserDetailPage(): React.ReactElement {
                             <StoreIcon className="h-3.5 w-3.5" />
                           </div>
                           <span className="font-medium text-text">{store.name}</span>
-                          {assignedEmpid != null && (
-                            <span className="text-xs font-mono font-semibold text-accent bg-accent-muted rounded px-1.5 py-0.5">
-                              EMPID {assignedEmpid}
-                            </span>
+                          {assignment && (
+                            <StoreEmpidCell
+                              userId={userId}
+                              storeId={store.id}
+                              empid={assignment.empid ?? null}
+                              canEdit={canManageUsers && !isStoreEditing}
+                            />
                           )}
                           {!store.is_active && (
                             <Badge variant="danger">Inactive</Badge>
@@ -840,8 +1095,9 @@ export default function UserDetailPage(): React.ReactElement {
         )}
       </div>
 
-      {/* Account Security Section — Owner는 전체, GM(20)은 하위 직원(SV/Staff)에만 표시 */}
-      {canManageUsers && myPriority <= ROLE_PRIORITY.GM && userRolePriority > myPriority && (
+      {/* Account Security Section — Owner는 전체, GM(20)은 하위 직원(SV/Staff)에만 표시.
+          유령은 아직 계정(비밀번호)이 없으므로 숨긴다. */}
+      {!isProvisional && canManageUsers && myPriority <= ROLE_PRIORITY.GM && userRolePriority > myPriority && (
         <div className="bg-card border border-border rounded-xl p-6 mb-6">
           <div className="flex items-center gap-2 mb-4">
             <ShieldAlert className="h-5 w-5 text-danger" />
@@ -982,6 +1238,132 @@ export default function UserDetailPage(): React.ReactElement {
         />
       )}
 
+      {/* Absorb Preview Modal — 무엇이 옮겨지는지 보여주고 확정받는다 */}
+      {absorbPlan && (
+        <Modal
+          isOpen={true}
+          onClose={() => setAbsorbPlan(null)}
+          title="Absorb this placeholder?"
+          size="lg"
+          closeOnBackdrop={false}
+          footer={
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="secondary"
+                onClick={() => setAbsorbPlan(null)}
+                disabled={absorbProvisional.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant="danger"
+                onClick={() => void handleConfirmAbsorb()}
+                isLoading={absorbProvisional.isPending}
+              >
+                Absorb
+              </Button>
+            </div>
+          }
+        >
+          <div className="space-y-5">
+            {/* Who → who */}
+            <div className="flex items-center gap-2 flex-wrap text-sm">
+              <span className="font-semibold text-text">
+                {absorbPlan.provisional_name}
+              </span>
+              <span className="text-text-muted">→</span>
+              <span className="font-semibold text-accent">
+                {absorbPlan.target_name}
+              </span>
+            </div>
+            <p className="text-xs text-text-muted">
+              This cannot be undone. The placeholder account is retired once the
+              move completes.
+            </p>
+
+            {/* Store / EMPID transfers */}
+            <div>
+              <h4 className="text-sm font-bold text-text mb-2">
+                Store numbers
+              </h4>
+              {absorbPlan.store_transfers.length === 0 ? (
+                <p className="text-sm text-text-muted">
+                  No store numbers to transfer.
+                </p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {absorbPlan.store_transfers.map((t, i) => (
+                    <li
+                      key={`${t.store_name}-${i}`}
+                      className="flex items-center justify-between gap-3 text-sm border-b border-border last:border-b-0 pb-1.5 last:pb-0"
+                    >
+                      <span className="text-text">{t.store_name}</span>
+                      <span className="text-text-secondary text-right">
+                        {t.action === "move"
+                          ? `#${t.empid ?? "—"} moves over`
+                          : `Keeps the existing number${
+                              t.empid != null ? ` (drops placeholder #${t.empid})` : ""
+                            }`}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {/* CREWID */}
+            <div>
+              <h4 className="text-sm font-bold text-text mb-1">CREWID</h4>
+              <p className="text-sm text-text-secondary">
+                {absorbPlan.crewid_action}
+              </p>
+            </div>
+
+            {/* Record moves */}
+            <div>
+              <h4 className="text-sm font-bold text-text mb-2">
+                Records moving
+              </h4>
+              {Object.keys(absorbPlan.moves).length === 0 ? (
+                <p className="text-sm text-text-muted">Nothing to move.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <tbody>
+                    {Object.entries(absorbPlan.moves).map(([key, count]) => (
+                      <tr key={key} className="border-b border-border last:border-b-0">
+                        <td className="py-1.5 text-text">
+                          {absorbMoveLabel(key)}
+                        </td>
+                        <td className="py-1.5 text-right tabular-nums text-text-secondary">
+                          {count}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+
+            {/* Conflicts */}
+            {absorbPlan.conflicts.length > 0 && (
+              <div className="rounded-lg border border-warning/40 bg-warning/10 p-3">
+                <div className="flex items-center gap-1.5 mb-1.5">
+                  <AlertTriangle className="h-4 w-4 text-warning" />
+                  <h4 className="text-sm font-bold text-warning">
+                    Check before you continue
+                  </h4>
+                </div>
+                <ul className="list-disc pl-5 space-y-1 text-sm text-text-secondary">
+                  {absorbPlan.conflicts.map((c, i) => (
+                    <li key={i}>{c}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </Modal>
+      )}
+
       {/* Unmanage Store Confirmation — 관리매장 해제 시 근무매장 유지 여부 */}
       {unmanageConfirm && (
         <Modal
@@ -1022,13 +1404,6 @@ export default function UserDetailPage(): React.ReactElement {
 }
 
 // ─── Sub-components ─────────────────────────────────────────────────────────
-
-interface HourlyRateEditorProps {
-  value: number | null;
-  canEdit: boolean;
-  onSave: (rate: number | null) => Promise<void>;
-  isSaving: boolean;
-}
 
 // ─── Role Editor ────────────────────────────────────────────────────────────
 
@@ -1226,72 +1601,6 @@ function DepartmentEditor({ value, canEdit, onSave, isSaving }: DepartmentEditor
   );
 }
 
-// ─── Hourly Rate Editor ─────────────────────────────────────────────────────
-
-function HourlyRateEditor({ value, canEdit, onSave, isSaving }: HourlyRateEditorProps): React.ReactElement {
-  const [isEditing, setIsEditing] = useState(false);
-  const [inputVal, setInputVal] = useState("");
-
-  const displayRate = value != null ? `$${value.toFixed(2)}/hr` : "Not set";
-
-  if (!canEdit) {
-    return <span className="text-sm text-text-secondary">{displayRate}</span>;
-  }
-
-  if (!isEditing) {
-    return (
-      <div className="flex items-center gap-3">
-        <span className="text-lg font-bold text-text">{displayRate}</span>
-        <button
-          type="button"
-          onClick={() => { setInputVal(value != null ? String(value) : ""); setIsEditing(true); }}
-          className="text-xs text-accent hover:text-accent-light font-medium transition-colors"
-        >
-          Edit
-        </button>
-      </div>
-    );
-  }
-
-  return (
-    <div className="flex items-center gap-2">
-      <div className="relative">
-        <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted text-sm select-none">$</span>
-        <input
-          type="number"
-          min="0"
-          step="0.01"
-          value={inputVal}
-          onChange={(e) => setInputVal(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") e.preventDefault(); }}
-          className="w-28 rounded-lg border border-border bg-surface pl-6 pr-2 py-1.5 text-sm text-text focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent transition-colors duration-150"
-          autoFocus
-        />
-      </div>
-      <button
-        type="button"
-        disabled={isSaving}
-        onClick={async () => {
-          const num = inputVal.trim() === "" ? null : Number(inputVal);
-          if (num !== null && (isNaN(num) || num < 0)) return;
-          await onSave(num);
-          setIsEditing(false);
-        }}
-        className="text-xs text-accent hover:text-accent-light font-semibold transition-colors disabled:opacity-50"
-      >
-        {isSaving ? "Saving..." : "Save"}
-      </button>
-      <button
-        type="button"
-        onClick={() => setIsEditing(false)}
-        className="text-xs text-text-muted hover:text-text font-medium transition-colors"
-      >
-        Cancel
-      </button>
-    </div>
-  );
-}
-
 // ─── Profile PIN Row ────────────────────────────────────────────────────────
 
 interface ProfilePinRowProps {
@@ -1405,6 +1714,176 @@ function ProfilePinRow({ userId }: ProfilePinRowProps): React.ReactElement {
         )}
       </span>
     </div>
+  );
+}
+
+// ─── Store EMPID Cell ───────────────────────────────────────────────────────
+
+interface StoreEmpidCellProps {
+  userId: string;
+  storeId: string;
+  /** 현재 배정된 EMPID (null = 배정 행만 있고 번호는 없음). */
+  empid: number | null;
+  canEdit: boolean;
+}
+
+/**
+ * 매장 배정 행의 EMPID 뱃지 + 인라인 편집.
+ *
+ * 권한: `users:update` — 연필 아이콘으로 인라인 편집 모드 진입 (PIN 행과 동일 패턴).
+ * 저장은 useCommitEmpidImport 재사용 — 빈 값으로 저장하면 번호 삭제(배정 행은 유지),
+ * 다른 직원이 재채번되면 결과 모달로 안내.
+ */
+function StoreEmpidCell({
+  userId,
+  storeId,
+  empid,
+  canEdit,
+}: StoreEmpidCellProps): React.ReactElement | null {
+  const queryClient = useQueryClient();
+  const modal = useModal();
+  const commitEmpid = useCommitEmpidImport();
+  const [editing, setEditing] = useState<boolean>(false);
+  const [draft, setDraft] = useState<string>("");
+
+  // 편집 중 권한이 회수되면 편집 모드를 강제 종료 / Close the editor if edit rights go away.
+  useEffect(() => {
+    if (!canEdit) {
+      setEditing(false);
+      setDraft("");
+    }
+  }, [canEdit]);
+
+  const startEdit = (): void => {
+    setDraft(empid != null ? String(empid) : "");
+    setEditing(true);
+  };
+  const cancelEdit = (): void => {
+    setEditing(false);
+    setDraft("");
+  };
+
+  // 빈 값 = 번호 삭제(null). 숫자는 1 이상만 유효.
+  const nextEmpid: number | null = draft === "" ? null : Number(draft);
+  const draftValid = nextEmpid === null || nextEmpid >= 1;
+
+  const saveEdit = (): void => {
+    if (!draftValid || commitEmpid.isPending) return;
+    if (nextEmpid === empid) {
+      cancelEdit();
+      return;
+    }
+    commitEmpid.mutate(
+      { assignments: [{ user_id: userId, store_id: storeId, empid: nextEmpid }] },
+      {
+        onSuccess: (result): void => {
+          // 미적용이면 입력을 유지해 바로 재시도할 수 있게 한다.
+          // Close the editor only if something was applied — otherwise keep the draft for retry.
+          const applied = result.applied ?? [];
+          if (applied.length > 0) {
+            setEditing(false);
+            setDraft("");
+          }
+          // 이 페이지가 쓰는 쿼리: 상세 ["users", userId], 배정 ["users", userId, "stores"]
+          void queryClient.invalidateQueries({ queryKey: ["users", userId] });
+          void queryClient.invalidateQueries({
+            queryKey: ["users", userId, "stores"],
+          });
+          const renumbered = result.renumbered ?? [];
+          if (renumbered.length > 0) {
+            void modal.alert({
+              type: "info",
+              title: "Numbers shifted",
+              message: `${renumbered.length} other member${
+                renumbered.length === 1 ? " was" : "s were"
+              } renumbered to keep numbers unique.`,
+              details: renumbered.map(
+                (r) => `${r.user} — ${r.store}: ${r.old} → ${r.new}`,
+              ),
+            });
+          }
+          const rejected = result.rejected ?? [];
+          const skipped = result.skipped ?? [];
+          if (rejected.length > 0 || skipped.length > 0) {
+            void modal.alert({
+              type: "error",
+              title: "Not applied",
+              message: "The change was not applied:",
+              details: [
+                ...rejected.map((r) => r.reason),
+                ...skipped.map((s) => `#${s.empid}: ${s.reason}`),
+              ],
+            });
+          }
+        },
+      },
+    );
+  };
+
+  if (editing) {
+    return (
+      <span className="flex items-center gap-1.5">
+        <input
+          type="text"
+          inputMode="numeric"
+          maxLength={6}
+          value={draft}
+          onChange={(e) =>
+            setDraft(e.target.value.replace(/\D/g, "").slice(0, 6))
+          }
+          onKeyDown={(e) => {
+            if (e.key === "Enter") saveEdit();
+            if (e.key === "Escape") cancelEdit();
+          }}
+          placeholder={empid != null ? "Empty to remove" : "Number"}
+          className="w-28 px-2 py-0.5 rounded bg-surface border border-border text-xs font-mono text-text focus:outline-none focus:border-accent"
+          autoFocus
+        />
+        <button
+          type="button"
+          onClick={saveEdit}
+          disabled={!draftValid || commitEmpid.isPending}
+          className="text-success hover:opacity-80 disabled:opacity-30 transition"
+          title="Save"
+          aria-label="Save EMPID"
+        >
+          <Check className="h-4 w-4" />
+        </button>
+        <button
+          type="button"
+          onClick={cancelEdit}
+          disabled={commitEmpid.isPending}
+          className="text-text-muted hover:text-text transition"
+          title="Cancel"
+          aria-label="Cancel EMPID edit"
+        >
+          <XIcon className="h-4 w-4" />
+        </button>
+      </span>
+    );
+  }
+
+  if (empid == null && !canEdit) return null;
+
+  return (
+    <span className="flex items-center gap-1.5">
+      {empid != null && (
+        <span className="text-xs font-mono font-semibold text-accent bg-accent-muted rounded px-1.5 py-0.5">
+          EMPID {empid}
+        </span>
+      )}
+      {canEdit && (
+        <button
+          type="button"
+          onClick={startEdit}
+          className="text-text-muted hover:text-accent transition-colors"
+          title={empid != null ? "Edit EMPID" : "Assign EMPID"}
+          aria-label={empid != null ? "Edit EMPID" : "Assign EMPID"}
+        >
+          <Pencil className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </span>
   );
 }
 

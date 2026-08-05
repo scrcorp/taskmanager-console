@@ -66,6 +66,8 @@ interface CreateStoreData {
   email?: string | null;
   status?: StoreStatus;
   timezone?: string | null;
+  group_id?: string | null; // 소속 그룹 (null/미지정 = 미그룹)
+  number_range_start?: number | null; // 매장 empid 번호대 시작값
 }
 
 /**
@@ -112,6 +114,8 @@ interface UpdateStoreData {
   max_work_hours_weekly?: number | null;
   timezone?: string | null;
   default_hourly_rate?: number | null;
+  group_id?: string | null; // 소속 그룹 변경 (명시적 null = 그룹 해제)
+  number_range_start?: number | null; // 매장 empid 번호대 시작값
 }
 
 /**
@@ -121,11 +125,9 @@ interface UpdateStoreData {
  *
  * @returns 매장 수정 뮤테이션 결과 (Store update mutation result)
  */
-export const useUpdateStore = (): UseMutationResult<
-  Store,
-  Error,
-  UpdateStoreData
-> => {
+export const useUpdateStore = (options?: {
+  silent?: boolean; // 그룹 편성 등 반복 호출 시 성공/실패 모달 억제 (호출부가 처리)
+}): UseMutationResult<Store, Error, UpdateStoreData> => {
   const queryClient: QueryClient = useQueryClient();
   const { success, error } = useMutationToast();
   return useMutation<Store, Error, UpdateStoreData>({
@@ -145,9 +147,9 @@ export const useUpdateStore = (): UseMutationResult<
       );
       // default_hourly_rate 변경 시 server가 users에 cascade하므로 캐시 무효화
       queryClient.invalidateQueries({ queryKey: ["users"] });
-      success("Brand updated.");
+      if (!options?.silent) success("Brand updated.");
     },
-    onError: error("Failed to update brand"),
+    onError: options?.silent ? undefined : error("Failed to update brand"),
   });
 };
 

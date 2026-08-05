@@ -99,6 +99,32 @@ export interface Store {
   default_hourly_rate: number | null;
   accepting_signups: boolean;
   created_at: string;
+  /** 소속 그룹 ID (없으면 Ungrouped). Optional — 기존 mock/test 리터럴 호환. */
+  group_id?: string | null;
+  /** Per-store numbering 시작 번호 (null = 기본). Optional — 기존 mock/test 리터럴 호환. */
+  number_range_start?: number | null;
+  /** 그룹 편성 변경 PUT 응답에서만 비어있지 않음 / Only populated on group-changing PUT responses. */
+  duplicate_empids?: DuplicateEmpid[];
+}
+
+/** 그룹/매장 numbering 범위 안에서 중복된 EMPID / Duplicated EMPID within a numbering scope */
+export interface DuplicateEmpid {
+  empid: number;
+  count: number;
+}
+
+// Store Group
+export interface StoreGroup {
+  id: string;
+  organization_id: string;
+  name: string;
+  sort_order: number;
+  /** "group" = shared numbering across the group, "store" = per-store numbering */
+  numbering_mode: "group" | "store";
+  number_range_start: number | null;
+  store_count: number;
+  duplicate_empids: DuplicateEmpid[];
+  created_at: string;
 }
 
 export interface UserStoreAssignment extends Store {
@@ -205,6 +231,14 @@ export interface User {
   /** CREWID — org 안 1부터 순번 (org 번호). */
   crewid?: number | null;
   is_active: boolean;
+  /**
+   * 미가입(유령) 계정 — 아직 앱에 가입하지 않은 직원 자리.
+   * 항상 is_active=false 로 온다 (로그인 불가). 스케줄 배정·empid 부여는 가능.
+   * optional — 기존 mock/테스트 리터럴 보호.
+   */
+  is_provisional?: boolean;
+  /** 인수 코드 — 유령 계정만. 직원이 가입할 때 입력하면 이 계정을 인수한다. */
+  claim_code?: string | null;
   created_at: string;
 }
 
@@ -659,6 +693,10 @@ export interface Attendance {
   corrections?: AttendanceCorrection[];
   /** 수정 이력 개수 — list 응답에서 corrections 본문 없이 "수정됨" 표시용. */
   correction_count?: number;
+  /** L6 자동퇴근 확인 시각 — 'auto_clocked_out' anomaly 인데 null 이면 "needs confirmation". */
+  auto_clock_out_confirmed_at?: string | null;
+  /** 확인자 UUID — 서버가 이름은 주지 않으므로 UI 에서 store users 로 resolve. */
+  auto_clock_out_confirmed_by?: string | null;
 }
 
 /** 근태 수정 이력 응답 타입.

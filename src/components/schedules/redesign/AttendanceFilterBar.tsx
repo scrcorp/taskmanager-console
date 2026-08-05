@@ -30,6 +30,8 @@ export interface AttendanceUiFilters {
   roles: string[];
   statuses: AttendanceStatusKey[];
   editedOnly: boolean;
+  /** 자동퇴근(auto_clocked_out) 인데 아직 확인 안 된 record 만 보기 — L6 일상 확인용. */
+  unconfirmedAutoOnly: boolean;
 }
 
 export const EMPTY_ATTENDANCE_FILTERS: AttendanceUiFilters = {
@@ -37,7 +39,17 @@ export const EMPTY_ATTENDANCE_FILTERS: AttendanceUiFilters = {
   roles: [],
   statuses: [],
   editedOnly: false,
+  unconfirmedAutoOnly: false,
 };
+
+/** 자동퇴근 미확인 판정 — 'auto_clocked_out' anomaly 이면서 확인 시각이 비어 있는 record.
+ *  Unconfirmed auto clock-out: anomaly present AND confirmation timestamp null. */
+export function isUnconfirmedAutoClockOut(
+  anomalies: string[] | null | undefined,
+  confirmedAt: string | null | undefined,
+): boolean {
+  return (anomalies?.includes("auto_clocked_out") ?? false) && !confirmedAt;
+}
 
 const ALL_ROLES = [
   { id: "owner", label: "Owner" },
@@ -116,7 +128,8 @@ export function AttendanceFilterBar({ filters, onChange, storeUsers }: Props) {
     filters.staffIds.length +
     filters.roles.length +
     filters.statuses.length +
-    (filters.editedOnly ? 1 : 0);
+    (filters.editedOnly ? 1 : 0) +
+    (filters.unconfirmedAutoOnly ? 1 : 0);
 
   return (
     <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-4 py-3 mb-4">
@@ -192,6 +205,23 @@ export function AttendanceFilterBar({ filters, onChange, storeUsers }: Props) {
         >
           <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-warning)]" />
           Edited only
+        </button>
+
+        {/* Unconfirmed auto clock-outs — 토글 chip (L6 일상 확인 큐) */}
+        <button
+          type="button"
+          onClick={() =>
+            onChange({ ...filters, unconfirmedAutoOnly: !filters.unconfirmedAutoOnly })
+          }
+          aria-pressed={filters.unconfirmedAutoOnly}
+          className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold border flex items-center gap-1.5 transition-colors ${
+            filters.unconfirmedAutoOnly
+              ? "bg-[var(--color-danger-muted)] text-[var(--color-danger)] border-[var(--color-danger)]/40"
+              : "bg-[var(--color-surface)] text-[var(--color-text-secondary)] border-[var(--color-border)] hover:border-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+          }`}
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-danger)]" />
+          Unconfirmed auto clock-outs
         </button>
 
         {totalActive > 0 && (
