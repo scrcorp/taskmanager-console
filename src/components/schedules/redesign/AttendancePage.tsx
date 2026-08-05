@@ -2,21 +2,23 @@
 
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { useAttendances } from '@/hooks/useAttendances'
+import { useAttendances, useConfirmAutoClockout } from '@/hooks/useAttendances'
 import { useStores } from '@/hooks/useStores'
 import { useUsers } from '@/hooks/useUsers'
 import { useAuthStore } from '@/stores/authStore'
 import { usePersistedFilters } from '@/hooks/usePersistedFilters'
-import { todayInTimezone } from '@/lib/utils'
+import { formatDateTime, todayInTimezone } from '@/lib/utils'
 import { useMidnightRefresh } from '@/hooks/useMidnightRefresh'
 import type { AttendanceBreakItem } from '@/types'
-import { Download } from 'lucide-react'
+import { Check, Download } from 'lucide-react'
 import { usePermissions } from '@/hooks/usePermissions'
+import { PERMISSIONS } from '@/lib/permissions'
 import { AttendanceWeeklyView } from './AttendanceWeeklyView'
 import { WeekPickerCalendar, DatePickerCalendar, getWeekStart } from './WeekPickerCalendar'
 import {
   AttendanceFilterBar,
   EMPTY_ATTENDANCE_FILTERS,
+  isUnconfirmedAutoClockOut,
   matchesStatusFilter,
   rolePriorityToBadgeId,
   type AttendanceUiFilters,
@@ -283,7 +285,10 @@ function computeLateMinutes(clockInIso?: string | null, scheduledIso?: string | 
 
 export function AttendancePage() {
   const router = useRouter()
-  const { isGMPlus } = usePermissions()
+  const { isGMPlus, hasPermission } = usePermissions()
+  const canConfirmAutoOut = hasPermission(PERMISSIONS.SCHEDULES_UPDATE)
+  const currentUserId = useAuthStore((s) => s.user?.id)
+  const confirmAutoOut = useConfirmAutoClockout()
   // 매장/조직 timezone 기준 오늘 + 자정 자동 갱신.
   const orgTimezone = useAuthStore((s) => s.user?.organization_timezone) ?? undefined
   const today = useMidnightRefresh(
@@ -295,7 +300,7 @@ export function AttendancePage() {
   // date 는 transient — 매 세션 새 today 가 기본이라 localStorage 저장 안 함.
   const [params, setParams] = usePersistedFilters(
     'attendances',
-    { date: '', store: '', view: '', staff: '', roles: '', statuses: '', edited: '' },
+    { date: '', store: '', view: '', staff: '', roles: '', statuses: '', edited: '', unconf: '' },
     { transient: ['date'] },
   )
   const rawDate = sanitizeDateParam(params.date || null)
@@ -309,7 +314,8 @@ export function AttendancePage() {
     roles: parseCsv(params.roles),
     statuses: parseStatuses(params.statuses),
     editedOnly: params.edited === '1',
-  }), [params.staff, params.roles, params.statuses, params.edited])
+    unconfirmedAutoOnly: params.unconf === '1',
+  }), [params.staff, params.roles, params.statuses, params.edited, params.unconf])
 
   const setSelectedStore = useCallback(
     (v: string) => setParams({ store: v || null }),
@@ -330,6 +336,7 @@ export function AttendancePage() {
         roles: next.roles.length ? next.roles.join(',') : null,
         statuses: next.statuses.length ? next.statuses.join(',') : null,
         edited: next.editedOnly ? '1' : null,
+        unconf: next.unconfirmedAutoOnly ? '1' : null,
       })
     },
     [setParams],
@@ -367,6 +374,13 @@ export function AttendancePage() {
     return m
   }, [storeUsers])
 
+  // Confirmed 툴팁의 "who" resolve 용 (확인자가 이 매장 소속이 아니면 이름 생략).
+  const userIdToName = useMemo(() => {
+    const m = new Map<string, string>()
+    for (const u of storeUsers) m.set(u.id, u.full_name || u.username)
+    return m
+  }, [storeUsers])
+
   // Date picker popup 열림 여부 — Daily/Weekly 공통 (한 번에 하나만 열림).
   const [datePickerOpen, setDatePickerOpen] = useState(false)
 
@@ -392,6 +406,10 @@ export function AttendancePage() {
       }
       if (!matchesStatusFilter(r.status, r.anomalies, filters.statuses)) return false
       if (filters.editedOnly && (r.correction_count ?? 0) === 0) return false
+      if (
+        filters.unconfirmedAutoOnly &&
+        !isUnconfirmedAutoClockOut(r.anomalies, r.auto_clock_out_confirmed_at)
+      ) return false
       return true
     })
   }, [records, filters, userIdToRoleBadge])
@@ -649,9 +667,61 @@ export function AttendancePage() {
                     </span>
                   </td>
                   <td className="px-3 py-3">
-                    <div className="flex flex-wrap gap-1">
+                    <div className="flex flex-wrap items-center gap-1">
                       {anomalies.length === 0 && <span className="text-[11px] text-[var(--color-text-muted)]">—</span>}
                       {anomalies.map((a: string) => {
+                        // 자동퇴근 anomaly 는 확인(confirm) 상태에 따라 전용 렌더링 (L6).
+                        if (a === 'auto_clocked_out') {
+                          const unconfirmed = isUnconfirmedAutoClockOut(att.anomalies, att.auto_clock_out_confirmed_at)
+                          if (unconfirmed) {
+                            const isConfirming =
+                              confirmAutoOut.isPending &&
+                              confirmAutoOut.variables?.attendanceId === att.id
+                            return (
+                              <span key={a} className="inline-flex items-center gap-1">
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[var(--color-danger-muted)] text-[var(--color-danger)]">
+                                  Auto clock-out — needs confirmation
+                                </span>
+                                {canConfirmAutoOut && (
+                                  <button
+                                    type="button"
+                                    disabled={isConfirming}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      confirmAutoOut.mutate({
+                                        attendanceId: att.id,
+                                        confirmedBy: currentUserId,
+                                      })
+                                    }}
+                                    title="Mark this auto clock-out as reviewed. Correcting the clock-out time also confirms it."
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border border-[var(--color-success)]/40 bg-[var(--color-success-muted)] text-[var(--color-success)] hover:brightness-110 disabled:opacity-60 transition-colors"
+                                  >
+                                    <Check className="w-3 h-3" />
+                                    {isConfirming ? 'Confirming…' : 'Confirm'}
+                                  </button>
+                                )}
+                              </span>
+                            )
+                          }
+                          // 확인 완료 — subtle 표시 + who/when 툴팁.
+                          const confirmerName = att.auto_clock_out_confirmed_by
+                            ? userIdToName.get(att.auto_clock_out_confirmed_by)
+                            : undefined
+                          const confirmedWhen = formatDateTime(att.auto_clock_out_confirmed_at, orgTimezone)
+                          const tooltip = confirmerName
+                            ? `Confirmed by ${confirmerName} · ${confirmedWhen}`
+                            : `Confirmed · ${confirmedWhen}`
+                          return (
+                            <span
+                              key={a}
+                              title={tooltip}
+                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[var(--color-bg)] text-[var(--color-text-muted)] border border-[var(--color-border)]"
+                            >
+                              <Check className="w-3 h-3 text-[var(--color-success)]" />
+                              auto clock-out
+                            </span>
+                          )
+                        }
                         const label = a === 'late' && lateMin !== null
                           ? `late (${lateMin}m)`
                           : a.replace('_', ' ')

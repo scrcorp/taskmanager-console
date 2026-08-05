@@ -10,8 +10,8 @@
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Search, Layers } from "lucide-react";
-import { useUsers, useCreateUser } from "@/hooks/useUsers";
+import { Plus, Search, Layers, Copy, Check as CheckIcon } from "lucide-react";
+import { useUsers, useCreateUser, useCreateProvisionalUser } from "@/hooks/useUsers";
 import { useWarningCounts } from "@/hooks/useWarnings";
 import { useAvailabilityBulk } from "@/hooks/useAvailability";
 import { AvailabilityStrip, WeekKey } from "@/components/availability/AvailabilityStrip";
@@ -62,6 +62,11 @@ interface UserFormData {
   /** FOH/BOH 분류 — "" = 미지정 */
   department: "" | "FOH" | "BOH";
   store_checks: Record<string, StoreCheck>;
+  /**
+   * 미가입(유령) 직원으로 생성 — 아직 앱에 가입하지 않은 직원 자리.
+   * 켜면 username/password 를 받지 않고(서버가 자동 생성) 인수 코드를 발급한다.
+   */
+  is_provisional: boolean;
 }
 
 /** 초기 폼 상태 / Initial form state */
@@ -77,6 +82,7 @@ const INITIAL_FORM: UserFormData = {
   hourly_rate: "",
   department: "",
   store_checks: {},
+  is_provisional: false,
 };
 
 /** Department 필터 옵션 — 값 "FOH" | "BOH" | "unassigned" */
@@ -84,6 +90,19 @@ const DEPARTMENT_FILTER_OPTIONS = [
   { id: "FOH", label: "FOH" },
   { id: "BOH", label: "BOH" },
   { id: "unassigned", label: "Unassigned" },
+];
+
+/**
+ * Provisional(미가입) 필터 옵션.
+ * - "all"  : 기본. 유령을 is_active 필터에서 면제해 정상 직원과 함께 보여준다.
+ * - "only" : 유령만.
+ * - "hide" : 가입 완료된 직원만.
+ */
+type ProvFilter = "all" | "only" | "hide";
+const PROVISIONAL_FILTER_OPTIONS: { value: ProvFilter; label: string }[] = [
+  { value: "all", label: "All (incl. provisional)" },
+  { value: "only", label: "Provisional only" },
+  { value: "hide", label: "Signed up only" },
 ];
 
 export default function UsersPage(): React.ReactElement {
@@ -105,6 +124,7 @@ export default function UsersPage(): React.ReactElement {
     sort: "",
     dir: "asc",
     inactive: "",
+    prov: "all",
   });
   const searchQuery = params.q;
   const selectedStaffIds = useMemo(() => csvToArr(params.staff), [params.staff]);
@@ -119,6 +139,7 @@ export default function UsersPage(): React.ReactElement {
   const sortKey: string | null = params.sort || null;
   const sortDirection = (params.dir || "asc") as "asc" | "desc";
   const showInactive = params.inactive === "1";
+  const provFilter = (params.prov || "all") as ProvFilter;
 
   const setSearchQuery = useCallback((v: string) => setParams({ q: v || null }), [setParams]);
   const toggleStaffId = useCallback((id: string) => {
@@ -135,6 +156,9 @@ export default function UsersPage(): React.ReactElement {
   }, [selectedDepartments, setParams]);
   const setEmailFilter = useCallback((v: "all" | "verified" | "unverified") => {
     setParams({ email: v === "all" ? null : v });
+  }, [setParams]);
+  const setProvFilter = useCallback((v: ProvFilter) => {
+    setParams({ prov: v === "all" ? null : v });
   }, [setParams]);
   const setWarnRange = useCallback((lo: number, hi: number) => {
     setParams({ wlo: String(lo), whi: String(hi) });
@@ -172,9 +196,18 @@ export default function UsersPage(): React.ReactElement {
   }, []);
 
   /** 데이터 훅 / Data hooks */
+  // 유령(미가입) 계정은 is_active=false 라 서버 기본 필터에서 빠진다.
+  // 스태프 목록에서는 기본으로 보여야 하므로 include_provisional 을 켠다.
   const userFilters = useMemo(
-    () => (selectedStoreIds.length > 0 ? { store_ids: selectedStoreIds } : undefined),
-    [selectedStoreIds],
+    () => ({
+      ...(selectedStoreIds.length > 0 ? { store_ids: selectedStoreIds } : {}),
+      ...(provFilter === "only"
+        ? { provisional_only: true }
+        : provFilter === "all"
+          ? { include_provisional: true }
+          : {}),
+    }),
+    [selectedStoreIds, provFilter],
   );
   const { data: users, isLoading: usersLoading } = useUsers(userFilters);
   const { data: roles } = useRoles();
@@ -189,6 +222,20 @@ export default function UsersPage(): React.ReactElement {
     [warnCounts],
   );
   const createUser = useCreateUser();
+  const createProvisionalUser = useCreateProvisionalUser();
+
+  /** 생성 직후 인수 코드를 보여주는 결과 모달 상태 */
+  const [claimResult, setClaimResult] = useState<{ name: string; code: string } | null>(null);
+  const [claimCopied, setClaimCopied] = useState<boolean>(false);
+  const copyClaimCode = useCallback(async (code: string): Promise<void> => {
+    try {
+      await navigator.clipboard.writeText(code);
+      setClaimCopied(true);
+      window.setTimeout(() => setClaimCopied(false), 2000);
+    } catch {
+      // 클립보드 접근 불가(비 HTTPS 등) — 코드가 화면에 크게 보이므로 수동 복사 가능
+    }
+  }, []);
 
   // 직원별 주간 근무 가용성 (Work Availability 칼럼) — availability:read 있을 때만 조회.
   const canSeeAvailability = hasPermission(PERMISSIONS.AVAILABILITY_READ);
@@ -228,7 +275,14 @@ export default function UsersPage(): React.ReactElement {
 
   /** Inactive 사용자 수 / Inactive user count */
   const inactiveCount: number = useMemo(
-    () => userList.filter((u: User) => !u.is_active).length,
+    // 유령은 항상 is_active=false 지만 "비활성 직원"이 아니므로 세지 않는다.
+    () => userList.filter((u: User) => !u.is_active && !u.is_provisional).length,
+    [userList],
+  );
+
+  /** 목록에 유령이 하나라도 있는지 — Status 컬럼 노출 판단용 */
+  const hasProvisional: boolean = useMemo(
+    () => userList.some((u: User) => u.is_provisional),
     [userList],
   );
 
@@ -283,9 +337,17 @@ export default function UsersPage(): React.ReactElement {
       result = result.filter((user: User) => !user.email_verified);
     }
 
-    // Inactive 필터: 체크 해제 시 Active만 표시
+    // Provisional 필터 (클라이언트측 보강 — 서버 파라미터와 일치시킨다)
+    if (provFilter === "only") {
+      result = result.filter((user: User) => user.is_provisional);
+    } else if (provFilter === "hide") {
+      result = result.filter((user: User) => !user.is_provisional);
+    }
+
+    // Inactive 필터: 체크 해제 시 Active만 표시.
+    // 유령은 is_active=false 지만 정상 관리 대상이므로 면제한다.
     if (!showInactive) {
-      result = result.filter((user: User) => user.is_active);
+      result = result.filter((user: User) => user.is_active || user.is_provisional);
     }
 
     // Warnings 개수 범위 필터 — 유효(active, 미철회) 경고 수가 [warnLo, warnHi] 안.
@@ -330,20 +392,58 @@ export default function UsersPage(): React.ReactElement {
     }
 
     return result;
-  }, [userList, searchQuery, selectedStaffIds, selectedRoles, selectedDepartments, emailFilter, showInactive, sortKey, sortDirection, warnFilterActive, warnLo, warnHi, warnMap]);
+  }, [userList, searchQuery, selectedStaffIds, selectedRoles, selectedDepartments, emailFilter, showInactive, provFilter, sortKey, sortDirection, warnFilterActive, warnLo, warnHi, warnMap]);
 
-  const totalFilterCount = selectedStaffIds.length + selectedRoles.length + selectedDepartments.length + selectedStoreIds.length + (warnFilterActive ? 1 : 0) + (emailFilter !== "all" ? 1 : 0);
+  const totalFilterCount = selectedStaffIds.length + selectedRoles.length + selectedDepartments.length + selectedStoreIds.length + (warnFilterActive ? 1 : 0) + (emailFilter !== "all" ? 1 : 0) + (provFilter !== "all" ? 1 : 0);
+
+  /**
+   * 생성 폼 유효성 — 유령 모드에서는 username/password 를 받지 않으므로 검증에서 제외.
+   * 유령은 이름·역할·매장만 필수(매장은 서버 기본값 허용이라 UI 필수는 이름+역할).
+   */
+  const createFormValid: boolean = createForm.is_provisional
+    ? Boolean(createForm.first_name.trim() && createForm.role_id)
+    : Boolean(
+        createForm.username.trim() &&
+          createForm.password.trim() &&
+          createForm.first_name.trim() &&
+          createForm.last_name.trim() &&
+          createForm.role_id,
+      );
 
   /** 사용자 생성 핸들러 / Handle user creation */
   const handleCreate = useCallback(async (): Promise<void> => {
-    if (
-      !createForm.username.trim() ||
-      !createForm.password.trim() ||
-      !createForm.first_name.trim() ||
-      !createForm.last_name.trim() ||
-      !createForm.role_id
-    )
+    if (!createFormValid) return;
+
+    // --- 미가입(유령) 직원 생성 -------------------------------------------
+    if (createForm.is_provisional) {
+      const fullName = [createForm.first_name, createForm.middle_name, createForm.last_name]
+        .map((p) => p.trim())
+        .filter(Boolean)
+        .join(" ");
+      const storeIds = Object.entries(createForm.store_checks)
+        .filter(([, v]) => v.is_work || v.is_manager)
+        .map(([storeId]) => storeId);
+      const rate = createForm.hourly_rate.trim();
+      try {
+        const created = await createProvisionalUser.mutateAsync({
+          full_name: fullName,
+          role_id: createForm.role_id,
+          store_ids: storeIds,
+          department: createForm.department || undefined,
+          hourly_rate: rate ? Number(rate) : null,
+        });
+        setIsCreateOpen(false);
+        setCreateForm(INITIAL_FORM);
+        if (created.claim_code) {
+          setClaimCopied(false);
+          setClaimResult({ name: created.full_name || fullName, code: created.claim_code });
+        }
+      } catch {
+        // hook 자동 모달
+      }
       return;
+    }
+
     try {
       const store_assignments = Object.entries(createForm.store_checks)
         .filter(([, v]) => v.is_work || v.is_manager)
@@ -371,7 +471,7 @@ export default function UsersPage(): React.ReactElement {
     } catch {
       // hook 자동 모달
     }
-  }, [createForm, createUser]);
+  }, [createForm, createFormValid, createUser, createProvisionalUser]);
 
   /** 행 클릭으로 상세 페이지 이동 / Navigate to detail on row click */
   const handleRowClick = useCallback(
@@ -410,8 +510,15 @@ export default function UsersPage(): React.ReactElement {
         sortable: true,
         render: (user: User) => (
           <div>
-            <p className="font-medium text-text">{user.full_name}</p>
-            <p className="text-xs text-text-muted">@{user.username}</p>
+            <p className="font-medium text-text flex items-center gap-2 flex-wrap">
+              {user.full_name}
+              {user.is_provisional && (
+                <Badge variant="warning">NOT SIGNED UP</Badge>
+              )}
+            </p>
+            {!user.is_provisional && (
+              <p className="text-xs text-text-muted">@{user.username}</p>
+            )}
           </div>
         ),
       },
@@ -467,16 +574,20 @@ export default function UsersPage(): React.ReactElement {
       },
     ];
 
-    // Status 컬럼은 Show Inactive 켜졌을 때만 표시
-    if (showInactive) {
+    // Status 컬럼은 Show Inactive 켜졌을 때, 또는 유령이 섞여 있을 때 표시
+    if (showInactive || hasProvisional) {
       cols.push({
         key: "is_active",
         header: "Status",
-        render: (user: User) => (
-          <Badge variant={user.is_active ? "success" : "danger"}>
-            {user.is_active ? "Active" : "Inactive"}
-          </Badge>
-        ),
+        render: (user: User) =>
+          // 유령은 is_active=false 지만 "Inactive"가 아니라 "아직 가입 안 함"이다.
+          user.is_provisional ? (
+            <Badge variant="warning">Not signed up</Badge>
+          ) : (
+            <Badge variant={user.is_active ? "success" : "danger"}>
+              {user.is_active ? "Active" : "Inactive"}
+            </Badge>
+          ),
       });
     }
 
@@ -561,7 +672,7 @@ export default function UsersPage(): React.ReactElement {
     });
 
     return cols;
-  }, [getRoleBadgeVariant, tz, showInactive, canSeeWarnings, warnMap, canSeeAvailability, availMap]);
+  }, [getRoleBadgeVariant, tz, showInactive, hasProvisional, canSeeWarnings, warnMap, canSeeAvailability, availMap]);
 
   /** 고유 역할 이름 목록 / Unique role names from users */
   const uniqueRoleNames: string[] = useMemo(() => {
@@ -571,9 +682,12 @@ export default function UsersPage(): React.ReactElement {
     return Array.from(names).sort();
   }, [userList]);
 
-  /** Inactive 행 스타일 / Inactive row styling */
+  /**
+   * Inactive 행 스타일 / Inactive row styling.
+   * 유령(미가입)은 흐리게 처리하지 않는다 — 비활성 직원과 달리 정상 관리 대상.
+   */
   const getRowClassName = useCallback(
-    (user: User): string => (user.is_active ? "" : "opacity-50"),
+    (user: User): string => (user.is_active || user.is_provisional ? "" : "opacity-50"),
     [],
   );
 
@@ -757,6 +871,39 @@ export default function UsersPage(): React.ReactElement {
             )}
           </div>
 
+          {/* Provisional (미가입) filter */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setOpenFilter(openFilter === "prov" ? null : "prov")}
+              className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold border flex items-center gap-1.5 transition-colors ${
+                provFilter !== "all"
+                  ? "bg-accent-muted text-accent border-accent/30"
+                  : "bg-surface text-text-secondary border-border hover:border-text-muted hover:text-text"
+              } ${openFilter === "prov" ? "ring-2 ring-accent/20" : ""}`}
+            >
+              Provisional
+              {provFilter !== "all" && (
+                <span className="bg-accent text-white text-[9px] font-bold rounded-full w-4 h-4 flex items-center justify-center">1</span>
+              )}
+              <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" className={`transition-transform ${openFilter === "prov" ? "rotate-180" : ""}`}><polyline points="2.5 4 5 6.5 7.5 4" /></svg>
+            </button>
+            {openFilter === "prov" && (
+              <div className="absolute top-full left-0 mt-1.5 w-[200px] bg-surface border border-border rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.12)] z-30 overflow-hidden py-1">
+                {PROVISIONAL_FILTER_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => { setProvFilter(opt.value); setOpenFilter(null); }}
+                    className={`w-full px-3 py-2 text-[13px] text-left transition-colors ${provFilter === opt.value ? "bg-accent-muted text-accent font-medium" : "text-text hover:bg-surface-hover"}`}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           {/* Show Inactive */}
           <label className="flex items-center gap-2 cursor-pointer text-[12px] text-text-secondary hover:text-text transition-colors select-none ml-auto">
             <input
@@ -773,7 +920,7 @@ export default function UsersPage(): React.ReactElement {
           {(searchQuery || totalFilterCount > 0) && (
             <button
               type="button"
-              onClick={() => { setParams({ q: null, staff: null, role: null, store: null, email: null }); setOpenFilter(null); }}
+              onClick={() => { setParams({ q: null, staff: null, role: null, store: null, email: null, dept: null, prov: null }); setOpenFilter(null); }}
               className="text-[12px] text-text-muted hover:text-danger flex items-center gap-1 transition-colors"
             >
               <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="9" y1="3" x2="3" y2="9" /><line x1="3" y1="3" x2="9" y2="9" /></svg>
@@ -786,6 +933,12 @@ export default function UsersPage(): React.ReactElement {
         {totalFilterCount > 0 && (
           <div className="flex items-center gap-1.5 mt-2.5 pt-2.5 border-t border-border flex-wrap">
             <span className="text-[11px] text-text-muted mr-1">Active:</span>
+            {provFilter !== "all" && (
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-accent-muted text-accent rounded-full text-[11px] font-semibold">
+                {PROVISIONAL_FILTER_OPTIONS.find((o) => o.value === provFilter)?.label ?? provFilter}
+                <button type="button" onClick={() => setProvFilter("all")} className="opacity-60 hover:opacity-100 ml-0.5">×</button>
+              </span>
+            )}
             {emailFilter !== "all" && (
               <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-accent-muted text-accent rounded-full text-[11px] font-semibold">
                 {emailFilter === "verified" ? "Email Verified" : "Email Unverified"}
@@ -847,7 +1000,7 @@ export default function UsersPage(): React.ReactElement {
           setIsCreateOpen(false);
           setCreateForm(INITIAL_FORM);
         }}
-        title="Add Staff Member"
+        title={createForm.is_provisional ? "Add Provisional Staff" : "Add Staff Member"}
         closeOnBackdrop={false}
         footer={
           <div className="flex justify-end gap-2">
@@ -863,14 +1016,8 @@ export default function UsersPage(): React.ReactElement {
             <Button
               variant="primary"
               onClick={handleCreate}
-              isLoading={createUser.isPending}
-              disabled={
-                !createForm.username.trim() ||
-                !createForm.password.trim() ||
-                !createForm.first_name.trim() ||
-                !createForm.last_name.trim() ||
-                !createForm.role_id
-              }
+              isLoading={createUser.isPending || createProvisionalUser.isPending}
+              disabled={!createFormValid}
             >
               Create
             </Button>
@@ -878,29 +1025,61 @@ export default function UsersPage(): React.ReactElement {
         }
       >
         <div className="space-y-4">
-          <Input
-            label="Username"
-            placeholder="Enter username"
-            value={createForm.username}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-              setCreateForm((prev: UserFormData) => ({
-                ...prev,
-                username: e.target.value,
-              }))
-            }
-          />
-          <Input
-            label="Password"
-            type="password"
-            placeholder="Enter password"
-            value={createForm.password}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-              setCreateForm((prev: UserFormData) => ({
-                ...prev,
-                password: e.target.value,
-              }))
-            }
-          />
+          {/* 미가입(유령) 토글 — 켜면 로그인 정보 없이 이름·역할·매장만으로 자리를 만든다 */}
+          <label className="flex items-start gap-2.5 rounded-lg border border-border bg-surface px-3 py-2.5 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={createForm.is_provisional}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                setCreateForm((prev: UserFormData) => ({
+                  ...prev,
+                  is_provisional: e.target.checked,
+                  // 유령이면 로그인 정보는 쓰지 않으므로 비운다
+                  username: e.target.checked ? "" : prev.username,
+                  password: e.target.checked ? "" : prev.password,
+                }))
+              }
+              className="mt-0.5 h-4 w-4 rounded border-border text-accent focus:ring-accent cursor-pointer"
+            />
+            <span>
+              <span className="block text-sm font-medium text-text">
+                Not signed up yet (provisional)
+              </span>
+              <span className="block text-xs text-text-muted mt-0.5">
+                Creates a placeholder for someone who hasn&apos;t signed up yet. No
+                username or password — you&apos;ll get a claim code to hand them
+                instead. They can be scheduled right away.
+              </span>
+            </span>
+          </label>
+
+          {!createForm.is_provisional && (
+            <>
+              <Input
+                label="Username"
+                placeholder="Enter username"
+                value={createForm.username}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setCreateForm((prev: UserFormData) => ({
+                    ...prev,
+                    username: e.target.value,
+                  }))
+                }
+              />
+              <Input
+                label="Password"
+                type="password"
+                placeholder="Enter password"
+                value={createForm.password}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setCreateForm((prev: UserFormData) => ({
+                    ...prev,
+                    password: e.target.value,
+                  }))
+                }
+              />
+            </>
+          )}
           <Input
             label="First Name"
             placeholder="Enter first name"
@@ -924,7 +1103,7 @@ export default function UsersPage(): React.ReactElement {
             }
           />
           <Input
-            label="Last Name"
+            label={createForm.is_provisional ? "Last Name (optional)" : "Last Name"}
             placeholder="Enter last name"
             value={createForm.last_name}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
@@ -934,30 +1113,35 @@ export default function UsersPage(): React.ReactElement {
               }))
             }
           />
-          <Input
-            label="Email (optional)"
-            type="email"
-            placeholder="Enter email"
-            value={createForm.email}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-              setCreateForm((prev: UserFormData) => ({
-                ...prev,
-                email: e.target.value,
-              }))
-            }
-          />
-          <Input
-            label="Phone (optional)"
-            type="tel"
-            placeholder="Enter phone number"
-            value={createForm.phone}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-              setCreateForm((prev: UserFormData) => ({
-                ...prev,
-                phone: e.target.value,
-              }))
-            }
-          />
+          {/* 유령은 아직 계정이 없으므로 연락처는 본인이 가입할 때 입력한다 */}
+          {!createForm.is_provisional && (
+            <>
+              <Input
+                label="Email (optional)"
+                type="email"
+                placeholder="Enter email"
+                value={createForm.email}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setCreateForm((prev: UserFormData) => ({
+                    ...prev,
+                    email: e.target.value,
+                  }))
+                }
+              />
+              <Input
+                label="Phone (optional)"
+                type="tel"
+                placeholder="Enter phone number"
+                value={createForm.phone}
+                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                  setCreateForm((prev: UserFormData) => ({
+                    ...prev,
+                    phone: e.target.value,
+                  }))
+                }
+              />
+            </>
+          )}
           <Select
             label="Role"
             options={[
@@ -1065,6 +1249,59 @@ export default function UsersPage(): React.ReactElement {
             );
           })()}
         </div>
+      </Modal>
+
+      {/* Claim code result modal — 유령 생성 직후 인수 코드를 크게 보여준다 */}
+      <Modal
+        isOpen={claimResult !== null}
+        onClose={() => setClaimResult(null)}
+        title="Provisional staff added"
+        footer={
+          <div className="flex justify-end">
+            <Button variant="primary" onClick={() => setClaimResult(null)}>
+              Done
+            </Button>
+          </div>
+        }
+      >
+        {claimResult && (
+          <div className="space-y-4">
+            <p className="text-sm text-text">
+              <span className="font-semibold">{claimResult.name}</span> was added as a
+              provisional staff member.
+            </p>
+            <div className="rounded-xl border border-accent/30 bg-accent-muted px-4 py-5 text-center">
+              <p className="text-xs font-semibold uppercase tracking-wide text-text-muted mb-2">
+                Claim code
+              </p>
+              <p className="text-3xl md:text-4xl font-extrabold tracking-[0.2em] text-accent font-mono break-all">
+                {claimResult.code}
+              </p>
+              <Button
+                variant="secondary"
+                size="sm"
+                className="mt-4"
+                onClick={() => void copyClaimCode(claimResult.code)}
+              >
+                {claimCopied ? (
+                  <>
+                    <CheckIcon className="h-4 w-4" />
+                    Copied
+                  </>
+                ) : (
+                  <>
+                    <Copy className="h-4 w-4" />
+                    Copy code
+                  </>
+                )}
+              </Button>
+            </div>
+            <p className="text-sm text-text-secondary">
+              Give this code to the employee. They enter it when signing up to take
+              over this account.
+            </p>
+          </div>
+        )}
       </Modal>
 
       {/* Work Availability hover popover — fixed so the table doesn't clip it */}

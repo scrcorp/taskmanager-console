@@ -93,6 +93,7 @@ export {
   useAttendances,
   useAttendance,
   useCorrectAttendance,
+  useConfirmAutoClockout,
   useUpdateCorrectionReason,
   useAddBreakSession,
   useUpdateBreakSession,

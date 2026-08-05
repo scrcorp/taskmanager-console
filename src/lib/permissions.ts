@@ -150,6 +150,11 @@ export const PERMISSIONS = {
   // ── Work Availability (직원 주간 근무 가용성) ──
   AVAILABILITY_READ: "availability:read",
   AVAILABILITY_MANAGE: "availability:manage",
+
+  // ── Payroll (기본 Owner 전용 — cost 데이터) ──
+  PAYROLL_READ: "payroll:read",
+  PAYROLL_CONFIRM: "payroll:confirm",
+  PAYROLL_EXPORT: "payroll:export",
 } as const;
 
 /**
@@ -165,6 +170,8 @@ export const PAGE_PERMISSIONS: Record<string, string> = {
   "/users": PERMISSIONS.USERS_READ,
   "/users/bulk": PERMISSIONS.USERS_UPDATE,
   "/users/bulk/availability": PERMISSIONS.AVAILABILITY_MANAGE,
+  "/users/bulk/empid": PERMISSIONS.USERS_UPDATE,
+  "/users/bulk/empid-edit": PERMISSIONS.USERS_UPDATE,
   "/schedules": PERMISSIONS.SCHEDULES_READ,
   "/schedules/history": PERMISSIONS.SCHEDULE_HISTORY_READ,
   "/schedules/settings": PERMISSIONS.SCHEDULE_SETTINGS_MANAGE,
@@ -187,6 +194,7 @@ export const PAGE_PERMISSIONS: Record<string, string> = {
   "/settings/roles": PERMISSIONS.ROLES_READ,
   "/settings/attendance-devices": PERMISSIONS.ATTENDANCE_DEVICES_READ,
   "/pay/tips": PERMISSIONS.TIPS_READ,
+  "/pay/payroll": PERMISSIONS.PAYROLL_READ,
 };
 // Note: /settings (General) has no permission gate — password change must remain accessible.
 // SV/Staff are hidden from the Settings menu via MENU_PERMISSIONS instead.
@@ -215,6 +223,7 @@ export const MENU_PERMISSIONS: Record<string, string> = {
   "/settings/roles": PERMISSIONS.ROLES_READ,
   "/settings/attendance-devices": PERMISSIONS.ATTENDANCE_DEVICES_READ,
   "/pay/tips": PERMISSIONS.TIPS_READ,
+  "/pay/payroll": PERMISSIONS.PAYROLL_READ,
 };
 
 /**
