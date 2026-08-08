@@ -77,6 +77,14 @@ export function SignupFlow({ encoded }: Props) {
   const [interviewInfo, setInterviewInfo] = useState<InterviewStatusInfo | null>(null);
   // 이미 가입된 이메일 안내 모달
   const [showEmailInUseModal, setShowEmailInUseModal] = useState(false);
+  // 이미 쓰이는 아이디 안내 모달 — 마지막 Verify 단계에서야 걸리므로
+  // 인라인만 두면 "왜 안 넘어가는지" 알기 어렵다.
+  const [showUsernameTakenModal, setShowUsernameTakenModal] = useState(false);
+
+  // 계정 정보 단계의 중복 선체크 — 이메일 인증을 시작하기 전에 걸러낸다.
+  const [accountChecking, setAccountChecking] = useState(false);
+  const [accountUsernameError, setAccountUsernameError] = useState<string | null>(null);
+  const [accountEmailError, setAccountEmailError] = useState<string | null>(null);
 
   // 기존 candidate 로그인 — "가입만 하고 이탈" 케이스
   const [showLogin, setShowLogin] = useState(false);
@@ -124,6 +132,9 @@ export function SignupFlow({ encoded }: Props) {
   }, [encoded]);
 
   const handleAccountChange = (next: AccountFormState) => {
+    // 값을 고치는 순간 이전 선체크 결과는 무효 — 경고를 남겨두면 또 오해를 부른다.
+    if (next.username !== account.username) setAccountUsernameError(null);
+    if (next.email !== account.email) setAccountEmailError(null);
     setAccount(next);
     setEmailForm((prev) => ({ ...prev, email: next.email }));
   };
@@ -264,6 +275,36 @@ export function SignupFlow({ encoded }: Props) {
     }
   };
 
+  /// 계정 정보 → 이메일 인증으로 넘어가기 전, 아이디/이메일이 이미 쓰이는지 먼저 묻는다.
+  /// 여기서 걸러야 사용자가 이메일 인증까지 끝낸 뒤에 "아이디 중복"을 보는 일이 없다.
+  /// 선체크가 실패하면(네트워크/서버 오류) 진행을 막지 않는다 — 생성 시점 409 가
+  /// 최종 방어선이고, 편의 기능 때문에 가입을 못 하게 만들 이유는 없다.
+  const handleAccountContinue = async () => {
+    setAccountChecking(true);
+    setAccountUsernameError(null);
+    setAccountEmailError(null);
+    try {
+      const res = await publicApi.post<{
+        username_available: boolean;
+        email_available: boolean;
+        resumable: boolean;
+      }>("/app/auth/check-availability", {
+        encoded,
+        username: account.username,
+        email: account.email,
+        mode: "join",
+      });
+      const { username_available, email_available } = res.data;
+      if (!username_available) setAccountUsernameError(t("usernameTakenInline"));
+      if (!email_available) setAccountEmailError(t("emailTakenInline"));
+      if (username_available && email_available) setStep("email");
+    } catch {
+      setStep("email");
+    } finally {
+      setAccountChecking(false);
+    }
+  };
+
   const handleVerify = async () => {
     if (!ctx) return;
     setEmailLoading(true);
@@ -311,13 +352,18 @@ export function SignupFlow({ encoded }: Props) {
       const detail =
         axios.isAxiosError(err) && err.response?.data?.detail;
       let msg = t("emailVerifyFailed");
+      // 중복(아이디/이메일)은 인라인 문구만으로는 눈에 안 띄어 "그냥 안 넘어간다"고
+      // 오해하게 된다. 모달로 원인과 다음 행동을 먼저 알린다.
+      let duplicate: "username" | "email" | null = null;
       if (detail && typeof detail === "object") {
         const code = (detail as { code?: string }).code;
         const message = (detail as { message?: string }).message;
         if (code === "username_taken") {
           msg = t("emailVerifyUsernameTaken");
+          duplicate = "username";
         } else if (code === "email_taken") {
           msg = t("emailVerifyEmailTaken");
+          duplicate = "email";
         } else if (code === "credential_mismatch") {
           msg = t("emailVerifyCredentialMismatch");
         } else if (code === "active_application_exists") {
@@ -329,8 +375,21 @@ export function SignupFlow({ encoded }: Props) {
         }
       } else if (typeof detail === "string") {
         msg = detail;
+        // code 없이 문자열만 오는 409(DuplicateError: 아이디 중복)도 같은 취급.
+        if (
+          axios.isAxiosError(err) &&
+          err.response?.status === 409 &&
+          /username/i.test(detail)
+        ) {
+          duplicate = "username";
+        }
       }
       setEmailError(msg);
+      if (duplicate === "username") {
+        setShowUsernameTakenModal(true);
+      } else if (duplicate === "email") {
+        setShowEmailInUseModal(true);
+      }
     } finally {
       setEmailLoading(false);
       setSubmittingFinal(false);
@@ -458,6 +517,44 @@ export function SignupFlow({ encoded }: Props) {
     </div>
   ) : null;
 
+  // 이미 쓰이는 아이디 안내 모달 — Verify 단계에서 409(username 중복) 시 표시.
+  // 이메일 인증은 그대로 유효하므로 계정 정보 단계로만 되돌린다.
+  const usernameTakenModal = showUsernameTakenModal ? (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+      onClick={() => setShowUsernameTakenModal(false)}
+    >
+      <div
+        className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h3 className="text-[16px] font-semibold text-slate-900">
+          {t("usernameTakenTitle")}
+        </h3>
+        <p className="mt-1.5 text-[13px] leading-relaxed text-slate-500">
+          {t("usernameTakenBodyPrefix")}{" "}
+          <span className="font-semibold text-slate-700">
+            {account.username}
+          </span>
+          {t("usernameTakenBodySuffix")}
+        </p>
+        <div className="mt-4">
+          <button
+            type="button"
+            onClick={() => {
+              setShowUsernameTakenModal(false);
+              setEmailError(null);
+              setStep("account");
+            }}
+            className="w-full rounded-lg bg-blue-600 px-3 py-2.5 text-[13px] font-semibold text-white hover:bg-blue-700"
+          >
+            {t("usernameTakenChange")}
+          </button>
+        </div>
+      </div>
+    </div>
+  ) : null;
+
   switch (step) {
     case "welcome":
       return (
@@ -490,8 +587,11 @@ export function SignupFlow({ encoded }: Props) {
           form={account}
           onChange={handleAccountChange}
           onBack={() => setStep("welcome")}
-          onContinue={() => setStep("email")}
+          onContinue={handleAccountContinue}
           hasForm={hasForm}
+          checking={accountChecking}
+          usernameError={accountUsernameError}
+          emailError={accountEmailError}
         />
       );
     case "email":
@@ -508,6 +608,7 @@ export function SignupFlow({ encoded }: Props) {
             hasForm={hasForm}
           />
           {emailInUseModal}
+          {usernameTakenModal}
           {loginModal}
         </>
       );

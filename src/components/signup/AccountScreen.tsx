@@ -11,6 +11,11 @@ interface Props {
   onBack: () => void;
   onContinue: () => void;
   hasForm: boolean;
+  /** 아이디/이메일 중복 선체크 진행 중 — 버튼 잠금 */
+  checking?: boolean;
+  /** 선체크 결과 — 중복이면 해당 필드 아래에 사유를 띄우고 다음 단계로 넘기지 않는다 */
+  usernameError?: string | null;
+  emailError?: string | null;
 }
 
 const Field = ({
@@ -62,7 +67,16 @@ const EyeIcon = ({ open }: { open: boolean }) => (
   </svg>
 );
 
-export function AccountScreen({ form, onChange, onBack, onContinue, hasForm }: Props) {
+export function AccountScreen({
+  form,
+  onChange,
+  onBack,
+  onContinue,
+  hasForm,
+  checking = false,
+  usernameError = null,
+  emailError = null,
+}: Props) {
   const t = useTranslations("signup");
   const steps = useSignupSteps(hasForm);
 
@@ -129,6 +143,7 @@ export function AccountScreen({ form, onChange, onBack, onContinue, hasForm }: P
         <Field
           label={t("accountIdLabel")}
           hint={t("accountIdHint")}
+          error={usernameError ?? undefined}
         >
           <div className="relative">
             <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-[14px] text-slate-400">
@@ -145,7 +160,10 @@ export function AccountScreen({ form, onChange, onBack, onContinue, hasForm }: P
           </div>
         </Field>
 
-        <Field label={t("accountEmailLabel")}>
+        <Field
+          label={t("accountEmailLabel")}
+          error={emailError ?? undefined}
+        >
           <input
             type="email"
             autoComplete="email"
@@ -248,16 +266,16 @@ export function AccountScreen({ form, onChange, onBack, onContinue, hasForm }: P
       <div className="sticky bottom-0 mt-auto border-t border-slate-100 bg-white px-5 pb-[max(1rem,env(safe-area-inset-bottom))] pt-4">
         <button
           type="button"
-          disabled={!canContinue}
+          disabled={!canContinue || checking}
           onClick={onContinue}
           className={[
             "w-full rounded-xl px-5 py-3.5 text-[14px] font-semibold transition-all",
-            canContinue
+            canContinue && !checking
               ? "bg-blue-600 text-white shadow-sm shadow-blue-500/20 hover:bg-blue-700"
               : "bg-slate-100 text-slate-400",
           ].join(" ")}
         >
-          {t("continue")}
+          {checking ? t("accountChecking") : t("continue")}
         </button>
       </div>
     </div>
