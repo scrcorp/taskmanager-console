@@ -224,7 +224,7 @@ export default function ScheduleHistoryPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--color-bg)] p-6">
+    <div className="min-h-full bg-[var(--color-bg)] p-6">
       <div className="max-w-[1400px] mx-auto">
         {/* Header */}
         <div className="flex items-start justify-between mb-6 gap-3">

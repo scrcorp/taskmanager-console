@@ -8,7 +8,7 @@ import {
   type UseQueryResult,
 } from "@tanstack/react-query";
 import type { AxiosResponse } from "axios";
-import api from "@/lib/api";
+import api, { getErrorCode } from "@/lib/api";
 import { useMutationResult } from "@/lib/mutationResult";
 
 export interface HiringCoverPhoto {
@@ -552,7 +552,13 @@ export const useHireApplication = (
       qc.invalidateQueries({ queryKey: ["users"] });
       success("Applicant hired.");
     },
-    onError: error("Couldn't hire applicant"),
+    onError: (err: Error): void => {
+      // username_taken / pin_conflict 는 hire 다이얼로그가 인라인 렌더 — 모달 생략
+      // (payroll 패턴: 이중 표시 방지).
+      const code = getErrorCode(err);
+      if (code === "username_taken" || code === "pin_conflict") return;
+      error("Couldn't hire applicant")(err);
+    },
   });
 };
 

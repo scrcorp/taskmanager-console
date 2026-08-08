@@ -60,6 +60,15 @@
   --color-summary-success: #1D2328;
 }
 
+/* 앱 셸 높이 — 모바일 브라우저 상/하단 툴바를 제외한 "실제로 보이는" 뷰포트 높이.
+   100vh 는 툴바가 숨겨진 상태 기준이라 셸 하단이 iOS Chrome/Safari 하단바에 가리고,
+   문서가 툴바 높이만큼 스크롤 가능해져 "당기면 보였다 놓으면 사라지는" 현상이 생긴다.
+   두 줄 선언은 폴백 — dvh 미지원 브라우저(iOS 15.3 이하)는 둘째 줄을 무시하고 100vh 를 쓴다. */
+@utility h-viewport {
+  height: 100vh;
+  height: 100dvh;
+}
+
 html {
   color-scheme: light;
 }

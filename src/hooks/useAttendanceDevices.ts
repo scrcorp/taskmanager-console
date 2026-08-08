@@ -14,7 +14,7 @@ import {
   type QueryClient,
 } from "@tanstack/react-query";
 import type { AxiosResponse } from "axios";
-import api from "@/lib/api";
+import api, { getErrorCode } from "@/lib/api";
 import { useMutationResult } from "@/lib/mutationResult";
 import type { AttendanceDevice, AccessCode } from "@/types";
 
@@ -142,5 +142,56 @@ export const useRotateAccessCode = (): UseMutationResult<
       success("Regenerated.");
     },
     onError: error("Couldn't rotate access code"),
+  });
+};
+
+/** Access code 직접 설정 요청 데이터 타입 */
+interface SetAccessCodeData {
+  serviceKey: string;
+  code: string;
+}
+
+/**
+ * Access code 직접 설정 뮤테이션 (관리자가 값 지정).
+ *
+ * 서버가 소문자를 대문자로 정규화해 저장하고 source 를 "manual" 로 바꾼다.
+ * 409 access_code_taken(타 조직 사용 중)은 전용 메시지 모달 — 나머지는
+ * 일반 에러 모달 (payroll 패턴: 모달은 여기서 한 번만).
+ */
+export const useSetAccessCode = (): UseMutationResult<
+  AccessCode,
+  Error,
+  SetAccessCodeData
+> => {
+  const queryClient: QueryClient = useQueryClient();
+  const { success, error, rawError } = useMutationResult();
+  return useMutation<AccessCode, Error, SetAccessCodeData>({
+    mutationFn: async ({
+      serviceKey,
+      code,
+    }: SetAccessCodeData): Promise<AccessCode> => {
+      const response: AxiosResponse<AccessCode> = await api.put(
+        `/console/access-codes/${serviceKey}`,
+        { code },
+      );
+      return response.data;
+    },
+    onSuccess: (newCode: AccessCode): void => {
+      queryClient.setQueryData<AccessCode>(
+        ["access-codes", newCode.service_key],
+        newCode,
+      );
+      success("Access code updated.");
+    },
+    onError: (err: Error): void => {
+      if (getErrorCode(err) === "access_code_taken") {
+        rawError(
+          "This code is already used by another organization. Choose a different code.",
+          { title: "Couldn't update access code" },
+        );
+        return;
+      }
+      error("Couldn't update access code")(err);
+    },
   });
 };

@@ -166,7 +166,7 @@ export function ContextMenu({ anchorEl, status, userRole = 'gm', isPast = false,
       />
 
       {/* 메뉴 본체 — 4 group: View / Modify / State / Remove */}
-      <div className="relative z-[2] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.15)] py-1.5 min-w-[180px] max-h-[calc(100vh-16px)] overflow-y-auto">
+      <div className="relative z-[2] bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl shadow-[0_8px_24px_rgba(0,0,0,0.15)] py-1.5 min-w-[180px] max-h-[calc(100dvh-16px)] overflow-y-auto">
         {groups.map((group, gi) => (
           <div key={group.key}>
             {gi > 0 && <div className="h-px bg-[var(--color-border)] my-1 mx-2" />}

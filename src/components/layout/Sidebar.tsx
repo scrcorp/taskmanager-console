@@ -41,6 +41,7 @@ import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useAuthStore } from "@/stores/authStore";
 import { useSidebarStore } from "@/stores/sidebarStore";
 import { useUnreadCount } from "@/hooks";
+import { useBodyScrollLock } from "@/hooks/useBodyScrollLock";
 import { useTimezone } from "@/hooks/useTimezone";
 import { cn, todayInTimezone } from "@/lib/utils";
 import { ROLE_PRIORITY, MENU_PERMISSIONS } from "@/lib/permissions";
@@ -263,7 +264,9 @@ export function Sidebar({ onNavClick }: { onNavClick?: () => void }) {
   };
 
   return (
-    <aside className="w-60 h-screen bg-surface border-r border-border flex flex-col shrink-0">
+    // h-full: 높이는 바깥 프레임(대시보드 셸 / 모바일 드로어 오버레이)이 정한다.
+    // 사이드바가 직접 뷰포트 단위를 쓰면 프레임이 두 군데가 돼서 어긋난다.
+    <aside className="w-60 h-full bg-surface border-r border-border flex flex-col shrink-0">
       {/* 로고 (Logo) */}
       <div className="px-6 pt-6 pb-2">
         <div className="text-xl font-extrabold text-text">
@@ -281,7 +284,8 @@ export function Sidebar({ onNavClick }: { onNavClick?: () => void }) {
       <div className="mx-5 my-3 h-px bg-border" />
 
       {/* 내비게이션 (Navigation) */}
-      <nav className="flex-1 px-3 space-y-1 overflow-auto">
+      {/* overscroll-contain: nav 스크롤이 끝에 닿았을 때 뒤쪽 본문/문서로 스크롤이 체이닝되는 것을 차단 */}
+      <nav className="flex-1 px-3 space-y-1 overflow-y-auto overscroll-contain">
         {navItems.filter(shouldShowItem).map((item: NavItem) => {
           const active: boolean = isActive(item.href);
           const Icon = item.icon;
@@ -399,19 +403,23 @@ export function MobileSidebar() {
     }
   }, [isOpen, handleEsc]);
 
+  // 드로어가 열려 있는 동안 배경 스크롤 잠금.
+  // 이게 없으면 사이드바 nav 를 끝까지 스크롤한 뒤 이어지는 제스처가 뒤쪽 문서/본문으로 넘어간다.
+  useBodyScrollLock(isOpen);
+
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-40 md:hidden">
-      {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60" onClick={close} />
-      {/* Sidebar panel */}
-      <div className="relative w-60">
+    <div className="fixed inset-x-0 top-0 z-40 h-viewport md:hidden">
+      {/* Backdrop — touch-none 으로 백드롭 위 드래그가 뒤쪽을 스크롤하지 못하게 (탭 = 닫기는 그대로 동작) */}
+      <div className="absolute inset-0 touch-none bg-black/60" onClick={close} />
+      {/* Sidebar panel — 높이는 이 오버레이 프레임에서 내려받는다 */}
+      <div className="relative h-full w-60">
         <Sidebar onNavClick={close} />
         <button
           type="button"
           onClick={close}
-          className="absolute top-4 right-[-44px] p-2 rounded-full bg-surface/80 text-text-secondary hover:text-text transition-colors"
+          className="absolute top-2 right-[-52px] flex h-11 w-11 items-center justify-center rounded-full bg-surface/80 text-text-secondary transition-colors hover:text-text active:text-text"
           aria-label="Close menu"
         >
           <X size={20} />

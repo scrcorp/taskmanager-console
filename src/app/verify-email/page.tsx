@@ -114,7 +114,7 @@ export default function VerifyEmailPage() {
   // 성공 화면
   if (verified) {
     return (
-      <div className="min-h-screen bg-bg flex items-center justify-center p-4">
+      <div className="min-h-[100dvh] bg-bg flex items-center justify-center p-4">
         <div className="w-full max-w-md">
           <div className="bg-surface rounded-2xl p-8 border border-border text-center">
             <div className="flex justify-center mb-6">
@@ -144,7 +144,7 @@ export default function VerifyEmailPage() {
   }
 
   return (
-    <div className="min-h-screen bg-bg flex items-center justify-center p-4">
+    <div className="min-h-[100dvh] bg-bg flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="bg-surface rounded-2xl p-8 border border-border">
           {/* Icon */}

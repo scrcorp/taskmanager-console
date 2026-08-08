@@ -13,9 +13,21 @@ import {
   type QueryClient,
 } from "@tanstack/react-query";
 import type { AxiosResponse } from "axios";
-import api from "@/lib/api";
+import api, { getErrorCode } from "@/lib/api";
 import { useMutationResult } from "@/lib/mutationResult";
 import type { ClockinPin } from "@/types";
+
+/**
+ * pin_conflict 409 detail 에서 서버 사유 문장(message) 추출.
+ * 계약: {"detail": {"code": "pin_conflict", "reason": ..., "message": "..."}}
+ */
+function getPinConflictMessage(err: unknown): string | undefined {
+  const detail = (
+    err as { response?: { data?: { detail?: { message?: unknown } } } }
+  )?.response?.data?.detail;
+  const message = detail?.message;
+  return typeof message === "string" ? message : undefined;
+}
 
 /**
  * 직원 개인 PIN 조회 훅.
@@ -86,7 +98,7 @@ export const useUpdateClockinPin = (): UseMutationResult<
   UpdateClockinPinVars
 > => {
   const queryClient: QueryClient = useQueryClient();
-  const { success, error } = useMutationResult();
+  const { success, error, rawError } = useMutationResult();
   return useMutation<ClockinPin, Error, UpdateClockinPinVars>({
     mutationFn: async ({
       userId,
@@ -105,6 +117,18 @@ export const useUpdateClockinPin = (): UseMutationResult<
       );
       success("PIN updated.");
     },
-    onError: error("Couldn't update PIN"),
+    onError: (err: Error): void => {
+      // 409 pin_conflict — 서버 사유 문장 + 다음 행동 안내 (payroll 패턴: 모달 한 번만).
+      if (getErrorCode(err) === "pin_conflict") {
+        const reason =
+          getPinConflictMessage(err) ??
+          "This PIN is already in use by another employee.";
+        rawError(`${reason} Try a different number.`, {
+          title: "Couldn't update PIN",
+        });
+        return;
+      }
+      error("Couldn't update PIN")(err);
+    },
   });
 };

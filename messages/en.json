@@ -99,9 +99,18 @@
 
     "emailInUseTitle": "This email is already registered",
     "emailInUseBodyPrefix": "An account with",
-    "emailInUseBodySuffix": "already exists. Log in to continue, or use a different email.",
+    "emailInUseBodySuffix": " already exists. Log in to continue, or use a different email.",
+    "emailInUseBodySuffixDirect": " already exists. Use a different email, or log in to the staff app with that account.",
     "emailInUseLogIn": "Log in",
     "emailInUseUseDifferent": "Use a different email",
+
+    "usernameTakenTitle": "This ID is already taken",
+    "usernameTakenBodyPrefix": "Someone is already using",
+    "usernameTakenBodySuffix": ". Pick a different ID — your email verification stays valid.",
+    "usernameTakenChange": "Choose a different ID",
+    "usernameTakenInline": "This ID is already taken. Please choose a different one.",
+    "emailTakenInline": "This email is already registered. Use a different one, or log in with the existing account.",
+    "accountChecking": "Checking…",
 
     "statusSignedIn": "Signed in",
     "statusRefresh": "Refresh status",
