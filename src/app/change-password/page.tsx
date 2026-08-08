@@ -84,7 +84,7 @@ export default function ChangePasswordPage() {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-bg">
+    <div className="flex items-center justify-center min-h-[100dvh] bg-bg">
       <div className="w-full max-w-[420px] mx-4 bg-card border border-border rounded-2xl p-6 md:p-10">
         <div className="text-center mb-6">
           <div className="text-2xl font-extrabold text-text">Change Password</div>

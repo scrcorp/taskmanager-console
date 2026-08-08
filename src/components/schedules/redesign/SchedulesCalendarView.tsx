@@ -1397,7 +1397,7 @@ export default function SchedulesCalendarView() {
   }
 
   return (
-    <div className="min-h-screen bg-[var(--color-bg)] -m-4 md:-m-8">
+    <div className="min-h-full bg-[var(--color-bg)] -m-4 md:-m-8">
       {/* Context Menu */}
       {contextMenu && (() => {
         const block = schedules.find((s) => s.id === contextMenu.blockId);
@@ -1747,7 +1747,7 @@ export default function SchedulesCalendarView() {
         )}
 
         {/* Table Grid (Weekly / Daily) */}
-        {view !== "monthly" && <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl overflow-auto flex-1" style={{ maxHeight: "calc(100vh - 220px)" }}>
+        {view !== "monthly" && <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl overflow-auto flex-1" style={{ maxHeight: "calc(100dvh - 220px)" }}>
           <div style={{ minWidth: 220 + columns.length * (view === "weekly" ? 120 : 96) + 90 }}>
             <table className="w-full border-collapse" style={{ tableLayout: "fixed" }}>
               <colgroup>

@@ -72,7 +72,7 @@ export default function LicenseInactivePage(): React.ReactElement {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-bg flex items-center justify-center">
+      <div className="min-h-[100dvh] bg-bg flex items-center justify-center">
         <div className="animate-spin w-8 h-8 border-3 border-accent border-t-transparent rounded-full" />
       </div>
     );
@@ -86,7 +86,7 @@ export default function LicenseInactivePage(): React.ReactElement {
   );
 
   return (
-    <div className="min-h-screen bg-bg flex items-center justify-center p-4">
+    <div className="min-h-[100dvh] bg-bg flex items-center justify-center p-4">
       <div className="w-full max-w-md">
         <div className="bg-surface rounded-2xl p-8 border border-border text-center">
           <div className="flex justify-center mb-6">

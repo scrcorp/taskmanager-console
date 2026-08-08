@@ -944,7 +944,7 @@ export default function BulkScheduleView({
   }, [editTargetIds, weekSchedules, previewEntries, modifiedSchedules]);
 
   return (
-    <div className="min-h-screen bg-[var(--color-bg)] -m-4 md:-m-8">
+    <div className="min-h-full bg-[var(--color-bg)] -m-4 md:-m-8">
       <div className="px-3 sm:px-4 lg:px-6 pb-20">
         {/* ── Row 1: Title + Stats (기존 헤더 구조 유지) ─── */}
         <div className="flex items-center gap-3 md:gap-5 pt-4 pb-1 min-h-[40px]">
@@ -1122,7 +1122,7 @@ export default function BulkScheduleView({
             Discard All
           </button>
         </div>
-        <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl overflow-auto" style={{ maxHeight: "calc(100vh - 300px)" }}>
+        <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl overflow-auto" style={{ maxHeight: "calc(100dvh - 300px)" }}>
           <div style={{ minWidth: 220 + 7 * 120 + 90 }}>
             <table className="w-full border-collapse" style={{ tableLayout: "fixed" }}>
               <colgroup>
