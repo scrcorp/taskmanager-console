@@ -100,8 +100,17 @@
     "emailInUseTitle": "Este correo ya está registrado",
     "emailInUseBodyPrefix": "Ya existe una cuenta con",
     "emailInUseBodySuffix": ". Inicia sesión para continuar o usa otro correo.",
+    "emailInUseBodySuffixDirect": ". Usa otro correo o inicia sesión en la app con esa cuenta.",
     "emailInUseLogIn": "Iniciar sesión",
     "emailInUseUseDifferent": "Usar otro correo",
+
+    "usernameTakenTitle": "Este ID ya está en uso",
+    "usernameTakenBodyPrefix": "Alguien ya está usando",
+    "usernameTakenBodySuffix": ". Elige un ID diferente — la verificación de tu correo sigue válida.",
+    "usernameTakenChange": "Elegir otro ID",
+    "usernameTakenInline": "Este ID ya está en uso. Por favor elige uno diferente.",
+    "emailTakenInline": "Este correo ya está registrado. Usa otro o inicia sesión con la cuenta existente.",
+    "accountChecking": "Comprobando…",
 
     "statusSignedIn": "Sesión iniciada",
     "statusRefresh": "Actualizar estado",

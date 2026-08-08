@@ -2,10 +2,10 @@
 
 /**
  * Attendance Devices 설정 페이지 —
- *   1) 서비스별 Access Code(공유 6자리) 표시 및 회전
+ *   1) 서비스별 Access Code(공유 코드) 표시 · 회전 · 직접 설정
  *   2) 등록된 태블릿(AttendanceDevice) 목록 / rename / revoke
  *
- * Attendance Devices settings page — manages the shared 6-digit access code
+ * Attendance Devices settings page — manages the shared access code
  * (used during tablet enrollment) and the list of registered store tablets.
  *
  * 권한: 진입 `attendance_devices:read`, 수정 `attendance_devices:update`.
@@ -30,6 +30,7 @@ import {
   useRevokeAttendanceDevice,
   useAccessCode,
   useRotateAccessCode,
+  useSetAccessCode,
 } from "@/hooks/useAttendanceDevices";
 import { useTimezone } from "@/hooks/useTimezone";
 import { Button } from "@/components/ui/Button";
@@ -70,7 +71,12 @@ function AttendanceDevicesContent(): React.ReactElement {
     ATTENDANCE_SERVICE_KEY,
   );
   const rotateCode = useRotateAccessCode();
+  const setAccessCode = useSetAccessCode();
   const [codeCopied, setCodeCopied] = useState<boolean>(false);
+
+  /* ---- Inline access code edit state ------------------------------------ */
+  const [editingCode, setEditingCode] = useState<boolean>(false);
+  const [codeEditValue, setCodeEditValue] = useState<string>("");
 
   /* ---- Devices ----------------------------------------------------------- */
   const { data: devices, isLoading: devicesLoading } = useAttendanceDevices();
@@ -116,6 +122,31 @@ function AttendanceDevicesContent(): React.ReactElement {
       toast({ type: "error", message: "Failed to copy access code." });
     }
   }, [toast]);
+
+  const handleStartEditCode = useCallback((): void => {
+    setEditingCode(true);
+    setCodeEditValue(accessCode?.code ?? "");
+  }, [accessCode]);
+
+  const handleCancelEditCode = useCallback((): void => {
+    setEditingCode(false);
+    setCodeEditValue("");
+  }, []);
+
+  const handleSaveCode = useCallback(async (): Promise<void> => {
+    const code = codeEditValue.trim(); // 좌우 공백 무시
+    if (code.length < 4) return; // 4자 미만 — 저장 버튼도 disabled
+    try {
+      await setAccessCode.mutateAsync({
+        serviceKey: ATTENDANCE_SERVICE_KEY,
+        code,
+      });
+      setEditingCode(false);
+      setCodeEditValue("");
+    } catch {
+      // hook 자동 모달
+    }
+  }, [codeEditValue, setAccessCode]);
 
   const handleStartRename = useCallback(
     (device: AttendanceDevice): void => {
@@ -180,7 +211,7 @@ function AttendanceDevicesContent(): React.ReactElement {
           <h2 className="text-lg font-bold text-text">Enrollment Access Code</h2>
         </div>
         <p className="text-sm text-text-secondary mb-4">
-          Enter this 6-digit code on the tablet to enroll it as an attendance
+          Enter this access code on the tablet to enroll it as an attendance
           device for your organization.
         </p>
 
@@ -191,42 +222,92 @@ function AttendanceDevicesContent(): React.ReactElement {
         ) : accessCode ? (
           <div className="space-y-4">
             <div className="flex items-center justify-between px-4 py-3 bg-surface rounded-lg">
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => handleCopyCode(codeValue)}
-                  className="flex items-center gap-2 text-2xl font-extrabold tracking-[0.3em] text-text hover:text-accent transition-colors"
-                  title="Click to copy"
-                >
-                  {codeValue || "—"}
-                  {codeCopied ? (
-                    <Check className="h-4 w-4 text-success" />
-                  ) : (
-                    <Copy className="h-4 w-4" />
-                  )}
-                </button>
-                <Badge variant={accessCode.source === "env" ? "accent" : "default"}>
-                  {accessCode.source === "env" ? "Env" : "Auto"}
-                </Badge>
-              </div>
-              {canUpdate && (
-                <span
-                  title={
-                    accessCode.source === "env"
-                      ? "Env-managed codes cannot be rotated from UI"
-                      : "Rotate code"
-                  }
-                >
-                  <Button
-                    variant="secondary"
-                    size="sm"
-                    onClick={() => void handleRotateCode()}
-                    disabled={accessCode.source === "env" || rotateCode.isPending}
+              {editingCode ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={codeEditValue}
+                    onChange={(e) =>
+                      setCodeEditValue(e.target.value.toUpperCase())
+                    }
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        void handleSaveCode();
+                      }
+                      if (e.key === "Escape") handleCancelEditCode();
+                    }}
+                    maxLength={32}
+                    disabled={setAccessCode.isPending}
+                    className="w-48 rounded-lg border border-border bg-card px-2.5 py-1.5 text-sm font-bold tracking-widest text-text focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent disabled:opacity-50"
+                    autoFocus
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void handleSaveCode()}
+                    disabled={
+                      setAccessCode.isPending ||
+                      codeEditValue.trim().length < 4
+                    }
+                    className="p-1.5 rounded text-success hover:bg-success-muted transition-colors disabled:opacity-50"
+                    title="Save"
                   >
-                    <RefreshCw className="h-4 w-4" />
-                    Rotate
-                  </Button>
-                </span>
+                    <Check className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleCancelEditCode}
+                    disabled={setAccessCode.isPending}
+                    className="p-1.5 rounded text-text-muted hover:text-text hover:bg-surface-hover transition-colors disabled:opacity-50"
+                    title="Cancel"
+                  >
+                    <CloseIcon className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-center gap-3">
+                    <button
+                      type="button"
+                      onClick={() => handleCopyCode(codeValue)}
+                      className="flex items-center gap-2 text-2xl font-extrabold tracking-[0.3em] text-text hover:text-accent transition-colors"
+                      title="Click to copy"
+                    >
+                      {codeValue || "—"}
+                      {codeCopied ? (
+                        <Check className="h-4 w-4 text-success" />
+                      ) : (
+                        <Copy className="h-4 w-4" />
+                      )}
+                    </button>
+                    <Badge variant="default">
+                      {accessCode.source === "manual" ? "Manual" : "Auto"}
+                    </Badge>
+                  </div>
+                  {canUpdate && (
+                    <div className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={handleStartEditCode}
+                        className="p-1.5 rounded text-text-secondary hover:text-accent hover:bg-surface-hover transition-colors"
+                        title="Edit code"
+                      >
+                        <Edit className="h-4 w-4" />
+                      </button>
+                      <span title="Rotate code">
+                        <Button
+                          variant="secondary"
+                          size="sm"
+                          onClick={() => void handleRotateCode()}
+                          disabled={rotateCode.isPending}
+                        >
+                          <RefreshCw className="h-4 w-4" />
+                          Rotate
+                        </Button>
+                      </span>
+                    </div>
+                  )}
+                </>
               )}
             </div>
             <div className="grid grid-cols-2 gap-4 text-sm">

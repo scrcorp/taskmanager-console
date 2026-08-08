@@ -21,7 +21,7 @@ export default function HtmaDownloadPage() {
   }, [data]);
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-[var(--color-bg)]">
+    <div className="min-h-[100dvh] flex items-center justify-center bg-[var(--color-bg)]">
       <div className="text-center">
         {error ? (
           <>

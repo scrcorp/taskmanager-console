@@ -1672,12 +1672,13 @@ export interface AttendanceDevice {
   last_seen_at: string | null;
 }
 
-/** Access code 응답 — 서비스 키별 6자리 코드.
- * Access code response per service key (masked until revealed). */
+/** Access code 응답 — 서비스 키별 코드.
+ * Access code response per service key (masked until revealed).
+ * source: env(환경변수 주입) / auto(자동 생성) / manual(관리자 직접 설정) */
 export interface AccessCode {
   service_key: string;
   code: string;
-  source: "env" | "auto";
+  source: "env" | "auto" | "manual";
   rotated_at: string | null;
   created_at: string;
 }

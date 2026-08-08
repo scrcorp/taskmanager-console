@@ -109,14 +109,16 @@ export default function DashboardLayout({
   // user 로드 전 / 이메일 미인증 / 비밀번호 강제 변경 / org 차단 대기 → 로딩 화면 (깜빡임 방지)
   if (!user || !user.email_verified || user.must_change_password || user.current_org_accessible === false) {
     return (
-      <div className="flex h-screen items-center justify-center bg-bg">
+      <div className="flex h-viewport items-center justify-center bg-bg">
         <div className="animate-spin w-8 h-8 border-3 border-accent border-t-transparent rounded-full" />
       </div>
     );
   }
 
   return (
-    <div className="flex h-screen overflow-hidden">
+    // h-viewport: 모바일 브라우저 툴바가 차지하는 높이를 제외한 "실제로 보이는" 뷰포트 높이.
+    // 100vh 는 툴바가 숨겨진 상태 기준이라 셸 하단이 하단바에 가리고 문서 전체가 툴바 높이만큼 스크롤된다.
+    <div className="flex h-viewport overflow-hidden">
       {/* Desktop sidebar */}
       <div className="hidden md:flex">
         <Sidebar />
@@ -127,11 +129,12 @@ export default function DashboardLayout({
 
       <div className="flex-1 flex flex-col overflow-hidden">
         {/* Mobile top bar */}
-        <div className="md:hidden flex items-center gap-3 px-4 h-14 border-b border-border bg-surface shrink-0">
+        <div className="md:hidden flex items-center gap-3 px-2 h-14 border-b border-border bg-surface shrink-0">
+          {/* 44x44 최소 터치 타깃 (iOS HIG) — 이전 p-1.5 는 ~34px 라 모바일에서 누르기 어려웠음 */}
           <button
             type="button"
             onClick={toggle}
-            className="p-1.5 rounded-lg text-text-secondary hover:text-text hover:bg-surface-hover transition-colors"
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-text-secondary transition-colors hover:text-text hover:bg-surface-hover active:bg-surface-hover active:text-text"
             aria-label="Open menu"
           >
             <Menu size={22} />
@@ -142,7 +145,8 @@ export default function DashboardLayout({
           </div>
         </div>
 
-        <main className="flex-1 overflow-auto p-4 md:p-8">
+        {/* overscroll-contain: 본문 스크롤이 끝에 닿아도 문서(브라우저 툴바 토글)로 체이닝되지 않게 */}
+        <main className="flex-1 overflow-auto overscroll-contain p-4 md:p-8">
           <Suspense>{forbidden ? <ForbiddenScreen /> : children}</Suspense>
         </main>
       </div>

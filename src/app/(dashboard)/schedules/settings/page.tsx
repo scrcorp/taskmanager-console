@@ -24,7 +24,7 @@ export default function ScheduleSettingsPage() {
 
   if (!isGMPlus) {
     return (
-      <div className="min-h-screen bg-[var(--color-bg)] flex items-center justify-center">
+      <div className="min-h-full bg-[var(--color-bg)] flex items-center justify-center">
         <div className="text-center">
           <div className="text-[var(--color-danger)] text-[14px] font-semibold mb-2">Access denied</div>
           <div className="text-[12px] text-[var(--color-text-muted)]">Schedule settings is GM+ only.</div>

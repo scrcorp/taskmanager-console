@@ -73,7 +73,7 @@ export default function ResetPasswordPage() {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-bg">
+    <div className="flex items-center justify-center min-h-[100dvh] bg-bg">
       <div className="w-full max-w-[400px] mx-4 bg-card border border-border rounded-2xl p-8">
         {/* Step 1: Username + Email 입력 */}
         {step === "identity" && (
