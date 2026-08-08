@@ -97,6 +97,16 @@ export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPag
       confirmLabel: "Start review",
     });
 
+  // PIN preview fetch — hire 다이얼로그 오픈 시 + pin_conflict 재시도 시 공용.
+  const fetchPreviewPin = async () => {
+    try {
+      const res = await api.get(`/console/hiring/stores/${storeId}/preview-pin`);
+      setPendingPin(res.data?.clockin_pin ?? "");
+    } catch {
+      setPendingPin("");
+    }
+  };
+
   const openHireDialog = async () => {
     setHireUsername(data?.candidate.username ?? "");
     setHireError(null);
@@ -107,13 +117,7 @@ export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPag
     setPendingUserId(uuid);
     setPendingPin("");
     setShowHireDialog(true);
-    // PIN preview fetch
-    try {
-      const res = await api.get(`/console/hiring/stores/${storeId}/preview-pin`);
-      setPendingPin(res.data?.clockin_pin ?? "");
-    } catch {
-      setPendingPin("");
-    }
+    await fetchPreviewPin();
   };
 
   const confirmHire = async () => {
@@ -141,6 +145,12 @@ export function ApplicantDetailDrawer({ storeId, applicationId, onClose, fullPag
           `Username "${hireUsername}" is already in use in this organization. Try a different one.`,
         );
         setHireUsername((u) => (u || data?.candidate.username || "") + "_2");
+      } else if (detail?.code === "pin_conflict") {
+        // 준비해 둔 PIN 이 그 사이 선점됨 — 새 PIN 을 받아와 재시도 준비.
+        setHireError(
+          "The prepared PIN is no longer available. A new PIN was fetched — press Confirm to retry.",
+        );
+        await fetchPreviewPin();
       } else {
         setHireError(`Hire failed: ${detail?.message ?? detail?.code ?? "unknown"}`);
       }
