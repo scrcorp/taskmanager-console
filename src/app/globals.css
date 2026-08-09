@@ -66,6 +66,10 @@
    두 줄 선언은 폴백 — dvh 미지원 브라우저(iOS 15.3 이하)는 둘째 줄을 무시하고 100vh 를 쓴다. */
 @utility h-viewport {
   height: 100vh;
+  /* dvh 미지원 iOS Safari 폴백 — 툴바를 제외한 "실제로 보이는" 높이를 준다.
+     이게 없으면 그 브라우저에서 100vh(툴바 숨김 기준)로 떨어져 셸이 화면보다 커지고,
+     하단 탭바가 툴바 뒤로 들어가 탭 전환 자체가 불가능해진다. */
+  height: -webkit-fill-available;
   height: 100dvh;
 }
 
