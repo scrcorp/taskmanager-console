@@ -990,6 +990,7 @@ function AttendanceSettingsSection(props: SectionCommonProps) {
   const AUTO_OUT_KEY = "attendance.auto_clock_out_after_minutes";
   const ALERT_INT_KEY = "attendance.alert_interval_minutes";
   const WALK_IN_ALLOWED_KEY = "attendance.walk_in_allowed";
+  const TIP_ENTRY_KEY = "attendance.tip_entry_enabled";
 
   const lateBuffer = Number(props.getValue(LATE_KEY) ?? 5);
   const earlyLeave = Number(props.getValue(EARLY_LEAVE_KEY) ?? 5);
@@ -1000,8 +1001,10 @@ function AttendanceSettingsSection(props: SectionCommonProps) {
   const autoClockOut = Number(props.getValue(AUTO_OUT_KEY) ?? 30);
   const alertInterval = Number(props.getValue(ALERT_INT_KEY) ?? 10);
   const walkInAllowed = Boolean(props.getValue(WALK_IN_ALLOWED_KEY));
+  // registry default가 false — undefined면 OFF로 간주.
+  const tipEntryEnabled = Boolean(props.getValue(TIP_ENTRY_KEY));
 
-  const allKeys = [LATE_KEY, EARLY_LEAVE_KEY, EARLY_IN_KEY, AUTO_OUT_ENABLED_KEY, AUTO_OUT_KEY, ALERT_INT_KEY, WALK_IN_ALLOWED_KEY];
+  const allKeys = [LATE_KEY, EARLY_LEAVE_KEY, EARLY_IN_KEY, AUTO_OUT_ENABLED_KEY, AUTO_OUT_KEY, ALERT_INT_KEY, WALK_IN_ALLOWED_KEY, TIP_ENTRY_KEY];
   const locked = allKeys.some((k) => props.isLocked(k));
   const hasAnyCustom = allKeys.some((k) => isEffectivelyCustom(props, k));
 
@@ -1102,6 +1105,24 @@ function AttendanceSettingsSection(props: SectionCommonProps) {
             </ChangedMark>
             <p className="text-[11px] text-[var(--color-text-muted)] mt-1">
               Walk-in start = actual clock-in time; end = clock-in + default shift duration.
+            </p>
+          </div>
+        </div>
+        <div>
+          {subheader("Tips")}
+          <div className="border-t border-[var(--color-border)] pt-1">
+            <ChangedMark changed={props.isChanged(TIP_ENTRY_KEY)}>
+              <ToggleRow
+                label="Tip entry on clock-out"
+                description="Ask staff to record tips when they clock out at the kiosk. When off, clock-out finishes without the tip screen."
+                value={tipEntryEnabled}
+                locked={locked}
+                onChange={(v) => props.queueChange(TIP_ENTRY_KEY, v)}
+                badge={<SourceBadge props={props} fieldKey={TIP_ENTRY_KEY} />}
+              />
+            </ChangedMark>
+            <p className="text-[11px] text-[var(--color-text-muted)] mt-1">
+              Applies to every kiosk device in the store. Managers can also change this from the kiosk (Manage → Store Settings).
             </p>
           </div>
         </div>
