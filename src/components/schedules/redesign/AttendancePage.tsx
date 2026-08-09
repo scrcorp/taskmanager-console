@@ -7,7 +7,7 @@ import { useStores } from '@/hooks/useStores'
 import { useUsers } from '@/hooks/useUsers'
 import { useAuthStore } from '@/stores/authStore'
 import { usePersistedFilters } from '@/hooks/usePersistedFilters'
-import { formatDateTime, todayInTimezone } from '@/lib/utils'
+import { formatDateTime, minutesBetween, todayInTimezone } from '@/lib/utils'
 import { useMidnightRefresh } from '@/hooks/useMidnightRefresh'
 import type { AttendanceBreakItem } from '@/types'
 import { Check, Download } from 'lucide-react'
@@ -134,6 +134,7 @@ function WorkCell({ netMin, totalMin }: { netMin: number | null; totalMin: numbe
 }
 
 /** 진행 중 attendance 의 실시간 work minutes 계산.
+ *  모든 분 계산은 분 절삭 후 차이(R2) — 퇴근 확정 시 서버 값과 어긋나지 않는다.
  *  반환: { netMin, totalMin } — 둘 다 null 이면 표시 대상 아님 (아직 clock in 전).
  *  로직:
  *    elapsed_total = now - clock_in
@@ -158,7 +159,7 @@ function computeLiveWorkMinutes(
   if (!clockInIso) return null
   const clockInMs = new Date(clockInIso).getTime()
   if (!Number.isFinite(clockInMs)) return null
-  const elapsedTotal = Math.max(0, Math.round((nowMs - clockInMs) / 60000))
+  const elapsedTotal = Math.max(0, minutesBetween(clockInMs, nowMs) ?? 0)
 
   let completedUnpaid = 0
   let completedPaid = 0
@@ -184,7 +185,7 @@ function computeLiveWorkMinutes(
   if (openBreak) {
     const startMs = new Date(openBreak.started_at).getTime()
     if (Number.isFinite(startMs)) {
-      const openElapsed = Math.max(0, Math.round((nowMs - startMs) / 60000))
+      const openElapsed = Math.max(0, minutesBetween(startMs, nowMs) ?? 0)
       if (UNPAID_BREAK_VALUES.has(openBreak.break_type)) {
         openDeduct = openElapsed
       } else if (PAID_BREAK_VALUES.has(openBreak.break_type)) {
@@ -262,7 +263,7 @@ function BreakCell({ items, tone, nowMs }: { items: AttendanceBreakItem[]; tone:
         }
         // 진행 중 — started_at 부터 now 까지 분 (경과 분 계산은 UTC ISO 로만 가능)
         const startMs = new Date(b.started_at).getTime()
-        const elapsed = Number.isFinite(startMs) ? Math.max(0, Math.round((nowMs - startMs) / 60000)) : 0
+        const elapsed = Math.max(0, minutesBetween(startMs, nowMs) ?? 0)
         return (
           <span key={b.id} className="tabular-nums text-[12px]">
             {start} – --:-- <span className="text-[var(--color-text-muted)]">({elapsed}m)</span>
@@ -273,14 +274,15 @@ function BreakCell({ items, tone, nowMs }: { items: AttendanceBreakItem[]; tone:
   )
 }
 
-/** late anomaly 분 계산 — clock_in - scheduled_start (반올림, 최소 1분). */
+/** late anomaly 분 계산 — clock_in - scheduled_start.
+ *  분 절삭 후 차이(R2) — 표시되는 HH:MM 끼리의 뺄셈과 항상 일치한다. */
 function computeLateMinutes(clockInIso?: string | null, scheduledIso?: string | null): number | null {
   if (!clockInIso || !scheduledIso) return null
   const a = new Date(clockInIso).getTime()
   const s = new Date(scheduledIso).getTime()
   if (!Number.isFinite(a) || !Number.isFinite(s)) return null
-  const diff = Math.round((a - s) / 60000)
-  return diff > 0 ? diff : null
+  const diff = minutesBetween(s, a)
+  return diff !== null && diff > 0 ? diff : null
 }
 
 export function AttendancePage() {
