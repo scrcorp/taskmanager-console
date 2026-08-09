@@ -3,7 +3,7 @@
 /**
  * 간소화 콘솔 — 근태 상세/수정.
  *
- * 담는 것: 시각 정정(clock in/out) · 자동퇴근 확인 · break 세션 추가/수정/삭제.
+ * 담는 것: 시각 정정(clock in/out) · 자동퇴근 확인 · 조기 출근 확인 · break 세션 추가/수정/삭제.
  * 매니저 대행 출퇴근(clock in/out action)은 담지 않는다 — 기록 신뢰도 문제이고 HTMA 와 역할이 겹친다.
  *
  * 시각 값은 서버가 매장 tz 로 pre-format 한 `*_display` 를 읽고,
@@ -19,11 +19,13 @@ import {
   useAddBreakSession,
   useAttendance,
   useConfirmAutoClockout,
+  useConfirmEarlyClockIn,
   useCorrectAttendance,
   useDeleteBreakSession,
   useUpdateBreakSession,
 } from "@/hooks/useAttendances";
 import { useTimezone } from "@/hooks/useTimezone";
+import { isUnconfirmedEarlyClockIn } from "@/components/schedules/redesign/attendanceConfirm";
 import { useModal } from "@/components/ui/imperative-modal";
 import {
   CORRECTION_REASON_PRESETS,
@@ -54,6 +56,7 @@ export function CompactAttendanceDetail({
 
   const correct = useCorrectAttendance();
   const confirmAutoClockout = useConfirmAutoClockout();
+  const confirmEarlyClockIn = useConfirmEarlyClockIn();
   const addBreak = useAddBreakSession();
   const updateBreak = useUpdateBreakSession();
   const deleteBreak = useDeleteBreakSession();
@@ -76,6 +79,13 @@ export function CompactAttendanceDetail({
   const needsAutoClockoutConfirm =
     (record.anomalies ?? []).includes("auto_clocked_out") &&
     !record.auto_clock_out_confirmed_at;
+
+  // 조기 출근 강행은 확인 전까지 payroll 확정이 막힌다. /c 가 모바일 주용도라
+  // 여기 없으면 폰만 든 매니저는 급여 마감을 풀 방법이 없다.
+  const needsEarlyClockInConfirm = isUnconfirmedEarlyClockIn(
+    record.anomalies,
+    record.early_clock_in_confirmed_at,
+  );
 
   async function handleSaveCorrection() {
     if (!changed) return;
@@ -188,6 +198,24 @@ export function CompactAttendanceDetail({
             className="mt-2 h-10 w-full rounded-lg bg-warning text-sm font-semibold text-black"
           >
             Confirm auto clock-out
+          </button>
+        </div>
+      )}
+
+      {needsEarlyClockInConfirm && (
+        <div className="rounded-lg border border-warning bg-warning-muted px-3 py-2.5">
+          <p className="text-xs text-text">
+            This employee clocked in before their shift started and gave a reason. The extra
+            time is in payroll — check the time, then confirm it.
+          </p>
+          <button
+            type="button"
+            onClick={() =>
+              confirmEarlyClockIn.mutate({ attendanceId: attendance.id }, { onSuccess: onDone })
+            }
+            className="mt-2 h-10 w-full rounded-lg bg-warning text-sm font-semibold text-black"
+          >
+            Confirm early clock-in
           </button>
         </div>
       )}
