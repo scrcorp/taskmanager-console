@@ -11,6 +11,7 @@ export const PAYROLL_GATE = {
   BELOW_MINIMUM_WAGE: "below_minimum_wage",
   OPEN_SHIFT: "open_shift",
   UNCONFIRMED_AUTO_CLOCKOUT: "unconfirmed_auto_clockout",
+  UNCONFIRMED_EARLY_CLOCK_IN: "unconfirmed_early_clock_in",
   TIP_PERIOD_NOT_CONFIRMED: "tip_period_not_confirmed",
   MULTI_STORE_WEEK: "multi_store_week",
 } as const;

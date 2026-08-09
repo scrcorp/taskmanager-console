@@ -2,7 +2,7 @@
 
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { useAttendances, useConfirmAutoClockout } from '@/hooks/useAttendances'
+import { useAttendances, useConfirmAutoClockout, useConfirmEarlyClockIn } from '@/hooks/useAttendances'
 import { useStores } from '@/hooks/useStores'
 import { useUsers } from '@/hooks/useUsers'
 import { useAuthStore } from '@/stores/authStore'
@@ -19,6 +19,7 @@ import {
   AttendanceFilterBar,
   EMPTY_ATTENDANCE_FILTERS,
   isUnconfirmedAutoClockOut,
+  isUnconfirmedEarlyClockIn,
   matchesStatusFilter,
   rolePriorityToBadgeId,
   type AttendanceUiFilters,
@@ -291,6 +292,7 @@ export function AttendancePage() {
   const canConfirmAutoOut = hasPermission(PERMISSIONS.SCHEDULES_UPDATE)
   const currentUserId = useAuthStore((s) => s.user?.id)
   const confirmAutoOut = useConfirmAutoClockout()
+  const confirmEarlyIn = useConfirmEarlyClockIn()
   // 매장/조직 timezone 기준 오늘 + 자정 자동 갱신.
   const orgTimezone = useAuthStore((s) => s.user?.organization_timezone) ?? undefined
   const today = useMidnightRefresh(
@@ -724,9 +726,60 @@ export function AttendancePage() {
                             </span>
                           )
                         }
+                        // 조기 출근 강행 — 미확인이면 확인 버튼, 확인됐으면 subtle 이력.
+                        // 예정 밖 시간이 급여에 들어가므로 payroll 확정이 이 확인을 요구한다.
+                        if (a === 'early_clock_in_override') {
+                          const unconfirmed = isUnconfirmedEarlyClockIn(att.anomalies, att.early_clock_in_confirmed_at)
+                          if (unconfirmed) {
+                            const isConfirming =
+                              confirmEarlyIn.isPending &&
+                              confirmEarlyIn.variables?.attendanceId === att.id
+                            return (
+                              <span key={a} className="inline-flex items-center gap-1">
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[var(--color-danger-muted)] text-[var(--color-danger)]">
+                                  Early clock-in — needs confirmation
+                                </span>
+                                {canConfirmAutoOut && (
+                                  <button
+                                    type="button"
+                                    disabled={isConfirming}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      confirmEarlyIn.mutate({
+                                        attendanceId: att.id,
+                                        confirmedBy: currentUserId,
+                                      })
+                                    }}
+                                    title="Mark this early clock-in as reviewed. Payroll cannot be confirmed while any early clock-in is unreviewed."
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border border-[var(--color-success)]/40 bg-[var(--color-success-muted)] text-[var(--color-success)] hover:brightness-110 disabled:opacity-60 transition-colors"
+                                  >
+                                    <Check className="w-3 h-3" />
+                                    {isConfirming ? 'Confirming…' : 'Confirm'}
+                                  </button>
+                                )}
+                              </span>
+                            )
+                          }
+                          const confirmerName = att.early_clock_in_confirmed_by
+                            ? userIdToName.get(att.early_clock_in_confirmed_by)
+                            : undefined
+                          const confirmedWhen = formatDateTime(att.early_clock_in_confirmed_at, orgTimezone)
+                          return (
+                            <span
+                              key={a}
+                              title={confirmerName
+                                ? `Confirmed by ${confirmerName} · ${confirmedWhen}`
+                                : `Confirmed · ${confirmedWhen}`}
+                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[var(--color-bg)] text-[var(--color-text-muted)] border border-[var(--color-border)]"
+                            >
+                              <Check className="w-3 h-3 text-[var(--color-success)]" />
+                              early clock-in
+                            </span>
+                          )
+                        }
                         const label = a === 'late' && lateMin !== null
                           ? `late (${lateMin}m)`
-                          : a.replace('_', ' ')
+                          : a.replace(/_/g, ' ')
                         return (
                           <span key={a} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[var(--color-danger-muted)] text-[var(--color-danger)]">
                             {label}

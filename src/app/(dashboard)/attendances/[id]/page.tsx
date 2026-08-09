@@ -39,6 +39,7 @@ import {
   useDeleteBreakSession,
   useUpdateCorrectionReason,
   useConfirmAutoClockout,
+  useConfirmEarlyClockIn,
 } from "@/hooks";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@/lib/permissions";
@@ -176,6 +177,7 @@ export default function AttendanceDetailPage(): React.ReactElement {
 
       {/* 자동퇴근 확인 배너 (L6) — anomaly 가 있을 때만 표시. */}
       <AutoClockoutBanner attendance={attendance} tz={tz} />
+      <EarlyClockInBanner attendance={attendance} tz={tz} />
 
       {/* 상세 카드 — 전부 읽기 전용. 시간/상태/노트 수정은 모달 사용. */}
       <Card className="p-6 space-y-5">
@@ -412,6 +414,77 @@ function AutoClockoutBanner({
             })
           }
           isLoading={confirmAutoOut.isPending}
+          type="button"
+        >
+          <Check size={14} className="mr-1" /> Confirm
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * 조기 출근 강행 확인 배너.
+ *  - 미확인: warning 배너 + Confirm 버튼 (schedules:update 권한).
+ *    확인 전까지 payroll 확정이 막히므로 그 사실을 문구에 밝힌다.
+ *  - 확인됨: subtle confirmed 표시.
+ *  매니저 대행으로 찍힌 건은 서버가 생성 시점에 확인 처리하므로 바로 confirmed 로 뜬다.
+ */
+function EarlyClockInBanner({
+  attendance,
+  tz,
+}: {
+  attendance: Attendance;
+  tz: string | undefined;
+}): React.ReactElement | null {
+  const { hasPermission } = usePermissions();
+  const currentUserId = useAuthStore((s) => s.user?.id);
+  const confirmEarlyIn = useConfirmEarlyClockIn();
+
+  const hasAnomaly =
+    attendance.anomalies?.includes("early_clock_in_override") ?? false;
+  if (!hasAnomaly) return null;
+
+  const confirmedAt = attendance.early_clock_in_confirmed_at;
+  if (confirmedAt) {
+    return (
+      <div
+        className="mb-6 flex items-center gap-2 px-4 py-2.5 rounded-lg border border-border bg-surface text-sm text-text-secondary"
+        title={`Confirmed ${formatDateTime(confirmedAt, tz)}`}
+      >
+        <Check size={14} className="text-[var(--color-success)] shrink-0" />
+        <span>
+          Early clock-in confirmed
+          <span className="text-text-muted"> · {formatDateTime(confirmedAt, tz)}</span>
+        </span>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-6 flex items-start gap-3 px-4 py-3 rounded-lg border border-[var(--color-warning)]/40 bg-warning-muted">
+      <AlertTriangle size={16} className="text-[var(--color-warning)] mt-0.5 shrink-0" />
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-semibold text-text">
+          Early clock-in — needs confirmation
+        </div>
+        <div className="text-xs text-text-secondary mt-0.5">
+          This employee clocked in before their shift started and gave a reason
+          (see Activity history). The extra time is included in payroll. Review
+          the clock-in time, then confirm it — payroll can&apos;t be confirmed
+          while any early clock-in is unreviewed.
+        </div>
+      </div>
+      {hasPermission(PERMISSIONS.SCHEDULES_UPDATE) && (
+        <Button
+          size="sm"
+          onClick={() =>
+            confirmEarlyIn.mutate({
+              attendanceId: attendance.id,
+              confirmedBy: currentUserId,
+            })
+          }
+          isLoading={confirmEarlyIn.isPending}
           type="button"
         >
           <Check size={14} className="mr-1" /> Confirm

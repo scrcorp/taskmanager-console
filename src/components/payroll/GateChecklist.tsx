@@ -32,7 +32,7 @@ import {
 } from "@/types/payroll";
 
 /** 항목 1건을 어떤 화면에서 고치는지 — 행 단위 액션 종류. */
-type GateFix = "attendance_auto" | "attendance_open" | "rate" | "none";
+type GateFix = "attendance_auto" | "attendance_open" | "attendance_early" | "rate" | "none";
 
 /** 접기 기준 — 이슈가 많아도 카드가 화면을 삼키지 않게. */
 const COLLAPSED_ITEMS = 3;
@@ -83,6 +83,13 @@ const GATE_DEFS: GateDef[] = [
     okNote: "Every auto clock-out has been reviewed.",
     codes: [PAYROLL_GATE.UNCONFIRMED_AUTO_CLOCKOUT],
     fix: "attendance_auto",
+    link: null,
+  },
+  {
+    label: "Early clock-ins reviewed",
+    okNote: "Every early clock-in has been reviewed.",
+    codes: [PAYROLL_GATE.UNCONFIRMED_EARLY_CLOCK_IN],
+    fix: "attendance_early",
     link: null,
   },
   {
@@ -318,7 +325,11 @@ export function GateChecklist({ preview, failures }: Props) {
     gate: GateView,
     item: GateItemView,
   ): ReactNode => {
-    if (gate.fix === "attendance_auto" || gate.fix === "attendance_open") {
+    if (
+      gate.fix === "attendance_auto" ||
+      gate.fix === "attendance_open" ||
+      gate.fix === "attendance_early"
+    ) {
       if (!canOpenAttendance) return null;
       return (
         <button

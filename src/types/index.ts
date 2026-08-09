@@ -697,6 +697,11 @@ export interface Attendance {
   auto_clock_out_confirmed_at?: string | null;
   /** 확인자 UUID — 서버가 이름은 주지 않으므로 UI 에서 store users 로 resolve. */
   auto_clock_out_confirmed_by?: string | null;
+  /** 조기 출근 강행 확인 시각 — 'early_clock_in_override' anomaly 인데 null 이면
+   *  "needs confirmation" (payroll 확정도 이 값이 채워질 때까지 막힌다). */
+  early_clock_in_confirmed_at?: string | null;
+  /** 확인자 UUID. */
+  early_clock_in_confirmed_by?: string | null;
 }
 
 /** 근태 수정 이력 응답 타입.
