@@ -316,13 +316,20 @@ export const useUpdateBreakSession = (): UseMutationResult<
 export const useDeleteBreakSession = (): UseMutationResult<
   void,
   Error,
-  { attendanceId: string; breakId: string }
+  { attendanceId: string; breakId: string; reason?: string }
 > => {
   const queryClient: QueryClient = useQueryClient();
   const { success, error } = useMutationResult();
-  return useMutation<void, Error, { attendanceId: string; breakId: string }>({
-    mutationFn: async ({ attendanceId, breakId }) => {
-      await api.delete(`/console/attendances/${attendanceId}/breaks/${breakId}`);
+  return useMutation<
+    void,
+    Error,
+    { attendanceId: string; breakId: string; reason?: string }
+  >({
+    mutationFn: async ({ attendanceId, breakId, reason }) => {
+      // DELETE 는 body 를 안 쓰므로 사유는 query 로 (서버 계약과 일치).
+      await api.delete(`/console/attendances/${attendanceId}/breaks/${breakId}`, {
+        params: reason ? { reason } : undefined,
+      });
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["attendances"] });

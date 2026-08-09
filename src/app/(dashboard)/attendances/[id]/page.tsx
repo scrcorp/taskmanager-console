@@ -44,7 +44,11 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@/lib/permissions";
 import { useAuthStore } from "@/stores/authStore";
 import { useTimezone } from "@/hooks/useTimezone";
-import type { Attendance, AttendanceBreakItem } from "@/types";
+import type {
+  Attendance,
+  AttendanceBreakItem,
+  AttendanceCorrection,
+} from "@/types";
 import {
   Button,
   Card,
@@ -419,21 +423,63 @@ function AutoClockoutBanner({
 
 // ─── Activity history ──────────────────────────────────────────────────────
 
-interface ActivityEntry {
-  before?: string | null;
+/** 카드 안의 한 줄 = 한 항목의 전이. */
+interface ActivityLine {
+  label: string;
+  before: string;
   after: string;
-  label?: string;
 }
 
 interface ActivityGroup {
+  /** reason 인라인 편집이 대상으로 삼는 correction row id (그룹 대표). */
   id: string;
+  /** 카드 태그 (server action, 레거시 행은 field_name). */
   tag: string;
+  /** break 세션 액션이면 어느 세션인지 (예: "Break 2:00 PM"). */
+  subject: string | null;
   actor: string;
   createdAt: string;
-  entries: ActivityEntry[];
+  lines: ActivityLine[];
   reason: string;
 }
 
+/** status 를 병기할 주 항목 우선순위. 앞에 있는 게 카드의 첫 줄이 된다. */
+const PRIMARY_FIELD_ORDER = [
+  "clock_in",
+  "clock_out",
+  "break_start_at",
+  "break_end_at",
+  "note",
+  "break_type",
+];
+
+const FIELD_LABELS: Record<string, string> = {
+  status: "Status",
+  clock_in: "Clock-in",
+  clock_out: "Clock-out",
+  note: "Note",
+  break_start_at: "Break start",
+  break_end_at: "Break end",
+  break_type: "Break type",
+  // 레거시 행 — field_name 에 액션 이름이 들어가던 시절. raw 값이 화면에 새지 않게 매핑.
+  break_start: "Break start",
+  break_end: "Break end",
+  auto_clock_out: "Clock-out",
+  no_show: "Status",
+  cancel: "Status",
+  reopen: "Status",
+  modify: "Change",
+};
+
+/**
+ * correction 행들을 카드 단위(ActivityGroup)로 묶는다.
+ *
+ * 서버가 group_id 를 주면 그걸로 묶고, 없으면(레거시 행) 예전처럼
+ * "같은 actor + 같은 태그 + 2초 이내" 휴리스틱으로 fallback 한다.
+ *
+ * 표시 규약: 한 항목당 한 줄. 같은 액션에서 status 와 값이 함께 바뀌었으면
+ * 줄을 나누지 않고 주 항목 줄에 `상태 (값)` 으로 괄호 병기한다.
+ */
 function useCorrectionGroups(
   attendance: Attendance | undefined,
   tz: string | undefined,
@@ -444,37 +490,171 @@ function useCorrectionGroups(
     const sorted = [...corrections].sort((a, b) =>
       a.created_at < b.created_at ? 1 : -1,
     );
-    const groups: ActivityGroup[] = [];
+
+    // 1) 행 → 버킷
+    const buckets: AttendanceCorrection[][] = [];
     for (const c of sorted) {
-      const last = groups[groups.length - 1];
-      const sameBucket =
-        last !== undefined &&
-        last.tag === c.field_name &&
-        last.actor === (c.corrected_by_name || "Unknown") &&
-        Math.abs(
-          new Date(last.createdAt).getTime() - new Date(c.created_at).getTime(),
-        ) < 2000;
-      const entry: ActivityEntry = {
-        before: humanizeValue(c.original_value, tz),
-        after: humanizeValue(c.corrected_value, tz),
-        label: undefined,
-      };
-      if (sameBucket) {
-        last!.entries.push(entry);
-        if (last!.reason === "(no reason)" && c.reason) last!.reason = c.reason;
+      const last = buckets[buckets.length - 1];
+      const lastRow = last?.[0];
+      const sameGroup =
+        lastRow !== undefined &&
+        (c.group_id !== null && lastRow.group_id !== null
+          ? c.group_id === lastRow.group_id
+          : // 레거시 fallback — group_id 가 없던 시절 행들
+            lastRow.group_id === null &&
+            c.group_id === null &&
+            lastRow.field_name === c.field_name &&
+            (lastRow.corrected_by_name || "") === (c.corrected_by_name || "") &&
+            Math.abs(
+              new Date(lastRow.created_at).getTime() -
+                new Date(c.created_at).getTime(),
+            ) < 2000);
+      if (sameGroup) last!.push(c);
+      else buckets.push([c]);
+    }
+
+    // 2) 버킷 → 카드
+    return buckets.map((rows) => {
+      const head = rows[0];
+      const statusRow = rows.find((r) => r.field_name === "status");
+      const valueRows = rows.filter((r) => r.field_name !== "status");
+      valueRows.sort(
+        (a, b) =>
+          indexOrLast(PRIMARY_FIELD_ORDER, a.field_name) -
+          indexOrLast(PRIMARY_FIELD_ORDER, b.field_name),
+      );
+
+      const lines: ActivityLine[] = [];
+      if (valueRows.length === 0) {
+        // 상태만 바뀐 액션 — 상태 전이 자체가 그 줄이다.
+        if (statusRow) {
+          lines.push({
+            label: FIELD_LABELS.status,
+            before: formatValue(statusRow.original_value, tz),
+            after: formatValue(statusRow.corrected_value, tz),
+          });
+        }
       } else {
-        groups.push({
-          id: c.id,
-          tag: c.field_name,
-          actor: c.corrected_by_name || "Unknown",
-          createdAt: c.created_at,
-          entries: [entry],
-          reason: c.reason ?? "(no reason)",
+        valueRows.forEach((r, idx) => {
+          const merge = idx === 0 && statusRow !== undefined;
+          const value = {
+            before: formatValue(r.original_value, tz),
+            after: formatValue(r.corrected_value, tz),
+          };
+          lines.push({
+            label: fieldLabel(r.field_name),
+            before: merge
+              ? `${formatValue(statusRow!.original_value, tz)} (${value.before})`
+              : value.before,
+            after: merge
+              ? `${formatValue(statusRow!.corrected_value, tz)} (${value.after})`
+              : value.after,
+          });
         });
       }
-    }
-    return groups;
+
+      return {
+        id: head.id,
+        tag: head.action ?? head.field_name,
+        subject: breakSubject(rows, attendance, tz),
+        actor: head.corrected_by_name || "Unknown",
+        createdAt: head.created_at,
+        lines,
+        reason: rows.find((r) => r.reason)?.reason ?? "(no reason)",
+      };
+    });
   }, [attendance, tz]);
+}
+
+function indexOrLast(order: string[], value: string): number {
+  const i = order.indexOf(value);
+  return i === -1 ? order.length : i;
+}
+
+function fieldLabel(fieldName: string): string {
+  return FIELD_LABELS[fieldName] ?? fieldName;
+}
+
+/**
+ * break 세션 액션이면 "어느 세션인지" 사람이 읽는 라벨을 만든다.
+ * 주 식별은 휴식 시작시각. 시각을 못 찾을 때만 id 앞 6자로 떨어진다
+ * (UUID 전체를 화면에 노출하지 않는다).
+ */
+function breakSubject(
+  rows: AttendanceCorrection[],
+  attendance: Attendance | undefined,
+  tz: string | undefined,
+): string | null {
+  const breakRow = rows.find((r) => r.target_type === "break" && r.target_id);
+  if (!breakRow?.target_id) return null;
+
+  const startRow = rows.find((r) => r.field_name === "break_start_at");
+  const rawStart =
+    pickReal(startRow?.corrected_value) ?? pickReal(startRow?.original_value);
+  if (rawStart) return `Break ${formatTimeOnly(rawStart, tz)}`;
+
+  const session = attendance?.breaks?.find((b) => b.id === breakRow.target_id);
+  if (session) return `Break ${formatTimeOnly(session.started_at, tz)}`;
+
+  return `Break #${breakRow.target_id.slice(0, 6)}`;
+}
+
+/** 센티널이 아닌 실제 값만 통과. */
+function pickReal(raw: string | null | undefined): string | null {
+  if (!raw) return null;
+  const v = raw.trim();
+  if (!v || v === "(none)" || v === "(empty)") return null;
+  return v;
+}
+
+const STATUS_LABELS: Record<string, string> = {
+  upcoming: "Upcoming",
+  soon: "Soon",
+  working: "Working",
+  on_break: "On break",
+  late: "Late",
+  clocked_out: "Clocked out",
+  no_show: "No show",
+  cancelled: "Cancelled",
+};
+
+const BREAK_TYPE_LABELS: Record<string, string> = {
+  paid_10min: "Paid 10min",
+  unpaid_meal: "Unpaid meal",
+  paid_short: "Paid 10min",
+  unpaid_long: "Unpaid meal",
+};
+
+/**
+ * 이력 값 → 화면 문자열.
+ *
+ * "값이 없었다"는 상태도 값이다 — `-` 로 얼버무리지 않고 "Not set" 으로 쓴다.
+ * null 은 이 규약 도입 이전 레거시 행에서만 나오며, 마찬가지로 "Not set".
+ */
+function formatValue(raw: string | null | undefined, tz?: string): string {
+  if (raw === null || raw === undefined) return "Not set";
+  const v = raw.trim();
+  if (!v || v === "(none)" || v === "(cleared)") return "Not set";
+  if (v === "(empty)") return "(empty)";
+  if (v === "(set)") return "Set";
+  if (v === "ended") return "Ended"; // 레거시 break_end 행
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v)) return formatTimeOnly(v, tz);
+  return STATUS_LABELS[v] ?? BREAK_TYPE_LABELS[v] ?? v;
+}
+
+function formatTimeOnly(iso: string, tz?: string): string {
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+    }).format(new Date(iso));
+  } catch {
+    return iso;
+  }
 }
 
 function activityTagInfo(tag: string): { label: string; cls: string } {
@@ -487,6 +667,18 @@ function activityTagInfo(tag: string): { label: string; cls: string } {
       return { label: "Break start", cls: "bg-warning-muted text-warning" };
     case "break_end":
       return { label: "Break end", cls: "bg-success-muted text-success" };
+    case "break_added":
+      return { label: "Break added", cls: "bg-warning-muted text-warning" };
+    case "break_updated":
+      return { label: "Break edited", cls: "bg-accent-muted text-accent" };
+    case "break_removed":
+      return { label: "Break removed", cls: "bg-danger-muted text-danger" };
+    case "no_show":
+      return { label: "No show", cls: "bg-danger-muted text-danger" };
+    case "cancel":
+      return { label: "Cancelled", cls: "bg-danger-muted text-danger" };
+    case "reopen":
+      return { label: "Reopened", cls: "bg-accent-muted text-accent" };
     case "modify":
     case "status":
       return { label: "Modify", cls: "bg-accent-muted text-accent" };
@@ -497,40 +689,6 @@ function activityTagInfo(tag: string): { label: string; cls: string } {
     default:
       return { label: tag, cls: "bg-surface-hover text-text-secondary" };
   }
-}
-
-function humanizeValue(raw: string | null | undefined, tz?: string): string {
-  if (raw === null || raw === undefined) return "—";
-  const v = raw.trim();
-  if (!v || v === "(none)" || v === "(empty)") return "—";
-  if (v === "(cleared)") return "Cleared";
-  if (v === "(set)") return "Set";
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v)) {
-    try {
-      const d = new Date(v);
-      return new Intl.DateTimeFormat("en-US", {
-        timeZone: tz,
-        month: "short",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-        hour12: true,
-      }).format(d);
-    } catch {
-      return v;
-    }
-  }
-  const statusLabels: Record<string, string> = {
-    upcoming: "Upcoming",
-    soon: "Soon",
-    working: "Working",
-    on_break: "On break",
-    late: "Late",
-    clocked_out: "Clocked out",
-    no_show: "No show",
-    cancelled: "Cancelled",
-  };
-  return statusLabels[v] ?? v;
 }
 
 interface CorrectionGroupCardProps {
@@ -581,6 +739,9 @@ function CorrectionGroupCard({
           >
             {tag.label}
           </span>
+          {group.subject && (
+            <span className="text-xs text-text-secondary">{group.subject}</span>
+          )}
           <span className="text-xs text-text-muted">by {group.actor}</span>
         </div>
         <span
@@ -590,30 +751,22 @@ function CorrectionGroupCard({
           {timeAgo(group.createdAt)}
         </span>
       </div>
-      {group.entries.map((e, idx) => (
-        <div key={idx} className={idx > 0 ? "mt-2 pt-2 border-t border-border" : ""}>
-          {e.before !== null && e.before !== undefined ? (
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <div className="text-xs text-text-muted">Before</div>
-                <div className="text-text-secondary">{e.before}</div>
-              </div>
-              <div>
-                <div className="text-xs text-text-muted">After</div>
-                <div className="text-text">{e.after}</div>
-              </div>
-            </div>
-          ) : (
-            <div className="text-sm">
-              <span className="text-xs text-text-muted">Set: </span>
-              <span className="text-text">{e.after}</span>
-            </div>
-          )}
-          {e.label && (
-            <div className="text-xs text-text-muted mt-1">{e.label}</div>
-          )}
-        </div>
-      ))}
+      {/* 변경된 항목마다 한 줄. before 는 늘 채워져 있다 (없었으면 "Not set"). */}
+      <div className="space-y-1">
+        {group.lines.map((line, idx) => (
+          <div
+            key={idx}
+            className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm"
+          >
+            <span className="text-xs text-text-muted min-w-[5.5rem]">
+              {line.label}
+            </span>
+            <span className="text-text-secondary">{line.before}</span>
+            <span className="text-text-muted">→</span>
+            <span className="text-text font-medium">{line.after}</span>
+          </div>
+        ))}
+      </div>
       <div className="mt-2">
         <div className="flex items-center justify-between gap-2">
           <div className="text-xs text-text-muted">Reason</div>
@@ -715,6 +868,9 @@ function BreakSessionsEditor({
   const [draftEnd, setDraftEnd] = useState<string>("");
   const [draftType, setDraftType] = useState<BreakType>("paid_10min");
   const [editingRowId, setEditingRowId] = useState<string | null>(null);
+  // 휴식 변경 사유 — 선택 입력. 이 블록의 add/edit/delete 에 함께 실려 이력에 남는다.
+  // 비우면 서버가 "(no reason)" 으로 기록한다 (출퇴근 정정과 달리 필수 아님).
+  const [breakReason, setBreakReason] = useState<string>("");
 
   const resetAddForm = (): void => {
     setShowAddForm(false);
@@ -741,6 +897,7 @@ function BreakSessionsEditor({
           started_at: startedIso,
           ended_at: endedIso,
           break_type: draftType,
+          reason: breakReason.trim() || null,
         },
       });
       resetAddForm();
@@ -758,7 +915,11 @@ function BreakSessionsEditor({
     });
     if (!ok) return;
     try {
-      await deleteBreak.mutateAsync({ attendanceId, breakId });
+      await deleteBreak.mutateAsync({
+        attendanceId,
+        breakId,
+        reason: breakReason.trim() || undefined,
+      });
     } catch {
       // hook 자동 모달
     }
@@ -777,6 +938,7 @@ function BreakSessionsEditor({
           ended_at: patch.ended_at === undefined ? null : patch.ended_at,
           break_type: patch.break_type ?? null,
           clear_ended_at: patch.ended_at === null,
+          reason: breakReason.trim() || null,
         },
       });
       setEditingRowId(null);
@@ -809,6 +971,17 @@ function BreakSessionsEditor({
       <div className="text-xs text-text-muted mb-2 flex items-center gap-1">
         <Coffee size={12} className="inline" />
         Break Sessions
+      </div>
+
+      {/* 사유는 선택 — 채워두면 이 블록의 추가/수정/삭제 이력에 함께 남는다. */}
+      <div className="mb-3 max-w-md">
+        <ReasonPicker
+          label="Reason for break changes (optional)"
+          value={breakReason}
+          onChange={setBreakReason}
+          placeholder="No reason"
+          hint="Saved with the break change in Activity History."
+        />
       </div>
 
       <div className="space-y-1.5">
