@@ -697,13 +697,31 @@ export interface Attendance {
   auto_clock_out_confirmed_at?: string | null;
   /** 확인자 UUID — 서버가 이름은 주지 않으므로 UI 에서 store users 로 resolve. */
   auto_clock_out_confirmed_by?: string | null;
+  /** 조기 출근 강행 확인 시각 — 'early_clock_in_override' anomaly 인데 null 이면
+   *  "needs confirmation" (payroll 확정도 이 값이 채워질 때까지 막힌다). */
+  early_clock_in_confirmed_at?: string | null;
+  /** 확인자 UUID. */
+  early_clock_in_confirmed_by?: string | null;
 }
 
 /** 근태 수정 이력 응답 타입.
  *  Attendance correction audit trail response type. */
 export interface AttendanceCorrection {
   id: string;
+  /** 한 사용자 액션이 만든 행들을 한 카드로 묶는 키.
+   *  null = 이 필드 도입 이전 레거시 행 → 시간 근접 휴리스틱으로 fallback. */
+  group_id: string | null;
+  /** 카드 태그 — 무엇을 했나 (clock_in / modify / break_added …).
+   *  null = 레거시 행 → field_name 으로 fallback. */
+  action: string | null;
+  /** 전이 대상 항목 — 무엇이 바뀌었나 (status / clock_in / break_type …). */
   field_name: string;
+  /** "attendance" | "break". null = 레거시(= attendance). */
+  target_type: string | null;
+  /** 하위 엔터티 식별자 (break 세션 id). 본체 전이면 null. */
+  target_id: string | null;
+  /** 전이 전 값. 신규 행은 항상 채워짐 — 비어 있던 값은 "(none)"/"(empty)" 센티널.
+   *  null 은 레거시 행에서만 나온다. */
   original_value: string | null;
   corrected_value: string;
   reason: string | null;
@@ -775,6 +793,8 @@ export interface BreakSessionCreateRequest {
   started_at: string; // ISO
   ended_at?: string | null;
   break_type: "paid_10min" | "unpaid_meal";
+  /** 선택 사유 — preset 또는 free text. 비면 이력에 "(no reason)" 으로 남는다. */
+  reason?: string | null;
 }
 
 /** Break session 수정 요청 타입. None 인 필드는 변경하지 않음. */
@@ -783,6 +803,8 @@ export interface BreakSessionUpdateRequest {
   ended_at?: string | null;
   break_type?: "paid_10min" | "unpaid_meal" | null;
   clear_ended_at?: boolean;
+  /** 선택 사유 — BreakSessionCreateRequest 와 동일 규칙. */
+  reason?: string | null;
 }
 
 // Evaluation (v1) — canonical types live in ./evaluation, re-exported below.

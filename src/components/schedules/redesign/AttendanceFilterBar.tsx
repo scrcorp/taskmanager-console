@@ -51,6 +51,9 @@ export function isUnconfirmedAutoClockOut(
   return (anomalies?.includes("auto_clocked_out") ?? false) && !confirmedAt;
 }
 
+// 조기 출근 강행 미확인 판정은 순수 모듈에 있다 (테스트가 컴포넌트를 안 끌고 오게).
+export { isUnconfirmedEarlyClockIn } from "./attendanceConfirm";
+
 const ALL_ROLES = [
   { id: "owner", label: "Owner" },
   { id: "gm", label: "GM" },
