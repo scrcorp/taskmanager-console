@@ -242,6 +242,68 @@ export const useConfirmAutoClockout = (): UseMutationResult<
 };
 
 /**
+ * 조기 출근 강행 확인 훅.
+ *
+ * Confirm an early clock-in override (payroll close gate basis).
+ * 자동퇴근 확인과 동일한 계약 — optimistic 갱신 + 실패 시 롤백, 서버는 멱등.
+ */
+export const useConfirmEarlyClockIn = (): UseMutationResult<
+  Attendance,
+  Error,
+  { attendanceId: string; confirmedBy?: string },
+  { previous: Array<[readonly unknown[], unknown]> }
+> => {
+  const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
+  return useMutation<
+    Attendance,
+    Error,
+    { attendanceId: string; confirmedBy?: string },
+    { previous: Array<[readonly unknown[], unknown]> }
+  >({
+    mutationFn: async ({ attendanceId }): Promise<Attendance> => {
+      const res: AxiosResponse<Attendance> = await api.post(
+        `/console/attendances/${attendanceId}/confirm-early-clockin`,
+      );
+      return res.data;
+    },
+    onMutate: async ({ attendanceId, confirmedBy }) => {
+      await queryClient.cancelQueries({ queryKey: ["attendances"] });
+      const previous = queryClient.getQueriesData({ queryKey: ["attendances"] });
+      queryClient.setQueriesData<PaginatedResponse<Attendance> | Attendance>(
+        { queryKey: ["attendances"] },
+        (data) =>
+          patchAttendanceInCache(data, attendanceId, {
+            early_clock_in_confirmed_at: new Date().toISOString(),
+            early_clock_in_confirmed_by: confirmedBy ?? null,
+          }) as PaginatedResponse<Attendance> | Attendance,
+      );
+      return { previous };
+    },
+    onError: (err, _variables, context) => {
+      context?.previous.forEach(([key, data]) => {
+        queryClient.setQueryData(key as readonly unknown[], data);
+      });
+      error("Couldn't confirm early clock-in")(err);
+    },
+    onSuccess: (updated, variables) => {
+      queryClient.setQueriesData<PaginatedResponse<Attendance> | Attendance>(
+        { queryKey: ["attendances"] },
+        (data) =>
+          patchAttendanceInCache(data, variables.attendanceId, {
+            early_clock_in_confirmed_at: updated.early_clock_in_confirmed_at,
+            early_clock_in_confirmed_by: updated.early_clock_in_confirmed_by,
+          }) as PaginatedResponse<Attendance> | Attendance,
+      );
+      success("Early clock-in confirmed.");
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["attendances"] });
+    },
+  });
+};
+
+/**
  * Break 세션 추가 훅. 성공 시 attendance 쿼리 invalidate.
  * Add a new break session via admin correction. Invalidates attendance queries on success.
  */
