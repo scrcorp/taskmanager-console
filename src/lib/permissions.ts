@@ -196,6 +196,17 @@ export const PAGE_PERMISSIONS: Record<string, string> = {
   "/pay/tips": PERMISSIONS.TIPS_READ,
   "/pay/payroll": PERMISSIONS.PAYROLL_READ,
 };
+/**
+ * 경로에 필요한 permission 코드를 찾는다 (없으면 undefined = 인증만 필요).
+ * 가장 긴 매칭 우선 — `/schedules/settings` 가 `/schedules` 보다 먼저 잡힌다.
+ */
+export function resolvePagePermission(pathname: string): string | undefined {
+  const matched = Object.keys(PAGE_PERMISSIONS)
+    .filter((p) => pathname === p || pathname.startsWith(`${p}/`))
+    .sort((a, b) => b.length - a.length);
+  return matched.length > 0 ? PAGE_PERMISSIONS[matched[0]] : undefined;
+}
+
 // Note: /settings (General) has no permission gate — password change must remain accessible.
 // SV/Staff are hidden from the Settings menu via MENU_PERMISSIONS instead.
 

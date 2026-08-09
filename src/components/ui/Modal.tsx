@@ -84,7 +84,10 @@ export function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end md:items-center md:justify-center bg-black/60"
+      // h-viewport(100dvh): inset-0 은 모바일 브라우저 툴바가 보일 때도 "툴바 숨김 기준" 높이라,
+      // items-end 로 붙인 시트 하단(=주요 액션 버튼)이 하단바 뒤로 들어간다.
+      // MobileSidebar 오버레이와 같은 방식. 데스크탑은 md:items-center 라 결과가 동일하다.
+      className="fixed inset-x-0 top-0 z-50 h-viewport flex items-end md:items-center md:justify-center bg-black/60"
       onClick={handleBackdropClick}
     >
       <div
@@ -110,7 +113,10 @@ export function Modal({
             </button>
           </div>
         )}
-        <div className="px-4 md:px-6 py-4 flex-1 overflow-auto">{children}</div>
+        {/* pb: iOS 홈 인디케이터 영역만큼 아래 여백 — 마지막 버튼이 인디케이터에 겹치지 않게 */}
+        <div className="px-4 md:px-6 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] md:pb-4 flex-1 overflow-auto overscroll-contain">
+          {children}
+        </div>
         {footer && (
           <div className="shrink-0 border-t border-border bg-card px-4 md:px-6 py-3">{footer}</div>
         )}

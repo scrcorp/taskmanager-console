@@ -19,6 +19,8 @@ const envPrefix = env === 'production' ? ''
 export const metadata: Metadata = {
   title: `${envPrefix}HTM Admin`,
   description: "Employee Management Admin Console",
+  // 홈화면 추가용 — scope/start_url 이 /c 라 설치하면 간소화 콘솔이 뜬다 (서비스워커 없음)
+  manifest: "/manifest.json",
   icons: {
     icon: "/favicon.ico",
     apple: "/apple-icon.png",

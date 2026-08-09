@@ -1,0 +1,18 @@
+{
+  "name": "HTM Compact",
+  "short_name": "HTM",
+  "description": "Compact console for schedules and attendance",
+  "start_url": "/c",
+  "scope": "/c",
+  "display": "standalone",
+  "background_color": "#0F1117",
+  "theme_color": "#0F1117",
+  "icons": [
+    {
+      "src": "/taskmanager_icon.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any"
+    }
+  ]
+}

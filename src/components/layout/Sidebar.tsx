@@ -36,6 +36,7 @@ import {
   Coins,
   Banknote,
   Sparkles,
+  Smartphone,
 } from "lucide-react";
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useAuthStore } from "@/stores/authStore";
@@ -45,6 +46,7 @@ import { useBodyScrollLock } from "@/hooks/useBodyScrollLock";
 import { useTimezone } from "@/hooks/useTimezone";
 import { cn, todayInTimezone } from "@/lib/utils";
 import { ROLE_PRIORITY, MENU_PERMISSIONS } from "@/lib/permissions";
+import { COMPACT_BASE_PATH } from "@/lib/compact";
 import { ThemeToggle } from "./ThemeToggle";
 
 interface NavChild {
@@ -359,6 +361,18 @@ export function Sidebar({ onNavClick }: { onNavClick?: () => void }) {
 
       {/* 구분선 (Separator) */}
       <div className="mx-5 my-2 h-px bg-border" />
+
+      {/* 간소화(compact) 콘솔 전환 — 자동 리다이렉트/배너 없이 여기서만 진입 */}
+      <div className="px-3 pb-1">
+        <Link
+          href={COMPACT_BASE_PATH}
+          onClick={onNavClick}
+          className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium text-text-secondary transition-colors hover:text-accent"
+        >
+          <Smartphone size={18} />
+          <span>Compact view</span>
+        </Link>
+      </div>
 
       {/* 사용자 정보 (User profile) */}
       <div className="px-4 pb-5 flex items-center gap-3">
