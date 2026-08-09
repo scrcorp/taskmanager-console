@@ -94,6 +94,7 @@ export {
   useAttendance,
   useCorrectAttendance,
   useConfirmAutoClockout,
+  useConfirmEarlyClockIn,
   useUpdateCorrectionReason,
   useAddBreakSession,
   useUpdateBreakSession,

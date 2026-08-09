@@ -480,3 +480,26 @@ export function parseApiError(error: unknown, fallback: string): string {
   }
   return fallback;
 }
+
+/** 분 경계로 절삭한 epoch ms 반환 (초·밀리초 버림).
+ *
+ * 기록은 초까지 보존하되 표시·계산은 분 단위로만 한다는 규칙(R1/R2)의 기반.
+ * 표시가 `HH:MM`(초 버림)이므로 계산도 같은 절삭을 거쳐야 화면 시각끼리의
+ * 뺄셈과 지표가 항상 일치한다.
+ */
+export function floorToMinute(ms: number): number {
+  return Math.floor(ms / 60000) * 60000;
+}
+
+/** 두 시각 사이의 분 — 각각 분 절삭한 뒤 차이 (R2).
+ *
+ * `Math.round(diff/60000)` / `Math.floor(diff/60000)`(차이를 내림)와 다르다:
+ * 22:26:50 → 22:57:20 은 차이 내림이면 30분이지만 화면엔 `22:26 – 22:57`로
+ * 보이므로 31분이어야 맞다.
+ *
+ * 유한하지 않은 값이면 null. 음수는 그대로 반환하므로 하한이 필요하면 호출 측에서 처리.
+ */
+export function minutesBetween(startMs: number, endMs: number): number | null {
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs)) return null;
+  return (floorToMinute(endMs) - floorToMinute(startMs)) / 60000;
+}

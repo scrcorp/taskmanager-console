@@ -2,12 +2,12 @@
 
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
-import { useAttendances, useConfirmAutoClockout } from '@/hooks/useAttendances'
+import { useAttendances, useConfirmAutoClockout, useConfirmEarlyClockIn } from '@/hooks/useAttendances'
 import { useStores } from '@/hooks/useStores'
 import { useUsers } from '@/hooks/useUsers'
 import { useAuthStore } from '@/stores/authStore'
 import { usePersistedFilters } from '@/hooks/usePersistedFilters'
-import { formatDateTime, todayInTimezone } from '@/lib/utils'
+import { formatDateTime, minutesBetween, todayInTimezone } from '@/lib/utils'
 import { useMidnightRefresh } from '@/hooks/useMidnightRefresh'
 import type { AttendanceBreakItem } from '@/types'
 import { Check, Download } from 'lucide-react'
@@ -19,6 +19,7 @@ import {
   AttendanceFilterBar,
   EMPTY_ATTENDANCE_FILTERS,
   isUnconfirmedAutoClockOut,
+  isUnconfirmedEarlyClockIn,
   matchesStatusFilter,
   rolePriorityToBadgeId,
   type AttendanceUiFilters,
@@ -134,6 +135,7 @@ function WorkCell({ netMin, totalMin }: { netMin: number | null; totalMin: numbe
 }
 
 /** 진행 중 attendance 의 실시간 work minutes 계산.
+ *  모든 분 계산은 분 절삭 후 차이(R2) — 퇴근 확정 시 서버 값과 어긋나지 않는다.
  *  반환: { netMin, totalMin } — 둘 다 null 이면 표시 대상 아님 (아직 clock in 전).
  *  로직:
  *    elapsed_total = now - clock_in
@@ -158,7 +160,7 @@ function computeLiveWorkMinutes(
   if (!clockInIso) return null
   const clockInMs = new Date(clockInIso).getTime()
   if (!Number.isFinite(clockInMs)) return null
-  const elapsedTotal = Math.max(0, Math.round((nowMs - clockInMs) / 60000))
+  const elapsedTotal = Math.max(0, minutesBetween(clockInMs, nowMs) ?? 0)
 
   let completedUnpaid = 0
   let completedPaid = 0
@@ -184,7 +186,7 @@ function computeLiveWorkMinutes(
   if (openBreak) {
     const startMs = new Date(openBreak.started_at).getTime()
     if (Number.isFinite(startMs)) {
-      const openElapsed = Math.max(0, Math.round((nowMs - startMs) / 60000))
+      const openElapsed = Math.max(0, minutesBetween(startMs, nowMs) ?? 0)
       if (UNPAID_BREAK_VALUES.has(openBreak.break_type)) {
         openDeduct = openElapsed
       } else if (PAID_BREAK_VALUES.has(openBreak.break_type)) {
@@ -262,7 +264,7 @@ function BreakCell({ items, tone, nowMs }: { items: AttendanceBreakItem[]; tone:
         }
         // 진행 중 — started_at 부터 now 까지 분 (경과 분 계산은 UTC ISO 로만 가능)
         const startMs = new Date(b.started_at).getTime()
-        const elapsed = Number.isFinite(startMs) ? Math.max(0, Math.round((nowMs - startMs) / 60000)) : 0
+        const elapsed = Math.max(0, minutesBetween(startMs, nowMs) ?? 0)
         return (
           <span key={b.id} className="tabular-nums text-[12px]">
             {start} – --:-- <span className="text-[var(--color-text-muted)]">({elapsed}m)</span>
@@ -273,14 +275,15 @@ function BreakCell({ items, tone, nowMs }: { items: AttendanceBreakItem[]; tone:
   )
 }
 
-/** late anomaly 분 계산 — clock_in - scheduled_start (반올림, 최소 1분). */
+/** late anomaly 분 계산 — clock_in - scheduled_start.
+ *  분 절삭 후 차이(R2) — 표시되는 HH:MM 끼리의 뺄셈과 항상 일치한다. */
 function computeLateMinutes(clockInIso?: string | null, scheduledIso?: string | null): number | null {
   if (!clockInIso || !scheduledIso) return null
   const a = new Date(clockInIso).getTime()
   const s = new Date(scheduledIso).getTime()
   if (!Number.isFinite(a) || !Number.isFinite(s)) return null
-  const diff = Math.round((a - s) / 60000)
-  return diff > 0 ? diff : null
+  const diff = minutesBetween(s, a)
+  return diff !== null && diff > 0 ? diff : null
 }
 
 export function AttendancePage() {
@@ -289,6 +292,7 @@ export function AttendancePage() {
   const canConfirmAutoOut = hasPermission(PERMISSIONS.SCHEDULES_UPDATE)
   const currentUserId = useAuthStore((s) => s.user?.id)
   const confirmAutoOut = useConfirmAutoClockout()
+  const confirmEarlyIn = useConfirmEarlyClockIn()
   // 매장/조직 timezone 기준 오늘 + 자정 자동 갱신.
   const orgTimezone = useAuthStore((s) => s.user?.organization_timezone) ?? undefined
   const today = useMidnightRefresh(
@@ -722,9 +726,60 @@ export function AttendancePage() {
                             </span>
                           )
                         }
+                        // 조기 출근 강행 — 미확인이면 확인 버튼, 확인됐으면 subtle 이력.
+                        // 예정 밖 시간이 급여에 들어가므로 payroll 확정이 이 확인을 요구한다.
+                        if (a === 'early_clock_in_override') {
+                          const unconfirmed = isUnconfirmedEarlyClockIn(att.anomalies, att.early_clock_in_confirmed_at)
+                          if (unconfirmed) {
+                            const isConfirming =
+                              confirmEarlyIn.isPending &&
+                              confirmEarlyIn.variables?.attendanceId === att.id
+                            return (
+                              <span key={a} className="inline-flex items-center gap-1">
+                                <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[var(--color-danger-muted)] text-[var(--color-danger)]">
+                                  Early clock-in — needs confirmation
+                                </span>
+                                {canConfirmAutoOut && (
+                                  <button
+                                    type="button"
+                                    disabled={isConfirming}
+                                    onClick={(e) => {
+                                      e.stopPropagation()
+                                      confirmEarlyIn.mutate({
+                                        attendanceId: att.id,
+                                        confirmedBy: currentUserId,
+                                      })
+                                    }}
+                                    title="Mark this early clock-in as reviewed. Payroll cannot be confirmed while any early clock-in is unreviewed."
+                                    className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-semibold border border-[var(--color-success)]/40 bg-[var(--color-success-muted)] text-[var(--color-success)] hover:brightness-110 disabled:opacity-60 transition-colors"
+                                  >
+                                    <Check className="w-3 h-3" />
+                                    {isConfirming ? 'Confirming…' : 'Confirm'}
+                                  </button>
+                                )}
+                              </span>
+                            )
+                          }
+                          const confirmerName = att.early_clock_in_confirmed_by
+                            ? userIdToName.get(att.early_clock_in_confirmed_by)
+                            : undefined
+                          const confirmedWhen = formatDateTime(att.early_clock_in_confirmed_at, orgTimezone)
+                          return (
+                            <span
+                              key={a}
+                              title={confirmerName
+                                ? `Confirmed by ${confirmerName} · ${confirmedWhen}`
+                                : `Confirmed · ${confirmedWhen}`}
+                              className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[var(--color-bg)] text-[var(--color-text-muted)] border border-[var(--color-border)]"
+                            >
+                              <Check className="w-3 h-3 text-[var(--color-success)]" />
+                              early clock-in
+                            </span>
+                          )
+                        }
                         const label = a === 'late' && lateMin !== null
                           ? `late (${lateMin}m)`
-                          : a.replace('_', ' ')
+                          : a.replace(/_/g, ' ')
                         return (
                           <span key={a} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[var(--color-danger-muted)] text-[var(--color-danger)]">
                             {label}
