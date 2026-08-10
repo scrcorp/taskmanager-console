@@ -1,10 +1,13 @@
 "use client";
 
 /**
- * 간소화 콘솔(compact) 셸 — 상단 헤더 + 하단 탭바.
+ * 간소화 콘솔(compact) 셸 — 상단 헤더 하나뿐.
  *
- * 데스크탑 (dashboard) 레이아웃과 인증/권한 가드는 동일하게 건다.
- * 다른 점은 배치뿐 — 사이드바 대신 하단 탭바, 매장 선택기는 헤더.
+ * 초기판엔 하단 탭바(Schedules / Attendance)가 있었는데, 탭을 옮길 때마다 URL 에서
+ * store/date 가 빠져 선택이 풀렸고 계획·실제를 맞춰보려면 화면을 오가야 했다.
+ * 화면을 하나로 합치면서 탭바를 없앴다 — 선택기가 하나뿐이라 풀릴 자리가 없다.
+ *
+ * 데스크탑 (dashboard) 레이아웃과 인증/권한 가드는 동일하게 건다. 다른 점은 배치뿐.
  */
 
 import { Suspense, useEffect, useState } from "react";
@@ -16,9 +19,7 @@ import { isAuthenticated } from "@/lib/auth";
 import { usePermissions } from "@/hooks/usePermissions";
 import { resolvePagePermission } from "@/lib/permissions";
 import { toDesktopPath } from "@/lib/compact";
-import { cn } from "@/lib/utils";
 import { CompactStoreSelector } from "@/components/compact/CompactStoreSelector";
-import { COMPACT_TABS } from "@/components/compact/tabs";
 
 function ForbiddenScreen(): React.ReactElement {
   return (
@@ -59,7 +60,8 @@ export default function CompactLayout({ children }: { children: React.ReactNode 
     else if (user.current_org_accessible === false) router.replace("/license-inactive");
   }, [user]);
 
-  // 권한 체크 — `/c` prefix 를 떼고 데스크탑과 같은 PAGE_PERMISSIONS 로 매칭
+  // 권한 체크 — `/c` prefix 를 떼고 데스크탑과 같은 PAGE_PERMISSIONS 로 매칭.
+  // 통합 화면은 스케줄이 본체이므로 `/c` → `/schedules` 로 본다.
   useEffect(() => {
     if (!user) {
       setForbidden(false);
@@ -82,11 +84,6 @@ export default function CompactLayout({ children }: { children: React.ReactNode 
     );
   }
 
-  const visibleTabs = COMPACT_TABS.filter((tab) => {
-    const required = resolvePagePermission(toDesktopPath(tab.href));
-    return !required || hasPermission(required);
-  });
-
   return (
     <div className="flex h-viewport flex-col overflow-hidden bg-bg">
       <header className="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-surface px-3">
@@ -103,32 +100,9 @@ export default function CompactLayout({ children }: { children: React.ReactNode 
         </Link>
       </header>
 
-      <main className="flex-1 overflow-auto overscroll-contain">
+      <main className="flex-1 overflow-hidden">
         <Suspense>{forbidden ? <ForbiddenScreen /> : children}</Suspense>
       </main>
-
-      <nav className="flex shrink-0 border-t border-border bg-surface">
-        {visibleTabs.map((tab) => {
-          const active = pathname.startsWith(tab.href);
-          const Icon = tab.icon;
-          return (
-            <Link
-              key={tab.href}
-              href={tab.href}
-              className={cn(
-                "flex flex-1 flex-col items-center justify-center gap-1 py-2 text-[11px] font-medium transition-colors",
-                // pb-safe: iOS 홈 인디케이터 영역만큼 아래 여백 확보
-                "pb-[max(0.5rem,env(safe-area-inset-bottom))]",
-                active ? "text-accent" : "text-text-secondary",
-              )}
-              aria-current={active ? "page" : undefined}
-            >
-              <Icon size={20} />
-              <span>{tab.label}</span>
-            </Link>
-          );
-        })}
-      </nav>
     </div>
   );
 }

@@ -1263,6 +1263,9 @@ export interface ScheduleUpdate {
   hourly_rate?: number | null;
   note?: string | null;
   force?: boolean;
+  /** 수정 사유 — schedule_audit_logs.reason 에 기록되어 History 에 노출된다.
+   *  선택 입력이지만 compact 편집 경로는 항상 채워 보낸다 (근태 정정과 기록 수준을 맞추려고). */
+  change_reason?: string | null;
   /** user_id/work_role_id 변경 시 체크리스트 처리:
    *   - undefined: 진행 중이면 400으로 거절됨 (프론트가 사용자 확인 후 재전송)
    *   - true: 진행 중이어도 강제 재생성
