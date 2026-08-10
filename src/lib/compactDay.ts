@@ -59,6 +59,36 @@ function isOnTheClock(status: string): boolean {
   return status === "working" || status === "on_break" || status === "late";
 }
 
+/**
+ * 근무가 이미 끝났어야 하는 시점인가.
+ *
+ * `now` 는 매장 시간대의 벽시계 "YYYY-MM-DDTHH:MM" — 스케줄 start_at/end_at 과 같은 축이라
+ * 문자열 비교로 그대로 잰다 (Date 로 파싱하면 브라우저 tz 가 끼어든다).
+ *
+ * 스케줄이 없는 워크인은 잴 종료 시각이 없으므로 영업일이 지났는지로 본다.
+ */
+function shiftEnded(schedule: Schedule | null, attendance: Attendance | null, now: string): boolean {
+  if (schedule) {
+    const end = schedule.end_at
+      ?? (schedule.end_time
+        ? `${endDateOf(schedule)}T${schedule.end_time.slice(0, 5)}`
+        : null);
+    if (end) return end.slice(0, 16) <= now;
+  }
+  const day = schedule?.operating_day ?? schedule?.work_date ?? attendance?.work_date;
+  return !!day && day < now.slice(0, 10);
+}
+
+/** end_at 이 없는 레거시 행의 종료 날짜 — 자정을 넘는 근무는 다음 날로 넘긴다. */
+function endDateOf(schedule: Schedule): string {
+  const base = schedule.work_date ?? schedule.operating_day ?? "";
+  const start = (schedule.start_time ?? "").slice(0, 5);
+  const end = (schedule.end_time ?? "").slice(0, 5);
+  if (!base || !start || !end || end > start) return base;
+  const [y, m, d] = base.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+}
+
 /** 스케줄이 살아있지 않은 상태 (취소/거절/삭제). */
 function isDeadSchedule(schedule: Schedule | null): boolean {
   if (!schedule) return false;
@@ -74,7 +104,11 @@ function isDeadSchedule(schedule: Schedule | null): boolean {
  *
  * 상태 배지와 같은 말을 반복하지 않는다 — 좁은 폭에서 정보량이 늘지 않으면서 자리만 먹는다.
  */
-export function rowIssues(schedule: Schedule | null, attendance: Attendance | null): string[] {
+export function rowIssues(
+  schedule: Schedule | null,
+  attendance: Attendance | null,
+  now: string,
+): string[] {
   if (!attendance) return [];
   if (attendance.status === "cancelled") return [];
 
@@ -85,7 +119,15 @@ export function rowIssues(schedule: Schedule | null, attendance: Attendance | nu
   }
   // 근무가 끝난 뒤에도 퇴근 기록이 없는 경우 — 자동퇴근이 돌기 전까지 방치되기 쉽다.
   // 아직 근무 중(late 포함)인 건은 정상이므로 세지 않는다.
-  if (attendance.clock_in && !attendance.clock_out && !isOnTheClock(attendance.status)) {
+  //
+  // 종료 시각 전이면 세지 않는다: 매니저가 Edit 으로 출근 시각만 보정하면 서버 상태는
+  // upcoming 그대로라(상태 불변 보정) 근무가 시작도 안 한 건에 "no clock-out" 이 붙는다.
+  if (
+    attendance.clock_in
+    && !attendance.clock_out
+    && !isOnTheClock(attendance.status)
+    && shiftEnded(schedule, attendance, now)
+  ) {
     issues.push("no clock-out");
   }
   if (
@@ -136,7 +178,12 @@ export function rowGroup(
  * 짝은 `attendance.schedule_id` 로 맞춘다. 스케줄 없는 근태(워크인)도 행으로 남긴다 —
  * 목록에서 빠지면 그날 매장에 있던 사람이 통째로 안 보인다.
  */
-export function buildDayRows(schedules: Schedule[], attendances: Attendance[]): DayRow[] {
+export function buildDayRows(
+  schedules: Schedule[],
+  attendances: Attendance[],
+  /** 매장 시간대의 지금 — 벽시계 "YYYY-MM-DDTHH:MM". 근무 종료 판정에 쓴다. */
+  now: string,
+): DayRow[] {
   const byScheduleId = new Map<string, Attendance>();
   const orphans: Attendance[] = [];
   for (const a of attendances) {
@@ -146,7 +193,7 @@ export function buildDayRows(schedules: Schedule[], attendances: Attendance[]): 
 
   const rows: DayRow[] = schedules.map((schedule) => {
     const attendance = byScheduleId.get(schedule.id) ?? null;
-    const issues = rowIssues(schedule, attendance);
+    const issues = rowIssues(schedule, attendance, now);
     return {
       key: schedule.id,
       schedule,
@@ -160,7 +207,7 @@ export function buildDayRows(schedules: Schedule[], attendances: Attendance[]): 
   });
 
   for (const attendance of orphans) {
-    const issues = rowIssues(null, attendance);
+    const issues = rowIssues(null, attendance, now);
     rows.push({
       key: attendance.id,
       schedule: null,
@@ -239,17 +286,7 @@ export function sectionsFor(rows: DayRow[], sort: DaySort): DaySection[] {
   })).filter((s) => s.rows.length > 0);
 }
 
-/** 필터 시트에 띄울 역할 목록 (중복 제거 + 사전순). */
+/** 필터 칩으로 띄울 역할 목록 (중복 제거 + 사전순). */
 export function availableRoles(rows: DayRow[]): string[] {
   return [...new Set(rows.map((r) => r.roleName).filter(Boolean))].sort();
-}
-
-/** 활성 필터 개수 — 툴바 배지용. */
-export function activeFilterCount(filters: DayFilters, sort: DaySort): number {
-  return (
-    (filters.issuesOnly ? 1 : 0)
-    + (filters.showCancelled ? 1 : 0)
-    + filters.roles.length
-    + (sort !== "default" ? 1 : 0)
-  );
 }

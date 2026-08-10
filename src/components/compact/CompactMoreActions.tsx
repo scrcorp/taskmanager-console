@@ -21,6 +21,7 @@ import { useDeleteScheduleFlow, useScheduleAuditLog } from "@/hooks/useSchedules
 import { usePermissions } from "@/hooks/usePermissions";
 import { useModal } from "@/components/ui/imperative-modal";
 import { PERMISSIONS } from "@/lib/permissions";
+import { historyStamp, historyValue } from "@/lib/compactHistory";
 import { cn } from "@/lib/utils";
 import type { Attendance, Schedule } from "@/types";
 
@@ -40,32 +41,17 @@ function humanize(value: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
-function shortTime(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-/** correction 의 저장값이 ISO datetime 이면 시:분만 보여준다. 센티널/코드값은 그대로. */
-function displayValue(value: string | null): string {
-  if (!value) return "—";
-  const m = value.match(/^\d{4}-\d{2}-\d{2}T(\d{2}:\d{2})/);
-  return m ? m[1] : value;
-}
-
 export function CompactMoreActions({
   schedule,
   attendance,
+  tz,
   onDone,
   onClose,
 }: {
   schedule: Schedule | null;
   attendance: Attendance | null;
+  /** 매장 시간대 — 상세와 같은 값을 받아 쓴다 (여기서 다시 고르면 두 화면이 갈린다). */
+  tz: string | undefined;
   /** 레코드가 사라지거나 크게 바뀌어 상세를 닫아야 할 때. */
   onDone: () => void;
   onClose: () => void;
@@ -91,7 +77,7 @@ export function CompactMoreActions({
         at: e.timestamp,
         title: humanize(e.event_type),
         detail: e.description ?? null,
-        meta: [shortTime(e.timestamp), e.actor_name, e.reason ? `“${e.reason}”` : null]
+        meta: [historyStamp(e.timestamp, tz), e.actor_name, e.reason ? `“${e.reason}”` : null]
           .filter(Boolean)
           .join(" · "),
         tone: e.event_type === "cancelled" || e.event_type === "rejected" ? "bad" : "shift",
@@ -110,7 +96,10 @@ export function CompactMoreActions({
       const head = rows[0];
       const changes = rows
         .filter((r) => r.field_name !== "status")
-        .map((r) => `${humanize(r.field_name)} ${displayValue(r.original_value)} → ${displayValue(r.corrected_value)}`);
+        .map(
+          (r) =>
+            `${humanize(r.field_name)} ${historyValue(r.original_value, tz)} → ${historyValue(r.corrected_value, tz)}`,
+        );
       const statusRow = rows.find((r) => r.field_name === "status");
       items.push({
         id: `a-${key}`,
@@ -121,9 +110,9 @@ export function CompactMoreActions({
           changes.length > 0
             ? changes.join(" · ")
             : statusRow
-              ? `${displayValue(statusRow.original_value)} → ${displayValue(statusRow.corrected_value)}`
+              ? `${historyValue(statusRow.original_value, tz)} → ${historyValue(statusRow.corrected_value, tz)}`
               : null,
-        meta: [shortTime(head.created_at), head.corrected_by_name, head.reason ? `“${head.reason}”` : null]
+        meta: [historyStamp(head.created_at, tz), head.corrected_by_name, head.reason ? `“${head.reason}”` : null]
           .filter(Boolean)
           .join(" · "),
         tone: head.action === "clear_times" || head.action === "no_show" ? "bad" : "good",
@@ -131,7 +120,7 @@ export function CompactMoreActions({
     }
 
     return items.sort((a, b) => (a.at < b.at ? 1 : -1));
-  }, [auditQ.data, attendance]);
+  }, [auditQ.data, attendance, tz]);
 
   const askReason = async (
     title: string,
