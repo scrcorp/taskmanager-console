@@ -8,8 +8,16 @@ describe("toDesktopPath", () => {
     expect(toDesktopPath("/c/attendances")).toBe("/attendances");
   });
 
-  it("maps the compact root to the desktop root", () => {
-    expect(toDesktopPath(COMPACT_BASE_PATH)).toBe("/");
+  it("maps the compact root to the schedules page", () => {
+    // `/c` 는 스케줄+근태 통합 화면이다. 권한 게이트는 본체인 스케줄 기준으로 건다 —
+    // 대시보드(`/`)로 매핑하면 게이트가 사라져 아무나 들어온다.
+    expect(toDesktopPath(COMPACT_BASE_PATH)).toBe("/schedules");
+  });
+
+  it("gates the compact root behind schedules:read", () => {
+    expect(resolvePagePermission(toDesktopPath(COMPACT_BASE_PATH))).toBe(
+      PERMISSIONS.SCHEDULES_READ,
+    );
   });
 
   it("leaves non-compact paths untouched", () => {
@@ -22,10 +30,15 @@ describe("toDesktopPath", () => {
 });
 
 describe("toCompactPath", () => {
-  it("round-trips with toDesktopPath", () => {
-    for (const path of ["/schedules", "/attendances", "/"]) {
+  it("round-trips with toDesktopPath for real pages", () => {
+    for (const path of ["/schedules", "/attendances"]) {
       expect(toDesktopPath(toCompactPath(path))).toBe(path);
     }
+  });
+
+  it("does not round-trip the root — `/c` is the schedules screen, not the dashboard", () => {
+    expect(toCompactPath("/")).toBe(COMPACT_BASE_PATH);
+    expect(toDesktopPath(COMPACT_BASE_PATH)).toBe("/schedules");
   });
 });
 

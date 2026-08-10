@@ -1,12 +1,10 @@
-import { redirect } from "next/navigation";
-import { COMPACT_TABS } from "@/components/compact/tabs";
+import { CompactDayView } from "@/components/compact/CompactDayView";
 
 /**
- * `/c` → 첫 탭으로. 서버에서 바로 넘긴다.
+ * `/c` — 스케줄(계획) + 근태(실제) 통합 Day 화면.
  *
- * 클라이언트 리다이렉트로 하면 헤더 매장 선택기의 URL 동기화(router.replace)와 경합해서
- * `/c` 에 갇힌다. 권한이 없는 경우는 레이아웃의 Forbidden 화면이 받고, 하단 탭바로 이동하면 된다.
+ * 예전엔 여기서 첫 탭으로 리다이렉트했는데, 탭 구조를 없애면서 이 경로가 본체가 됐다.
  */
 export default function CompactHomePage() {
-  redirect(COMPACT_TABS[0].href);
+  return <CompactDayView />;
 }

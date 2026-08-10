@@ -669,3 +669,33 @@ export const useReopenAction = (): UseMutationResult<
     onError: error("Couldn't reopen"),
   });
 };
+
+/**
+ * Clear time records — clock_in/out + break 세션을 지우고 출근 전 상태로 되돌린다.
+ *
+ * 잘못 찍힌 출근 기록을 정리하는 유일한 경로다. reopen 은 clock_out 만 지우고
+ * correct 는 값을 비울 수 없어서, 이게 없으면 오기록을 손댈 방법이 없다.
+ * 지워진 값은 서버가 History 에 before 로 남긴다.
+ */
+export const useClearTimesAction = (): UseMutationResult<
+  Attendance,
+  Error,
+  { attendanceId: string; data: AttendanceReasonOnlyRequest }
+> => {
+  const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
+  return useMutation<Attendance, Error, { attendanceId: string; data: AttendanceReasonOnlyRequest }>({
+    mutationFn: async ({ attendanceId, data }) => {
+      const res: AxiosResponse<Attendance> = await api.post(
+        `/console/attendances/${attendanceId}/actions/clear-times`,
+        data,
+      );
+      return res.data;
+    },
+    onSuccess: (_, v) => {
+      invalidateAttendance(queryClient, v.attendanceId);
+      success("Time records cleared.");
+    },
+    onError: error("Couldn't clear the time records"),
+  });
+};
