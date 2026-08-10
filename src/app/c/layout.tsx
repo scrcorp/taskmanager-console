@@ -12,8 +12,8 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, usePathname } from "next/navigation";
-import Link from "next/link";
-import { Monitor, ShieldOff } from "lucide-react";
+import { useIsFetching, useQueryClient } from "@tanstack/react-query";
+import { RefreshCw, ShieldOff } from "lucide-react";
 import { useAuthStore } from "@/stores/authStore";
 import { isAuthenticated } from "@/lib/auth";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -42,6 +42,8 @@ export default function CompactLayout({ children }: { children: React.ReactNode 
   const { user, fetchMe } = useAuthStore();
   const { hasPermission } = usePermissions();
   const [forbidden, setForbidden] = useState(false);
+  const queryClient = useQueryClient();
+  const refreshing = useIsFetching() > 0;
 
   // 인증 체크 — (dashboard) 레이아웃과 동일한 가드
   useEffect(() => {
@@ -90,14 +92,18 @@ export default function CompactLayout({ children }: { children: React.ReactNode 
         <Suspense fallback={<div className="h-9 flex-1" />}>
           <CompactStoreSelector />
         </Suspense>
-        <Link
-          href="/"
-          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-text-secondary transition-colors hover:bg-surface-hover hover:text-text"
-          aria-label="Switch to desktop version"
-          title="Desktop version"
+        {/* 새로고침 — 폰에선 브라우저 주소창이 숨어 있어 당겨서 새로고침 말곤 방법이 없었다.
+            데스크탑 전환 링크가 있던 자리다: 매장에서 하루에 몇 번씩 누르는 건 이쪽이다. */}
+        <button
+          type="button"
+          onClick={() => void queryClient.refetchQueries({ type: "active" })}
+          disabled={refreshing}
+          className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-text-secondary transition-colors hover:bg-surface-hover hover:text-text disabled:text-text-muted"
+          aria-label="Refresh"
+          title="Refresh"
         >
-          <Monitor size={20} />
-        </Link>
+          <RefreshCw size={20} className={refreshing ? "animate-spin" : undefined} />
+        </button>
       </header>
 
       <main className="flex-1 overflow-hidden">

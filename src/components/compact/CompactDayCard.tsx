@@ -55,7 +55,14 @@ function actual(row: DayRow): { text: string; tone: "none" | "live" | "bad" | "n
   }
   if (a.clock_in_display) {
     const live = a.status === "working" || a.status === "on_break";
-    return { text: `${a.clock_in_display} – ${live ? "now" : "?"}`, tone: live ? "live" : "bad" };
+    // 퇴근 기록이 없다고 무조건 빨강으로 칠하지 않는다 — 아직 끝나지 않은 근무는 정상이다.
+    // 빨강 여부는 경고 판정(rowIssues)과 같은 값을 따라간다: 둘이 갈리면 카드가 거짓말을 한다.
+    const overdue = row.issues.includes("no clock-out");
+    // 대시 양옆 공백을 빼서 SCH 줄과 같은 폭에 들어가게 한다 — 넘치면 시각이 잘린다.
+    return {
+      text: `${a.clock_in_display}–${live ? "now" : "?"}`,
+      tone: live ? "live" : overdue ? "bad" : "normal",
+    };
   }
   if (a.status === "no_show") return { text: "not recorded", tone: "bad" };
   return { text: "—", tone: "none" };
@@ -85,16 +92,19 @@ export function CompactDayCard({
         row.group === "cancelled" && "opacity-60",
       )}
     >
-      <div className="w-[104px] shrink-0">
-        <div className="flex items-center gap-1.5 tabular-nums">
-          <span className="w-6 shrink-0 text-[8.5px] font-extrabold text-text-muted">SCH</span>
-          <span className="truncate text-xs font-semibold text-text-secondary">{planText(row)}</span>
+      {/* 폭은 "16:30–00:30" 두 줄이 잘리지 않는 최소치로 잡는다 — 시각이 잘리면 카드가 쓸모없다 */}
+      <div className="w-[116px] shrink-0">
+        <div className="flex items-center gap-1 tabular-nums">
+          <span className="w-[22px] shrink-0 text-[8.5px] font-extrabold text-text-muted">SCH</span>
+          <span className="truncate text-[11.5px] font-semibold text-text-secondary">
+            {planText(row)}
+          </span>
         </div>
-        <div className="flex items-center gap-1.5 tabular-nums">
-          <span className="w-6 shrink-0 text-[8.5px] font-extrabold text-text-muted">ACT</span>
+        <div className="flex items-center gap-1 tabular-nums">
+          <span className="w-[22px] shrink-0 text-[8.5px] font-extrabold text-text-muted">ACT</span>
           <span
             className={cn(
-              "truncate text-[13px] font-extrabold",
+              "truncate text-[12.5px] font-extrabold",
               act.tone === "none" && "font-semibold text-text-muted",
               act.tone === "live" && "text-success",
               act.tone === "bad" && "text-danger",

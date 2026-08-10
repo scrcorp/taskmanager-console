@@ -1,18 +1,32 @@
 import { describe, it, expect } from "vitest";
 import {
-  activeFilterCount,
   availableRoles,
-  buildDayRows,
+  buildDayRows as buildDayRowsAt,
   EMPTY_DAY_FILTERS,
   filterRows,
   matchesQuery,
   rowGroup,
-  rowIssues,
+  rowIssues as rowIssuesAt,
   sectionsFor,
   wallClock,
   type DayRow,
 } from "@/lib/compactDay";
 import type { Attendance, Schedule } from "@/types";
+
+/** 기본 "지금" 은 근무가 다 끝난 그날 밤. 종료 전 판정이 쟁점인 테스트만 직접 넘긴다. */
+const AFTER_SHIFT = "2026-08-09T23:59";
+
+const buildDayRows = (
+  schedules: Schedule[],
+  attendances: Attendance[],
+  now: string = AFTER_SHIFT,
+): DayRow[] => buildDayRowsAt(schedules, attendances, now);
+
+const rowIssues = (
+  schedule: Schedule | null,
+  attendance: Attendance | null,
+  now: string = AFTER_SHIFT,
+): string[] => rowIssuesAt(schedule, attendance, now);
 
 function sched(overrides: Partial<Schedule>): Schedule {
   return {
@@ -105,6 +119,45 @@ describe("rowIssues", () => {
   it("does not call an in-progress shift a missing clock-out", () => {
     const issues = rowIssues(sched({}), att({ clock_in: "x", status: "working" }));
     expect(issues).not.toContain("no clock-out");
+  });
+
+  it("stays quiet before the shift ends, even with a clock-in and no clock-out", () => {
+    // Edit 으로 출근 시각만 보정하면 서버 상태는 upcoming 그대로다 (상태 불변 보정).
+    // 근무가 시작도 안 한 건에 "no clock-out" 이 붙던 게 실제 오류였다.
+    const issues = rowIssues(
+      sched({ start_at: "2026-08-09T21:00", end_at: "2026-08-09T23:00" }),
+      att({ clock_in: "x", status: "upcoming" }),
+      "2026-08-09T20:55",
+    );
+    expect(issues).toEqual([]);
+  });
+
+  it("flags it once the scheduled end has passed", () => {
+    const issues = rowIssues(
+      sched({ start_at: "2026-08-09T21:00", end_at: "2026-08-09T23:00" }),
+      att({ clock_in: "x", status: "upcoming" }),
+      "2026-08-09T23:30",
+    );
+    expect(issues).toContain("no clock-out");
+  });
+
+  it("carries the end past midnight for an overnight shift", () => {
+    const overnight = sched({
+      start_at: "2026-08-09T21:00",
+      end_at: "2026-08-10T02:00",
+      start_time: "21:00",
+      end_time: "02:00",
+    });
+    expect(rowIssues(overnight, att({ clock_in: "x", status: "upcoming" }), "2026-08-10T01:00"))
+      .toEqual([]);
+    expect(rowIssues(overnight, att({ clock_in: "x", status: "upcoming" }), "2026-08-10T02:30"))
+      .toContain("no clock-out");
+  });
+
+  it("falls back to the operating day for a walk-in with no schedule", () => {
+    const walkIn = att({ schedule_id: null, clock_in: "x", status: "upcoming" });
+    expect(rowIssues(null, walkIn, "2026-08-09T22:00")).toEqual([]);
+    expect(rowIssues(null, walkIn, "2026-08-10T09:00")).toContain("no clock-out");
   });
 
   it("flags unconfirmed early clock-in but not a confirmed one", () => {
@@ -249,20 +302,5 @@ describe("availableRoles", () => {
       [],
     );
     expect(availableRoles(rows)).toEqual(["Kitchen", "Server"]);
-  });
-});
-
-describe("activeFilterCount", () => {
-  it("counts nothing for the default view", () => {
-    expect(activeFilterCount(EMPTY_DAY_FILTERS, "default")).toBe(0);
-  });
-
-  it("counts each active choice, including a non-default sort", () => {
-    const filters = { ...EMPTY_DAY_FILTERS, issuesOnly: true, roles: ["Server", "Host"] };
-    expect(activeFilterCount(filters, "name")).toBe(4);
-  });
-
-  it("ignores the search box — it has its own clear button", () => {
-    expect(activeFilterCount({ ...EMPTY_DAY_FILTERS, query: "maria" }, "default")).toBe(0);
   });
 });

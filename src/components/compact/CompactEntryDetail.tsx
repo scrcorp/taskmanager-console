@@ -27,9 +27,9 @@ import {
   useStartBreakAction,
   useUpdateBreakSession,
 } from "@/hooks/useAttendances";
-import { useUpdateSchedule } from "@/hooks/useSchedules";
+import { useSchedule, useUpdateSchedule } from "@/hooks/useSchedules";
 import { usePermissions } from "@/hooks/usePermissions";
-import { useTimezone } from "@/hooks/useTimezone";
+import { useStoreTimezone } from "@/hooks/useTimezone";
 import { useModal } from "@/components/ui/imperative-modal";
 import { PERMISSIONS } from "@/lib/permissions";
 import { isoToLocalInputInTz, localInputToIsoInTz, cn } from "@/lib/utils";
@@ -94,14 +94,18 @@ export function CompactEntryDetail({
   daySchedules: Schedule[];
   onDone: () => void;
 }) {
-  const tz = useTimezone();
+  // 선택한 매장의 시간대로 읽고 쓴다 — 조직 시간대로 인코딩하면 시간대가 다른 매장에서
+  // 방금 넣은 시각이 몇 시간 밀린 값으로 저장된다.
+  const tz = useStoreTimezone(storeId);
   const modal = useModal();
   const { hasPermission } = usePermissions();
 
-  // 액션(휴식 시작 등) 후에도 시트가 열린 채 최신 값을 그려야 한다.
+  // 액션(휴식 시작 등)이나 저장 뒤에도 시트가 열린 채 최신 값을 그려야 한다.
+  // 목록에서 받은 row 는 저장 순간 낡은 값이 되므로 둘 다 단건으로 다시 읽는다.
   const { data: fresh } = useAttendance(row.attendance?.id);
+  const { data: freshSchedule } = useSchedule(row.schedule?.id);
   const attendance = fresh ?? row.attendance ?? null;
-  const schedule = row.schedule;
+  const schedule = freshSchedule ?? row.schedule;
 
   const updateSchedule = useUpdateSchedule();
   const correct = useCorrectAttendance();
@@ -369,7 +373,11 @@ export function CompactEntryDetail({
         }
       }
 
-      onDone();
+      // 저장했다고 시트를 닫지 않는다 — 방금 고친 값이 맞게 들어갔는지 바로 확인하고,
+      // 이어서 다른 것도 고치는 게 보통이다. 목록으로 튕기면 그 사람을 다시 찾아 들어와야 한다.
+      // 스케줄·근태 모두 단건 쿼리라 무효화된 값이 곧 새로 그려진다.
+      setBreakDraft({});
+      setMode("view");
     } catch {
       // 결과 모달은 hook 이 띄운다. 다만 반쪽만 저장된 경우는 별도로 알린다 —
       // 조용히 지나가면 사용자가 스케줄이 이미 바뀐 걸 모른 채 다시 저장한다.
@@ -446,6 +454,7 @@ export function CompactEntryDetail({
         <CompactMoreActions
           schedule={schedule}
           attendance={attendance}
+          tz={tz}
           onDone={() => {
             close(undefined);
             onDone();
@@ -504,9 +513,8 @@ export function CompactEntryDetail({
           </p>
           <button
             type="button"
-            onClick={() =>
-              attendance && confirmEarly.mutate({ attendanceId: attendance.id }, { onSuccess: onDone })
-            }
+            // 확인만 하고 시트는 열어둔다 — 배너가 사라지는 걸 그 자리에서 보는 게 맞다.
+            onClick={() => attendance && confirmEarly.mutate({ attendanceId: attendance.id })}
             className="mt-2 h-10 w-full rounded-lg bg-warning text-sm font-bold text-black"
           >
             Confirm early clock-in
@@ -520,9 +528,7 @@ export function CompactEntryDetail({
           </p>
           <button
             type="button"
-            onClick={() =>
-              attendance && confirmAuto.mutate({ attendanceId: attendance.id }, { onSuccess: onDone })
-            }
+            onClick={() => attendance && confirmAuto.mutate({ attendanceId: attendance.id })}
             className="mt-2 h-10 w-full rounded-lg bg-warning text-sm font-bold text-black"
           >
             Confirm auto clock-out
@@ -602,6 +608,7 @@ export function CompactEntryDetail({
               <button
                 type="button"
                 onClick={() => pickActual("in")}
+                disabled={!attendance}
                 className={cn(
                   CELL,
                   !sameStamp(actualIn, origIn)
@@ -609,9 +616,10 @@ export function CompactEntryDetail({
                     : actualIn
                       ? "border-border-strong text-text"
                       : "border-dashed border-border text-sm font-bold text-text-muted",
+                  !attendance && "opacity-50",
                 )}
               >
-                {actualIn?.time ?? "＋ Set"}
+                {attendance ? (actualIn?.time ?? "＋ Set") : "no record"}
               </button>
             ) : (
               <>
@@ -695,7 +703,11 @@ export function CompactEntryDetail({
 
         <div className="flex items-center gap-2 border-t border-border bg-surface-hover px-3 py-2 text-[11px] text-text-secondary">
           {editing ? (
-            <span>Sched moves in 5-min steps · Actual in 1-min steps</span>
+            <span>
+              {attendance
+                ? "Sched moves in 5-min steps · Actual in 1-min steps"
+                : "No attendance record yet — only the shift can be edited."}
+            </span>
           ) : (
             <>
               <span>
