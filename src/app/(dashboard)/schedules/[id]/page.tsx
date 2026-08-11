@@ -13,6 +13,7 @@ import { useModal } from "@/components/ui/imperative-modal";
 import {
   useSchedule, useDeleteScheduleFlow, useRevertSchedule, useCancelSchedule, useConfirmSchedule,
   useScheduleAuditLog, useSchedules, useUpdateSchedule, useDeleteScheduleHistoryEntry,
+  useScheduleWarningGate, scheduleErrorText,
 } from "@/hooks/useSchedules";
 import { PERMISSIONS, ROLE_PRIORITY } from "@/lib/permissions";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -75,6 +76,8 @@ export default function SchedulesDetailPage() {
   const cancelMutation = useCancelSchedule();
   const confirmMutation = useConfirmSchedule();
   const updateMutation = useUpdateSchedule();
+  // 409 경고 확인 게이트 (D9-1) — 최상위 code 로 식별해 급여 잠금 409 와 구분한다.
+  const warningGate = useScheduleWarningGate();
   const deleteHistoryMutation = useDeleteScheduleHistoryEntry();
 
   const [editOpen, setEditOpen] = useState(false);
@@ -180,6 +183,9 @@ export default function SchedulesDetailPage() {
           break_end_at: payload.breakEndAt,
           note: payload.notes || null,
           hourly_rate: payload.hourlyRate,
+          // 확인한 경고를 다시 물어보지 않도록 그대로 전달 (예전엔 여기서 버려져
+          // 모달이 확인을 받아도 서버가 또 409 를 냈다).
+          force: payload.force,
         },
       },
       {
@@ -188,9 +194,11 @@ export default function SchedulesDetailPage() {
           setEditError(null);
           scheduleQ.refetch();
         },
-        onError: (err) => {
-          const msg = err instanceof Error ? err.message : String(err);
-          setEditError(msg);
+        onError: async (err) => {
+          const gate = await warningGate(err);
+          if (gate === "retry") { handleEditSave({ ...payload, force: true }); return; }
+          if (gate === "cancelled") return;
+          setEditError(scheduleErrorText(err, "Couldn't update this schedule"));
         },
       },
     );

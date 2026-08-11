@@ -17,11 +17,13 @@ import {
   useDeleteScheduleFlow,
   useUpdateSchedule,
   useValidateSchedule,
+  useScheduleWarningGate,
 } from "@/hooks/useSchedules";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useModal } from "@/components/ui/imperative-modal";
 import { PERMISSIONS } from "@/lib/permissions";
 import { rollEndDate, shiftIsoFields } from "@/lib/scheduleTime";
+import { describeScheduleIssues } from "@/lib/scheduleCodes";
 import type { Schedule } from "@/types";
 
 const FIELD =
@@ -47,6 +49,7 @@ export function CompactScheduleForm({
   const createSchedule = useCreateSchedule();
   const updateSchedule = useUpdateSchedule();
   const validateSchedule = useValidateSchedule();
+  const warningGate = useScheduleWarningGate();
   const confirmSchedule = useConfirmSchedule();
   const cancelSchedule = useCancelSchedule();
   const deleteFlow = useDeleteScheduleFlow();
@@ -98,7 +101,8 @@ export function CompactScheduleForm({
         if (res.warnings.length > 0) {
           const ok = await modal.confirm({
             title: "Confirm shift",
-            message: res.warnings.join("\n"),
+            // 문구는 code + params 로 구성 (D9-4). 서버 message 문자열을 쓰지 않는다.
+            message: describeScheduleIssues(res.warnings),
             confirmLabel: "Save anyway",
             variant: "danger",
           });
@@ -110,10 +114,23 @@ export function CompactScheduleForm({
       }
 
       const body = buildIso(force);
-      if (schedule) {
-        await updateSchedule.mutateAsync({ id: schedule.id, data: body });
-      } else {
-        await createSchedule.mutateAsync(body);
+      try {
+        if (schedule) {
+          await updateSchedule.mutateAsync({ id: schedule.id, data: body });
+        } else {
+          await createSchedule.mutateAsync(body);
+        }
+      } catch (err) {
+        // 프리플라이트를 통과했어도 그 사이 다른 스케줄이 생겨 409 가 날 수 있다.
+        // **최상위 code 로 식별** — 급여 잠금/폐점 409 에 "Save anyway" 가 뜨면 안 된다.
+        const gate = await warningGate(err);
+        if (gate !== "retry") throw err;
+        const forced = buildIso(true);
+        if (schedule) {
+          await updateSchedule.mutateAsync({ id: schedule.id, data: forced });
+        } else {
+          await createSchedule.mutateAsync(forced);
+        }
       }
       onDone();
     } catch {

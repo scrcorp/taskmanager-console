@@ -320,13 +320,13 @@ export function WorkRolesPanel({ storeId }: WorkRolesPanelProps): React.ReactEle
 
   // Quick-register: create work role with defaults, appended at end
   const handleQuickRegister = async (shiftId: string, positionId: string, defaultChecklistId: string | null) => {
-    let defaultStart = "09:00";
-    let defaultEnd = "18:00";
-    if (store?.operating_hours) {
-      const hours = store.operating_hours as Record<string, string>;
-      if (hours.open) defaultStart = hours.open;
-      if (hours.close) defaultEnd = hours.close;
-    }
+    // 예전엔 store.operating_hours({open,close}) 를 읽어 기본 시각을 정했지만,
+    // 그 컬럼은 registry 키 `store.operating_hours` 로 옮겨가며 응답에서 제거됐다.
+    // 게다가 전 매장 NULL 이라 이 분기는 한 번도 동작한 적이 없다.
+    // 영업시간에서 파생하려면 설정을 resolve 해야 하는데, quick-register 는
+    // "일단 만들고 나중에 고친다" 성격이라 고정 기본값으로 둔다.
+    const defaultStart = "09:00";
+    const defaultEnd = "18:00";
     const maxOrder = sortedRoles.length > 0 ? Math.max(...sortedRoles.map((r) => r.sort_order)) : -1;
     try {
       await createMut.mutateAsync({

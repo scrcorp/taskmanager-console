@@ -9,7 +9,7 @@
  * Reset 버튼: 행별 커스텀을 기본값으로 되돌림.
  */
 
-import { dawnStartOffset } from "@/lib/scheduleTime";
+import { dawnStartOffset, stepTimeOptions } from "@/lib/scheduleTime";
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { User, WorkRole, Store } from "@/types";
 
@@ -32,11 +32,8 @@ export interface PreviewEntry {
   status: PreviewStatus;
 }
 
-const TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => {
-  const h = Math.floor(i / 2);
-  const m = i % 2 === 0 ? "00" : "30";
-  return `${String(h).padStart(2, "0")}:${m}`;
-});
+/** 입력 단위(5분, D6-1) 옵션. 목록 생성은 lib/scheduleTime 하나뿐 — 30분 하드코딩 금지. */
+const TIME_OPTIONS = stepTimeOptions();
 
 let tempCounter = 0;
 function nextTempId() { return `preview-${++tempCounter}-${Date.now()}`; }

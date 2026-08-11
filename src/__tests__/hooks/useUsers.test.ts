@@ -158,7 +158,7 @@ describe("useUsers hooks", () => {
   it("fetches user stores", async () => {
     const { default: api } = await import("@/lib/api");
     const stores: Store[] = [
-      { id: "b1", organization_id: "o1", name: "Store A", code: null, address: null, phone: null, email: null, status: "open", sort_order: 0, is_active: true, require_approval: false, operating_hours: null, day_start_time: null, max_work_hours_weekly: null, state_code: null, timezone: null, default_hourly_rate: null, accepting_signups: true, created_at: "2026-01-01T00:00:00Z" },
+      { id: "b1", organization_id: "o1", name: "Store A", code: null, address: null, phone: null, email: null, status: "open", sort_order: 0, is_active: true, require_approval: false, day_start_time: null, max_work_hours_weekly: null, state_code: null, timezone: null, default_hourly_rate: null, accepting_signups: true, created_at: "2026-01-01T00:00:00Z" },
     ];
     vi.mocked(api.get).mockResolvedValueOnce({ data: stores });
 

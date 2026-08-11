@@ -6,6 +6,14 @@
  * 입력을 그 형태로 변환한다. 드리프트 방지를 위해 여기 한 곳에서만 조립한다.
  */
 
+/**
+ * 스케줄 입력 단위 — **콘솔 전체에서 이 상수 하나** (D6-1, server SCHEDULE_STEP_MINUTES 와 같은 값).
+ *
+ * 표시 슬롯은 여전히 30분 행이다(D6-2). 블록 위치는 분 단위 overlap 계산이라
+ * 5분 오프셋도 그대로 그려진다 — 그리드를 12행/시간으로 쪼개지 말 것.
+ */
+export const SCHEDULE_STEP_MINUTES = 5;
+
 /** "YYYY-MM-DD" 에 n일 더하기 (UTC 기준 순수 날짜 산술). */
 export function addDay(d: string, n: number): string {
   const [y, m, dd] = d.split("-").map(Number);
@@ -16,6 +24,95 @@ export function addDay(d: string, n: number): string {
 export function timeToMin(hhmm: string): number {
   const [h, m] = hhmm.split(":").map(Number);
   return h * 60 + m;
+}
+
+/** 분 → "HH:MM". 0~1439 밖은 24시간으로 감아 **벽시계**로만 표기한다(D2-8: 24+ 표기 금지). */
+export function minToTime(mins: number): string {
+  const w = wrapMinutes(mins);
+  return `${String(Math.floor(w / 60)).padStart(2, "0")}:${String(w % 60).padStart(2, "0")}`;
+}
+
+/** 하루(1440분) 안으로 감기. 음수도 정상 처리 — clampMinutes 로 23:59 에 붙여버리지 말 것. */
+export function wrapMinutes(mins: number): number {
+  return ((mins % 1440) + 1440) % 1440;
+}
+
+/** 자정을 몇 번 넘겼는지 (표기용 `+1` 의 숫자). 음수 입력은 0. */
+export function offsetDaysOf(mins: number): number {
+  return Math.max(0, Math.floor(mins / 1440));
+}
+
+/** "HH:MM" 이 입력 단위(5분) 위에 있는지. null/빈값은 통과(미입력은 여기서 판정하지 않음). */
+export function isOnScheduleGrid(hhmm: string | null | undefined): boolean {
+  if (!hhmm) return true;
+  return timeToMin(hhmm) % SCHEDULE_STEP_MINUTES === 0;
+}
+
+/** 입력 단위로 반올림 스냅. **자동 계산된 값**을 옵션에 맞출 때만 쓴다(사용자 입력은 반올림하지 않고 거절). */
+export function snapToStep(hhmm: string): string {
+  if (!hhmm) return hhmm;
+  return minToTime(Math.round(timeToMin(hhmm) / SCHEDULE_STEP_MINUTES) * SCHEDULE_STEP_MINUTES);
+}
+
+/** 하루치 "HH:MM" 옵션 (기본 5분 단위, 288개). 셀렉트 옵션 생성의 단일 출처. */
+export function stepTimeOptions(step: number = SCHEDULE_STEP_MINUTES): string[] {
+  const out: string[] = [];
+  for (let m = 0; m < 1440; m += step) out.push(minToTime(m));
+  return out;
+}
+
+/**
+ * 자정 넘김 표기 — `02:00 +1` (D5-1).
+ * **`26:00` 같은 24 초과 표기를 만들지 않는다** (D2-8 개정: 시각은 00:00~23:59 + 날짜 오프셋).
+ */
+export function formatWallClock(hhmm: string, offsetDays: number): string {
+  return offsetDays > 0 ? `${hhmm} +${offsetDays}` : hhmm;
+}
+
+// ── 시작 / 종료 / 길이 3필드 (D5-2) ──────────────────────────
+//
+// 불변식은 하나뿐: **종료 = 시작 + 길이**.
+//
+// | 바꾼 값 | 유지 | 이동 |
+// |---|---|---|
+// | 시작 | 길이 | 종료 |
+// | 종료 | 시작 | 길이 |
+// | 길이 | 시작 | 종료 |
+//
+// **시작은 어떤 경우에도 자동으로 움직이지 않는다.** 예전 폼은 `endTimeDirtyRef` 같은
+// 숨은 플래그로 "end 를 손댔는지"에 따라 결과가 달라져, 같은 조작이 어떤 때는 종료를 옮기고
+// 어떤 때는 안 옮겼다. 플래그 없이 위 표만으로 결정한다.
+
+export interface ShiftFields {
+  /** 시작 벽시계 분 (0~1439). 시작 달력일은 별도(영업일 + 오프셋). */
+  startMin: number;
+  /** 근무 길이(분). 1440 까지 — 종료는 이 값으로만 결정된다. */
+  durationMin: number;
+}
+
+/** 시작 변경 — 길이 유지, 종료가 따라 이동. */
+export function withStart(prev: ShiftFields, startMin: number): ShiftFields {
+  return { startMin: wrapMinutes(startMin), durationMin: prev.durationMin };
+}
+
+/**
+ * 종료 변경 — 시작 유지, 길이가 재계산된다.
+ * 종료가 시작보다 이르거나 같으면 다음날로 본다(자정 넘김). 같으면 0분이 되고,
+ * 0분은 저장 단계에서 ZERO_DURATION 으로 걸러진다 — 여기서 임의로 24h 로 만들지 않는다.
+ */
+export function withEnd(prev: ShiftFields, endMin: number): ShiftFields {
+  return { startMin: prev.startMin, durationMin: wrapMinutes(endMin - prev.startMin) };
+}
+
+/** 길이 변경 — 시작 유지, 종료가 따라 이동. */
+export function withDuration(prev: ShiftFields, durationMin: number): ShiftFields {
+  return { startMin: prev.startMin, durationMin };
+}
+
+/** 파생 종료 — 벽시계 시각 + 날짜 오프셋. 저장/표시 양쪽이 이걸 쓴다. */
+export function endOf(f: ShiftFields): { time: string; offsetDays: number } {
+  const abs = f.startMin + f.durationMin;
+  return { time: minToTime(abs), offsetDays: offsetDaysOf(abs) };
 }
 
 /** 두 "YYYY-MM-DD" 사이 일수차 (to - from). DST 무관(UTC 순수 날짜 산술). */
@@ -32,6 +129,24 @@ export function rollEndDate(startDate: string, startTime: string, endTime: strin
 
 /** 매장 영업일 경계 기본값(서버 day_start 기본과 동일). */
 export const DEFAULT_DAY_START = "06:00";
+
+/** stores.day_start_time JSONB 요일 키. Date.getUTCDay(): Sun=0. */
+const DAY_KEYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
+
+/**
+ * 그 날짜에 적용되는 매장 영업일 경계 "HH:MM".
+ * 저장 형태는 `{all:"06:00"}` 또는 요일별 `{mon:"05:00", ...}` 두 가지다(매장 상세 화면 참조).
+ * 미설정이면 DEFAULT_DAY_START — 서버 기본과 같아야 자동 판정이 서버와 어긋나지 않는다.
+ */
+export function dayStartFor(
+  dayStartTime: Record<string, string> | null | undefined,
+  dateStr: string,
+): string {
+  if (!dayStartTime) return DEFAULT_DAY_START;
+  const [y, m, d] = dateStr.split("-").map(Number);
+  const key = DAY_KEYS[new Date(Date.UTC(y ?? 1970, (m ?? 1) - 1, d ?? 1)).getUTCDay()]!;
+  return dayStartTime[key] ?? dayStartTime.all ?? DEFAULT_DAY_START;
+}
 
 /** 날짜 UI가 없는 표면(벌크 그리드/키오스크)용 영업일 창 규칙 —
  * 경계 이전 새벽 시각은 달력상 영업일+1일. (서버 _kiosk_shift_iso와 동일 규칙) */
