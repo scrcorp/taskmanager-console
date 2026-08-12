@@ -10,6 +10,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ModalProvider } from "@/components/ui/imperative-modal/ModalProvider";
 import { createElement, type ReactNode } from "react";
 import { useStores, useCreateStore, useDeleteStore } from "@/hooks/useStores";
 import type { Store } from "@/types";
@@ -74,8 +75,11 @@ function createWrapper() {
       mutations: { retry: false },
     },
   });
+  // ModalProvider 필수 — 대부분의 mutation 훅이 useMutationToast → useModal 경로로
+  // 모달 컨텍스트를 요구한다. 빠지면 훅이 렌더 시점에 던진다.
   return ({ children }: { children: ReactNode }) =>
-    createElement(QueryClientProvider, { client: queryClient }, children);
+    createElement(QueryClientProvider, { client: queryClient },
+      createElement(ModalProvider, null, children));
 }
 
 describe("useStores hooks", () => {
@@ -96,7 +100,7 @@ describe("useStores hooks", () => {
 
       expect(result.current.data).toHaveLength(2);
       expect(result.current.data![0].name).toBe("Test Store");
-      expect(api.get).toHaveBeenCalledWith("/console/stores");
+      expect(api.get).toHaveBeenCalledWith("/console/stores", { params: undefined });
     });
 
     it("handles fetch error", async () => {

@@ -60,6 +60,14 @@ export interface AlertProps {
   message: string;
   /** 추가 bullet 정보. bulk 작업 부분 실패 결과 등에 사용 */
   details?: string[];
+  /**
+   * 신고용 참조 한 줄 — `"INTERNAL_ERROR · 01J9F3K2QW"`.
+   *
+   * 사용자가 화면을 보고 슬랙에 옮겨 적는 것이 실제 신고 경로라, 500·미지 코드에서는
+   * 이 값이 화면에 남아야 서버 로그를 짚을 수 있다 (2026-08-11 NameError 사건에서
+   * 사용자 단서가 정확히 0이었다). `describeApiError(...).reference` 를 그대로 넣으면 된다.
+   */
+  reference?: string;
   /** 본문에 임의 JSX 삽입 (이미지/미리보기 등). message + details 뒤에 렌더 */
   body?: ReactNode;
   /** 닫기 버튼 라벨. 기본 "OK" */

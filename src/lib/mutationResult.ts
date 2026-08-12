@@ -32,7 +32,7 @@
  */
 
 import { useModal } from "@/components/ui/imperative-modal";
-import { parseApiError } from "@/lib/utils";
+import { describeApiError } from "@/lib/errorDisplay";
 
 export function useMutationResult() {
   const modal = useModal();
@@ -46,12 +46,29 @@ export function useMutationResult() {
         details: options?.details,
       });
     },
-    /** 에러 모달 — action 은 "Couldn't create schedule" 같은 문장형 */
+    /**
+     * 에러 모달 — action 은 "Couldn't create schedule" 같은 문장형.
+     *
+     * 표시기(`describeApiError`)를 거치므로 **500·미지 코드에서 `CODE · trace_id` 한 줄이
+     * 자동으로 붙는다.** 이 경로가 콘솔 에러 표시의 대부분이라, 여기 한 곳만 바꿔도
+     * "원인을 알 수 없는 실패"에 신고 단서가 생긴다.
+     *
+     * 배치는 모달로 고정한다 — 이 헬퍼의 계약이 원래 모달이고, 배치를 여기서 바꾸면
+     * 48개 호출처의 UX 가 한꺼번에 달라진다. 배치를 쓰려는 화면은 `describeApiError` 를
+     * 직접 호출해 `placement` 를 읽으면 된다.
+     */
     error: (action: string) => (err: unknown) => {
+      const display = describeApiError(err, {
+        context: "action",
+        fallback: "Unexpected error",
+        placement: "toast",
+      });
       void modal.alert({
         type: "error",
         title: action,
-        message: parseApiError(err, "Unexpected error"),
+        message: display.message,
+        details: display.hint ? [display.hint] : undefined,
+        reference: display.reference ?? undefined,
       });
     },
     /** raw — 이미 가공한 메시지로 모달 직접 띄우기 */

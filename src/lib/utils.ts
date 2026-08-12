@@ -8,6 +8,7 @@
  */
 import { clsx, type ClassValue } from "clsx";
 import { twMerge } from "tailwind-merge";
+import { parseApiErrorEnvelope } from "@/lib/apiError";
 
 /** Tailwind CSS 클래스 병합 — clsx로 조건부 클래스 처리 후 tailwind-merge로 충돌 해결 */
 export function cn(...inputs: ClassValue[]): string {
@@ -388,97 +389,23 @@ export function timeAgo(dateStr: string): string {
 
 /** API 에러 응답을 사용자 친화적 메시지로 변환.
  *
- * FastAPI 에러 형식 처리:
- *   - { detail: "message" } → "message"
- *   - { detail: [{ loc: [...], msg: "..." }] } → "field: message" (유효성 검증 에러)
- *   - 네트워크/타임아웃 에러 → 친화적 fallback 메시지
+ * ⚠️ **이 함수는 레거시 어댑터다.** 실제 파싱은 전부 `parseApiErrorEnvelope`
+ * (`src/lib/apiError.ts`) 가 하고, 여기서는 문자열 하나만 뽑아 준다.
+ * 48개 호출처를 한 번에 바꾸지 않기 위해 시그니처만 그대로 두었다.
+ *
+ * **새 코드는 `describeApiError`(`src/lib/errorDisplay.ts`) 를 쓸 것** — 문자열 하나로는
+ * code / trace_id / 배치(inline·toast·banner)를 전달할 수 없어서, 500 이 나도 사용자가
+ * 신고에 옮겨 적을 값이 화면에 남지 않는다.
  *
  * @param error - catch된 에러 (주로 AxiosError)
  * @param fallback - 파싱 실패 시 기본 메시지
  * @returns 사용자용 에러 문자열
  */
 export function parseApiError(error: unknown, fallback: string): string {
-  // Response body parsing — try this BEFORE network-error codes, since a 5xx
-  // response with no CORS headers can also show up with ERR_NETWORK on the
-  // axios error object even though the server did respond.
-  if (error && typeof error === "object" && "response" in error) {
-    const resp = (error as { response?: { data?: unknown; status?: number } }).response;
-    const data = resp?.data;
-    const status = resp?.status;
-
-    if (data && typeof data === "object") {
-      const obj = data as Record<string, unknown>;
-
-      // FastAPI HTTPException → {detail: string | [{loc, msg}] | object}
-      if ("detail" in obj) {
-        const detail = obj.detail;
-        if (typeof detail === "string" && detail.trim() && detail !== "Internal Server Error") {
-          return detail;
-        }
-        if (Array.isArray(detail) && detail.length > 0) {
-          return detail
-            .map((d: { loc?: string[]; msg?: string }) => {
-              const loc = (d.loc ?? []).filter((l) => l !== "body").join(" > ");
-              const msg = d.msg ?? "";
-              return loc ? `${loc}: ${msg}` : msg;
-            })
-            .join(", ");
-        }
-        // Object detail — extract message field if present
-        if (detail && typeof detail === "object") {
-          const m = (detail as Record<string, unknown>).message;
-          if (typeof m === "string" && m.trim()) return m;
-        }
-      }
-
-      // Custom endpoints (e.g. inventory import) → {error, validation_errors?}
-      if ("error" in obj && typeof obj.error === "string") {
-        const errMsg = obj.error;
-        const ve = obj.validation_errors;
-        if (Array.isArray(ve) && ve.length > 0) {
-          const head = ve.slice(0, 3).map(String).join("; ");
-          const more = ve.length > 3 ? ` (+${ve.length - 3} more)` : "";
-          return `${errMsg} — ${head}${more}`;
-        }
-        return errMsg;
-      }
-
-      // Generic message field
-      if ("message" in obj && typeof obj.message === "string") return obj.message;
-    }
-
-    // No usable body — fall back to status-specific friendly message.
-    if (status) {
-      if (status === 401) return "Your session has expired. Please log in again.";
-      if (status === 403) return "You don't have permission for this action.";
-      if (status === 404) return "The requested item was not found. It may have been deleted.";
-      if (status === 408) return "Request timed out. Please try again.";
-      if (status === 409) return "Conflict — this action couldn't be applied to the current state.";
-      if (status === 413) return "Upload is too large. Please reduce the file size and retry.";
-      if (status === 422) return "Some fields are invalid. Please review your input.";
-      if (status === 429) return "Too many requests. Please wait a moment and try again.";
-      if (status >= 500) return "Server error. Please try again in a moment.";
-      return `Request failed (HTTP ${status}). ${fallback}`;
-    }
-  }
-
-  if (error && typeof error === "object" && "code" in error) {
-    const code = (error as { code?: string }).code;
-    if (code === "ECONNABORTED") return "Server not responding. Please try again.";
-    if (code === "ERR_NETWORK") {
-      // ERR_NETWORK 는 offline / CORS / DNS / SSL / 서버 다운 등에서 모두 발생.
-      // 잘못된 "인터넷 연결 안됨" 단정으로 사용자를 오해시키지 않도록,
-      // navigator.onLine 으로 진짜 offline 인 경우만 그렇게 표시.
-      if (typeof navigator !== "undefined" && navigator.onLine === false) {
-        return "Your device appears to be offline. Reconnect and try again.";
-      }
-      return "Cannot reach the server. The service may be temporarily unavailable — please try again shortly.";
-    }
-    if (code === "ECONNREFUSED") {
-      return "The server refused the connection. The service may be down — please try again shortly.";
-    }
-  }
-  return fallback;
+  const parsed = parseApiErrorEnvelope(error);
+  if (!parsed.message) return fallback;
+  // 미지 status 만 예전부터 fallback 을 뒤에 붙여 왔다 (`Request failed (HTTP 418). <fallback>`).
+  return parsed.appendFallback ? `${parsed.message} ${fallback}` : parsed.message;
 }
 
 /** 분 경계로 절삭한 epoch ms 반환 (초·밀리초 버림).

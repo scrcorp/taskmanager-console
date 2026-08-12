@@ -48,6 +48,7 @@ export function AlertBody({
   type = "info",
   message,
   details,
+  reference,
   body,
   closeLabel = "OK",
   onClose,
@@ -75,6 +76,16 @@ export function AlertBody({
                 </li>
               ))}
             </ul>
+          )}
+
+          {/* 신고용 참조 — 회색 작은 한 줄. select-all 이라 클릭 한 번에 통째로 복사된다. */}
+          {reference && (
+            <p
+              className="text-[11px] font-mono text-text-muted select-all break-all"
+              data-testid="error-reference"
+            >
+              {reference}
+            </p>
           )}
 
           {/* 임의 JSX 슬롯 (이미지 미리보기 등) */}

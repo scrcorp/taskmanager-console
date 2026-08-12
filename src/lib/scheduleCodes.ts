@@ -151,8 +151,18 @@ export function parseScheduleFailure(err: unknown): ScheduleFailure {
   if (!err || typeof err !== "object" || !("response" in err)) return none;
   const data = (err as { response?: { data?: unknown } }).response?.data;
   if (!data || typeof data !== "object") return none;
-  const detail = (data as Record<string, unknown>).detail;
-  const body = (detail && typeof detail === "object" ? detail : data) as Record<string, unknown>;
+  const root = data as Record<string, unknown>;
+  // 봉투(`error`)가 정본이다. `errors`/`warnings`/`retry` 는 봉투 안에서도 최상위로 유지되는
+  // 화이트리스트 키라 이 계약이 그대로 성립한다. 봉투가 없으면 구버전 서버 → `detail` 폴백.
+  const envelope = root.error;
+  const detail = root.detail;
+  const body = (
+    envelope && typeof envelope === "object" && !Array.isArray(envelope)
+      ? envelope
+      : detail && typeof detail === "object"
+        ? detail
+        : data
+  ) as Record<string, unknown>;
   const code = body.code;
   if (code !== SCHEDULE_INVALID && code !== SCHEDULE_WARNINGS_UNCONFIRMED) return none;
   return {
