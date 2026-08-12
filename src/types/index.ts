@@ -1,3 +1,7 @@
+// 스케줄 검증 항목의 코드/문구는 lib/scheduleCodes 가 단일 출처 — 타입만 여기서 재수출한다.
+import type { ScheduleIssue } from "@/lib/scheduleCodes";
+export type { ScheduleIssue };
+
 // Auth
 export interface LoginRequest {
   username: string;
@@ -91,7 +95,6 @@ export interface Store {
   sort_order: number;
   is_active: boolean; // derived (status === "open"), server-provided for back-compat
   require_approval: boolean;
-  operating_hours: Record<string, unknown> | null;
   day_start_time: Record<string, string> | null;
   max_work_hours_weekly: number | null;
   state_code: string | null;
@@ -1227,10 +1230,14 @@ export interface ScheduleCreate {
   force?: boolean;
 }
 
+/**
+ * 프리뷰(/console/schedules/validate) 응답 — **항상 200**.
+ * 항목은 문장이 아니라 `{code, params}` 다(D9-4). 문구는 `lib/scheduleCodes` 가 만든다.
+ */
 export interface ScheduleValidation {
   valid: boolean;
-  warnings: string[];
-  errors: string[];
+  warnings: ScheduleIssue[];
+  errors: ScheduleIssue[];
 }
 
 export interface ScheduleBulkCreate {

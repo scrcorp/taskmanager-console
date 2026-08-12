@@ -10,12 +10,10 @@
 
 import { useState, useRef, useEffect } from "react";
 import type { Schedule, WorkRole } from "@/types";
+import { stepTimeOptions } from "@/lib/scheduleTime";
 
-const TIME_OPTIONS = Array.from({ length: 48 }, (_, i) => {
-  const h = Math.floor(i / 2);
-  const m = i % 2 === 0 ? "00" : "30";
-  return `${String(h).padStart(2, "0")}:${m}`;
-});
+/** 입력 단위(5분, D6-1) 옵션. 목록 생성은 lib/scheduleTime 하나뿐 — 30분 하드코딩 금지. */
+const TIME_OPTIONS = stepTimeOptions();
 
 interface Override {
   workRoleId?: string;
