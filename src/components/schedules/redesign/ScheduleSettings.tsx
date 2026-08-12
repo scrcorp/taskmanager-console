@@ -15,7 +15,8 @@
  * 3. Approval Workflow (registry, both)
  * 4. Break Rules (registry, both)
  * 5. Attendance (registry, both)
- * 6. Operating Hours / Schedule Range (registry key: schedule.range, both)
+ * 6. Operating Hours (registry key: store.operating_hours, both) — 매장 영업시간 + 휴무일
+ * 7. Schedule Range (registry key: schedule.range, both) — 직원 근무 가능 시간대(D2-4)
  * 7. Work Roles (store only — WorkRolesPanel reuse)
  */
 
@@ -35,6 +36,7 @@ import {
 } from "@/hooks/useSettings";
 import { WorkRolesPanel } from "@/components/schedules/WorkRolesPanel";
 import { parseApiError } from "@/lib/utils";
+import { SCHEDULE_STEP_MINUTES } from "@/lib/scheduleTime";
 
 interface Props {
   showCost?: boolean;
@@ -392,6 +394,23 @@ export function ScheduleSettings({ onBack }: Props) {
         />
 
         <AttendanceSettingsSection
+          getValue={getDraftOrEffective}
+          queueChange={queueChange}
+          forceQueueChange={forceQueueChange}
+          queueDeleteKey={queueDeleteKey}
+          unqueueDeleteKey={unqueueDeleteKey}
+          isOverridden={isOverridden}
+          isOrgOverridden={isOrgOverridden}
+          isPendingDelete={isPendingDelete}
+          isLocked={isLockedAtOrg}
+          isChanged={isChanged}
+          scope={isStoreScope ? "store" : "org"}
+          storeId={isStoreScope ? activeTab : undefined}
+        />
+
+        {/* Operating Hours — 매장 영업시간(요일별 + 휴무일). registry 에 키가 있을 때만 그린다. */}
+        <OperatingHoursSection
+          available={registryByKey.has(OPERATING_HOURS_KEY)}
           getValue={getDraftOrEffective}
           queueChange={queueChange}
           forceQueueChange={forceQueueChange}
@@ -918,7 +937,9 @@ function WorkRulesSection(props: SectionCommonProps) {
   const hasAnyCustom = SECTION_KEYS.some((k) => isEffectivelyCustom(props, k));
 
   function handleShiftDurationChange(value: number) {
-    props.queueChange(SHIFT_DURATION_KEY, Math.max(30, Math.min(1440, value)));
+    // 입력 단위는 5분 하나(D6-1) — 여기서만 30분으로 남겨두면 설정에서 만든 기본 길이가
+    // 등록 폼의 grid 검증에 걸린다.
+    props.queueChange(SHIFT_DURATION_KEY, Math.max(SCHEDULE_STEP_MINUTES, Math.min(1440, value)));
   }
   function handleBreakDurationChange(value: number) {
     props.queueChange(BREAK_DURATION_KEY, Math.max(1, Math.min(480, value)));
@@ -942,9 +963,9 @@ function WorkRulesSection(props: SectionCommonProps) {
               <input
                 type="number"
                 value={shiftDuration}
-                min="30"
+                min={SCHEDULE_STEP_MINUTES}
                 max="1440"
-                step="30"
+                step={SCHEDULE_STEP_MINUTES}
                 disabled={locked}
                 onChange={(e) => handleShiftDurationChange(Number(e.target.value))}
                 className="w-20 px-3 py-1.5 border border-[var(--color-border)] rounded-lg text-[13px] text-center disabled:opacity-50"
@@ -1182,10 +1203,244 @@ function HourMinuteSelect({ value, onChange, maxHour = 23, className }: {
   );
 }
 
-// ─── 6. Schedule Range (org + store) ──────────────────
+// ─── 6. Operating Hours (org + store) ─────────────────
+//
+// **`schedule.range`(Staff Working Hours)와 다른 개념이다.** 이쪽은 "매장이 열려 있는 시간"
+// 이고, `schedule.range` 는 "직원 근무 가능 시간대"(D2-4). 이름이 비슷해 섞기 쉽다.
+//
+// 값 형태 (C5):
+//   { mode: "all"|"per_day",
+//     all:     {start, end, end_offset_days},
+//     per_day: {sun:{start,end,end_offset_days}, ...},
+//     closed:  ["sun", ...] }        ← 휴무일 (D2-6: 스케줄 생성은 허용하되 경고)
+//
+// 자정 넘김은 `end_offset_days` 로 **명시**한다. `26:00` 같은 24 초과 표기를 쓰지 않는다(D2-8).
+
+const OPERATING_HOURS_KEY = "store.operating_hours";
+const DEFAULT_HOURS: HoursEntry = { start: "09:00", end: "22:00", end_offset_days: 0 };
+
+interface HoursEntry {
+  start: string;
+  end: string;
+  /** 종료가 며칠 뒤인지. 0 또는 1. */
+  end_offset_days: number;
+}
+
+interface OperatingHoursData {
+  mode: "all" | "per_day";
+  all: HoursEntry;
+  /** `all` 이 실제로 저장돼 있었는지. false 면 화면 표시용 기본값일 뿐이라
+   *  저장 시 빈 값으로 나간다 — "미설정 = 제한 없음" 을 보존하기 위함. */
+  allSet: boolean;
+  per_day: Record<string, HoursEntry>;
+  /** `per_day` 에서 실제로 저장돼 있던(또는 사용자가 건드린) 요일 키만. */
+  perDaySet: string[];
+  closed: string[];
+}
+
+function asHoursEntry(raw: unknown): HoursEntry {
+  const d = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  return {
+    start: typeof d.start === "string" ? d.start : DEFAULT_HOURS.start,
+    end: typeof d.end === "string" ? d.end : DEFAULT_HOURS.end,
+    end_offset_days: Number(d.end_offset_days) === 1 ? 1 : 0,
+  };
+}
+
+/** 저장값 → 화면 구조.
+ *
+ * ⚠️ **"미설정"을 반드시 보존한다.** 서버 기본값은 비어 있고, 그 의미는
+ * "영업시간 제한 없음 = 리포트가 전 시간대를 검사"다. 09:00–22:00 같은 값을
+ * 넣어버리면 야간 시프트가 인원 부족 검사에서 통째로 빠진다(시드 주석 참조).
+ *
+ * 화면 입력칸은 값이 있어야 그려지므로 표시용으로만 기본값을 쓰고,
+ * **사용자가 실제로 시각을 건드리기 전까지는 저장 payload 에 싣지 않는다.**
+ * 예전엔 휴무일 체크 하나만 눌러도 09:00–22:00 이 함께 저장됐다.
+ */
+function readOperatingHours(raw: unknown): OperatingHoursData {
+  const d = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const perDayRaw = (d.per_day && typeof d.per_day === "object" ? d.per_day : {}) as Record<string, unknown>;
+  const allRaw = d.all;
+  const hasAll = !!allRaw && typeof allRaw === "object"
+    && typeof (allRaw as Record<string, unknown>).start === "string";
+  const daysSet = DAYS.filter((k) => {
+    const v = perDayRaw[k];
+    return !!v && typeof v === "object" && typeof (v as Record<string, unknown>).start === "string";
+  });
+  return {
+    mode: d.mode === "per_day" ? "per_day" : "all",
+    all: asHoursEntry(allRaw),
+    allSet: hasAll,
+    per_day: Object.fromEntries(DAYS.map((k) => [k, asHoursEntry(perDayRaw[k])])),
+    perDaySet: daysSet,
+    closed: Array.isArray(d.closed) ? d.closed.filter((x): x is string => typeof x === "string") : [],
+  };
+}
+
+/** 화면 구조 → 저장값. **건드리지 않은 칸은 싣지 않는다**(위 주석).
+ *
+ * `per_day` 도 같은 이유로 걸러낸다. 예전엔 화면 표시용 기본값 7일치가 통째로
+ * 저장돼서, `mode` 를 per_day 로 바꾸는 순간 아무도 입력한 적 없는
+ * 09:00–22:00 이 실제 영업시간이 됐다. mode 가 all 인 동안 서버가 per_day 를
+ * 보지 않아 드러나지 않을 뿐, 한 번의 클릭으로 되살아나는 값이다.
+ */
+function writeOperatingHours(h: OperatingHoursData): Record<string, unknown> {
+  return {
+    mode: h.mode,
+    all: h.allSet ? h.all : {},
+    per_day: Object.fromEntries(h.perDaySet.map((k) => [k, h.per_day[k]])),
+    closed: h.closed,
+  };
+}
+
+function OperatingHoursSection(props: SectionCommonProps & { available: boolean }) {
+  const isStore = props.scope === "store";
+  const locked = props.isLocked(OPERATING_HOURS_KEY);
+  const isInherited = isStore && !isEffectivelyCustom(props, OPERATING_HOURS_KEY);
+  const hours = readOperatingHours(props.getValue(OPERATING_HOURS_KEY));
+
+  // registry 에 키가 없으면 저장이 서버에서 거부된다 — 아예 그리지 않는다.
+  // (서버 1-C 가 이 키를 시드하기 전까지 콘솔만 앞서 배포돼도 깨진 카드가 보이지 않게)
+  if (!props.available) return null;
+
+  function save(next: OperatingHoursData) {
+    props.queueChange(OPERATING_HOURS_KEY, writeOperatingHours(next));
+  }
+  function setEntry(day: string | "all", patch: Partial<HoursEntry>) {
+    // 시각을 실제로 건드린 순간부터 "설정됨"이 된다.
+    if (day === "all") { save({ ...hours, allSet: true, all: { ...hours.all, ...patch } }); return; }
+    save({
+      ...hours,
+      perDaySet: hours.perDaySet.includes(day) ? hours.perDaySet : [...hours.perDaySet, day],
+      per_day: { ...hours.per_day, [day]: { ...(hours.per_day[day] ?? DEFAULT_HOURS), ...patch } },
+    });
+  }
+  function toggleClosed(day: string) {
+    const next = hours.closed.includes(day) ? hours.closed.filter((d) => d !== day) : [...hours.closed, day];
+    save({ ...hours, closed: next });
+  }
+
+  const entryRow = (entry: HoursEntry, day: string | "all") => (
+    <div className="flex items-center gap-2 flex-wrap">
+      <HourMinuteSelect
+        value={entry.start}
+        maxHour={23}
+        onChange={(v) => setEntry(day, { start: v })}
+        className="px-1.5 py-1 border border-[var(--color-border)] rounded text-[12px] bg-[var(--color-bg)] text-[var(--color-text)]"
+      />
+      <span className="text-[var(--color-text-muted)] text-[12px]">–</span>
+      <HourMinuteSelect
+        value={entry.end}
+        maxHour={23}
+        onChange={(v) => setEntry(day, { end: v })}
+        className="px-1.5 py-1 border border-[var(--color-border)] rounded text-[12px] bg-[var(--color-bg)] text-[var(--color-text)]"
+      />
+      {/* 자정 넘김은 오프셋으로 명시 — "종료 < 시작이면 다음날" 같은 추론을 두지 않는다. */}
+      <label className="inline-flex items-center gap-1 text-[11px] text-[var(--color-text-secondary)] select-none cursor-pointer">
+        <input
+          type="checkbox"
+          checked={entry.end_offset_days === 1}
+          disabled={locked}
+          onChange={(e) => setEntry(day, { end_offset_days: e.target.checked ? 1 : 0 })}
+          className="w-3 h-3 accent-[var(--color-accent)]"
+        />
+        next day (+1)
+      </label>
+    </div>
+  );
+
+  return (
+    <Card
+      title="Operating Hours"
+      subtitle="When the store is open. Closed days still allow schedules, but the console warns before saving."
+      locked={locked}
+    >
+      {isStore && (
+        <div className="flex justify-end mb-2">
+          <SourceBadge props={props} fieldKey={OPERATING_HOURS_KEY} />
+        </div>
+      )}
+      <div className={isInherited ? "opacity-50 pointer-events-none" : ""}>
+        {isInherited && (
+          <p className="text-[12px] text-[var(--color-text-muted)] italic mb-2">Using organization default</p>
+        )}
+        <ChangedMark changed={props.isChanged(OPERATING_HOURS_KEY)}>
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => hours.mode !== "all" && save({ ...hours, mode: "all" })}
+                className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-colors ${hours.mode === "all" ? "bg-[var(--color-accent)] text-white" : "bg-[var(--color-bg)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]"}`}>
+                Same every day
+              </button>
+              <button type="button" onClick={() => hours.mode !== "per_day" && save({ ...hours, mode: "per_day" })}
+                className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold transition-colors ${hours.mode === "per_day" ? "bg-[var(--color-accent)] text-white" : "bg-[var(--color-bg)] text-[var(--color-text-secondary)] hover:bg-[var(--color-surface-hover)]"}`}>
+                Per day
+              </button>
+            </div>
+
+            {hours.mode === "all" ? (
+              <div className="space-y-3">
+                {entryRow(hours.all, "all")}
+                <div>
+                  <div className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">Closed days</div>
+                  <div className="flex flex-wrap gap-1.5">
+                    {DAYS.map((d) => (
+                      <button key={d} type="button" onClick={() => toggleClosed(d)} disabled={locked}
+                        className={`px-2 py-1 rounded text-[11px] font-semibold uppercase tracking-wider transition-colors ${hours.closed.includes(d) ? "bg-[var(--color-danger-muted)] text-[var(--color-danger)]" : "bg-[var(--color-bg)] text-[var(--color-text-muted)] hover:bg-[var(--color-surface-hover)]"}`}>
+                        {d}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {DAYS.map((d) => {
+                  const closed = hours.closed.includes(d);
+                  return (
+                    <div key={d} className="flex items-center gap-3 flex-wrap">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-[var(--color-text-muted)] w-10 shrink-0">{d}</span>
+                      {closed
+                        ? <span className="text-[12px] text-[var(--color-danger)]">Closed</span>
+                        : entryRow(hours.per_day[d] ?? DEFAULT_HOURS, d)}
+                      <button type="button" onClick={() => toggleClosed(d)} disabled={locked}
+                        className="text-[11px] font-semibold text-[var(--color-text-muted)] hover:text-[var(--color-accent)]">
+                        {closed ? "Set hours" : "Mark closed"}
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </ChangedMark>
+      </div>
+    </Card>
+  );
+}
+
+// ─── 7. Schedule Range (org + store) ──────────────────
 
 const DAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"] as const;
-const DEFAULT_RANGE = { start: "06:00", end: "23:00" };
+const DEFAULT_RANGE: RangeEntry = { start: "06:00", end: "23:00", end_offset_days: 0 };
+
+/** "26:00" 같은 24 초과 표기를 {"02:00", +1d} 로 흡수한다.
+ *
+ * 저장 형식은 `00:00~23:59` + `end_offset_days` 로 통일됐다(D2-8 개정).
+ * 서버 파서는 24 초과 표기를 **거부하고 미설정으로 떨어뜨리는데**, 그러면
+ * SV 공백 검사가 그 매장에서 조용히 멈춘다(경고도 로그도 없다).
+ * 마이그레이션이 기존 데이터를 정리했지만, 옛 값을 아직 들고 있는 화면이
+ * 그대로 다시 저장하는 경로를 막기 위해 **읽을 때 변환**한다. */
+function absorbLegacyOverflow(e: { start?: unknown; end?: unknown; end_offset_days?: unknown }): RangeEntry {
+  const start = typeof e?.start === "string" ? e.start : DEFAULT_RANGE.start;
+  let end = typeof e?.end === "string" ? e.end : DEFAULT_RANGE.end;
+  let offset = Number(e?.end_offset_days) === 1 ? 1 : 0;
+  const m = /^(\d{1,2}):(\d{2})$/.exec(end);
+  if (m && Number(m[1]) >= 24) {
+    end = `${String(Number(m[1]) - 24).padStart(2, "0")}:${m[2]}`;
+    offset = 1;
+  }
+  return { start, end, end_offset_days: offset };
+}
 
 /** Format a schedule_range object into a readable summary string */
 function formatRangeSummary(range: Record<string, { start: string; end: string }> | undefined | null): string {
@@ -1202,10 +1457,17 @@ function formatRangeSummary(range: Record<string, { start: string; end: string }
  * { mode: "all"|"per_day", all: {start,end}, per_day: {sun:{start,end}, mon:...} }
  * all과 per_day는 항상 별도 저장. mode가 어느 쪽이 활성인지 결정.
  */
+interface RangeEntry {
+  start: string;
+  end: string;
+  /** 종료가 며칠 뒤인지. 0 또는 1. 24 초과 표기(26:00)를 쓰지 않는 이유는 D2-8 참조. */
+  end_offset_days: number;
+}
+
 interface RangeData {
   mode: "all" | "per_day";
-  all: { start: string; end: string };
-  per_day: Record<string, { start: string; end: string }>;
+  all: RangeEntry;
+  per_day: Record<string, RangeEntry>;
 }
 
 function normalizeRange(raw: unknown): RangeData {
@@ -1215,24 +1477,37 @@ function normalizeRange(raw: unknown): RangeData {
 
   // 새 포맷 (mode 필드 존재)
   if ("mode" in d) {
-    const all = (d.all && typeof d.all === "object" && "start" in (d.all as Record<string, unknown>)) ? d.all as { start: string; end: string } : defaultAll;
-    const pd = d.per_day && typeof d.per_day === "object" ? { ...defaultPerDay, ...(d.per_day as Record<string, { start: string; end: string }>) } : defaultPerDay;
+    const all = (d.all && typeof d.all === "object" && "start" in (d.all as Record<string, unknown>))
+      ? absorbLegacyOverflow(d.all as Record<string, unknown>) : defaultAll;
+    const pdRaw = d.per_day && typeof d.per_day === "object" ? d.per_day as Record<string, Record<string, unknown>> : {};
+    const pd = { ...defaultPerDay, ...Object.fromEntries(
+      Object.entries(pdRaw).map(([k, v]) => [k, absorbLegacyOverflow(v ?? {})]),
+    ) };
     return { mode: d.mode === "per_day" ? "per_day" : "all", all, per_day: pd };
   }
 
   // 레거시 포맷 호환: {"all":{...}} or {"sun":{...},"mon":{...}}
   if ("all" in d && typeof d.all === "object") {
-    const all = d.all as { start: string; end: string };
+    const all = absorbLegacyOverflow(d.all as Record<string, unknown>);
     return { mode: "all", all, per_day: Object.fromEntries(DAYS.map((k) => [k, all])) };
   }
   // per-day 레거시
   const hasDay = DAYS.some((k) => k in d);
   if (hasDay) {
     const pd = { ...defaultPerDay };
-    for (const k of DAYS) if (k in d && typeof d[k] === "object") pd[k] = d[k] as { start: string; end: string };
+    for (const k of DAYS) if (k in d && typeof d[k] === "object") pd[k] = absorbLegacyOverflow(d[k] as Record<string, unknown>);
     const starts = Object.values(pd).map((v) => v.start);
     const ends = Object.values(pd).map((v) => v.end);
-    return { mode: "per_day", all: { start: starts.sort()[0]!, end: ends.sort().reverse()[0]! }, per_day: pd };
+    // all 요약값은 per_day 의 최소 시작 / 최대 종료. 오프셋이 하나라도 있으면 +1d 로 본다.
+    return {
+      mode: "per_day",
+      all: {
+        start: starts.sort()[0]!,
+        end: ends.sort().reverse()[0]!,
+        end_offset_days: Object.values(pd).some((v) => v.end_offset_days === 1) ? 1 : 0,
+      },
+      per_day: pd,
+    };
   }
   return { mode: "all", all: defaultAll, per_day: defaultPerDay };
 }
@@ -1327,7 +1602,14 @@ function ScheduleRangeSection(props: SectionCommonProps) {
                 <span className="text-[var(--color-text-muted)] mt-5">–</span>
                 <div>
                   <label className="text-[12px] font-medium text-[var(--color-text-secondary)] mb-1.5 block">End</label>
-                  <HourMinuteSelect value={range.all.end} maxHour={48} onChange={(v) => save({ ...range, all: { ...range.all, end: v } })} />
+                  <div className="flex items-center gap-2">
+                    <HourMinuteSelect value={range.all.end} maxHour={23} onChange={(v) => save({ ...range, all: { ...range.all, end: v } })} />
+                    <label className="flex items-center gap-1 text-[11px] text-[var(--color-text-secondary)] select-none">
+                      <input type="checkbox" checked={range.all.end_offset_days === 1}
+                        onChange={(e) => save({ ...range, all: { ...range.all, end_offset_days: e.target.checked ? 1 : 0 } })} />
+                      +1d
+                    </label>
+                  </div>
                 </div>
               </div>
             ) : (
@@ -1348,9 +1630,14 @@ function ScheduleRangeSection(props: SectionCommonProps) {
                         onChange={(v) => save({ ...range, mode: "per_day", per_day: { ...range.per_day, [d]: { ...dayVal, start: v } } })}
                         className="px-1.5 py-1 border border-[var(--color-border)] rounded text-[12px] bg-[var(--color-bg)] text-[var(--color-text)]" />
                       <span className="text-[var(--color-text-muted)] text-[12px]">–</span>
-                      <HourMinuteSelect value={dayVal.end} maxHour={48}
+                      <HourMinuteSelect value={dayVal.end} maxHour={23}
                         onChange={(v) => save({ ...range, mode: "per_day", per_day: { ...range.per_day, [d]: { ...dayVal, end: v } } })}
                         className="px-1.5 py-1 border border-[var(--color-border)] rounded text-[12px] bg-[var(--color-bg)] text-[var(--color-text)]" />
+                      <label className="flex items-center gap-1 text-[11px] text-[var(--color-text-secondary)] select-none shrink-0">
+                        <input type="checkbox" checked={dayVal.end_offset_days === 1}
+                          onChange={(e) => save({ ...range, mode: "per_day", per_day: { ...range.per_day, [d]: { ...dayVal, end_offset_days: e.target.checked ? 1 : 0 } } })} />
+                        +1d
+                      </label>
                       {isDayChanged && (
                         <button type="button" onClick={() => resetDay(d)} title={`Reset ${d}`}
                           className="text-[var(--color-text-muted)] hover:text-[var(--color-accent)] transition-colors shrink-0">

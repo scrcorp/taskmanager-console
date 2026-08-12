@@ -13,6 +13,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ModalProvider } from "@/components/ui/imperative-modal/ModalProvider";
 import { createElement, type ReactNode } from "react";
 import {
   useUsers,
@@ -50,8 +51,11 @@ function createWrapper() {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+  // ModalProvider 필수 — 대부분의 mutation 훅이 useMutationToast → useModal 경로로
+  // 모달 컨텍스트를 요구한다. 빠지면 훅이 렌더 시점에 던진다.
   return ({ children }: { children: ReactNode }) =>
-    createElement(QueryClientProvider, { client: qc }, children);
+    createElement(QueryClientProvider, { client: qc },
+      createElement(ModalProvider, null, children));
 }
 
 describe("useUsers hooks", () => {
@@ -158,7 +162,7 @@ describe("useUsers hooks", () => {
   it("fetches user stores", async () => {
     const { default: api } = await import("@/lib/api");
     const stores: Store[] = [
-      { id: "b1", organization_id: "o1", name: "Store A", code: null, address: null, phone: null, email: null, status: "open", sort_order: 0, is_active: true, require_approval: false, operating_hours: null, day_start_time: null, max_work_hours_weekly: null, state_code: null, timezone: null, default_hourly_rate: null, accepting_signups: true, created_at: "2026-01-01T00:00:00Z" },
+      { id: "b1", organization_id: "o1", name: "Store A", code: null, address: null, phone: null, email: null, status: "open", sort_order: 0, is_active: true, require_approval: false, day_start_time: null, max_work_hours_weekly: null, state_code: null, timezone: null, default_hourly_rate: null, accepting_signups: true, created_at: "2026-01-01T00:00:00Z" },
     ];
     vi.mocked(api.get).mockResolvedValueOnce({ data: stores });
 

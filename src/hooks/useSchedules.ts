@@ -3,14 +3,57 @@ import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
 import { useModal } from "@/components/ui/imperative-modal";
 import { parseApiError } from "@/lib/utils";
+import { describeScheduleIssues, isScheduleWarningConflict, parseScheduleFailure } from "@/lib/scheduleCodes";
 import type { Schedule, ScheduleBulkCreate, ScheduleBulkResult, ScheduleCreate, ScheduleUpdate, ScheduleValidation, PaginatedResponse, BulkPreviewEntry, BulkPreviewResponse, BulkUpdateRequest, BulkUpdateResult, BulkDeleteRequest, BulkDeleteResult } from "@/types";
 
-/** mutation 공통 onError(modal) — parseApiError 로 status code별 친화 메시지 사용 */
+/**
+ * mutation 공통 onError(modal) — parseApiError 로 status code별 친화 메시지 사용.
+ *
+ * 단, **경고 확인 대기 409(SCHEDULE_WARNINGS_UNCONFIRMED)는 에러가 아니다.** 호출 측이
+ * 확인 모달을 띄우고 force 로 재요청하는 흐름을 타므로 여기서 에러 모달을 띄우면
+ * "실패했다"는 모달과 "저장할까요?"라는 모달이 겹쳐 뜬다.
+ */
 function useErrorToast() {
   const modal = useModal();
   return (action: string) => (err: unknown) => {
+    if (isScheduleWarningConflict(err)) return;
     void modal.alert({ type: "error", title: action, message: parseApiError(err, "Unexpected error") });
   };
+}
+
+/**
+ * 저장 실패를 D9 계약대로 처리한다 — **최상위 code 로만 식별**한다.
+ *
+ * 409 는 이미 `pay_period_locked` / `store_closed` / `pin_conflict` 가 쓰고 있어서
+ * status 만 보고 확인 모달을 띄우면 급여 잠금에도 "Save anyway" 가 뜬다.
+ *
+ * 반환값:
+ *  - `"retry"`      — 경고를 사용자가 확인했다. 호출 측이 `force: true` 로 재요청한다.
+ *  - `"cancelled"`  — 경고였지만 사용자가 취소했다. 조용히 끝낸다.
+ *  - `"unhandled"`  — 이 계약 밖의 실패. 호출 측이 기존 에러 표시를 한다.
+ */
+export function useScheduleWarningGate(): (err: unknown) => Promise<"retry" | "cancelled" | "unhandled"> {
+  const modal = useModal();
+  return async (err) => {
+    const failure = parseScheduleFailure(err);
+    if (failure.kind !== "warnings_unconfirmed" || failure.warnings.length === 0) return "unhandled";
+    const ok = await modal.confirm({
+      title: "Confirm schedule",
+      message: describeScheduleIssues(failure.warnings),
+      confirmLabel: "Save anyway",
+      variant: "danger",
+    });
+    return ok ? "retry" : "cancelled";
+  };
+}
+
+/** 400(SCHEDULE_INVALID) 이면 코드로 만든 문구, 아니면 기존 fallback. inline 배너용. */
+export function scheduleErrorText(err: unknown, fallback: string): string {
+  const failure = parseScheduleFailure(err);
+  if (failure.kind === "invalid" && failure.errors.length > 0) {
+    return describeScheduleIssues(failure.errors);
+  }
+  return parseApiError(err, fallback);
 }
 
 /** mutation 성공 시 일관된 결과 모달 띄우는 helper — 사용자가 직접 닫아 결과를 인지 */

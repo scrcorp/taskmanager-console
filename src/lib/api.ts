@@ -12,6 +12,7 @@
 import axios from "axios";
 import type { InternalAxiosRequestConfig } from "axios";
 import { getAccessToken, getRefreshToken, setTokens, clearTokens } from "./auth";
+import { domainCode } from "./apiError";
 import { isMockMode, handleMockRequest } from "@/mocks/adapter";
 
 /** Axios 인스턴스 생성 — baseURL은 환경변수에서 읽음 */
@@ -88,13 +89,18 @@ const ORG_BLOCK_CODES: readonly string[] = [
   ERROR_CODES.ORG_ACCESS_REVOKED,
 ];
 
-/** axios 에러에서 서버 에러 코드 추출 (detail 이 {code,message} 객체일 때). */
+/**
+ * axios 에러에서 서버 **도메인** 에러 코드 추출.
+ *
+ * 내부는 `domainCode`(`src/lib/apiError.ts`) 로 교체됐다 — 신버전 서버의 봉투(`error.code`)를
+ * 먼저 보고, 없으면 구버전 `detail.code` 로 폴백한다. 호출처 시그니처는 그대로다.
+ *
+ * ⚠️ **status 기반 일반 코드(`BAD_REQUEST` 등)는 일부러 반환하지 않는다.** 봉투 도입 후
+ * 서버는 모든 실패에 code 를 붙이는데, 그것까지 흘리면 `getErrorCode(err) !== undefined`
+ * 를 "도메인 계약이다"로 읽던 기존 분기들이 전부 참이 되어 조용히 오작동한다.
+ */
 export function getErrorCode(error: unknown): string | undefined {
-  const detail = (error as { response?: { data?: { detail?: unknown } } })?.response?.data?.detail;
-  if (detail && typeof detail === "object" && "code" in detail) {
-    return (detail as { code?: string }).code;
-  }
-  return undefined;
+  return domainCode(error);
 }
 
 api.interceptors.response.use(

@@ -12,6 +12,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { ModalProvider } from "@/components/ui/imperative-modal/ModalProvider";
 import { createElement, type ReactNode } from "react";
 import {
   useNotices,
@@ -35,8 +36,11 @@ function createWrapper() {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+  // ModalProvider 필수 — 대부분의 mutation 훅이 useMutationToast → useModal 경로로
+  // 모달 컨텍스트를 요구한다. 빠지면 훅이 렌더 시점에 던진다.
   return ({ children }: { children: ReactNode }) =>
-    createElement(QueryClientProvider, { client: qc }, children);
+    createElement(QueryClientProvider, { client: qc },
+      createElement(ModalProvider, null, children));
 }
 
 const mockAnn: Notice = {

@@ -101,12 +101,23 @@ describe("authStore", () => {
     expect(useAuthStore.getState().user?.username).toBe("admin");
   });
 
-  it("fetchMe clears user on failure", async () => {
+  // fetchMe 는 401/403 일 때만 로그아웃시킨다. 네트워크 오류로 세션을 날리면
+  // 잠깐 끊긴 것만으로 사용자가 튕겨나가므로, status 를 실제로 확인한다.
+  it("fetchMe clears user on 401", async () => {
     const { default: api } = await import("@/lib/api");
     useAuthStore.setState({ user: { id: "1" } as any });
-    vi.mocked(api.get).mockRejectedValueOnce(new Error("401"));
+    vi.mocked(api.get).mockRejectedValueOnce({ response: { status: 401 } });
 
     await useAuthStore.getState().fetchMe();
     expect(useAuthStore.getState().user).toBeNull();
+  });
+
+  it("fetchMe keeps user on network error", async () => {
+    const { default: api } = await import("@/lib/api");
+    useAuthStore.setState({ user: { id: "1" } as any });
+    vi.mocked(api.get).mockRejectedValueOnce(new Error("Network Error"));
+
+    await useAuthStore.getState().fetchMe();
+    expect(useAuthStore.getState().user).not.toBeNull();
   });
 });

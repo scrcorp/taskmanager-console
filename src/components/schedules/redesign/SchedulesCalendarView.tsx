@@ -14,7 +14,7 @@ import { parseApiError, todayInTimezone } from "@/lib/utils";
 import { addDay, dawnStartOffset, dayDiff, rollEndDate, shiftIsoFields, startOffsetDaysOf } from "@/lib/scheduleTime";
 import { useRouter } from "next/navigation";
 import { usePersistedFilters } from "@/hooks/usePersistedFilters";
-import { useSchedules, useScheduleRoster, useConfirmSchedule, useRejectSchedule, useDeleteScheduleFlow, useSubmitSchedule, useRevertSchedule, useCancelSchedule, useCreateSchedule, useUpdateSchedule, useSwitchSchedule, type RosterColumnData } from "@/hooks/useSchedules";
+import { useSchedules, useScheduleRoster, useScheduleWarningGate, scheduleErrorText, useConfirmSchedule, useRejectSchedule, useDeleteScheduleFlow, useSubmitSchedule, useRevertSchedule, useCancelSchedule, useCreateSchedule, useUpdateSchedule, useSwitchSchedule, type RosterColumnData } from "@/hooks/useSchedules";
 import { useUsers } from "@/hooks/useUsers";
 import { ROLE_PRIORITY } from "@/lib/permissions";
 import { useStores } from "@/hooks/useStores";
@@ -606,6 +606,8 @@ export default function SchedulesCalendarView() {
   const revertMutation = useRevertSchedule();
   const cancelMutation = useCancelSchedule();
   const deleteFlow = useDeleteScheduleFlow();
+  // 409 경고 확인 게이트 — 저장 실패를 D9 계약으로 해석한다.
+  const warningGate = useScheduleWarningGate();
   const createMutation = useCreateSchedule();
   const updateMutation = useUpdateSchedule();
   const switchMutation = useSwitchSchedule();
@@ -1270,6 +1272,13 @@ export default function SchedulesCalendarView() {
   function handleScheduleEditSave(payload: ScheduleEditPayload) {
     setEditModalError(null);
     if (editModal.mode === "add") {
+      submitCreateMutation(payload);
+    } else if (editModal.mode === "edit" && editModal.blockId) {
+      submitEditMutation(editModal.blockId, payload, undefined);
+    }
+  }
+
+  function submitCreateMutation(payload: ScheduleEditPayload) {
       createMutation.mutate({
         user_id: payload.userId,
         store_id: payload.storeId,
@@ -1292,11 +1301,15 @@ export default function SchedulesCalendarView() {
         force: payload.force,
       }, {
         onSuccess: closeEditModal,
-        onError: (err) => setEditModalError(parseApiError(err, "Failed to create schedule")),
+        onError: async (err) => {
+          // 409 SCHEDULE_WARNINGS_UNCONFIRMED → 경고 확인 후 force 재요청 (D9-1).
+          // status 가 아니라 최상위 code 로 식별한다 — 급여 잠금 409 와 구분해야 한다.
+          const gate = await warningGate(err);
+          if (gate === "retry") { submitCreateMutation({ ...payload, force: true }); return; }
+          if (gate === "cancelled") return;
+          setEditModalError(scheduleErrorText(err, "Failed to create schedule"));
+        },
       });
-    } else if (editModal.mode === "edit" && editModal.blockId) {
-      submitEditMutation(editModal.blockId, payload, undefined);
-    }
   }
 
   function submitEditMutation(blockId: string, payload: ScheduleEditPayload, resetChecklist: boolean | undefined) {
@@ -1326,8 +1339,13 @@ export default function SchedulesCalendarView() {
     }, {
       onSuccess: closeEditModal,
       onError: async (err) => {
-        const msg = parseApiError(err, "Failed to update schedule");
-        // 서버가 "Checklist is in_progress/completed..." 400으로 거절 → 확인 후 재전송
+        // 409 SCHEDULE_WARNINGS_UNCONFIRMED → 확인 후 force 재요청 (D9-1).
+        const gate = await warningGate(err);
+        if (gate === "retry") { submitEditMutation(blockId, { ...payload, force: true }, resetChecklist); return; }
+        if (gate === "cancelled") return;
+        const msg = scheduleErrorText(err, "Failed to update schedule");
+        // 서버가 "Checklist is in_progress/completed..." 400으로 거절 → 확인 후 재전송.
+        // 이쪽은 아직 코드 계약 밖이라 문자열 매칭이 남아 있다(체크리스트 트랙에서 정리 대상).
         if (/reset_checklist=true/.test(msg)) {
           const ok = await modal.confirm({
             title: "Checklist in progress",

@@ -1,11 +1,11 @@
 /**
  * 스케줄 통계용 순수 헬퍼 — 컴포넌트에서 분리하여 단위 테스트 가능하게 함.
- *  - hourOccupancy: 일간 시간대별 0.5인 환산 (30분 grid → 0/0.5/1)
+ *  - hourOccupancy: 일간 시간대별 0.5인 환산 (30분 표시 슬롯 → 0/0.5/1)
  *  - fmtTeam: TEAM 숫자 표시 (0.5 grid 스냅)
- *  - isOn30Grid: 30분 단위 검증 (등록 모달 / 서버 reject 와 동일 규칙)
+ *
+ * 여기 30분은 **표시 슬롯**이지 입력 단위가 아니다(D6-2). 입력 단위 검증은
+ * `lib/scheduleTime.isOnScheduleGrid` (5분) 가 단일 출처 — 예전 `isOn30Grid` 는 그쪽으로 이사했다.
  */
-
-const SCHEDULE_STEP_MIN = 30;
 
 /** "HH:MM" → 시간 단위 float. null/빈값은 0. */
 function parseTimeToHours(t: string | null | undefined): number {
@@ -69,12 +69,4 @@ export function slotOverlap(
 export function fmtTeam(n: number): string {
   const r = Math.round(n * 2) / 2;
   return r % 1 === 0 ? String(r) : r.toFixed(1);
-}
-
-/** "HH:MM" 가 30분 grid(:00/:30) 인지. null/빈값은 통과. */
-export function isOn30Grid(hhmm: string | null | undefined): boolean {
-  if (!hhmm) return true;
-  const [hh, mm] = hhmm.split(":");
-  const total = (Number.parseInt(hh ?? "0", 10) || 0) * 60 + (Number.parseInt(mm ?? "0", 10) || 0);
-  return total % SCHEDULE_STEP_MIN === 0;
 }
