@@ -20,6 +20,7 @@ import { useTimezone } from "@/hooks/useTimezone";
 import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import { todayInTimezone } from "@/lib/utils";
 import { ROLE_PRIORITY } from "@/lib/permissions";
+import { SCHEDULE_HISTORY_DELETE_ENABLED } from "@/lib/featureFlags";
 import { DiffDisplay } from "@/components/schedules/redesign/DiffDisplay";
 import { useModal } from "@/components/ui/imperative-modal";
 import type { User } from "@/types";
@@ -391,7 +392,7 @@ export default function ScheduleHistoryPage() {
                     key={item.id}
                     item={item}
                     users={usersQ.data ?? []}
-                    onDelete={isOwner ? handleDeleteEntry : undefined}
+                    onDelete={isOwner && SCHEDULE_HISTORY_DELETE_ENABLED ? handleDeleteEntry : undefined}
                   />
                 ))}
               </tbody>

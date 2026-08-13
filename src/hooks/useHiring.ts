@@ -287,6 +287,8 @@ export interface ApplicationListItem {
   notes: string | null;
   submitted_at: string;
   updated_at: string;
+  /** rejected/withdrawn 진입 시각. 그 단계를 벗어나면 null. */
+  rejected_at?: string | null;
   candidate: {
     id: string;
     username: string;
@@ -351,6 +353,8 @@ export interface InboxApplicationsResponse {
   pages: number;
   counts: Record<ApplicationStage, number>;
   org_timezone?: string;
+  /** staleDays 를 준 경우, 버킷별로 '오래 방치'로 접힌 건수. */
+  stale_hidden?: { pending_form: number; rejected: number };
 }
 
 export interface InboxParams {
@@ -360,14 +364,23 @@ export interface InboxParams {
   sort?: "recent" | "updated";
   page?: number;
   perPage?: number;
+  /** 지정 시 이 일수보다 오래 방치된 rejected/withdrawn·pending_form 을 목록에서 제외. */
+  staleDays?: number;
+  /** stale 제외에서 면제할 버킷 ('rejected' | 'pending_form'). 컬럼별 Show older 토글용. */
+  includeStale?: string[];
 }
 
 export const useApplicationsInbox = (
   p: InboxParams = {},
 ): UseQueryResult<InboxApplicationsResponse, Error> => {
-  const { storeId, stage, q, sort, page, perPage } = p;
+  const { storeId, stage, q, sort, page, perPage, staleDays, includeStale } = p;
+  const includeStaleKey = (includeStale ?? []).slice().sort().join(",");
   return useQuery({
-    queryKey: ["hiring", "inbox", { storeId, stage, q, sort, page, perPage }],
+    queryKey: [
+      "hiring",
+      "inbox",
+      { storeId, stage, q, sort, page, perPage, staleDays, includeStale: includeStaleKey },
+    ],
     queryFn: async () => {
       const res = await api.get(`/console/hiring/applications`, {
         params: {
@@ -377,6 +390,8 @@ export const useApplicationsInbox = (
           ...(sort ? { sort } : {}),
           ...(page ? { page } : {}),
           ...(perPage ? { per_page: perPage } : {}),
+          ...(staleDays !== undefined ? { stale_days: staleDays } : {}),
+          ...(includeStaleKey ? { include_stale: includeStaleKey } : {}),
         },
       });
       return res.data as InboxApplicationsResponse;
