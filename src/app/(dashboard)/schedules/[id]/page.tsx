@@ -16,6 +16,7 @@ import {
   useScheduleWarningGate, scheduleErrorText,
 } from "@/hooks/useSchedules";
 import { PERMISSIONS, ROLE_PRIORITY } from "@/lib/permissions";
+import { SCHEDULE_HISTORY_DELETE_ENABLED } from "@/lib/featureFlags";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useUser, useUsers } from "@/hooks/useUsers";
 import { useStore, useStores } from "@/hooks/useStores";
@@ -232,7 +233,7 @@ export default function SchedulesDetailPage() {
             ? (isGMPlus ? handleCancelConfirmed : undefined)
             : handleDelete
         }
-        onDeleteHistoryEntry={isOwner ? handleDeleteHistoryEntry : undefined}
+        onDeleteHistoryEntry={isOwner && SCHEDULE_HISTORY_DELETE_ENABLED ? handleDeleteHistoryEntry : undefined}
       />
 
       <ScheduleEditModal
