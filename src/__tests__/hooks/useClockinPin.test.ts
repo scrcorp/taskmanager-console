@@ -5,6 +5,7 @@
  * - useClockinPin: PIN 조회 + userId 미지정 시 비활성화
  * - useUpdateClockinPin: 관리자 직접 변경 (PUT, clockin_pin 본문)
  *   + 409 pin_conflict 전용 모달 분기 (서버 message + 다음 행동)
+ *     — reason 은 exact 하나뿐(2026-08-13 prefix 규칙 폐지), other_store 로 문구가 갈린다
  * - useRegenerateClockinPin: PIN 재발급 (POST)
  * - PIN_REGEX: 4~6자리 허용 경계값 (서버 ^\d{4,6}$ 와 일치, 콘솔 6자리 고정 제약 해제)
  */
@@ -59,7 +60,7 @@ vi.mock("@/lib/mutationResult", () => ({
 
 /** pin_conflict 409 응답 모양 헬퍼 — 계약: detail {code, reason, other_store, message}. */
 function pinConflictError(
-  reason: "exact" | "prefix",
+  reason: "exact",
   message: string,
   otherStore: boolean | null = null,
 ) {
@@ -157,12 +158,12 @@ describe("useClockinPin hooks", () => {
     expect(mocks.errorHandler).not.toHaveBeenCalled();
   });
 
-  it("passes prefix-conflict server message through unchanged", async () => {
+  it("passes the other-store conflict message through unchanged", async () => {
     const { default: api } = await import("@/lib/api");
-    const prefixMsg =
-      "This PIN overlaps with another employee's PIN (numbers that start the same).";
+    const otherStoreMsg =
+      "This PIN is already in use by an employee at another store.";
     vi.mocked(api.put).mockRejectedValueOnce(
-      pinConflictError("prefix", prefixMsg),
+      pinConflictError("exact", otherStoreMsg, true),
     );
 
     const { result } = renderHook(() => useUpdateClockinPin(), {
@@ -172,7 +173,7 @@ describe("useClockinPin hooks", () => {
     await waitFor(() => expect(result.current.isError).toBe(true));
 
     expect(mocks.rawError).toHaveBeenCalledWith(
-      `${prefixMsg} Try a different number.`,
+      `${otherStoreMsg} Try a different number.`,
       { title: "Couldn't update PIN" },
     );
     expect(mocks.errorHandler).not.toHaveBeenCalled();

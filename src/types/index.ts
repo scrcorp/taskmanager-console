@@ -1719,7 +1719,44 @@ export interface AccessCode {
  * Per-staff 6-digit clock-in PIN. */
 export interface ClockinPin {
   user_id: string;
-  clockin_pin: string;
+  /** PIN 제거(DELETE) 후에는 null. */
+  clockin_pin: string | null;
+}
+
+/** PIN 도구에서 보여주는 직원 한 명 (clockin_pin:read 권한자 전용 응답). */
+export interface ClockinPinHolder {
+  user_id: string;
+  full_name: string;
+  username: string | null;
+  role_name: string | null;
+  is_active: boolean;
+  is_provisional: boolean;
+  clockin_pin: string | null;
+  /** lookup 응답에서만 채워짐 — 이 사람이 그 PIN 을 이미 쓰고 있으면 "exact". */
+  conflict: "exact" | null;
+}
+
+/** GET /console/users/clockin-pin/lookup — 이 PIN 을 지금 배정할 수 있는가. */
+export interface ClockinPinLookup {
+  pin: string;
+  available: boolean;
+  /** 충돌 사유. 값은 exact 하나뿐 — 같은 번호를 이미 쓰는 사람이 있다는 뜻. */
+  reason: "exact" | null;
+  holders: ClockinPinHolder[];
+}
+
+/** GET /console/users/clockin-pin/directory — 이름/PIN 으로 직원 찾기. */
+export interface ClockinPinDirectory {
+  items: ClockinPinHolder[];
+  /** 서버 상한에 걸려 잘렸는지 — true 면 검색어를 좁히라고 안내. */
+  truncated: boolean;
+}
+
+/** GET /console/users/clockin-pin/suggest — 안 쓰이는 PIN 추천 (배정 안 함). */
+export interface ClockinPinSuggestion {
+  /** 해당 자릿수 공간이 꽉 찼으면 null. */
+  pin: string | null;
+  length: number;
 }
 
 
