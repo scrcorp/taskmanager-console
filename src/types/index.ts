@@ -1877,7 +1877,6 @@ export interface ReportFilters {
   date_to?: string;
   period?: string;
   status?: string;
-  show_all?: boolean;
   page?: number;
   per_page?: number;
 }

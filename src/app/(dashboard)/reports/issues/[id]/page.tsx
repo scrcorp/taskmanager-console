@@ -35,6 +35,7 @@ import { useUsers } from "@/hooks/useUsers";
 import { useTask } from "@/hooks/useTasks";
 import { useAuthStore } from "@/stores/authStore";
 import { usePermissions } from "@/hooks/usePermissions";
+import { describeApiError } from "@/lib/errorDisplay";
 import {
   Badge,
   Button,
@@ -84,7 +85,7 @@ export default function IssueReportDetailPage(): React.ReactElement {
   const { user } = useAuthStore();
   const modal = useModal();
 
-  const { data: report, isLoading } = useReport(id);
+  const { data: report, isLoading, error } = useReport(id);
   const transition = useTransitionIssue();
   const addComment = useAddReportComment();
   const deleteReport = useDeleteReport();
@@ -117,9 +118,13 @@ export default function IssueReportDetailPage(): React.ReactElement {
   }
 
   if (!report) {
+    // 권한으로 막힌 경우(403)를 "없음" 으로 표시하지 않는다.
+    const failure = error
+      ? describeApiError(error, { context: "load", fallback: "Issue report not found." })
+      : null;
     return (
       <Card className="p-8 text-center text-textSecondary">
-        Issue report not found.
+        {failure ? [failure.message, failure.hint].filter(Boolean).join(" ") : "Issue report not found."}
       </Card>
     );
   }
