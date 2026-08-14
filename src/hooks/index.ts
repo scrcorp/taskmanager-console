@@ -121,7 +121,11 @@ export {
 
 export {
   useClockinPin,
+  useClockinPinDirectory,
+  useClockinPinLookup,
+  useClearClockinPin,
   useRegenerateClockinPin,
+  useSuggestClockinPin,
   useUpdateClockinPin,
 } from "./useClockinPin";
 

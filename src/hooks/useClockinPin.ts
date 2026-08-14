@@ -15,7 +15,12 @@ import {
 import type { AxiosResponse } from "axios";
 import api, { getErrorCode } from "@/lib/api";
 import { useMutationResult } from "@/lib/mutationResult";
-import type { ClockinPin } from "@/types";
+import type {
+  ClockinPin,
+  ClockinPinDirectory,
+  ClockinPinLookup,
+  ClockinPinSuggestion,
+} from "@/types";
 
 /**
  * pin_conflict 409 detail 에서 서버 사유 문장(message) 추출.
@@ -115,6 +120,9 @@ export const useUpdateClockinPin = (): UseMutationResult<
         ["clockin-pin", newPin.user_id],
         newPin,
       );
+      // PIN 도구가 열려 있으면 목록/가용성 판정이 방금 바뀐 값 기준으로 갱신돼야 한다.
+      void queryClient.invalidateQueries({ queryKey: ["clockin-pin-directory"] });
+      void queryClient.invalidateQueries({ queryKey: ["clockin-pin-lookup"] });
       success("PIN updated.");
     },
     onError: (err: Error): void => {
@@ -130,5 +138,113 @@ export const useUpdateClockinPin = (): UseMutationResult<
       }
       error("Couldn't update PIN")(err);
     },
+  });
+};
+
+// ── PIN 찾기 도구 (Staff 페이지 PIN 버튼) ────────────────────────────────
+
+/**
+ * PIN 배정 가능 여부 조회 훅.
+ *
+ * 권한: clockin_pin:read. 저장 경로와 같은 판정(정확 일치)을 쓰므로
+ * available=true 면 그대로 저장해도 409 가 나지 않는다.
+ *
+ * @param pin - 4~6자리 숫자. 형식이 안 맞으면 요청하지 않는다.
+ */
+export const useClockinPinLookup = (
+  pin: string,
+): UseQueryResult<ClockinPinLookup, Error> => {
+  const valid: boolean = /^\d{4,6}$/.test(pin);
+  return useQuery<ClockinPinLookup, Error>({
+    queryKey: ["clockin-pin-lookup", pin],
+    queryFn: async (): Promise<ClockinPinLookup> => {
+      const response: AxiosResponse<ClockinPinLookup> = await api.get(
+        "/console/users/clockin-pin/lookup",
+        { params: { pin } },
+      );
+      return response.data;
+    },
+    enabled: valid,
+  });
+};
+
+/**
+ * 이름 또는 PIN 앞자리로 직원 + 현재 PIN 목록 조회 훅.
+ *
+ * 권한: clockin_pin:read.
+ * @param q - 검색어 (빈 문자열이면 상위 목록)
+ * @param includeInactive - 비활성 직원 포함 여부
+ * @param enabled - 모달이 닫혀 있을 때 쿼리를 막기 위한 스위치
+ */
+export const useClockinPinDirectory = (
+  q: string,
+  includeInactive: boolean = false,
+  enabled: boolean = true,
+): UseQueryResult<ClockinPinDirectory, Error> => {
+  return useQuery<ClockinPinDirectory, Error>({
+    queryKey: ["clockin-pin-directory", q, includeInactive],
+    queryFn: async (): Promise<ClockinPinDirectory> => {
+      const response: AxiosResponse<ClockinPinDirectory> = await api.get(
+        "/console/users/clockin-pin/directory",
+        { params: { q: q || undefined, include_inactive: includeInactive } },
+      );
+      return response.data;
+    },
+    enabled,
+  });
+};
+
+/**
+ * 안 쓰이는 PIN 추천 훅 (배정은 하지 않는다).
+ *
+ * 권한: clockin_pin:read. 자릿수 공간이 꽉 차면 `pin: null`.
+ * 버튼을 누를 때만 돌도록 기본 enabled=false — `refetch()` 로 호출한다.
+ */
+export const useSuggestClockinPin = (
+  length: number = 4,
+): UseQueryResult<ClockinPinSuggestion, Error> => {
+  return useQuery<ClockinPinSuggestion, Error>({
+    queryKey: ["clockin-pin-suggest", length],
+    queryFn: async (): Promise<ClockinPinSuggestion> => {
+      const response: AxiosResponse<ClockinPinSuggestion> = await api.get(
+        "/console/users/clockin-pin/suggest",
+        { params: { length } },
+      );
+      return response.data;
+    },
+    enabled: false,
+    gcTime: 0,
+  });
+};
+
+/**
+ * PIN 제거 뮤테이션 — 번호를 비워 다시 쓸 수 있게 만든다.
+ *
+ * 권한: clockin_pin:update. PIN 이 없는 직원은 키오스크에서 PIN 출퇴근을 못 한다.
+ */
+export const useClearClockinPin = (): UseMutationResult<
+  ClockinPin,
+  Error,
+  string
+> => {
+  const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationResult();
+  return useMutation<ClockinPin, Error, string>({
+    mutationFn: async (userId: string): Promise<ClockinPin> => {
+      const response: AxiosResponse<ClockinPin> = await api.delete(
+        `/console/users/${userId}/clockin-pin`,
+      );
+      return response.data;
+    },
+    onSuccess: (cleared: ClockinPin): void => {
+      queryClient.setQueryData<ClockinPin>(
+        ["clockin-pin", cleared.user_id],
+        cleared,
+      );
+      void queryClient.invalidateQueries({ queryKey: ["clockin-pin-directory"] });
+      void queryClient.invalidateQueries({ queryKey: ["clockin-pin-lookup"] });
+      success("PIN removed.");
+    },
+    onError: error("Couldn't remove PIN"),
   });
 };

@@ -10,7 +10,7 @@
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Search, Layers, Copy, Check as CheckIcon } from "lucide-react";
+import { Plus, Search, Layers, Copy, Check as CheckIcon, KeyRound } from "lucide-react";
 import { useUsers, useCreateUser, useCreateProvisionalUser } from "@/hooks/useUsers";
 import { useWarningCounts } from "@/hooks/useWarnings";
 import { useAvailabilityBulk } from "@/hooks/useAvailability";
@@ -28,6 +28,8 @@ import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { formatDate } from "@/lib/utils";
 import { useTimezone } from "@/hooks/useTimezone";
 import { usePermissions } from "@/hooks/usePermissions";
+import { useModal } from "@/components/ui/imperative-modal";
+import { PinFinder } from "@/components/users/PinFinder";
 import { PERMISSIONS, ROLE_PRIORITY } from "@/lib/permissions";
 import { DAY_LABELS, fmtDay, toRoutine, AVAIL_COLORS } from "@/types";
 import type { User, Role, Store, AvailabilityMember, AvailabilityDay } from "@/types";
@@ -110,6 +112,13 @@ export default function UsersPage(): React.ReactElement {
   const { hasPermission } = usePermissions();
   const tz = useTimezone();
   const canManageUsers = hasPermission(PERMISSIONS.USERS_CREATE);
+  // PIN 도구는 남의 PIN 값을 보여주므로 clockin_pin:read 권한자에게만 노출.
+  const canSeePins = hasPermission(PERMISSIONS.CLOCKIN_PIN_READ);
+  const modal = useModal();
+
+  const openPinFinder = useCallback((): void => {
+    void modal.open(() => <PinFinder />, { title: "PIN finder", size: "lg" });
+  }, [modal]);
 
   /** URL + localStorage 영속 필터 — 상세 페이지 다녀와도, 새로고침/재로그인 후에도 복원 */
   const [params, setParams] = usePersistedFilters("users", {
@@ -704,24 +713,33 @@ export default function UsersPage(): React.ReactElement {
       {/* Page Header */}
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-extrabold text-text">Staff</h1>
-        {canManageUsers && (
-          <div className="flex items-center gap-2">
-            <Button
-              variant="secondary"
-              onClick={() => router.push("/users/bulk/edit")}
-            >
-              <Layers className="h-4 w-4" />
-              Bulk Edit
+        <div className="flex items-center gap-2">
+          {/* PIN 도구 — 번호가 비었는지 확인하고 그 자리에서 고치거나 지운다. */}
+          {canSeePins && (
+            <Button variant="secondary" onClick={openPinFinder}>
+              <KeyRound className="h-4 w-4" />
+              PIN
             </Button>
-            <Button
-              variant="primary"
-              onClick={() => setIsCreateOpen(true)}
-            >
-              <Plus className="h-4 w-4" />
-              Add Staff
-            </Button>
-          </div>
-        )}
+          )}
+          {canManageUsers && (
+            <>
+              <Button
+                variant="secondary"
+                onClick={() => router.push("/users/bulk/edit")}
+              >
+                <Layers className="h-4 w-4" />
+                Bulk Edit
+              </Button>
+              <Button
+                variant="primary"
+                onClick={() => setIsCreateOpen(true)}
+              >
+                <Plus className="h-4 w-4" />
+                Add Staff
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       {/* Filter Bar */}
