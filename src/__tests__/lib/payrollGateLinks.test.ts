@@ -42,11 +42,27 @@ describe("buildAttendanceOneShotLink", () => {
       date: null,
       userId: null,
       unconfirmedAutoOnly: false,
+      overlappingOnly: false,
     });
     const params = new URLSearchParams(url.split("?")[1]);
     expect(params.has("date")).toBe(false);
     expect(params.has("staff")).toBe(false);
     expect(params.has("unconf")).toBe(false);
+    expect(params.has("overlap")).toBe(false);
+  });
+
+  it("겹침 게이트는 overlap quick filter 를 켠 채로 연다", () => {
+    const url = buildAttendanceOneShotLink({
+      storeId: "store-1",
+      date: "2026-08-12",
+      userId: "user-9",
+      overlappingOnly: true,
+    });
+    const params = new URLSearchParams(url.split("?")[1]);
+    expect(params.get("overlap")).toBe("1");
+    // 겹침 링크가 자동퇴근 필터까지 켜면 두 조건 AND 로 아무것도 안 남는다.
+    expect(params.has("unconf")).toBe(false);
+    expect(params.get(ONE_SHOT_PARAM)).toBe("1");
   });
 });
 
@@ -86,5 +102,16 @@ describe("stripDates", () => {
       "Auto clock-out has not been confirmed",
     );
     expect(stripDates("Needs confirmation")).toBe("Needs confirmation");
+  });
+
+  it("겹침 preview/409 메시지에서도 날짜만 떼어낸다 (괄호 설명 보존)", () => {
+    expect(
+      stripDates(
+        "Two shifts overlap in time (the same hours would be paid twice) on: 2026-08-12",
+      ),
+    ).toBe("Two shifts overlap in time (the same hours would be paid twice)");
+    expect(stripDates("Overlapping shifts on: 2026-08-12, 2026-08-13")).toBe(
+      "Overlapping shifts",
+    );
   });
 });

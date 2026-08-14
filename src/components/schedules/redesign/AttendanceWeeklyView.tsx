@@ -17,10 +17,15 @@ import { useUsers } from "@/hooks/useUsers";
 import type { Attendance, User } from "@/types";
 import {
   isUnconfirmedAutoClockOut,
+  matchesOverlapFilter,
   matchesStatusFilter,
   rolePriorityToBadgeId,
   type AttendanceUiFilters,
 } from "./AttendanceFilterBar";
+import {
+  OVERLAP_EXPLANATION,
+  hasOverlappingClockIn,
+} from "@/lib/attendanceAnomalies";
 
 type AttendanceState = Attendance["status"];
 
@@ -164,6 +169,7 @@ export function AttendanceWeeklyView({ storeId, weekStart, filters, storeUsers: 
       !isUnconfirmedAutoClockOut(r.anomalies, r.auto_clock_out_confirmed_at)
     )
       return false;
+    if (!matchesOverlapFilter(r.anomalies, filters.overlappingOnly)) return false;
     return true;
   }
 
@@ -386,6 +392,7 @@ function DayCell({
   const late = isLate(attendance);
   const noShow = attendance.status === "no_show";
   const cancelled = attendance.status === "cancelled";
+  const overlapping = hasOverlappingClockIn(attendance.anomalies);
 
   const showActual = !!inT || !!outT;
   const displayIn = inT ?? (schedIn ? schedIn : "—");
@@ -430,8 +437,17 @@ function DayCell({
         {displayIn} <span className="text-[var(--color-text-muted)]">→</span> {displayOut}
       </div>
 
-      {(late || noShow) && (
+      {(late || noShow || overlapping) && (
         <div className="flex flex-wrap gap-0.5 mt-1">
+          {/* 겹침이 제일 먼저 — 나머지 태그와 달리 급여를 두 번 나가게 만든다. */}
+          {overlapping && (
+            <span
+              title={OVERLAP_EXPLANATION}
+              className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide bg-[var(--color-danger)] text-white"
+            >
+              Overlap
+            </span>
+          )}
           {late && (
             <span className="inline-flex items-center px-1 py-0.5 rounded text-[9px] font-bold uppercase tracking-wide bg-[var(--color-danger)] text-white">
               Late

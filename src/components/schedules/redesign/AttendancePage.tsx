@@ -10,7 +10,7 @@ import { usePersistedFilters } from '@/hooks/usePersistedFilters'
 import { formatDateTime, minutesBetween, todayInTimezone } from '@/lib/utils'
 import { useMidnightRefresh } from '@/hooks/useMidnightRefresh'
 import type { AttendanceBreakItem } from '@/types'
-import { Check, Download } from 'lucide-react'
+import { AlertTriangle, Check, Download } from 'lucide-react'
 import { usePermissions } from '@/hooks/usePermissions'
 import { PERMISSIONS } from '@/lib/permissions'
 import { AttendanceWeeklyView } from './AttendanceWeeklyView'
@@ -20,11 +20,19 @@ import {
   EMPTY_ATTENDANCE_FILTERS,
   isUnconfirmedAutoClockOut,
   isUnconfirmedEarlyClockIn,
+  matchesOverlapFilter,
   matchesStatusFilter,
   rolePriorityToBadgeId,
   type AttendanceUiFilters,
   type AttendanceStatusKey,
 } from './AttendanceFilterBar'
+import {
+  ATTENDANCE_ANOMALY,
+  OVERLAP_EXPLANATION,
+  OVERLAP_TITLE,
+  anomalyLabel,
+  hasOverlappingClockIn,
+} from '@/lib/attendanceAnomalies'
 
 type ViewMode = 'daily' | 'weekly'
 
@@ -304,7 +312,7 @@ export function AttendancePage() {
   // date 는 transient — 매 세션 새 today 가 기본이라 localStorage 저장 안 함.
   const [params, setParams] = usePersistedFilters(
     'attendances',
-    { date: '', store: '', view: '', staff: '', roles: '', statuses: '', edited: '', unconf: '' },
+    { date: '', store: '', view: '', staff: '', roles: '', statuses: '', edited: '', unconf: '', overlap: '' },
     { transient: ['date'] },
   )
   const rawDate = sanitizeDateParam(params.date || null)
@@ -319,7 +327,8 @@ export function AttendancePage() {
     statuses: parseStatuses(params.statuses),
     editedOnly: params.edited === '1',
     unconfirmedAutoOnly: params.unconf === '1',
-  }), [params.staff, params.roles, params.statuses, params.edited, params.unconf])
+    overlappingOnly: params.overlap === '1',
+  }), [params.staff, params.roles, params.statuses, params.edited, params.unconf, params.overlap])
 
   const setSelectedStore = useCallback(
     (v: string) => setParams({ store: v || null }),
@@ -341,6 +350,7 @@ export function AttendancePage() {
         statuses: next.statuses.length ? next.statuses.join(',') : null,
         edited: next.editedOnly ? '1' : null,
         unconf: next.unconfirmedAutoOnly ? '1' : null,
+        overlap: next.overlappingOnly ? '1' : null,
       })
     },
     [setParams],
@@ -414,9 +424,21 @@ export function AttendancePage() {
         filters.unconfirmedAutoOnly &&
         !isUnconfirmedAutoClockOut(r.anomalies, r.auto_clock_out_confirmed_at)
       ) return false
+      if (!matchesOverlapFilter(r.anomalies, filters.overlappingOnly)) return false
       return true
     })
   }, [records, filters, userIdToRoleBadge])
+
+  /** 겹쳐 열린 건 — 필터와 무관하게 그날 전체에서 센다.
+   *  필터에 가려 안 보이면 "오늘은 없구나" 로 읽혀 이중 지급이 그대로 확정된다. */
+  const overlappingRecords = useMemo(
+    () => records.filter((r) => hasOverlappingClockIn(r.anomalies)),
+    [records],
+  )
+  const overlappingNames = useMemo(
+    () => [...new Set(overlappingRecords.map((r) => r.user_name ?? 'Unknown'))],
+    [overlappingRecords],
+  )
 
   // Stat cards 는 필터 무관 전체 records 기반.
   const stats = useMemo(() => ({
@@ -570,6 +592,32 @@ export function AttendancePage() {
         />
       ) : (
         <>
+      {/* 겹침 경보 — 같은 사람의 두 shift 가 동시에 열려 있으면 급여가 두 번 나간다.
+          필터에 걸려 행이 안 보이는 상태에서도 떠야 하므로 표 위에 둔다. */}
+      {overlappingRecords.length > 0 && (
+        <div className="mb-4 flex items-start gap-3 px-4 py-3 rounded-xl border border-[var(--color-danger)]/40 bg-[var(--color-danger-muted)]">
+          <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0 text-[var(--color-danger)]" />
+          <div className="min-w-0 flex-1">
+            <div className="text-[13px] font-semibold text-[var(--color-text)]">
+              {OVERLAP_TITLE} — {overlappingNames.join(', ')}
+            </div>
+            <div className="text-[12px] text-[var(--color-text-secondary)] mt-0.5">
+              {OVERLAP_EXPLANATION} Open the record that should not be there, then
+              reopen / clear its times / cancel it.
+            </div>
+          </div>
+          {!filters.overlappingOnly && (
+            <button
+              type="button"
+              onClick={() => setFilters({ ...filters, overlappingOnly: true })}
+              className="shrink-0 px-2.5 py-1.5 rounded-lg border border-[var(--color-danger)]/40 bg-[var(--color-surface)] text-[11.5px] font-semibold text-[var(--color-danger)] hover:bg-[var(--color-surface-hover)]"
+            >
+              Show these only
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Stat cards */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 mb-4">
         <StatCard label="Upcoming" value={stats.upcoming} color="text-[var(--color-text)]" />
@@ -777,9 +825,23 @@ export function AttendancePage() {
                             </span>
                           )
                         }
-                        const label = a === 'late' && lateMin !== null
-                          ? `late (${lateMin}m)`
-                          : a.replace(/_/g, ' ')
+                        // 겹침 — 급여 이중 지급 직전 상태. 테두리를 줘서 다른 anomaly 와
+                        // 한눈에 구분되게 한다 (배지 하나 더가 아니라 "지금 조치" 신호).
+                        if (a === ATTENDANCE_ANOMALY.OVERLAPPING_CLOCK_IN) {
+                          return (
+                            <span
+                              key={a}
+                              title={OVERLAP_EXPLANATION}
+                              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-bold border border-[var(--color-danger)] bg-[var(--color-danger-muted)] text-[var(--color-danger)]"
+                            >
+                              <AlertTriangle className="w-3 h-3" />
+                              {anomalyLabel(a)}
+                            </span>
+                          )
+                        }
+                        const label = a === ATTENDANCE_ANOMALY.LATE && lateMin !== null
+                          ? `${anomalyLabel(a)} (${lateMin}m)`
+                          : anomalyLabel(a)
                         return (
                           <span key={a} className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-semibold bg-[var(--color-danger-muted)] text-[var(--color-danger)]">
                             {label}

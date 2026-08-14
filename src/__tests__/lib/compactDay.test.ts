@@ -182,6 +182,25 @@ describe("rowIssues", () => {
   it("stays silent on cancelled records — there is nothing to act on", () => {
     expect(rowIssues(sched({}), att({ status: "cancelled", anomalies: ["late"] }))).toEqual([]);
   });
+
+  it("spells out an overlapping clock-in instead of dumping the raw code", () => {
+    // 폰 카드에서 `overlapping clock in` 은 무슨 뜻인지 안 통한다 — 사실을 쓴다.
+    const issues = rowIssues(
+      sched({}),
+      att({ clock_in: "x", status: "working", anomalies: ["overlapping_clock_in"] }),
+    );
+    expect(issues).toContain("two shifts open at once");
+    expect(issues).not.toContain("overlapping clock in");
+  });
+
+  it("routes an overlapping record to attention even while it is on the clock", () => {
+    // 겹침은 급여 이중 지급 직전이라 "지금 근무 중" 보다 먼저 눈에 띄어야 하지만,
+    // 근무 중인 사람은 Now 에 남는다는 기존 규칙은 유지된다 — 경고 줄이 그 일을 한다.
+    const a = att({ clock_in: "x", status: "working", anomalies: ["overlapping_clock_in"] });
+    const issues = rowIssues(sched({}), a);
+    expect(rowGroup(sched({}), a, issues)).toBe("now");
+    expect(issues.length).toBeGreaterThan(0);
+  });
 });
 
 describe("rowGroup", () => {
