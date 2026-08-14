@@ -11,7 +11,8 @@ import { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { useQueries } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { parseApiError, todayInTimezone } from "@/lib/utils";
-import { addDay, dawnStartOffset, dayDiff, rollEndDate, shiftIsoFields, startOffsetDaysOf } from "@/lib/scheduleTime";
+import { describeScheduleIssue, type ScheduleIssue } from "@/lib/scheduleCodes";
+import { addDay, dayDiff, rollEndDate, shiftIsoFields, startOffsetDaysOf, storeStartOffset } from "@/lib/scheduleTime";
 import { useRouter } from "next/navigation";
 import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import { useSchedules, useScheduleRoster, useScheduleWarningGate, scheduleErrorText, useConfirmSchedule, useRejectSchedule, useDeleteScheduleFlow, useSubmitSchedule, useRevertSchedule, useCancelSchedule, useCreateSchedule, useUpdateSchedule, useSwitchSchedule, type RosterColumnData } from "@/hooks/useSchedules";
@@ -414,7 +415,19 @@ export default function SchedulesCalendarView() {
   const bulkDeleteMutation = useBulkDeleteSchedules({ silent: true });
   const bulkSaving = bulkCreateMutation.isPending || bulkUpdateMutation.isPending || bulkDeleteMutation.isPending;
 
+  /**
+   * 매장의 영업일 경계 설정. 벌크 그리드는 날짜 UI 가 없어 시작 시각으로 +1일 여부를
+   * 추론하는데, 그 기준은 반드시 **그 근무가 속한 매장**의 설정이어야 한다.
+   * (stores 는 아래에서 선언되지만 이 함수는 사용자 조작 시점에만 실행된다)
+   */
+  function storeDayStart(storeId: string | undefined | null): Record<string, string> | null {
+    if (!storeId) return null;
+    return stores.find((s) => s.id === storeId)?.day_start_time ?? null;
+  }
+
   async function handleBulkSave(payload: SavePayload) {
+    // 저장은 됐지만 확인이 필요한 항목 — 누가/언제/무엇을 그대로 보여준다.
+    let createWarnings: { who: string; when: string; issues: ScheduleIssue[] }[] = [];
     let created = 0;
     let updated = 0;
     let deleted = 0;
@@ -427,7 +440,10 @@ export default function SchedulesCalendarView() {
           // 벌크 그리드: 영업일=work_date. 복사된 새벽근무(+1d)의 시작 오프셋 보존,
           // end는 end≤start면 익일 자동.
           // 복사 엔트리는 원본 오프셋, 신규 입력은 경계 규칙으로 추론(벌크는 날짜 UI 없음)
-          const startDate = addDay(e.workDate, e.startOffsetDays ?? dawnStartOffset(e.startTime));
+          const startDate = addDay(
+            e.workDate,
+            e.startOffsetDays ?? storeStartOffset(e.startTime, storeDayStart(e.storeId), e.workDate),
+          );
           const endDate = rollEndDate(startDate, e.startTime, e.endTime);
           const iso = shiftIsoFields(
             e.workDate, startDate, e.startTime, endDate, e.endTime,
@@ -450,8 +466,15 @@ export default function SchedulesCalendarView() {
             status: e.status,
           };
         });
-        await bulkCreateMutation.mutateAsync({ entries: creates, skip_on_conflict: true });
-        created = payload.creates.length;
+        const res = await bulkCreateMutation.mutateAsync({ entries: creates, skip_on_conflict: true });
+        // 서버가 실제로 만든 수를 쓴다 — 요청 수를 그대로 세면 skip 된 건까지
+        // "저장됨"으로 보고하게 된다.
+        created = res.created ?? payload.creates.length;
+        createWarnings = (res.warnings ?? []).map((w) => {
+          const entry = payload.creates[w.index];
+          const staff = entry ? (users.find((u) => u.id === entry.userId)?.full_name ?? "") : "";
+          return { who: staff, when: entry?.workDate ?? "", issues: w.warnings };
+        });
       }
       // 2. Updates — also forwards status if the modification carries one.
       phase = "updates";
@@ -461,7 +484,11 @@ export default function SchedulesCalendarView() {
           // HH:MM만 보내면 서버가 기존 오프셋을 보존해 전환이 불가능했다.
           let iso: Partial<Record<"operating_day" | "start_at" | "end_at" | "break_start_at" | "break_end_at", string | null>> = {};
           if (u.operatingDay && u.data.startTime && u.data.endTime) {
-            const off = dawnStartOffset(u.data.startTime);
+            const off = storeStartOffset(
+              u.data.startTime,
+              storeDayStart(schedules.find((s2) => s2.id === u.id)?.store_id),
+              u.operatingDay,
+            );
             const sd = addDay(u.operatingDay, off);
             const ed = rollEndDate(sd, u.data.startTime, u.data.endTime);
             iso = shiftIsoFields(
@@ -495,17 +522,31 @@ export default function SchedulesCalendarView() {
       if (created > 0) parts.push(`${created} created`);
       if (updated > 0) parts.push(`${updated} updated`);
       if (deleted > 0) parts.push(`${deleted} deleted`);
+      const summary = parts.length > 0 ? parts.join(", ") + "." : "No changes.";
+      // 경고는 저장을 막지 않는다(S1-c). 대신 저장된 뒤 "무엇을 확인해야 하는지"를
+      // 누가/언제까지 붙여 알린다 — 코드가 아니라 사람이 읽는 문장으로.
+      // describeScheduleIssues 는 항목마다 "• " 를 붙이므로 여기선 이름/날짜만 앞에 둔다.
+      const warnLines = createWarnings.flatMap((w) =>
+        w.issues.map((i) => `• ${w.who || "Staff"} · ${w.when} — ${describeScheduleIssue(i)}`),
+      );
       void modal.alert({
-        type: "success",
-        title: "Schedules saved",
-        message: parts.length > 0 ? parts.join(", ") + "." : "No changes.",
+        type: warnLines.length > 0 ? "info" : "success",
+        title: warnLines.length > 0 ? "Saved — please review" : "Schedules saved",
+        message: warnLines.length > 0
+          ? `${summary}\n\n${warnLines.length === 1 ? "1 item needs" : `${warnLines.length} items need`} a look:\n${warnLines.join("\n")}`
+          : summary,
       });
     } catch (err) {
-      // 부분 실패 가능 — 어디서 멈췄는지 + 에러 메시지를 모달로 명확히 표시
+      // 어디까지 처리됐는지 + 무엇이 문제였는지. 제목은 사실과 맞아야 한다 —
+      // 하나도 처리 못 했는데 "부분 실패"라고 하면 사용자가 상태를 오해한다.
+      const done = created + updated + deleted;
+      const detail = scheduleErrorText(err, parseApiError(err, "Unknown error"));
       void modal.alert({
         type: "error",
-        title: "Bulk Save Partially Failed",
-        message: `Failed during "${phase}" phase. Completed so far — created: ${created}, updated: ${updated}, deleted: ${deleted}. Error: ${parseApiError(err, "Unknown error")}`,
+        title: done > 0 ? "Bulk save stopped partway" : "Bulk save failed",
+        message: done > 0
+          ? `Saved before stopping — created: ${created}, updated: ${updated}, deleted: ${deleted}. Then it stopped while saving ${phase}.\n\n${detail}`
+          : `Nothing was saved. It failed while saving ${phase}.\n\n${detail}`,
       });
     }
   }

@@ -154,6 +154,22 @@ export function dawnStartOffset(startTime: string, boundary: string = DEFAULT_DA
   return timeToMin(startTime) < timeToMin(boundary) ? 1 : 0;
 }
 
+/**
+ * 매장 설정을 반영한 시작일 오프셋 — 날짜 UI 없는 표면은 **반드시** 이걸 쓴다.
+ *
+ * `dawnStartOffset` 의 boundary 기본값(06:00)을 그대로 두면, 경계를 04:00 으로
+ * 운영하는 매장에서 04~06시 시작 근무가 전부 "새벽조"로 오판돼 시작일이 다음날로
+ * 밀린다. 그러면 서버(실제 경계 기준)가 START_AFTER_DAY_BOUNDARY 경고를 내고,
+ * 단건 모달로는 멀쩡히 저장되는 근무가 벌크에서만 걸린다.
+ */
+export function storeStartOffset(
+  startTime: string,
+  dayStartTime: Record<string, string> | null | undefined,
+  dateStr: string,
+): 0 | 1 {
+  return dawnStartOffset(startTime, dayStartFor(dayStartTime ?? null, dateStr));
+}
+
 /** 기존 스케줄의 start_at day-offset(영업일 라벨 대비, 0|1) — 새벽근무(+1d) 보존용. */
 export function startOffsetDaysOf(s: { work_date: string; operating_day?: string | null; start_at?: string | null }): number {
   const label = s.operating_day ?? s.work_date;

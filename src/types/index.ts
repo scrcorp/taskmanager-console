@@ -1245,12 +1245,20 @@ export interface ScheduleBulkCreate {
   skip_on_conflict?: boolean;
 }
 
+/** 벌크 항목 하나에 붙은 경고 — index 는 요청 entries 배열 위치. */
+export interface BulkEntryWarnings {
+  index: number;
+  warnings: ScheduleIssue[];
+}
+
 export interface ScheduleBulkResult {
   created: number;
   skipped: number;
   failed: number;
   errors: string[];
   items: Schedule[];
+  /** 저장은 됐지만 확인이 필요한 항목들. 비어 있으면 경고 없음. */
+  warnings?: BulkEntryWarnings[];
 }
 
 export interface ScheduleUpdate {
