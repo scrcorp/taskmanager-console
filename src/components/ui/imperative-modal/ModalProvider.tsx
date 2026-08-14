@@ -58,6 +58,15 @@ interface ModalCtxValue {
 
 const ModalCtx = createContext<ModalCtxValue | null>(null);
 
+/**
+ * 현재 열려있는 imperative 모달 개수.
+ *
+ * 왜 노출하나: 자체 오버레이(스케줄 편집 모달 등)가 document 레벨에서 ESC 를 듣는데,
+ * 그 위에 confirm 이 떠 있는 동안에도 ESC 를 먹으면 "확인창 닫힘 + 새 확인창 push" 가
+ * 동시에 일어나 영원히 안 닫힌다. 그런 핸들러는 depth > 0 이면 빠져야 한다.
+ */
+const ModalDepthCtx = createContext(0);
+
 export function ModalProvider({ children }: { children: ReactNode }) {
   /**
    * stack — 동시에 여러 모달이 열릴 수 있음.
@@ -114,12 +123,22 @@ export function ModalProvider({ children }: { children: ReactNode }) {
 
   return (
     <ModalCtx.Provider value={{ push }}>
-      {children}
+      <ModalDepthCtx.Provider value={stack.length}>{children}</ModalDepthCtx.Provider>
       {/* stack 길이만큼 Modal 렌더. key={id} 로 React 재조정 안정 */}
-      {stack.map((entry) => (
+      {stack.map((entry, idx) => (
         <Modal
           key={entry.id}
           isOpen={true}
+          /**
+           * confirm/alert 셸은 항상 최상단 — 스케줄 편집 모달(z-[300]) 같은
+           * 자체 오버레이 위에서도 보이고 클릭 가능해야 한다.
+           */
+          layer="dialog"
+          /**
+           * 딤은 stack 의 맨 아래 것 하나만. 위에 쌓이는 것들은 투명 배경.
+           * 반투명 딤이 겹치면 곱해져서(60% → 84% → 94% …) 화면이 새까매진다.
+           */
+          dimBackdrop={idx === 0}
           /**
            * ESC/backdrop 클릭 시 호출.
            * value 없이 닫으니 Promise 는 undefined 로 resolve.
@@ -149,6 +168,11 @@ export function ModalProvider({ children }: { children: ReactNode }) {
  *
  * Context 가 null 이면 ModalProvider 안에서 호출되지 않은 것 — 에러 throw.
  */
+/** 열려있는 imperative 모달 개수. 0 이면 위에 아무 확인창도 없다. */
+export function useModalDepth(): number {
+  return useContext(ModalDepthCtx);
+}
+
 export function useModalCtx(): ModalCtxValue {
   const ctx = useContext(ModalCtx);
   if (!ctx) {

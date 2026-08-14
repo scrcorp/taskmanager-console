@@ -9,7 +9,7 @@
  * 기존 useResultModal / useMutationResult 와 공존 — 점진 이관 중.
  */
 
-export { ModalProvider } from "./ModalProvider";
+export { ModalProvider, useModalDepth } from "./ModalProvider";
 export { useModal } from "./useModal";
 export type {
   ModalApi,
