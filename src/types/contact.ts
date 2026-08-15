@@ -1,0 +1,214 @@
+/**
+ * Contacts — organization phone directory types.
+ *
+ * 서버 계약: docs/99_inbox/2026-08-14-연락처-API계약.md
+ * 설계 SoT:  docs/99_inbox/2026-08-14-연락처(Contacts)-기능-설계.md
+ *
+ * 원칙 몇 가지 (계약에서 그대로 옮김):
+ *  - `number_normalized` 는 서버 계산값. 클라이언트가 보내도 무시된다 → 입력 타입에 없음.
+ *  - `sort_order` 는 배열 순서로 결정된다 → 입력 타입에 없음.
+ *  - 태그는 **문자열 배열**로 보낸다 (ID 아님). 서버가 org 단위로 upsert.
+ *  - `store_id === null` = 조직 전체 공유. 목록 필터에서는 리터럴 `"none"` 을 쓴다.
+ */
+
+// ─── 연락처 ──────────────────────────────────────────────────────────────────
+
+/** 연락처에 달린 전화번호 한 건 (응답). */
+export interface ContactPhone {
+  id: string;
+  /** mobile / office / home / fax / other 등 자유 문자열. 없을 수 있다. */
+  label: string | null;
+  /** 사용자가 입력한 원본 표기. 화면에는 이걸 그대로 보여준다. */
+  number: string;
+  /** 숫자만 남긴 검색용 값. 숫자가 하나도 없으면 null. */
+  number_normalized: string | null;
+  is_primary: boolean;
+  sort_order: number;
+}
+
+/** 전화번호 입력 (생성/수정 요청). 배열 순서가 곧 sort_order. */
+export interface ContactPhoneInput {
+  label?: string | null;
+  number: string;
+  is_primary?: boolean;
+}
+
+/** org 단위 태그 마스터 항목 (응답). */
+export interface ContactTag {
+  id: string;
+  /** 표시명 — 최초 등록 시 표기가 유지된다. */
+  name: string;
+  /** 정규화 키 = lower(trim(name)). 필터 비교는 이 값으로. */
+  key: string;
+}
+
+/** 태그 자동완성 응답 항목. */
+export interface ContactTagSuggestion extends ContactTag {
+  /** caller 가 볼 수 있는 연락처 기준 사용 횟수. */
+  usage_count: number;
+}
+
+/** 연락처 (응답). */
+export interface Contact {
+  id: string;
+  name: string;
+  company: string | null;
+  email: string | null;
+  memo: string | null;
+  /** null = 조직 전체 공유. */
+  store_id: string | null;
+  store_name: string | null;
+  phones: ContactPhone[];
+  tags: ContactTag[];
+  created_by: string | null;
+  created_by_name: string | null;
+  created_at: string;
+  updated_at: string;
+  /** 상세 응답에만 채워진다. 목록에서는 항상 0. */
+  pending_request_count: number;
+}
+
+/** 연락처 생성 요청. */
+export interface ContactCreate {
+  name: string;
+  company?: string | null;
+  email?: string | null;
+  memo?: string | null;
+  store_id?: string | null;
+  phones?: ContactPhoneInput[];
+  tags?: string[];
+  /** 등록 사유 — 선택 (이력에 남는다). */
+  reason?: string | null;
+}
+
+/**
+ * 연락처 수정 요청 — PUT 전체 치환.
+ *
+ * 키를 아예 보내지 않으면 "변경 없음", `null` 을 보내면 "값을 비움"이다 (name 은 null 불가).
+ * `phones` / `tags` 는 생략하면 변경 없음, `[]` 를 보내면 전부 삭제.
+ */
+export interface ContactUpdate {
+  name?: string;
+  company?: string | null;
+  email?: string | null;
+  memo?: string | null;
+  store_id?: string | null;
+  phones?: ContactPhoneInput[];
+  tags?: string[];
+  /** 수정 사유 — **필수**. */
+  reason: string;
+}
+
+/** 삭제 요청 본문 — soft delete, 사유 필수. */
+export interface ContactDeleteRequest {
+  reason: string;
+}
+
+/** 삭제 응답. */
+export interface ContactDeleteResult {
+  message: string;
+  /** 이 삭제로 무효화(superseded)된 pending 신청 수. */
+  superseded_request_count: number;
+}
+
+/** 목록 정렬 옵션. 기본은 이름순(N9). */
+export type ContactSort = "name" | "name_desc" | "created_at" | "updated_at";
+
+/** 목록/검색 필터. */
+export interface ContactFilters {
+  /** 통합 검색어 — name/company/email/memo/tag/phone 을 OR 부분일치. */
+  q?: string;
+  /** 태그 필터 (정규화 키로 비교). */
+  tag?: string;
+  /** UUID | "none"(전체 공유만) | 미지정(전부). */
+  store_id?: string;
+  sort?: ContactSort;
+  page?: number;
+  per_page?: number;
+}
+
+/** store 필터에서 "전체 공유만" 을 뜻하는 리터럴. */
+export const CONTACT_STORE_SHARED = "none";
+
+// ─── 변경 신청 (D4) ──────────────────────────────────────────────────────────
+
+export type ContactRequestType = "create" | "update" | "delete";
+
+export type ContactRequestStatus =
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "cancelled"
+  | "superseded";
+
+/** 신청 payload — 생성/수정 신청 모두 "전체 치환 형태"의 연락처 내용. */
+export interface ContactRequestPayload {
+  name: string;
+  company?: string | null;
+  email?: string | null;
+  memo?: string | null;
+  store_id?: string | null;
+  phones?: ContactPhoneInput[];
+  tags?: string[];
+}
+
+/** 신청 생성 요청. */
+export interface ContactRequestCreate {
+  request_type: ContactRequestType;
+  /** create 신청이면 null, update/delete 신청이면 필수. */
+  contact_id?: string | null;
+  /** create/update 신청이면 필수, delete 신청이면 null. */
+  payload?: ContactRequestPayload | null;
+  /** update/delete 신청은 필수, create 신청은 선택. */
+  reason?: string | null;
+}
+
+/** 신청 (응답). */
+export interface ContactChangeRequest {
+  id: string;
+  request_type: ContactRequestType;
+  status: ContactRequestStatus;
+  contact_id: string | null;
+  /** 신청 시점 이름 스냅샷 — 대상이 지워져도 남는다. */
+  contact_name: string | null;
+  payload: ContactRequestPayload | null;
+  reason: string | null;
+  requested_by: string;
+  requested_by_name: string | null;
+  requested_at: string;
+  resolved_by: string | null;
+  resolved_by_name: string | null;
+  resolved_at: string | null;
+  /** 승인 메모 또는 반려 사유. */
+  resolution_note: string | null;
+  base_updated_at: string | null;
+  /** 신청 이후 원본이 변경됨 (차단 아님 — 경고만, N5). */
+  is_stale: boolean;
+  /** 처리 대기 목록/상세에만 채워진다. `mine` 목록에서는 null. */
+  current_contact: Contact | null;
+}
+
+/** 처리 대기 목록 필터 (승인자용). */
+export interface ContactRequestFilters {
+  status?: ContactRequestStatus | "all";
+  request_type?: ContactRequestType;
+  page?: number;
+  per_page?: number;
+}
+
+/** 승인 요청 본문 — 둘 다 선택. payload 를 주면 "수정 후 반영". */
+export interface ContactRequestApprove {
+  payload?: ContactRequestPayload;
+  note?: string;
+}
+
+/** 반려 요청 본문 — 사유 필수. */
+export interface ContactRequestReject {
+  reason: string;
+}
+
+/** 승인 응답. */
+export interface ContactRequestApproveResult {
+  request: ContactChangeRequest;
+  contact: Contact;
+}

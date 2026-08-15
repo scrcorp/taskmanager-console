@@ -26,6 +26,7 @@ import {
   useReport,
   useAddReportComment,
   useDeleteReport,
+  useIssueRecipients,
   useTransitionIssue,
   useUpdateReport,
   useStoreSchedulesForLink,
@@ -50,12 +51,24 @@ import { useModal } from "@/components/ui/imperative-modal";
 import { formatFixedDate } from "@/lib/utils";
 import { PERMISSIONS } from "@/lib/permissions";
 import { LinkPicker, type LinkValues } from "@/components/reports/LinkPicker";
+import { LinkifiedText } from "@/components/reports/LinkifiedText";
+import {
+  IssueRecipientsPicker,
+  formatRoleLabel,
+} from "@/components/reports/IssueRecipientsPicker";
+import { IssueViewersPreview } from "@/components/reports/IssueViewersPreview";
+import {
+  IssueVisibilityScopeField,
+  readVisibilityScope,
+} from "@/components/reports/IssueVisibilityScopeField";
 import {
   ISSUE_CATEGORIES,
   ISSUE_SEVERITIES,
+  ISSUE_VISIBILITY_SCOPE_LABELS,
   type IssueAttachment,
   type IssueReportPayload,
   type IssueSeverity,
+  type IssueVisibilityScope,
 } from "@/types";
 
 const statusMeta: Record<
@@ -373,9 +386,15 @@ export default function IssueReportDetailPage(): React.ReactElement {
             <h3 className="text-xs font-semibold uppercase tracking-wide text-textSecondary mb-2">
               Description
             </h3>
-            <p className="text-text whitespace-pre-wrap">{p.description}</p>
+            {/* URL 은 클릭 가능하게 — 리뷰 원본 링크가 핵심 정보다. */}
+            <LinkifiedText
+              text={p.description}
+              className="text-text whitespace-pre-wrap"
+            />
           </div>
         )}
+
+        <VisibilityAndRecipients reportId={id} payload={p} />
 
         {attachments.length > 0 && (
           <div>
@@ -488,6 +507,76 @@ export default function IssueReportDetailPage(): React.ReactElement {
           updateMutation={updateReport}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * 이 리포트를 볼 수 있는 범위 + 실제로 알림을 받은 사람.
+ *
+ * 수신자는 스냅샷이 아니라 매번 재계산되는 값이라, 서버 엔드포인트를 그대로 보여준다.
+ */
+function VisibilityAndRecipients({
+  reportId,
+  payload,
+}: {
+  reportId: string;
+  payload: Partial<IssueReportPayload>;
+}): React.ReactElement {
+  const scope = readVisibilityScope(payload);
+  const meta = ISSUE_VISIBILITY_SCOPE_LABELS[scope];
+  const { data, isLoading, error } = useIssueRecipients(null, reportId);
+  const notified = (data?.items ?? []).filter((i) => i.is_recipient);
+
+  return (
+    <div className="border border-border rounded-md bg-surface px-4 py-3 space-y-3">
+      <div>
+        <div className="text-xs font-semibold uppercase tracking-wide text-textMuted">
+          Who can see this
+        </div>
+        <div className="mt-1 text-sm text-text">{meta.label}</div>
+        <p className="text-xs text-textMuted mt-0.5">{meta.description}</p>
+      </div>
+
+      <div>
+        <div className="text-xs font-semibold uppercase tracking-wide text-textMuted">
+          Notified
+        </div>
+        {isLoading ? (
+          <div className="mt-1 flex items-center gap-2 text-xs text-textMuted">
+            <LoadingSpinner size="sm" /> Loading…
+          </div>
+        ) : error ? (
+          <p className="mt-1 text-xs text-warning">
+            Couldn&apos;t load the recipient list. Reload the page to try again.
+          </p>
+        ) : notified.length === 0 ? (
+          <p className="mt-1 text-xs text-textMuted italic">
+            No one was notified for this report.
+          </p>
+        ) : (
+          <div className="mt-1.5 flex flex-wrap gap-2">
+            {notified.map((r) => (
+              <span
+                key={r.user_id}
+                className="inline-flex items-center gap-1.5 px-2 py-1 rounded border border-border bg-background text-xs text-text"
+              >
+                {r.full_name}
+                <span className="text-textMuted">
+                  ({formatRoleLabel(r.role_label)})
+                </span>
+                <span
+                  className={`text-[10px] uppercase tracking-wide ${
+                    r.source === "added" ? "text-accent" : "text-textMuted"
+                  }`}
+                >
+                  {r.source === "added" ? "Added" : "Always notified"}
+                </span>
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -705,10 +794,11 @@ function EditIssueReportModal({
   const [description, setDescription] = useState<string>(
     initialPayload.description ?? "",
   );
-  const [shareWithStore, setShareWithStore] = useState<boolean>(
-    Boolean(
-      (initialPayload as { share_with_store_all?: boolean }).share_with_store_all,
-    ),
+  const [visibilityScope, setVisibilityScope] = useState<IssueVisibilityScope>(
+    readVisibilityScope(initialPayload),
+  );
+  const [addedViewerIds, setAddedViewerIds] = useState<string[]>(
+    initialPayload.extra_viewers?.user_ids ?? [],
   );
   const [links, setLinks] = useState<LinkValues>({
     schedule_ids: initialPayload.links?.schedule_ids ?? [],
@@ -722,16 +812,26 @@ function EditIssueReportModal({
   const handleSave = async () => {
     try {
       // payload는 통째 PUT (서버는 받은 payload로 교체). 모달은 훅이 처리.
+      // 레거시 share_with_store_all 은 visibility_scope 로 흡수했으므로 다시 쓰지 않는다.
+      const carried: Record<string, unknown> = { ...initialPayload };
+      delete carried.share_with_store_all;
+      // 알림 해제는 폐기된 규칙 — 서버가 무시하므로 payload 에서도 지운다.
+      delete carried.notify_excluded_user_ids;
       await updateMutation.mutateAsync({
         reportId,
         data: {
           title: title.trim() || undefined,
           payload: {
-            ...initialPayload,
+            ...carried,
             category,
             severity,
             description: description.trim() || null,
-            share_with_store_all: shareWithStore,
+            // PUT 은 payload 전체 교체다 — 조회 범위/추가 인원 키를 반드시 함께 왕복시킨다.
+            visibility_scope: visibilityScope,
+            extra_viewers: {
+              ...(initialPayload.extra_viewers ?? {}),
+              user_ids: addedViewerIds,
+            },
             links: {
               ...(initialPayload.links ?? {}),
               schedule_ids: links.schedule_ids,
@@ -805,20 +905,48 @@ function EditIssueReportModal({
             onChange={(e) => setDescription(e.target.value)}
           />
         </div>
-        <div className="flex items-start gap-2 bg-surface border border-border rounded-md p-3">
-          <input
-            type="checkbox"
-            id="share-with-store"
-            checked={shareWithStore}
-            onChange={(e) => setShareWithStore(e.target.checked)}
-            className="accent-accent mt-0.5"
-          />
-          <label htmlFor="share-with-store" className="text-sm text-text cursor-pointer flex-1">
-            <span className="font-medium">Share with entire store</span>
-            <p className="text-xs text-textMuted mt-0.5">
-              All staff at this store can see this report (not just managers + named viewers).
-            </p>
+        <div className="border-t border-border pt-4">
+          <label className="block text-sm font-semibold text-text mb-1">
+            Who can see this report
           </label>
+          {/* 편집에서는 좁히는 방향도 실제로 적용된다 — "확대 전용" 이라고 적으면
+              store_all → default 로 되돌렸을 때 접근이 끊기는 걸 아무도 예상 못 한다. */}
+          <p className="text-xs text-textMuted mb-2">
+            This changes who can open the report. Picking a narrower option
+            removes access from people who can see it now.
+          </p>
+          <IssueVisibilityScopeField
+            value={visibilityScope}
+            onChange={setVisibilityScope}
+          />
+          <div className="mt-3">
+            <div className="text-xs font-semibold uppercase tracking-wide text-textMuted mb-1.5">
+              Who this includes
+            </div>
+            <IssueViewersPreview
+              storeId={storeId}
+              reportId={reportId}
+              scope={visibilityScope}
+              addedUserIds={addedViewerIds}
+              onAddedChange={setAddedViewerIds}
+            />
+          </div>
+        </div>
+
+        <div className="border-t border-border pt-4">
+          <label className="block text-sm font-semibold text-text mb-1">
+            Who gets notified
+          </label>
+          <p className="text-xs text-textMuted mb-2">
+            General Managers and above at this store are always notified — they
+            cannot be removed. Anyone added above is notified too.
+          </p>
+          <IssueRecipientsPicker
+            storeId={storeId}
+            reportId={reportId}
+            addedUserIds={addedViewerIds}
+            onAddedChange={setAddedViewerIds}
+          />
         </div>
 
         <div className="border-t border-border pt-4">

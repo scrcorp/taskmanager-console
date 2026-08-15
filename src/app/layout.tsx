@@ -15,15 +15,28 @@ const envPrefix = env === 'production' ? ''
   : env === 'staging' ? '[STG] '
   : '[DEV] ';
 
+/**
+ * 환경별 아이콘 세트 — public/brand/{prod,dev,stg}/ 에 3벌이 들어있고 빌드 시점의
+ * NEXT_PUBLIC_APP_ENV 로 고른다. 탭 제목의 [DEV]/[STG] 와 같은 신호를 아이콘에도 준다:
+ * 32px 이하 탭 아이콘에서는 글자가 안 읽히므로 배경색 자체가 환경 구분이다
+ * (prod=네이비 / dev=주황 / stg=보라). 자산 생성은 temp/brand/ 참조.
+ */
+const brandEnv = env === 'production' ? 'prod'
+  : env === 'staging' ? 'stg'
+  : 'dev';
+const brand = `/brand/${brandEnv}`;
+
 /** SEO 메타데이터 — 브라우저 탭 제목 + 파비콘 설정 */
 export const metadata: Metadata = {
   title: `${envPrefix}HTM Admin`,
   description: "Employee Management Admin Console",
   // 홈화면 추가용 — scope/start_url 이 /c 라 설치하면 간소화 콘솔이 뜬다 (서비스워커 없음)
   manifest: "/manifest.json",
+  // public/favicon.ico 도 prod 아이콘으로 남겨두지만(브라우저가 /favicon.ico 를
+  // 무조건 한 번 찔러본다) 아래 명시 link 가 우선한다.
   icons: {
-    icon: "/favicon.ico",
-    apple: "/apple-icon.png",
+    icon: `${brand}/favicon.ico`,
+    apple: `${brand}/apple-icon-180.png`,
   },
 };
 
@@ -35,6 +48,27 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        {/*
+          설치 자동 배너 차단.
+
+          Chrome 계열은 manifest 조건이 충족되면 beforeinstallprompt 를 발화하고
+          기본 UI(안드로이드 미니 인포바 등)로 "설치할까요?" 를 먼저 묻는다.
+          /c 를 그냥 열어보려던 사람에게까지 뜨므로 preventDefault 로 막는다.
+
+          설치 자체를 막는 게 아니다 — 주소창 설치 아이콘이나 브라우저 메뉴의
+          "앱 설치" 로는 그대로 설치된다. 브라우저가 먼저 묻지 않을 뿐이다.
+          (그 아이콘/메뉴는 사이트에서 숨길 수 있는 API 가 없다.)
+
+          하이드레이션 전에 붙어야 이벤트를 놓치지 않으므로 head 인라인이다.
+        */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              "window.addEventListener('beforeinstallprompt',function(e){e.preventDefault();});",
+          }}
+        />
+      </head>
       <body>
         <Providers>{children}</Providers>
       </body>

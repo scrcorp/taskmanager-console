@@ -12,8 +12,11 @@ import { AlertTriangle, ChevronDown, ChevronRight, Link2, MapPin, Plus, X } from
 
 import { useCreateIssueReport, useLookupReportTemplate } from "@/hooks/useReports";
 import { LinkPicker, type LinkValues } from "@/components/reports/LinkPicker";
+import { IssueRecipientsPicker } from "@/components/reports/IssueRecipientsPicker";
+import { IssueVisibilityScopeField } from "@/components/reports/IssueVisibilityScopeField";
+import { IssueViewersPreview } from "@/components/reports/IssueViewersPreview";
 import { useStores } from "@/hooks/useStores";
-import { useUsers } from "@/hooks/useUsers";
+import { describeApiError, type ErrorDisplay } from "@/lib/errorDisplay";
 import {
   Button,
   Card,
@@ -22,22 +25,16 @@ import {
   Textarea,
   ImageUpload,
 } from "@/components/ui";
-import { ROLE_PRIORITY } from "@/lib/permissions";
 import {
   ISSUE_SEVERITIES,
   type IssueAttachment,
+  type IssueCategoryDef,
   type IssueSeverity,
+  type IssueVisibilityScope,
   type Store,
-  type User,
 } from "@/types";
 
-interface CategoryDef {
-  code: string;
-  label: string;
-  color?: string | null;
-  sort_order?: number;
-  is_active?: boolean;
-}
+type CategoryDef = IssueCategoryDef;
 
 interface CustomFieldDef {
   type: "short_text" | "long_text" | "number" | "single_choice" | "multi_choice";
@@ -163,8 +160,14 @@ export default function NewIssuePage(): React.ReactElement {
   const [category, setCategory] = useState<string>("");
   const [severity, setSeverity] = useState<IssueSeverity>("medium");
   const [description, setDescription] = useState<string>("");
+  // 마지막으로 클라가 집어넣은 프리셋 원문. description 이 이것과 똑같으면
+  // 사용자가 손대지 않은 것으로 보고 새 프리셋으로 교체한다.
+  const [lastPresetText, setLastPresetText] = useState<string | null>(null);
   const [attachments, setAttachments] = useState<IssueAttachment[]>([]);
   const [extraViewerIds, setExtraViewerIds] = useState<string[]>([]);
+  const [visibilityScope, setVisibilityScope] =
+    useState<IssueVisibilityScope>("default");
+  const [submitFailure, setSubmitFailure] = useState<ErrorDisplay | null>(null);
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, unknown>>({});
   const [links, setLinks] = useState<LinkValues>({
     schedule_ids: [],
@@ -196,12 +199,33 @@ export default function NewIssuePage(): React.ReactElement {
     return [...list].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
   }, [template]);
 
-  // categories 로드되면 첫 번째 카테고리 디폴트
+  /**
+   * 카테고리 전환 + description 프리필.
+   *
+   * - description 이 비어 있으면 새 프리셋을 채운다.
+   * - 직전 프리셋 원문 그대로면 새 프리셋으로 교체한다.
+   * - 사용자가 손댄 흔적이 있으면 건드리지 않는다.
+   */
+  const selectCategory = React.useCallback(
+    (nextCode: string) => {
+      setCategory(nextCode);
+      const nextPreset =
+        categories.find((c) => c.code === nextCode)?.description_template ?? null;
+      const untouched =
+        description.trim() === "" || description === lastPresetText;
+      if (!untouched) return;
+      setDescription(nextPreset ?? "");
+      setLastPresetText(nextPreset);
+    },
+    [categories, description, lastPresetText],
+  );
+
+  // categories 로드되면 첫 번째 카테고리 디폴트 (프리셋도 같은 규칙으로 적용)
   React.useEffect(() => {
     if (categories.length > 0 && !category) {
-      setCategory(categories[0].code);
+      selectCategory(categories[0].code);
     }
-  }, [categories, category]);
+  }, [categories, category, selectCategory]);
 
   const activeStores: Store[] = useMemo(
     () => (stores ?? []).filter((s: Store) => s.is_active !== false),
@@ -220,19 +244,7 @@ export default function NewIssuePage(): React.ReactElement {
     [activeStores, storeId],
   );
 
-  // 매장 직원 (viewer 선택용)
-  const { data: storeUsers } = useUsers(
-    storeId ? { store_id: storeId, is_active: true } : undefined,
-  );
-  const sortedUsers: User[] = useMemo(() => {
-    if (!storeUsers) return [];
-    return [...storeUsers].sort((a, b) => {
-      if (a.role_priority !== b.role_priority) return a.role_priority - b.role_priority;
-      return (a.full_name ?? "").localeCompare(b.full_name ?? "");
-    });
-  }, [storeUsers]);
-
-  // 매장 바뀌면 viewer + custom values + category + links 초기화
+  // 매장 바뀌면 수신자 + custom values + category + links 초기화
   React.useEffect(() => {
     setExtraViewerIds([]);
     setCustomFieldValues({});
@@ -246,14 +258,6 @@ export default function NewIssuePage(): React.ReactElement {
       related_roles: [],
     });
   }, [storeId]);
-
-  const isAutoViewer = (u: User): boolean => u.role_priority <= ROLE_PRIORITY.SV;
-
-  const toggleViewer = (userId: string) => {
-    setExtraViewerIds((prev) =>
-      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId],
-    );
-  };
 
   const addAttachment = (url: string) => {
     // url에서 파일 종류 추정
@@ -271,6 +275,7 @@ export default function NewIssuePage(): React.ReactElement {
   const canSubmit = !!storeId && !!title.trim() && !createIssue.isPending;
 
   const handleSubmit = async () => {
+    setSubmitFailure(null);
     try {
       const created = await createIssue.mutateAsync({
         type: "issue",
@@ -281,7 +286,10 @@ export default function NewIssuePage(): React.ReactElement {
           severity,
           description: description.trim() || null,
           attachments,
-          extra_viewers: { user_ids: extraViewerIds },
+          // 확대 전용 조회 범위 + 추가 인원. share_with_store_all 과
+          // notify_excluded_user_ids 는 더 이상 쓰지 않는다(서버가 무시).
+          visibility_scope: visibilityScope,
+          extra_viewers: { user_ids: extraViewerIds, position_ids: [] },
           custom_field_values: customFieldValues,
           links: {
             schedule_ids: links.schedule_ids,
@@ -294,8 +302,14 @@ export default function NewIssuePage(): React.ReactElement {
         },
       });
       router.push(`/reports/issues/${created.id}`);
-    } catch {
-      // hook 자동 모달
+    } catch (err) {
+      // 훅이 모달을 띄우지만, 폼에서 고쳐야 하는 실패(범위 값·수신자)는 폼 옆에도 남긴다.
+      setSubmitFailure(
+        describeApiError(err, {
+          context: "form",
+          fallback: "Couldn't submit this issue.",
+        }),
+      );
     }
   };
 
@@ -307,7 +321,8 @@ export default function NewIssuePage(): React.ReactElement {
           New Issue
         </h1>
         <p className="text-textSecondary text-sm mt-1">
-          Raise an operational issue. Managers will be notified immediately.
+          Raise an operational issue. General Managers and above at the store
+          are notified immediately.
         </p>
       </div>
 
@@ -384,7 +399,7 @@ export default function NewIssuePage(): React.ReactElement {
             <label className="block text-sm text-textSecondary mb-1">Category *</label>
             <select
               value={category}
-              onChange={(e) => setCategory(e.target.value)}
+              onChange={(e) => selectCategory(e.target.value)}
               disabled={!storeId}
               className="w-full bg-surface border border-border rounded-md px-3 py-2 text-sm text-text disabled:opacity-50"
             >
@@ -505,46 +520,61 @@ export default function NewIssuePage(): React.ReactElement {
           </p>
         </div>
 
-        <div>
-          <label className="block text-sm text-textSecondary mb-1">
-            Additional viewers
-          </label>
-          <p className="text-xs text-textMuted mb-2">
-            Store managers (SV/GM/Owner) always see this issue and cannot be removed.
-            Add other staff who should also see and comment.
-          </p>
-          {!storeId ? (
-            <div className="text-xs text-textMuted italic">Select a store first.</div>
-          ) : sortedUsers.length === 0 ? (
-            <div className="text-xs text-textMuted italic">No staff in this store.</div>
-          ) : (
-            <div className="border border-border rounded-md p-3 max-h-64 overflow-auto space-y-1.5 bg-surface">
-              {sortedUsers.map((u) => {
-                const locked = isAutoViewer(u);
-                const checked = locked || extraViewerIds.includes(u.id);
-                return (
-                  <label
-                    key={u.id}
-                    className="flex items-center gap-2 text-sm cursor-pointer hover:bg-surfaceHover px-2 py-1 rounded"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      disabled={locked}
-                      onChange={() => !locked && toggleViewer(u.id)}
-                      className="accent-accent"
-                    />
-                    <span className="text-text">{u.full_name ?? u.username}</span>
-                    <span className="text-xs text-textMuted">({u.role_name})</span>
-                    {locked && (
-                      <span className="text-xs text-accent ml-auto">Auto</span>
-                    )}
-                  </label>
-                );
-              })}
+        {/* 범위와 사람을 한 섹션에 둔다 — 둘 다 "누가 이 리포트에 닿는가"라 나눠 놓으면
+            같은 결정을 두 번 하게 된다. 범위는 열람만 넓히고, 알림은 아래 사람 목록만 따른다. */}
+        <div className="border-t border-border pt-4 space-y-4">
+          <div>
+            <label className="block text-sm font-semibold text-text mb-1">
+              Who can see this report
+            </label>
+            <p className="text-xs text-textMuted mb-2">
+              Widening only — nobody who would normally see this report loses
+              access. Widening does not notify anyone.
+            </p>
+            <IssueVisibilityScopeField
+              value={visibilityScope}
+              onChange={setVisibilityScope}
+              disabled={!storeId}
+            />
+            <div className="mt-3">
+              <div className="text-xs font-semibold uppercase tracking-wide text-textMuted mb-1.5">
+                Who this includes
+              </div>
+              <IssueViewersPreview
+                storeId={storeId || null}
+                scope={visibilityScope}
+                addedUserIds={extraViewerIds}
+                onAddedChange={setExtraViewerIds}
+              />
             </div>
-          )}
+          </div>
+
+          <div>
+            <label className="block text-sm font-semibold text-text mb-1">
+              Who gets notified
+            </label>
+            <p className="text-xs text-textMuted mb-2">
+              General Managers and above at this store are always notified —
+              they cannot be removed. Anyone you added above is notified too.
+              Widening the visibility scope on its own notifies no one.
+            </p>
+            <IssueRecipientsPicker
+              storeId={storeId || null}
+              addedUserIds={extraViewerIds}
+              onAddedChange={setExtraViewerIds}
+            />
+          </div>
         </div>
+
+        {submitFailure && (
+          <div className="border border-danger/40 bg-dangerMuted rounded-md p-3 text-sm text-danger">
+            <div className="font-medium">{submitFailure.message}</div>
+            <p className="text-xs mt-1">
+              {submitFailure.hint ??
+                "Check the visibility option and the people you added, then submit again."}
+            </p>
+          </div>
+        )}
 
         <div className="flex justify-end gap-3 pt-2 border-t border-border">
           <Button variant="ghost" onClick={() => router.back()}>

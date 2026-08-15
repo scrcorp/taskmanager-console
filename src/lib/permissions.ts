@@ -48,6 +48,12 @@ export const PERMISSIONS = {
   ANNOUNCEMENTS_UPDATE: "notices:update",
   ANNOUNCEMENTS_DELETE: "notices:delete",
 
+  // ── Contacts (조직 전화번호부 — read 는 SV 이상, 쓰기는 개인 배정) ──
+  CONTACTS_READ: "contacts:read",
+  CONTACTS_CREATE: "contacts:create",
+  CONTACTS_UPDATE: "contacts:update",
+  CONTACTS_DELETE: "contacts:delete",
+
   // ── Checklists ──
   CHECKLISTS_READ: "checklists:read",
   CHECKLISTS_CREATE: "checklists:create",
@@ -182,6 +188,7 @@ export const PAGE_PERMISSIONS: Record<string, string> = {
   "/tasks": PERMISSIONS.TASKS_READ,
   "/tasks/new": PERMISSIONS.TASKS_CREATE,
   "/notices": PERMISSIONS.ANNOUNCEMENTS_READ,
+  "/contacts": PERMISSIONS.CONTACTS_READ,
   "/evaluations": PERMISSIONS.EVALUATIONS_READ,
   "/warnings": PERMISSIONS.WARNINGS_READ,
   "/warnings/new": PERMISSIONS.WARNINGS_CREATE,
@@ -225,6 +232,7 @@ export const MENU_PERMISSIONS: Record<string, string> = {
   "/checklists/progress": PERMISSIONS.CHECKLIST_REVIEW_READ,
   "/tasks": PERMISSIONS.TASKS_READ,
   "/notices": PERMISSIONS.ANNOUNCEMENTS_READ,
+  "/contacts": PERMISSIONS.CONTACTS_READ,
   "/evaluations": PERMISSIONS.EVALUATIONS_READ,
   "/warnings": PERMISSIONS.WARNINGS_READ,
   "/daily-reports": PERMISSIONS.DAILY_REPORTS_READ,

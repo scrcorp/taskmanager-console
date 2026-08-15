@@ -73,6 +73,11 @@ interface CategoryDef {
   color?: string | null;
   sort_order: number;
   is_active: boolean;
+  /**
+   * 이 카테고리를 고르면 작성 화면 description 에 프리필할 원문.
+   * 빈 값/키 없음 = 프리셋 없음 (기존 템플릿과 동일 동작).
+   */
+  description_template?: string | null;
 }
 
 interface FieldDef {
@@ -109,6 +114,14 @@ const SEED_CATEGORIES: Omit<CategoryDef, "sort_order">[] = [
   { code: "customer", label: "Customer", is_active: true },
   { code: "staff", label: "Staff", is_active: true },
   { code: "inventory", label: "Inventory", is_active: true },
+  {
+    code: "review",
+    label: "Review",
+    is_active: true,
+    description_template:
+      // 서버 REVIEW_DESCRIPTION_TEMPLATE 와 동일해야 한다 (항목 사이 빈 줄).
+      "Platform:\n\nRating:\n\nWhat was said:\n\nHow we responded:\n\nFollow-up needed:\n\nPlan:",
+  },
   { code: "other", label: "Other", is_active: true },
 ];
 
@@ -583,6 +596,40 @@ function CategoryList({
   sensors: ReturnType<typeof useSensors>;
   disabled: boolean;
 }): React.ReactElement {
+  return (
+    <CategoryListInner
+      categories={categories}
+      setCategories={setCategories}
+      updateCategory={updateCategory}
+      removeCategory={removeCategory}
+      sensors={sensors}
+      disabled={disabled}
+    />
+  );
+}
+
+function CategoryListInner({
+  categories,
+  setCategories,
+  updateCategory,
+  removeCategory,
+  sensors,
+  disabled,
+}: {
+  categories: CategoryDef[];
+  setCategories: React.Dispatch<React.SetStateAction<CategoryDef[]>>;
+  updateCategory: (idx: number, patch: Partial<CategoryDef>) => void;
+  removeCategory: (idx: number) => void;
+  sensors: ReturnType<typeof useSensors>;
+  disabled: boolean;
+}): React.ReactElement {
+  // 프리셋 편집기를 펼친 카테고리 code 집합.
+  const [openPresets, setOpenPresets] = useState<string[]>([]);
+  const togglePreset = (code: string) =>
+    setOpenPresets((prev) =>
+      prev.includes(code) ? prev.filter((c) => c !== code) : [...prev, code],
+    );
+
   if (categories.length === 0) {
     return <p className="text-sm text-textMuted italic">No categories defined.</p>;
   }
@@ -604,16 +651,18 @@ function CategoryList({
         strategy={verticalListSortingStrategy}
       >
         <div className="space-y-2">
-          <div className="grid grid-cols-[24px_1fr_72px_28px] gap-2 items-center px-2 text-[11px] font-semibold uppercase tracking-wide text-textMuted">
+          <div className="grid grid-cols-[24px_1fr_96px_72px_28px] gap-2 items-center px-2 text-[11px] font-semibold uppercase tracking-wide text-textMuted">
             <span />
             <span>Name</span>
+            <span className="text-center">Preset</span>
             <span className="text-center">Active</span>
             <span />
           </div>
           {categories.map((c, idx) => (
             <SortableCategoryRow key={c.code} id={c.code}>
               {(handle) => (
-                <div className="grid grid-cols-[24px_1fr_72px_28px] gap-2 items-center bg-surface p-2 rounded-md border border-border">
+                <div className="bg-surface p-2 rounded-md border border-border space-y-2">
+                <div className="grid grid-cols-[24px_1fr_96px_72px_28px] gap-2 items-center">
                   <button
                     type="button"
                     aria-label="Drag"
@@ -630,6 +679,19 @@ function CategoryList({
                     onChange={(e) => updateCategory(idx, { label: e.target.value })}
                     placeholder="e.g. Kitchen fire"
                   />
+                  <button
+                    type="button"
+                    onClick={() => togglePreset(c.code)}
+                    disabled={disabled}
+                    className={`text-xs px-2 py-1.5 rounded border transition-colors disabled:opacity-40 ${
+                      c.description_template
+                        ? "border-accent text-accent"
+                        : "border-border text-textMuted hover:text-text"
+                    }`}
+                    aria-expanded={openPresets.includes(c.code)}
+                  >
+                    {c.description_template ? "Preset set" : "Add preset"}
+                  </button>
                   <label className="flex items-center justify-center">
                     <input
                       type="checkbox"
@@ -649,6 +711,34 @@ function CategoryList({
                   >
                     <Trash2 className="w-4 h-4" />
                   </button>
+                </div>
+                {openPresets.includes(c.code) && (
+                  <div className="pl-8 pr-2 pb-1">
+                    <label className="block text-xs text-textSecondary mb-1">
+                      Description preset — prefilled when someone picks this
+                      category
+                    </label>
+                    <Textarea
+                      rows={8}
+                      disabled={disabled}
+                      value={c.description_template ?? ""}
+                      onChange={(e) =>
+                        updateCategory(idx, {
+                          // 빈 문자열은 '프리셋 없음' 으로 저장한다.
+                          description_template: e.target.value || null,
+                        })
+                      }
+                      placeholder={
+                        "Platform:\n\nRating:\n\nWhat was said:\n\nHow we responded:"
+                      }
+                    />
+                    <p className="text-[11px] text-textMuted mt-1">
+                      One heading per block, blank line between them. Staff fill
+                      in the blanks — it is only
+                      prefilled while the description is still untouched.
+                    </p>
+                  </div>
+                )}
                 </div>
               )}
             </SortableCategoryRow>
