@@ -140,7 +140,7 @@ export default function DashboardLayout({
             <Menu size={22} />
           </button>
           <div className="text-lg font-extrabold text-text">
-            <img src="/taskmanager_icon.png" alt="" className="inline-block w-6 h-6 mr-1.5 align-middle" />
+            <img src="/brand/htm-mark-head.png" alt="" className="inline-block w-6 h-6 mr-1.5 align-middle" />
             HTM
           </div>
         </div>

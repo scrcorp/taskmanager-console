@@ -58,6 +58,21 @@ export {
 } from "./useNotices";
 
 export {
+  useContacts,
+  useContact,
+  useContactTags,
+  useCreateContact,
+  useUpdateContact,
+  useDeleteContact,
+  useContactRequests,
+  useMyContactRequests,
+  useCreateContactRequest,
+  useCancelContactRequest,
+  useApproveContactRequest,
+  useRejectContactRequest,
+} from "./useContacts";
+
+export {
   useAlerts,
   useUnreadCount,
   useMarkRead,

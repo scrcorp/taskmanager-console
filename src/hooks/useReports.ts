@@ -15,6 +15,8 @@ import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
 import { useMutationResult } from "@/lib/mutationResult";
 import type {
+  IssueRecipientsResponse,
+  IssueViewersResponse,
   IssueReportCreateRequest,
   PaginatedResponse,
   Report,
@@ -79,6 +81,67 @@ export const useCreateIssueReport = (): UseMutationResult<
       success("Issue created.");
     },
     onError: error("Couldn't create issue"),
+  });
+};
+
+/**
+ * Issue 알림 수신자 조회.
+ *
+ * - storeId 만: 자동 수신자 후보 (전부 source="auto", is_recipient=true).
+ * - reportId 까지: 그 리포트 기준 최종 수신자 (자동 − 제외 + 추가, source 로 구분).
+ *
+ * reportId 가 있으면 storeId 는 생략 가능하다(서버가 report.store_id 를 쓴다).
+ */
+export const useIssueRecipients = (
+  storeId: string | null | undefined,
+  reportId?: string | null,
+  enabled = true,
+): UseQueryResult<IssueRecipientsResponse, Error> => {
+  return useQuery({
+    queryKey: ["issue-recipients", storeId ?? null, reportId ?? null],
+    queryFn: async () => {
+      const params: Record<string, string> = {};
+      if (storeId) params.store_id = storeId;
+      if (reportId) params.report_id = reportId;
+      const res: AxiosResponse<IssueRecipientsResponse> = await api.get(
+        "/console/reports/issue-recipients",
+        { params },
+      );
+      return res.data;
+    },
+    enabled: enabled && (!!storeId || !!reportId),
+  });
+};
+
+/**
+ * 조회 범위 미리보기 — 그 범위에서 실제로 누가 볼 수 있는지.
+ *
+ * GET /console/reports/issue-viewers (app 은 /app/reports/issue-viewers, body 동일).
+ * scope 가 queryKey 에 들어 있어 범위를 바꾸면 즉시 새로 조회한다.
+ * store_all 은 mode="summary" 로 items 없이 요약(label/count)만 온다 — 호출부에서 분기.
+ *
+ * 폴백 없음: 응답 형태가 다른 엔드포인트로 몰래 갈아타면 "조회 범위" 자리에
+ * "알림 수신자" 가 그려져도 아무도 눈치채지 못한다. 실패는 실패로 드러낸다.
+ */
+export const useIssueViewers = (
+  storeId: string | null | undefined,
+  scope: string,
+  reportId?: string | null,
+  enabled = true,
+): UseQueryResult<IssueViewersResponse, Error> => {
+  return useQuery({
+    queryKey: ["issue-viewers", storeId ?? null, reportId ?? null, scope],
+    queryFn: async () => {
+      const params: Record<string, string> = { scope };
+      if (storeId) params.store_id = storeId;
+      if (reportId) params.report_id = reportId;
+      const res: AxiosResponse<IssueViewersResponse> = await api.get(
+        "/console/reports/issue-viewers",
+        { params },
+      );
+      return res.data;
+    },
+    enabled: enabled && (!!storeId || !!reportId),
   });
 };
 
@@ -201,6 +264,10 @@ export const useUpdateReport = (): UseMutationResult<
     onSuccess: (_, { reportId }) => {
       qc.invalidateQueries({ queryKey: ["reports"] });
       qc.invalidateQueries({ queryKey: ["report", reportId] });
+      // 수신자는 payload(제외/추가)에서 파생되므로 payload 를 고치면 같이 낡는다.
+      // 안 지우면 방금 해제한 사람이 상세의 "Notified" 에 계속 남아 보인다.
+      qc.invalidateQueries({ queryKey: ["issue-recipients"] });
+      qc.invalidateQueries({ queryKey: ["issue-viewers"] });
       success("Report updated.");
     },
     onError: error("Couldn't update report"),

@@ -440,6 +440,23 @@ export function ScheduleSettings({ onBack }: Props) {
           unqueueDeleteKey={unqueueDeleteKey}
         />
 
+        {/* Schedule Report — org 전용 (매장별 수신자라는 개념이 없다) */}
+        {!isStoreScope && (
+          <ScheduleReportSection
+            getValue={getDraftOrEffective}
+            queueChange={queueChange}
+            forceQueueChange={forceQueueChange}
+            queueDeleteKey={queueDeleteKey}
+            unqueueDeleteKey={unqueueDeleteKey}
+            isOverridden={isOverridden}
+            isOrgOverridden={isOrgOverridden}
+            isPendingDelete={isPendingDelete}
+            isLocked={isLockedAtOrg}
+            isChanged={isChanged}
+            scope="org"
+          />
+        )}
+
         {/* Work Roles — store level */}
         {isStoreScope && activeStore && (
           <Card title="Work Roles" subtitle="Shift × Position combinations with required headcount per day">
@@ -856,6 +873,103 @@ function WeeklyLimitsSection(props: SectionCommonProps) {
 }
 
 // ─── 3. Approval Workflow ────────────────────────────────
+
+// ─── Schedule Report (org 전용) ───────────────────────────
+// 리포트는 org 단위로 한 통 나가므로 매장 탭에는 노출하지 않는다.
+// 서버의 registry 도 levels=["org"] 이라 매장 저장은 거부된다 — 화면과 규칙을 맞춘다.
+
+function ScheduleReportSection(props: SectionCommonProps) {
+  const RECIPIENTS_KEY = "schedule.report_recipients";
+  const TIMES_KEY = "schedule.report_times";
+
+  const recipients = String(props.getValue(RECIPIENTS_KEY) ?? "");
+  const times = String(props.getValue(TIMES_KEY) ?? "");
+  const locked = props.isLocked(RECIPIENTS_KEY) || props.isLocked(TIMES_KEY);
+
+  // 저장 전에 화면에서 먼저 알려준다. 서버도 같은 규칙으로 막지만,
+  // 저장 버튼을 누른 뒤에야 빨간 토스트를 보는 건 늦다.
+  const badEmails = recipients
+    .split(",")
+    .map((v) => v.trim())
+    .filter((v) => v && !/^[^\s@]+@[^\s@.]+\.[^\s@.]+/.test(v));
+  const badHours = times
+    .split(",")
+    .map((v) => v.trim())
+    .filter((v) => v && !/^([0-9]|1[0-9]|2[0-3])$/.test(v));
+
+  const sendingOff = times.trim() === "";
+  const noRecipients = recipients.trim() === "";
+
+  return (
+    <Card
+      title="Schedule Report"
+      subtitle="Daily email summarising staffing gaps and overtime"
+      locked={locked}
+    >
+      <div className="divide-y divide-[var(--color-border)]">
+        <ChangedMark changed={props.isChanged(RECIPIENTS_KEY)}>
+          <div className="py-3">
+            <div className="flex items-center gap-1.5">
+              <div className="text-[13px] font-medium text-[var(--color-text)]">Recipients</div>
+              <SourceBadge props={props} fieldKey={RECIPIENTS_KEY} />
+            </div>
+            <div className="text-[11px] text-[var(--color-text-muted)] mt-0.5">
+              Comma separated email addresses. Leave empty to stop sending for this organization.
+            </div>
+            <input
+              type="text"
+              value={recipients}
+              disabled={locked}
+              placeholder="ops@example.com, owner@example.com"
+              onChange={(e) => props.queueChange(RECIPIENTS_KEY, e.target.value)}
+              className="mt-2 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-[13px] text-[var(--color-text)] disabled:opacity-50"
+            />
+            {badEmails.length > 0 && (
+              <div className="text-[11px] text-[var(--color-danger)] mt-1">
+                Not an email address: {badEmails.join(", ")}
+              </div>
+            )}
+            {noRecipients && badEmails.length === 0 && (
+              <div className="text-[11px] text-[var(--color-text-muted)] mt-1">
+                No recipients — the report will not be sent.
+              </div>
+            )}
+          </div>
+        </ChangedMark>
+
+        <ChangedMark changed={props.isChanged(TIMES_KEY)}>
+          <div className="py-3">
+            <div className="flex items-center gap-1.5">
+              <div className="text-[13px] font-medium text-[var(--color-text)]">Send times</div>
+              <SourceBadge props={props} fieldKey={TIMES_KEY} />
+            </div>
+            <div className="text-[11px] text-[var(--color-text-muted)] mt-0.5">
+              Hours 0-23 in this organization&apos;s timezone, comma separated. Default 7,15,22.
+            </div>
+            <input
+              type="text"
+              value={times}
+              disabled={locked}
+              placeholder="7,15,22"
+              onChange={(e) => props.queueChange(TIMES_KEY, e.target.value)}
+              className="mt-2 w-full rounded-md border border-[var(--color-border)] bg-[var(--color-surface)] px-3 py-2 text-[13px] text-[var(--color-text)] disabled:opacity-50"
+            />
+            {badHours.length > 0 && (
+              <div className="text-[11px] text-[var(--color-danger)] mt-1">
+                Hours must be 0-23: {badHours.join(", ")}
+              </div>
+            )}
+            {sendingOff && badHours.length === 0 && (
+              <div className="text-[11px] text-[var(--color-text-muted)] mt-1">
+                No send times — the report will not be sent.
+              </div>
+            )}
+          </div>
+        </ChangedMark>
+      </div>
+    </Card>
+  );
+}
 
 function ApprovalSection(props: SectionCommonProps) {
   const REQ_KEY = "schedule.approval_required";
