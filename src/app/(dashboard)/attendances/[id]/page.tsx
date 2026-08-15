@@ -66,6 +66,21 @@ import {
   localInputToIsoInTz,
   timeAgo,
 } from "@/lib/utils";
+import {
+  FIELD_ANOMALIES,
+  FIELD_LABELS,
+  fieldLabel,
+  formatFieldValue,
+  formatTimeOnly,
+  formatValue,
+} from "@/lib/attendanceHistoryFormat";
+import {
+  OVERLAP_EXPLANATION,
+  OVERLAP_FIX_STEPS,
+  OVERLAP_TITLE,
+  hasOverlappingClockIn,
+} from "@/lib/attendanceAnomalies";
+import { buildAttendanceOneShotLink } from "@/lib/payrollGateLinks";
 import { AttendanceCorrectionModal } from "@/components/attendances/AttendanceCorrectionModal";
 import { AttendanceActionBar } from "@/components/attendances/AttendanceActionBar";
 import { ReasonPicker } from "@/components/attendances/ReasonPicker";
@@ -178,6 +193,8 @@ export default function AttendanceDetailPage(): React.ReactElement {
       {/* 자동퇴근 확인 배너 (L6) — anomaly 가 있을 때만 표시. */}
       <AutoClockoutBanner attendance={attendance} tz={tz} />
       <EarlyClockInBanner attendance={attendance} tz={tz} />
+      {/* 겹침 배너 — 확인 도장이 없는 항목이라 "Confirm" 이 아니라 정리 동선을 준다. */}
+      <OverlappingShiftBanner attendance={attendance} />
 
       {/* 상세 카드 — 전부 읽기 전용. 시간/상태/노트 수정은 모달 사용. */}
       <Card className="p-6 space-y-5">
@@ -494,6 +511,59 @@ function EarlyClockInBanner({
   );
 }
 
+// ─── Overlapping shift banner (D15) ───────────────────────────────────────
+
+/**
+ * 겹쳐 열린 shift 안내 배너.
+ *
+ * 확인(confirm) 도장이 없는 항목이다 — "승인된 겹침" 은 정의상 이중 지급이라
+ * 해소 경로가 한쪽을 정정/취소하는 것뿐이다. 그래서 버튼 대신 순서를 적는다.
+ * 새 원클릭 폐기 액션을 만들지 않는 것도 같은 이유(권한/감사 설계 별건 +
+ * walk-in 행은 clear times 가 거부되어 원클릭이 성립하지 않음).
+ */
+function OverlappingShiftBanner({
+  attendance,
+}: {
+  attendance: Attendance;
+}): React.ReactElement | null {
+  if (!hasOverlappingClockIn(attendance.anomalies)) return null;
+
+  // 같은 사람 · 같은 날의 다른 기록으로 건너뛰는 1회용 딥링크 (저장 필터를 안 건드림).
+  const siblingsHref = buildAttendanceOneShotLink({
+    storeId: attendance.store_id,
+    date: attendance.work_date,
+    userId: attendance.user_id,
+  });
+
+  return (
+    <div className="mb-6 flex items-start gap-3 px-4 py-3 rounded-lg border border-[var(--color-danger)]/50 bg-danger-muted">
+      <AlertTriangle
+        size={16}
+        className="text-[var(--color-danger)] mt-0.5 shrink-0"
+      />
+      <div className="flex-1 min-w-0">
+        <div className="text-sm font-semibold text-text">{OVERLAP_TITLE}</div>
+        <div className="text-xs text-text-secondary mt-0.5">
+          {OVERLAP_EXPLANATION}
+        </div>
+        <ol className="mt-2 space-y-0.5 text-xs text-text-secondary list-decimal list-inside">
+          {OVERLAP_FIX_STEPS.map((step) => (
+            <li key={step}>{step}</li>
+          ))}
+        </ol>
+        <a
+          href={siblingsHref}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-block mt-2 text-xs font-semibold text-accent hover:underline"
+        >
+          See this employee&apos;s other records on this day
+        </a>
+      </div>
+    </div>
+  );
+}
+
 // ─── Activity history ──────────────────────────────────────────────────────
 
 /** 카드 안의 한 줄 = 한 항목의 전이. */
@@ -525,24 +595,6 @@ const PRIMARY_FIELD_ORDER = [
   "note",
   "break_type",
 ];
-
-const FIELD_LABELS: Record<string, string> = {
-  status: "Status",
-  clock_in: "Clock-in",
-  clock_out: "Clock-out",
-  note: "Note",
-  break_start_at: "Break start",
-  break_end_at: "Break end",
-  break_type: "Break type",
-  // 레거시 행 — field_name 에 액션 이름이 들어가던 시절. raw 값이 화면에 새지 않게 매핑.
-  break_start: "Break start",
-  break_end: "Break end",
-  auto_clock_out: "Clock-out",
-  no_show: "Status",
-  cancel: "Status",
-  reopen: "Status",
-  modify: "Change",
-};
 
 /**
  * correction 행들을 카드 단위(ActivityGroup)로 묶는다.
@@ -598,33 +650,38 @@ function useCorrectionGroups(
       );
 
       const lines: ActivityLine[] = [];
-      if (valueRows.length === 0) {
-        // 상태만 바뀐 액션 — 상태 전이 자체가 그 줄이다.
-        if (statusRow) {
-          lines.push({
-            label: FIELD_LABELS.status,
-            before: formatValue(statusRow.original_value, tz),
-            after: formatValue(statusRow.corrected_value, tz),
-          });
-        }
-      } else {
-        valueRows.forEach((r, idx) => {
-          const merge = idx === 0 && statusRow !== undefined;
-          const value = {
-            before: formatValue(r.original_value, tz),
-            after: formatValue(r.corrected_value, tz),
-          };
-          lines.push({
-            label: fieldLabel(r.field_name),
-            before: merge
-              ? `${formatValue(statusRow!.original_value, tz)} (${value.before})`
-              : value.before,
-            after: merge
-              ? `${formatValue(statusRow!.corrected_value, tz)} (${value.after})`
-              : value.after,
-          });
+      // 상태를 값 줄에 괄호로 병기할지 — 시각/노트처럼 "그 값을 고쳐서 상태가 따라
+      // 바뀐" 경우만 병기한다. anomalies 는 상태와 나란한 별개 결과라
+      // `Late (Late)` 같은 줄이 되므로 병기하지 않고 제 줄을 갖는다.
+      const primary = valueRows[0];
+      const mergeStatus =
+        statusRow !== undefined &&
+        primary !== undefined &&
+        primary.field_name !== FIELD_ANOMALIES;
+
+      if (statusRow && !mergeStatus) {
+        lines.push({
+          label: FIELD_LABELS.status,
+          before: formatValue(statusRow.original_value, tz),
+          after: formatValue(statusRow.corrected_value, tz),
         });
       }
+      valueRows.forEach((r, idx) => {
+        const merge = idx === 0 && mergeStatus;
+        const value = {
+          before: formatFieldValue(r.field_name, r.original_value, tz),
+          after: formatFieldValue(r.field_name, r.corrected_value, tz),
+        };
+        lines.push({
+          label: fieldLabel(r.field_name),
+          before: merge
+            ? `${formatValue(statusRow!.original_value, tz)} (${value.before})`
+            : value.before,
+          after: merge
+            ? `${formatValue(statusRow!.corrected_value, tz)} (${value.after})`
+            : value.after,
+        });
+      });
 
       return {
         id: head.id,
@@ -642,10 +699,6 @@ function useCorrectionGroups(
 function indexOrLast(order: string[], value: string): number {
   const i = order.indexOf(value);
   return i === -1 ? order.length : i;
-}
-
-function fieldLabel(fieldName: string): string {
-  return FIELD_LABELS[fieldName] ?? fieldName;
 }
 
 /**
@@ -678,56 +731,6 @@ function pickReal(raw: string | null | undefined): string | null {
   const v = raw.trim();
   if (!v || v === "(none)" || v === "(empty)") return null;
   return v;
-}
-
-const STATUS_LABELS: Record<string, string> = {
-  upcoming: "Upcoming",
-  soon: "Soon",
-  working: "Working",
-  on_break: "On break",
-  late: "Late",
-  clocked_out: "Clocked out",
-  no_show: "No show",
-  cancelled: "Cancelled",
-};
-
-const BREAK_TYPE_LABELS: Record<string, string> = {
-  paid_10min: "Paid 10min",
-  unpaid_meal: "Unpaid meal",
-  paid_short: "Paid 10min",
-  unpaid_long: "Unpaid meal",
-};
-
-/**
- * 이력 값 → 화면 문자열.
- *
- * "값이 없었다"는 상태도 값이다 — `-` 로 얼버무리지 않고 "Not set" 으로 쓴다.
- * null 은 이 규약 도입 이전 레거시 행에서만 나오며, 마찬가지로 "Not set".
- */
-function formatValue(raw: string | null | undefined, tz?: string): string {
-  if (raw === null || raw === undefined) return "Not set";
-  const v = raw.trim();
-  if (!v || v === "(none)" || v === "(cleared)") return "Not set";
-  if (v === "(empty)") return "(empty)";
-  if (v === "(set)") return "Set";
-  if (v === "ended") return "Ended"; // 레거시 break_end 행
-  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v)) return formatTimeOnly(v, tz);
-  return STATUS_LABELS[v] ?? BREAK_TYPE_LABELS[v] ?? v;
-}
-
-function formatTimeOnly(iso: string, tz?: string): string {
-  try {
-    return new Intl.DateTimeFormat("en-US", {
-      timeZone: tz,
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-      hour12: true,
-    }).format(new Date(iso));
-  } catch {
-    return iso;
-  }
 }
 
 function activityTagInfo(tag: string): { label: string; cls: string } {

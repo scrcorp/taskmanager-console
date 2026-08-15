@@ -9,6 +9,7 @@
  */
 
 import { hasIssue } from "./compactAttendance";
+import { ATTENDANCE_ANOMALY } from "./attendanceAnomalies";
 import type { Attendance, Schedule } from "@/types";
 
 /** 행이 속하는 묶음. 배열 순서가 곧 화면 표시 순서다. */
@@ -100,6 +101,14 @@ function isDeadSchedule(schedule: Schedule | null): boolean {
 }
 
 /**
+ * 코드를 그대로 풀면 뜻이 안 통하는 anomaly 의 카드 문구.
+ * `overlapping clock in` 은 폰 화면에서 "무슨 소리지" 로 읽힌다 — 사실을 쓴다.
+ */
+const ISSUE_PHRASES: Record<string, string> = {
+  [ATTENDANCE_ANOMALY.OVERLAPPING_CLOCK_IN]: "two shifts open at once",
+};
+
+/**
  * 카드에 띄울 경고 문구들.
  *
  * 상태 배지와 같은 말을 반복하지 않는다 — 좁은 폭에서 정보량이 늘지 않으면서 자리만 먹는다.
@@ -148,7 +157,7 @@ export function rowIssues(
     // 확인 여부로 갈리는 두 가지는 위에서 이미 문장으로 처리했다. 여기서 다시 넣으면
     // 확인을 마친 기록이 영원히 경고를 달고 있게 된다.
     if (a === "early_clock_in_override" || a === "auto_clocked_out") continue;
-    issues.push(a.replace(/_/g, " "));
+    issues.push(ISSUE_PHRASES[a] ?? a.replace(/_/g, " "));
   }
 
   return issues;

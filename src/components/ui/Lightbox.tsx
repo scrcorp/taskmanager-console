@@ -15,6 +15,7 @@
 import React, { useState, useRef, useEffect, useCallback } from "react";
 import { X, ZoomIn, ZoomOut, RotateCcw, ChevronLeft, ChevronRight } from "lucide-react";
 import { TimeWatermark } from "./TimeWatermark";
+import { LAYER } from "@/lib/layers";
 
 interface LightboxProps {
   isOpen: boolean;
@@ -151,7 +152,7 @@ export function Lightbox({ isOpen, onClose, src, urls, captureTimes, captureSour
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex flex-col bg-black/90"
+      className={`fixed inset-0 ${LAYER.LIGHTBOX} flex flex-col bg-black/90`}
       onClick={(e) => { if (!didDrag.current && e.target === e.currentTarget) onClose(); }}
     >
       {/* Top bar */}

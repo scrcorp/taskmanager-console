@@ -19,6 +19,8 @@ export interface AttendanceLinkOptions {
   userId?: string | null;
   /** 자동퇴근 미확인 quick filter 활성화 여부. */
   unconfirmedAutoOnly?: boolean;
+  /** 겹쳐 열린 shift quick filter 활성화 여부 (겹침 게이트 전용). */
+  overlappingOnly?: boolean;
 }
 
 /**
@@ -30,12 +32,14 @@ export function buildAttendanceOneShotLink({
   date,
   userId,
   unconfirmedAutoOnly = false,
+  overlappingOnly = false,
 }: AttendanceLinkOptions): string {
   const params = new URLSearchParams();
   params.set("store", storeId);
   if (date) params.set("date", date);
   if (userId) params.set("staff", userId);
   if (unconfirmedAutoOnly) params.set("unconf", "1");
+  if (overlappingOnly) params.set("overlap", "1");
   params.set(ONE_SHOT_PARAM, "1");
   return `/attendances?${params.toString()}`;
 }

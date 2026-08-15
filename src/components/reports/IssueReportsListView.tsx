@@ -123,7 +123,6 @@ export function IssueReportsListView({
   const [selectedStatus, setSelectedStatus] = useState<string>("");
   const [selectedSeverity, setSelectedSeverity] = useState<string>("");
   const [selectedCategory, setSelectedCategory] = useState<string>("");
-  const [showAll, setShowAll] = useState<boolean>(false);
   const [page, setPage] = useState<number>(1);
   // 기본 진입 시 month preset (오늘 - 29일 ~ 오늘). all 모드는 사용자가 선택.
   const [dateFrom, setDateFrom] = useState<string>(() => addDays(today, -29));
@@ -136,7 +135,6 @@ export function IssueReportsListView({
     status: selectedStatus || undefined,
     date_from: dateFrom || undefined,
     date_to: dateTo || undefined,
-    show_all: showAll,
     page,
     per_page: PER_PAGE,
   });
@@ -189,7 +187,6 @@ export function IssueReportsListView({
     setSelectedStatus("");
     setSelectedSeverity("");
     setSelectedCategory("");
-    setShowAll(false);
     setPage(1);
   };
 
@@ -342,16 +339,7 @@ export function IssueReportsListView({
           </div>
         </div>
 
-        <div className="flex items-center justify-between">
-          <label className="flex items-center gap-2 text-sm text-textSecondary">
-            <input
-              type="checkbox"
-              checked={showAll}
-              onChange={(e) => setShowAll(e.target.checked)}
-              className="accent-accent"
-            />
-            Show all (override visibility)
-          </label>
+        <div className="flex items-center justify-end">
           <button
             type="button"
             onClick={clearFilters}

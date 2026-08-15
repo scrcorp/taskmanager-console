@@ -31,6 +31,7 @@ import { useModal } from "@/components/ui/imperative-modal";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@/lib/permissions";
 import { formatDate, formatFixedDate } from "@/lib/utils";
+import { describeApiError } from "@/lib/errorDisplay";
 import { useTimezone } from "@/hooks/useTimezone";
 import type {
   DailyReportPayload,
@@ -64,7 +65,7 @@ export default function DailyReportDetailPage(): React.ReactElement {
   const canDelete = hasPermission(PERMISSIONS.REPORTS_DELETE);
 
   const reportId: string = params.id as string;
-  const { data: report, isLoading } = useDailyReport(reportId);
+  const { data: report, isLoading, error } = useDailyReport(reportId);
   const addComment = useAddDailyReportComment();
   const deleteMutation = useDeleteDailyReport();
   const reviewMutation = useReviewReport();
@@ -120,13 +121,23 @@ export default function DailyReportDetailPage(): React.ReactElement {
   }
 
   if (!report) {
+    // 못 여는 이유를 "없음" 으로 뭉뚱그리지 않는다 — 권한(403)이면 서버 문구를 그대로 띄운다.
+    const failure = error
+      ? describeApiError(error, { context: "load", fallback: "Daily report not found." })
+      : null;
     return (
       <div>
         <Button variant="ghost" size="sm" onClick={() => router.push("/daily-reports")}>
           <ChevronLeft size={16} />
           Back to Daily Reports
         </Button>
-        <EmptyState message="Daily report not found." />
+        <EmptyState
+          message={
+            failure
+              ? [failure.message, failure.hint].filter(Boolean).join(" ")
+              : "Daily report not found."
+          }
+        />
       </div>
     );
   }

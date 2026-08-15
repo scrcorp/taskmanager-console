@@ -12,6 +12,8 @@ export const PAYROLL_GATE = {
   OPEN_SHIFT: "open_shift",
   UNCONFIRMED_AUTO_CLOCKOUT: "unconfirmed_auto_clockout",
   UNCONFIRMED_EARLY_CLOCK_IN: "unconfirmed_early_clock_in",
+  /** 같은 사람의 두 근태가 시간대로 겹침 — 같은 시간이 두 번 지급된다 (D15). */
+  OVERLAPPING_ATTENDANCE: "overlapping_attendance",
   TIP_PERIOD_NOT_CONFIRMED: "tip_period_not_confirmed",
   MULTI_STORE_WEEK: "multi_store_week",
 } as const;

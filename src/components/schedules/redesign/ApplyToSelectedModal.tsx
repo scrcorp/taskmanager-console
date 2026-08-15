@@ -9,7 +9,7 @@
  * Reset 버튼: 행별 커스텀을 기본값으로 되돌림.
  */
 
-import { dawnStartOffset, stepTimeOptions } from "@/lib/scheduleTime";
+import { storeStartOffset, stepTimeOptions } from "@/lib/scheduleTime";
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { User, WorkRole, Store } from "@/types";
 
@@ -273,8 +273,13 @@ export function ApplyToSelectedModal({
           endTime: row.endTime || globalEnd || "18:00",
           breakStartTime: row.breakStartTime || null,
           breakEndTime: row.breakEndTime || null,
-          // 벌크 그리드는 날짜 UI가 없음 — 경계 이전 새벽 시각은 영업일+1일로 추론
-          startOffsetDays: dawnStartOffset(row.startTime || globalStart || "09:00"),
+          // 벌크 그리드는 날짜 UI가 없음 — 경계 이전 새벽 시각은 영업일+1일로 추론.
+          // 경계는 **이 매장 설정**을 쓴다 (상수 06:00 을 쓰면 04:00 매장에서 오판).
+          startOffsetDays: storeStartOffset(
+            row.startTime || globalStart || "09:00",
+            stores.find((s2) => s2.id === storeId)?.day_start_time ?? null,
+            c.date,
+          ),
           status: globalStatus,
         };
       })
