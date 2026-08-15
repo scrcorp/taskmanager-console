@@ -272,7 +272,7 @@ export function Sidebar({ onNavClick }: { onNavClick?: () => void }) {
       {/* 로고 (Logo) */}
       <div className="px-6 pt-6 pb-2">
         <div className="text-xl font-extrabold text-text">
-          <img src="/taskmanager_icon.png" alt="HTM" className="inline-block w-8 h-8 mr-2 align-middle" /> HTM
+          <img src="/brand/htm-mark-head.png" alt="HTM" className="inline-block w-8 h-8 mr-2 align-middle" /> HTM
         </div>
         {user?.organization_name && (
           <div className="text-text-muted text-xs mt-1 flex items-center gap-1 truncate">

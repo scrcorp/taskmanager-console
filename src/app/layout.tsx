@@ -15,15 +15,28 @@ const envPrefix = env === 'production' ? ''
   : env === 'staging' ? '[STG] '
   : '[DEV] ';
 
+/**
+ * 환경별 아이콘 세트 — public/brand/{prod,dev,stg}/ 에 3벌이 들어있고 빌드 시점의
+ * NEXT_PUBLIC_APP_ENV 로 고른다. 탭 제목의 [DEV]/[STG] 와 같은 신호를 아이콘에도 준다:
+ * 32px 이하 탭 아이콘에서는 글자가 안 읽히므로 배경색 자체가 환경 구분이다
+ * (prod=네이비 / dev=주황 / stg=보라). 자산 생성은 temp/brand/ 참조.
+ */
+const brandEnv = env === 'production' ? 'prod'
+  : env === 'staging' ? 'stg'
+  : 'dev';
+const brand = `/brand/${brandEnv}`;
+
 /** SEO 메타데이터 — 브라우저 탭 제목 + 파비콘 설정 */
 export const metadata: Metadata = {
   title: `${envPrefix}HTM Admin`,
   description: "Employee Management Admin Console",
   // 홈화면 추가용 — scope/start_url 이 /c 라 설치하면 간소화 콘솔이 뜬다 (서비스워커 없음)
   manifest: "/manifest.json",
+  // public/favicon.ico 도 prod 아이콘으로 남겨두지만(브라우저가 /favicon.ico 를
+  // 무조건 한 번 찔러본다) 아래 명시 link 가 우선한다.
   icons: {
-    icon: "/favicon.ico",
-    apple: "/apple-icon.png",
+    icon: `${brand}/favicon.ico`,
+    apple: `${brand}/apple-icon-180.png`,
   },
 };
 

@@ -16,7 +16,7 @@ export default function ChangelogPublicLayout({
       <header className="border-b border-border">
         <div className="mx-auto flex max-w-4xl items-center gap-2 px-4 py-5">
           <img
-            src="/taskmanager_icon.png"
+            src="/brand/htm-mark-head.png"
             alt=""
             className="h-7 w-7"
           />
