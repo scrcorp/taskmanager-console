@@ -37,6 +37,7 @@ import {
   Banknote,
   Sparkles,
   Smartphone,
+  BookUser,
 } from "lucide-react";
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useAuthStore } from "@/stores/authStore";
@@ -91,6 +92,7 @@ const navItems: NavItem[] = [
   },
   { href: "/tasks", label: "Tasks", icon: Zap },
   { href: "/notices", label: "Notices", icon: Megaphone },
+  { href: "/contacts", label: "Contacts", icon: BookUser },
   { href: "/evaluations", label: "Evaluations", icon: Star },
   { href: "/warnings", label: "Warnings", icon: AlertTriangle },
   {

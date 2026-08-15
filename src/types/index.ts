@@ -851,6 +851,31 @@ export type {
   MySignatureResponse,
 } from "./warning";
 
+// Contacts — canonical types live in ./contact, re-exported below.
+export type {
+  ContactPhone,
+  ContactPhoneInput,
+  ContactTag,
+  ContactTagSuggestion,
+  Contact,
+  ContactCreate,
+  ContactUpdate,
+  ContactDeleteRequest,
+  ContactDeleteResult,
+  ContactSort,
+  ContactFilters,
+  ContactRequestType,
+  ContactRequestStatus,
+  ContactRequestPayload,
+  ContactRequestCreate,
+  ContactChangeRequest,
+  ContactRequestFilters,
+  ContactRequestApprove,
+  ContactRequestReject,
+  ContactRequestApproveResult,
+} from "./contact";
+export { CONTACT_STORE_SHARED } from "./contact";
+
 // Changelog — canonical types live in ./changelog, re-exported below.
 export type {
   ChangelogCategory,
