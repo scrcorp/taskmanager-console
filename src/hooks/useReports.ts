@@ -36,7 +36,6 @@ export const useReports = (
       if (filters.date_to) params.date_to = filters.date_to;
       if (filters.period) params.period = filters.period;
       if (filters.status) params.status = filters.status;
-      if (filters.show_all) params.show_all = true;
       params.page = filters.page ?? 1;
       params.per_page = filters.per_page ?? 20;
       const res: AxiosResponse<PaginatedResponse<Report>> = await api.get(

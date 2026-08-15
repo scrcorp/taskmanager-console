@@ -25,14 +25,17 @@ import {
   stripDates,
 } from "@/lib/payrollGateLinks";
 import {
+  ATTENDANCE_FIXES,
+  EXTRA_GATE_LABELS,
+  GATE_DEFS,
+  type GateFix,
+} from "@/lib/payrollGateDefs";
+import {
   PAYROLL_GATE,
   type ConfirmGateFailure,
   type PayPeriod,
   type PeriodPreviewResponse,
 } from "@/types/payroll";
-
-/** 항목 1건을 어떤 화면에서 고치는지 — 행 단위 액션 종류. */
-type GateFix = "attendance_auto" | "attendance_open" | "attendance_early" | "rate" | "none";
 
 /** 접기 기준 — 이슈가 많아도 카드가 화면을 삼키지 않게. */
 const COLLAPSED_ITEMS = 3;
@@ -62,66 +65,9 @@ interface GateView {
   serverMessage?: string;
   /** 보조 상태 문구 (tip period status 등) */
   note?: string;
+  /** 이슈가 있는데 서버 문구가 없을 때(preview 단계) 쓰는 설명. */
+  failNote?: string;
 }
-
-interface GateDef {
-  label: string;
-  okNote: string;
-  codes: string[];
-  fix: GateFix;
-  link: { href: string; label: string } | null;
-}
-
-/**
- * 마감 게이트 4종 — validation code → 카드 행 정의.
- * 근태/시급 게이트는 카드 수준 링크 대신 행마다 인라인 액션을 쓴다 (항목별로
- * payroll 화면 상태를 잃지 않고 해결).
- */
-const GATE_DEFS: GateDef[] = [
-  {
-    label: "Auto clock-outs confirmed",
-    okNote: "Every auto clock-out has been reviewed.",
-    codes: [PAYROLL_GATE.UNCONFIRMED_AUTO_CLOCKOUT],
-    fix: "attendance_auto",
-    link: null,
-  },
-  {
-    label: "Early clock-ins reviewed",
-    okNote: "Every early clock-in has been reviewed.",
-    codes: [PAYROLL_GATE.UNCONFIRMED_EARLY_CLOCK_IN],
-    fix: "attendance_early",
-    link: null,
-  },
-  {
-    label: "No open shifts",
-    okNote: "All shifts in this period have a clock-out.",
-    codes: [PAYROLL_GATE.OPEN_SHIFT],
-    fix: "attendance_open",
-    link: null,
-  },
-  {
-    label: "Hourly rates valid",
-    okNote: "Every worked day has a rate at or above minimum wage.",
-    codes: [PAYROLL_GATE.RATE_MISSING, PAYROLL_GATE.BELOW_MINIMUM_WAGE],
-    fix: "rate",
-    link: null,
-  },
-  {
-    label: "Tip period confirmed",
-    okNote: "Card tips come from a confirmed tip period.",
-    codes: [PAYROLL_GATE.TIP_PERIOD_NOT_CONFIRMED],
-    fix: "none",
-    link: { href: "/pay/tips", label: "Confirm in Tips" },
-  },
-];
-
-/** 409 전용 게이트 (preview validation 에는 없음). */
-const EXTRA_GATE_LABELS: Record<string, { label: string; okNote: string }> = {
-  [PAYROLL_GATE.MULTI_STORE_WEEK]: {
-    label: "Multi-store weeks consistent",
-    okNote: "",
-  },
-};
 
 function tipStatusNote(period: PayPeriod): string {
   if (period.tip_period_status === "confirmed") {
@@ -230,6 +176,7 @@ function buildGates(
       items,
       blocking,
       serverMessage,
+      failNote: def.failNote,
     };
     if (def.codes.includes(PAYROLL_GATE.TIP_PERIOD_NOT_CONFIRMED)) {
       view.note = tipStatusNote(preview.period);
@@ -308,13 +255,15 @@ export function GateChecklist({ preview, failures }: Props) {
     });
   };
 
-  const openAttendance = (item: GateItemView, autoOnly: boolean): void => {
+  /** 근태 화면을 1회용 필터 딥링크로 새 탭에 연다 (payroll 화면 상태 유지). */
+  const openAttendance = (item: GateItemView, fix: GateFix): void => {
     window.open(
       buildAttendanceOneShotLink({
         storeId,
         date: item.date,
         userId: item.userId,
-        unconfirmedAutoOnly: autoOnly,
+        unconfirmedAutoOnly: fix === "attendance_auto",
+        overlappingOnly: fix === "attendance_overlap",
       }),
       "_blank",
       "noopener,noreferrer",
@@ -325,16 +274,12 @@ export function GateChecklist({ preview, failures }: Props) {
     gate: GateView,
     item: GateItemView,
   ): ReactNode => {
-    if (
-      gate.fix === "attendance_auto" ||
-      gate.fix === "attendance_open" ||
-      gate.fix === "attendance_early"
-    ) {
+    if (ATTENDANCE_FIXES.has(gate.fix)) {
       if (!canOpenAttendance) return null;
       return (
         <button
           type="button"
-          onClick={() => openAttendance(item, gate.fix === "attendance_auto")}
+          onClick={() => openAttendance(item, gate.fix)}
           className="flex shrink-0 items-center gap-1 rounded-lg border border-[#E2E4EA] bg-white px-2 py-1 text-[11px] font-semibold text-[#6C5CE7] hover:border-[#CBD2DA] hover:bg-[#F5F6FA]"
         >
           Fix
@@ -429,6 +374,7 @@ export function GateChecklist({ preview, failures }: Props) {
                       {failed
                         ? (g.serverMessage ??
                           g.note ??
+                          g.failNote ??
                           "Resolve the items below.")
                         : (g.note ?? g.okNote)}
                     </p>

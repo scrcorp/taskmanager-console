@@ -2,6 +2,7 @@
 
 import React, { createContext, useContext, useState, useCallback } from "react";
 import { cn } from "@/lib/utils";
+import { LAYER } from "@/lib/layers";
 import { X, CheckCircle, AlertCircle, Info } from "lucide-react";
 
 /**
@@ -87,7 +88,7 @@ export function ToastProvider({
   return (
     <ToastContext.Provider value={contextValue}>
       {children}
-      <div className="fixed bottom-4 right-4 z-[100] flex flex-col gap-2 max-w-sm">
+      <div className={`fixed bottom-4 right-4 ${LAYER.TOAST} flex flex-col gap-2 max-w-sm`}>
         {toasts.map((item: ToastItem) => (
           <div
             key={item.id}

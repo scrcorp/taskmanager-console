@@ -9,7 +9,8 @@ import { useWorkRoles } from "@/hooks/useWorkRoles";
 import { useUserStores } from "@/hooks/useUsers";
 import { useResolveSetting } from "@/hooks/useSettings";
 import { useValidateSchedule, useDeleteScheduleFlow } from "@/hooks/useSchedules";
-import { useModal } from "@/components/ui/imperative-modal";
+import { useModal, useModalDepth } from "@/components/ui/imperative-modal";
+import { StaffPicker } from "./StaffPicker";
 import { useAuthStore } from "@/stores/authStore";
 import { todayInTimezone } from "@/lib/utils";
 import {
@@ -222,6 +223,7 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
   // hourly rate input as string ("" = clear/null)
   const [hourlyRateInput, setHourlyRateInput] = useState<string>("");
   const modal = useModal();
+  const dialogDepth = useModalDepth();
   // Edit 모드 원본 값 스냅샷 — 변경 여부 비교용
   const originalRef = useRef<{
     userId: string; storeId: string; date: string;
@@ -429,10 +431,13 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
   }
 
   // ESC key handling
+  // 위에 confirm/alert 가 떠 있으면(dialogDepth > 0) 그쪽이 ESC 의 주인이다.
+  // 여기서도 먹으면 "확인창 닫힘 + 새 확인창 push" 가 같이 일어나 영원히 안 닫힌다.
   useEffect(() => {
     if (!open) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
+        if (dialogDepth > 0) return;
         e.preventDefault();
         void tryClose();
       }
@@ -440,7 +445,7 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, isDirty]);
+  }, [open, isDirty, dialogDepth]);
 
   const validateSchedule = useValidateSchedule();
 
@@ -691,15 +696,24 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
                   {getInitials(selectedUser.full_name)}
                 </div>
               )}
-              <select
-                value={userId}
-                onChange={(e) => { setUserId(e.target.value); }}
-                className={`flex-1 px-3 py-2 border rounded-lg text-[13px] bg-[var(--color-surface)] ${changed("userId", userId) ? changedCls : "border-[var(--color-border)]"}`}
-              >
-                {users.map((u) => (
-                  <option key={u.id} value={u.id}>{u.full_name || u.username}</option>
-                ))}
-              </select>
+              <div className="flex-1">
+                <StaffPicker
+                  value={userId}
+                  onChange={(id) => { setUserId(id); }}
+                  eligible={users}
+                  changed={changed("userId", userId)}
+                  /*
+                    eligible(users) 는 캘린더에서 선택된 store 범위로 걸러진 목록이다.
+                    store 를 정확히 1개 보고 있을 때만 매장 이름을 붙인다 —
+                    All/다중 선택 상태에서 특정 매장 이름을 쓰면 사실과 다른 라벨이 된다.
+                  */
+                  storeName={
+                    selectedStoreIds?.length === 1
+                      ? stores?.find((s) => s.id === selectedStoreIds[0])?.name
+                      : undefined
+                  }
+                />
+              </div>
             </div>
           </div>
 

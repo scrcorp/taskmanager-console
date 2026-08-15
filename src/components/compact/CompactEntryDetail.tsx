@@ -35,6 +35,11 @@ import { PERMISSIONS } from "@/lib/permissions";
 import { isoToLocalInputInTz, localInputToIsoInTz, cn } from "@/lib/utils";
 import { rollEndDate, shiftIsoFields } from "@/lib/scheduleTime";
 import { wallClock, type DayRow } from "@/lib/compactDay";
+import {
+  OVERLAP_EXPLANATION,
+  OVERLAP_TITLE,
+  hasOverlappingClockIn,
+} from "@/lib/attendanceAnomalies";
 import { CompactReviewSave, type ChangeLine } from "./CompactReviewSave";
 import { CompactStaffPicker } from "./CompactStaffPicker";
 import { CompactTimePickerSheet, type TimePickerResult } from "./CompactTimePickerSheet";
@@ -478,6 +483,9 @@ export function CompactEntryDetail({
   const needsAuto =
     (attendance?.anomalies ?? []).includes("auto_clocked_out")
     && !attendance?.auto_clock_out_confirmed_at;
+  // 겹침은 확인 버튼이 없다 — 한쪽을 실제로 지워야 풀린다. 그래서 안내만 띄우고
+  // More actions(Clear times / Cancel) 로 보낸다.
+  const overlapping = hasOverlappingClockIn(attendance?.anomalies);
 
   return (
     <div className="space-y-3 px-1 pb-1">
@@ -503,6 +511,19 @@ export function CompactEntryDetail({
           </button>
         )}
       </div>
+
+      {/* 겹침 경보 — 확인 도장이 없는 유일한 근태 경고. 제일 위에 둔다. */}
+      {overlapping && (
+        <div className="rounded-xl border border-danger bg-danger-muted px-3 py-2.5">
+          <p className="text-xs text-text">
+            <b>{OVERLAP_TITLE}.</b> {OVERLAP_EXPLANATION}
+          </p>
+          <p className="mt-1.5 text-xs text-text-secondary">
+            Use More actions on the record that should not be there — clear its
+            times, then cancel it.
+          </p>
+        </div>
+      )}
 
       {/* 확인 필요 배너 */}
       {needsEarly && (

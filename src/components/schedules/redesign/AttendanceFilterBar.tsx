@@ -15,6 +15,7 @@
 import { useState } from "react";
 import { MultiSelectFilter } from "@/components/ui";
 import { ROLE_PRIORITY } from "@/lib/permissions";
+import { hasOverlappingClockIn } from "@/lib/attendanceAnomalies";
 import type { User } from "@/types";
 
 export type AttendanceStatusKey =
@@ -32,6 +33,8 @@ export interface AttendanceUiFilters {
   editedOnly: boolean;
   /** 자동퇴근(auto_clocked_out) 인데 아직 확인 안 된 record 만 보기 — L6 일상 확인용. */
   unconfirmedAutoOnly: boolean;
+  /** 겹쳐 열린 shift (overlapping_clock_in) 만 보기 — 급여 이중 지급 정리 큐. */
+  overlappingOnly: boolean;
 }
 
 export const EMPTY_ATTENDANCE_FILTERS: AttendanceUiFilters = {
@@ -40,6 +43,7 @@ export const EMPTY_ATTENDANCE_FILTERS: AttendanceUiFilters = {
   statuses: [],
   editedOnly: false,
   unconfirmedAutoOnly: false,
+  overlappingOnly: false,
 };
 
 /** 자동퇴근 미확인 판정 — 'auto_clocked_out' anomaly 이면서 확인 시각이 비어 있는 record.
@@ -53,6 +57,14 @@ export function isUnconfirmedAutoClockOut(
 
 // 조기 출근 강행 미확인 판정은 순수 모듈에 있다 (테스트가 컴포넌트를 안 끌고 오게).
 export { isUnconfirmedEarlyClockIn } from "./attendanceConfirm";
+
+/** 겹침 전용 필터 통과 여부. 필터가 꺼져 있으면 전부 통과 — Daily/Weekly 공용. */
+export function matchesOverlapFilter(
+  anomalies: string[] | null | undefined,
+  overlappingOnly: boolean,
+): boolean {
+  return !overlappingOnly || hasOverlappingClockIn(anomalies);
+}
 
 const ALL_ROLES = [
   { id: "owner", label: "Owner" },
@@ -132,7 +144,8 @@ export function AttendanceFilterBar({ filters, onChange, storeUsers }: Props) {
     filters.roles.length +
     filters.statuses.length +
     (filters.editedOnly ? 1 : 0) +
-    (filters.unconfirmedAutoOnly ? 1 : 0);
+    (filters.unconfirmedAutoOnly ? 1 : 0) +
+    (filters.overlappingOnly ? 1 : 0);
 
   return (
     <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-4 py-3 mb-4">
@@ -225,6 +238,24 @@ export function AttendanceFilterBar({ filters, onChange, storeUsers }: Props) {
         >
           <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-danger)]" />
           Unconfirmed auto clock-outs
+        </button>
+
+        {/* Overlapping shifts — 토글 chip. 급여 확정을 막는 항목이라 danger 톤. */}
+        <button
+          type="button"
+          onClick={() =>
+            onChange({ ...filters, overlappingOnly: !filters.overlappingOnly })
+          }
+          aria-pressed={filters.overlappingOnly}
+          title="Show only records where the same person had two shifts open at the same time."
+          className={`px-3 py-1.5 rounded-lg text-[12px] font-semibold border flex items-center gap-1.5 transition-colors ${
+            filters.overlappingOnly
+              ? "bg-[var(--color-danger-muted)] text-[var(--color-danger)] border-[var(--color-danger)]/40"
+              : "bg-[var(--color-surface)] text-[var(--color-text-secondary)] border-[var(--color-border)] hover:border-[var(--color-text-muted)] hover:text-[var(--color-text)]"
+          }`}
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-[var(--color-danger)]" />
+          Overlapping shifts
         </button>
 
         {totalActive > 0 && (

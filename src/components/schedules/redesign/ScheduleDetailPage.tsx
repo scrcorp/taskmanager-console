@@ -9,6 +9,7 @@
 
 import type { Schedule, User, Attendance } from "@/types";
 import { ROLE_PRIORITY } from "@/lib/permissions";
+import { anomalyLabel } from "@/lib/attendanceAnomalies";
 import type { ScheduleAuditLogEntry } from "@/hooks/useSchedules";
 import { DiffDisplay } from "./DiffDisplay";
 
@@ -403,7 +404,7 @@ export function ScheduleDetailPage({ schedule, user, attendance, auditEvents, re
                   <div className="flex flex-wrap gap-1.5">
                     {attendance.anomalies.map((a) => (
                       <span key={a} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-[var(--color-danger-muted)] text-[var(--color-danger)]">
-                        {a.replace("_", " ")}
+                        {anomalyLabel(a)}
                       </span>
                     ))}
                   </div>
