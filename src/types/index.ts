@@ -1921,9 +1921,113 @@ export const ISSUE_CATEGORIES = [
   "customer",
   "staff",
   "inventory",
+  "review",
   "other",
 ] as const;
 export type IssueCategory = (typeof ISSUE_CATEGORIES)[number];
+
+/**
+ * issue 템플릿의 카테고리 정의 (report_templates.payload.categories[]).
+ *
+ * description_template: 카테고리를 고르면 작성 화면 description 에 프리필할 원문.
+ * 키가 없거나 null 이면 프리셋 없음 (하위호환 — 기존 템플릿은 키 자체가 없다).
+ */
+export interface IssueCategoryDef {
+  code: string;
+  label: string;
+  color?: string | null;
+  sort_order?: number;
+  is_active?: boolean;
+  description_template?: string | null;
+}
+
+/**
+ * issue 조회 범위 — **확대 전용**. 축소 값은 만들지 않는다.
+ * default   = 작성자 + 그 매장에 배정된 GM 이상 전원 + 지목된 사람 + Owner
+ * managers  = + 그 매장 manager 전원(직급 무관)
+ * store_all = + 그 매장 배정 인원 전원
+ */
+export const ISSUE_VISIBILITY_SCOPES = ["default", "managers", "store_all"] as const;
+export type IssueVisibilityScope = (typeof ISSUE_VISIBILITY_SCOPES)[number];
+
+export const ISSUE_VISIBILITY_SCOPE_LABELS: Record<
+  IssueVisibilityScope,
+  { label: string; description: string }
+> = {
+  default: {
+    label: "Store leadership (default)",
+    description:
+      "The author, everyone ranked General Manager or above at this store, the managers above the author, and anyone the author added.",
+  },
+  managers: {
+    label: "All managers of this store",
+    description:
+      "Every manager of this store can see it, regardless of rank — plus everyone in the default scope.",
+  },
+  store_all: {
+    label: "Everyone at this store",
+    description:
+      "All staff assigned to this store can see it. Use for issues the whole team should know about.",
+  },
+};
+
+/**
+ * 수신자 조회 엔드포인트 항목 (GET /console|app/reports/issue-recipients).
+ * 서버 스키마: app/schemas/report.py IssueRecipientItem — 필드를 바꿀 땐 3곳(server/console/app) 동시.
+ */
+export interface IssueRecipientItem {
+  user_id: string;
+  full_name: string;
+  /** DB role name 원문 (owner / general_manager / supervisor / staff / 커스텀). */
+  role_label: string;
+  role_priority: number;
+  /** "auto" = 그 매장 GM 이상(항상 수신·해제 불가), "added" = 콕 집어 추가한 사람. */
+  source: "auto" | "added";
+  is_recipient: boolean;
+  /** 작성 화면에서 뺄 수 있는가. auto=false(잠김), added=true. */
+  can_remove?: boolean;
+}
+
+export interface IssueRecipientsResponse {
+  store_id: string;
+  report_id: string | null;
+  items: IssueRecipientItem[];
+}
+
+/**
+ * 조회 범위 미리보기 (GET /console|app/reports/issue-viewers?scope=…).
+ * 서버 스키마: app/schemas/report.py IssueExpectedViewersResponse.
+ *
+ * console 과 app 이 같은 body 를 쓴다 — 필드명을 바꾸면 세 repo 를 함께 고쳐야 한다.
+ */
+export interface IssueViewerItem {
+  user_id: string;
+  full_name: string;
+  /** DB role name 원문. */
+  role_label: string;
+  role_priority: number;
+  /** 코드값: "author" | "gm_or_above" | "store_manager" | "added". */
+  reason: string;
+  /** 그대로 화면에 찍는 영어 문구 (코드→문구 매핑을 클라가 또 만들지 않게 서버가 준다). */
+  reason_label: string;
+  /** 조회권만이 아니라 알림까지 받는가. */
+  is_notified: boolean;
+}
+
+export interface IssueViewersSummary {
+  label: string;
+  count: number;
+}
+
+export interface IssueViewersResponse {
+  store_id: string;
+  report_id: string | null;
+  scope: string;
+  /** "list" = items 에 사람 목록, "summary" = items 비고 summary 만 (store_all). */
+  mode: "list" | "summary";
+  summary: IssueViewersSummary;
+  items: IssueViewerItem[];
+}
 
 export const ISSUE_SEVERITIES = ["low", "medium", "high", "critical"] as const;
 export type IssueSeverity = (typeof ISSUE_SEVERITIES)[number];
@@ -1953,10 +2057,23 @@ export interface IssueReportPayload {
     related_user_ids?: string[];
     related_roles?: string[];
   };
+  /** 콕 집어 추가한 사람 — 조회권 + 이메일 알림을 함께 받는다. */
   extra_viewers?: {
     user_ids?: string[];
     position_ids?: string[];
   };
+  /** 확대 전용 조회 범위. 키 없음 = "default". */
+  visibility_scope?: IssueVisibilityScope;
+  /**
+   * @deprecated 레거시 키 — 매장 GM 이상은 항상 알림을 받으므로 서버가 무시한다.
+   * 읽기 호환만 유지하고 새로 쓰지 않는다.
+   */
+  notify_excluded_user_ids?: string[];
+  /**
+   * 레거시 키 — true 면 visibility_scope="store_all" 로 읽힌다.
+   * 신규 쓰기 금지(읽기 호환만 유지).
+   */
+  share_with_store_all?: boolean;
   custom_field_values?: Record<string, unknown>;
   // promote 시 채워짐. 신규 키는 linked_task_id, 구버전 데이터는 linked_issue_id 도 인식.
   linked_task_id?: string | null;
