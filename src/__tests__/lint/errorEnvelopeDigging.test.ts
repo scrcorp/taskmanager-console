@@ -74,6 +74,8 @@ const BASELINE: Record<string, number> = {
   "hooks/useClockinPin.ts": 1,
   "hooks/usePassword.ts": 1,
   "hooks/usePayroll.ts": 7,
+  // blob 에러 바디 중앙 파서 — responseType:"blob" 응답은 에러도 Blob 이라 detail 을 직접 읽어야 한다
+  "lib/download.ts": 6,
 };
 
 /** 위반 하나를 사람이 바로 고칠 수 있게 적는다 — 파일:행 + 문제 스니펫. */
