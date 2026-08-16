@@ -78,8 +78,15 @@ interface CategoryDef {
    * 빈 값/키 없음 = 프리셋 없음 (기존 템플릿과 동일 동작).
    */
   description_template?: string | null;
+  /** 이 카테고리에서만 뜨는 필드. 전역 custom_fields 와 함께 표시된다. */
+  fields?: FieldDef[];
 }
 
+/**
+ * 이슈 폼 필드 정의. 서버 `IssueCustomFieldDef`(app/schemas/report.py)와 같은 모양이어야
+ * 한다 — 어긋나면 콘솔에서 설정한 값이 서버 검증에 안 걸리거나 앱이 못 그린다.
+ * `checkbox` 는 폐기(2026-08-15): 2상태라 "아니오"와 "미응답"을 구분할 수 없다.
+ */
 interface FieldDef {
   type: "short_text" | "long_text" | "number" | "single_choice" | "multi_choice";
   id: string;
@@ -89,7 +96,24 @@ interface FieldDef {
   helper_text?: string;
   options?: string[];
   max_length?: number;
+  /** number 전용 — 허용 범위 */
+  min?: number;
+  max?: number;
+  /** number 전용 — 0(기본)이면 정수만, 1/2면 그 자릿수까지 소수 허용 */
+  decimals?: number;
   sort_order: number;
+  /**
+   * 편집 전용(저장 시 제거). null/undefined = 전역(모든 카테고리), 값 = 그 카테고리 전용.
+   * 저장할 때 전역은 `custom_fields` 로, 나머지는 `categories[].fields` 로 흩어 넣는다.
+   * 편집 중에는 한 리스트로 묶어둬야 드래그 정렬(field_order)이 한 번에 된다.
+   */
+  _category?: string | null;
+}
+
+/** 저장 직전 편집 전용 키를 떼어낸다. */
+function stripEditKeys(f: FieldDef): Omit<FieldDef, "_category"> {
+  const { _category: _drop, ...rest } = f;
+  return rest;
 }
 
 const FIELD_TYPES: { value: FieldDef["type"]; label: string }[] = [
@@ -115,12 +139,39 @@ const SEED_CATEGORIES: Omit<CategoryDef, "sort_order">[] = [
   { code: "staff", label: "Staff", is_active: true },
   { code: "inventory", label: "Inventory", is_active: true },
   {
+    // 서버 DEFAULT_ISSUE_CATEGORY_FIELDS.review 와 같아야 한다
+    // (app/schemas/report.py). 예전엔 description_template 에 "Platform:" 같은
+    // 라벨 텍스트를 부어넣었는데, 2026-08-15 에 진짜 입력칸으로 승격했다 —
+    // 프리셋으로 두면 답이 문자열 한 덩어리로 남아 집계도 미응답 구분도 안 된다.
     code: "review",
     label: "Review",
     is_active: true,
-    description_template:
-      // 서버 REVIEW_DESCRIPTION_TEMPLATE 와 동일해야 한다 (항목 사이 빈 줄).
-      "Platform:\n\nRating:\n\nWhat was said:\n\nHow we responded:\n\nFollow-up needed:\n\nPlan:",
+    fields: [
+      {
+        id: "review_platform", type: "single_choice", label: "Platform",
+        required: true, options: ["Google", "Yelp", "Naver", "Other"], sort_order: 1,
+      },
+      {
+        id: "review_rating", type: "number", label: "Rating",
+        required: false, min: 1, max: 5, decimals: 0, sort_order: 2,
+      },
+      {
+        id: "review_quote", type: "long_text", label: "What was said",
+        required: false, sort_order: 3,
+      },
+      {
+        id: "review_response", type: "long_text", label: "How we responded",
+        required: false, sort_order: 4,
+      },
+      {
+        id: "review_followup", type: "single_choice", label: "Follow-up needed",
+        required: false, options: ["Yes", "No"], sort_order: 5,
+      },
+      {
+        id: "review_plan", type: "short_text", label: "Plan",
+        required: false, sort_order: 6,
+      },
+    ],
   },
   { code: "other", label: "Other", is_active: true },
 ];
@@ -203,11 +254,24 @@ export function IssueTemplatesView({
       cats = SEED_CATEGORIES.map((c, i) => ({ ...c, sort_order: i }));
     }
     setCategories(cats);
-    const customs = (src?.custom_fields ?? []).map((f, i) => ({
-      ...f,
-      sort_order: f.sort_order ?? i,
-      required: f.required ?? false,
-    }));
+    // 전역 필드와 카테고리 필드를 한 리스트로 합친다(_category 로 출처 표시).
+    // 저장할 때 다시 흩어 넣는다 — handleSave 참조.
+    const customs: FieldDef[] = [
+      ...(src?.custom_fields ?? []).map((f, i) => ({
+        ...f,
+        sort_order: f.sort_order ?? i,
+        required: f.required ?? false,
+        _category: null,
+      })),
+      ...cats.flatMap((c) =>
+        (c.fields ?? []).map((f, i) => ({
+          ...f,
+          sort_order: f.sort_order ?? i,
+          required: f.required ?? false,
+          _category: c.code,
+        })),
+      ),
+    ];
     setFields(customs);
     setFieldOrder(
       src?.field_order && src.field_order.length > 0
@@ -222,6 +286,19 @@ export function IssueTemplatesView({
           ],
     );
   }, [scope, orgTemplate, storeTemplate, effective]);
+
+  /**
+   * 편집 상태(한 리스트) → 저장 형태(전역 custom_fields + 카테고리별 fields).
+   * 로드할 때 합쳤던 걸 여기서 다시 흩어 놓는다. 두 저장 경로가 같은 모양을 쓰도록 공유.
+   */
+  const buildTemplatePayload = () => ({
+    categories: categories.map((c) => ({
+      ...c,
+      fields: fields.filter((f) => f._category === c.code).map(stripEditKeys),
+    })),
+    custom_fields: fields.filter((f) => !f._category).map(stripEditKeys),
+    field_order: fieldOrder,
+  });
 
   const save = useSaveReportTemplate();
   const del = useDeleteReportTemplate();
@@ -254,7 +331,7 @@ export function IssueTemplatesView({
         type: "issue",
         name: editingTemplate?.name ?? defaultName,
         store_id: scope === "org" ? null : storeId,
-        payload: { categories, custom_fields: fields, field_order: fieldOrder },
+        payload: buildTemplatePayload(),
       });
     } catch {
       // hook 자동 모달
@@ -269,7 +346,7 @@ export function IssueTemplatesView({
         type: "issue",
         name: "Store issue form",
         store_id: storeId,
-        payload: { categories, custom_fields: fields, field_order: fieldOrder },
+        payload: buildTemplatePayload(),
       });
     } catch {
       // hook 자동 모달
@@ -355,6 +432,7 @@ export function IssueTemplatesView({
       placeholder: "",
       helper_text: "",
       sort_order: fields.length,
+      _category: null, // 기본은 전역 — 필요하면 행에서 카테고리를 고른다
     };
     setFields((prev) => [...prev, newF]);
     setFieldOrder((prev) => [...prev, newF.id]);
@@ -552,6 +630,7 @@ export function IssueTemplatesView({
                   setFieldOrder={setFieldOrder}
                   sensors={sensors}
                   disabled={!isCustomizing}
+                  categories={categories}
                 />
               </Card>
             </div>
@@ -808,6 +887,7 @@ function FieldList({
   setFieldOrder,
   sensors,
   disabled,
+  categories,
 }: {
   fields: FieldDef[];
   setFields: React.Dispatch<React.SetStateAction<FieldDef[]>>;
@@ -817,6 +897,7 @@ function FieldList({
   setFieldOrder: React.Dispatch<React.SetStateAction<string[]>>;
   sensors: ReturnType<typeof useSensors>;
   disabled: boolean;
+  categories: CategoryDef[];
 }): React.ReactElement {
   // Standard + custom 통합 list. fieldOrder 따라 정렬 — 없는 id 는 마지막에.
   const rows: UnifiedRow[] = useMemo(() => {
@@ -966,6 +1047,29 @@ function FieldList({
                       </div>
                     </div>
 
+                    <div className="pl-6 flex items-center gap-2">
+                      <span className="text-xs text-textMuted whitespace-nowrap">
+                        Shown for
+                      </span>
+                      <select
+                        value={r.field!._category ?? ""}
+                        disabled={disabled}
+                        onChange={(e) =>
+                          updateField(r.customIdx!, {
+                            _category: e.target.value || null,
+                          })
+                        }
+                        className="bg-bg border border-border rounded-md px-2 py-1.5 text-sm text-text disabled:opacity-60"
+                      >
+                        <option value="">All categories</option>
+                        {categories.map((c) => (
+                          <option key={c.code} value={c.code}>
+                            {c.label || c.code} only
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
                     <div className="grid grid-cols-2 gap-2 pl-6">
                       <Input
                         value={r.field!.placeholder ?? ""}
@@ -988,6 +1092,53 @@ function FieldList({
                         placeholder="Helper text (small note below the input)"
                       />
                     </div>
+
+                    {r.field!.type === "number" && (
+                      <div className="grid grid-cols-3 gap-2 pl-6">
+                        <Input
+                          type="number"
+                          value={r.field!.min ?? ""}
+                          disabled={disabled}
+                          onChange={(e) =>
+                            updateField(r.customIdx!, {
+                              min:
+                                e.target.value === ""
+                                  ? undefined
+                                  : Number(e.target.value),
+                            })
+                          }
+                          placeholder="Min"
+                        />
+                        <Input
+                          type="number"
+                          value={r.field!.max ?? ""}
+                          disabled={disabled}
+                          onChange={(e) =>
+                            updateField(r.customIdx!, {
+                              max:
+                                e.target.value === ""
+                                  ? undefined
+                                  : Number(e.target.value),
+                            })
+                          }
+                          placeholder="Max"
+                        />
+                        <select
+                          value={String(r.field!.decimals ?? 0)}
+                          disabled={disabled}
+                          onChange={(e) =>
+                            updateField(r.customIdx!, {
+                              decimals: Number(e.target.value),
+                            })
+                          }
+                          className="bg-bg border border-border rounded-md px-2 py-1.5 text-sm text-text disabled:opacity-60"
+                        >
+                          <option value="0">Whole numbers</option>
+                          <option value="1">1 decimal</option>
+                          <option value="2">2 decimals</option>
+                        </select>
+                      </div>
+                    )}
 
                     {(r.field!.type === "single_choice" ||
                       r.field!.type === "multi_choice") && (
@@ -1074,6 +1225,12 @@ function IssueFormPreview({
     }
   }, [categories, categoryCode]);
 
+  // 작성 화면과 같은 규칙: 전역 필드 + 선택된 카테고리 전용 필드만 보인다.
+  const visibleFields = useMemo(
+    () => fields.filter((f) => !f._category || f._category === categoryCode),
+    [fields, categoryCode],
+  );
+
   return (
     <div className="space-y-3 text-sm">
       <PreviewField label="Title" required>
@@ -1118,12 +1275,12 @@ function IssueFormPreview({
         </PreviewField>
       </div>
 
-      {fields.length > 0 && (
+      {visibleFields.length > 0 && (
         <div className="border-t border-border pt-3 space-y-2">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-textMuted">
             Custom fields
           </p>
-          {fields.map((f) => (
+          {visibleFields.map((f) => (
             <PreviewField
               key={f.id}
               label={f.label || "(unnamed)"}

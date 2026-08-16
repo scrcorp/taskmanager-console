@@ -18,6 +18,11 @@ import { IssueViewersPreview } from "@/components/reports/IssueViewersPreview";
 import { useStores } from "@/hooks/useStores";
 import { describeApiError, type ErrorDisplay } from "@/lib/errorDisplay";
 import {
+  normalizeIssueFieldValues,
+  resolveIssueFields,
+  type IssueFieldDef,
+} from "@/lib/issueFields";
+import {
   Button,
   Card,
   Input,
@@ -36,23 +41,13 @@ import {
 
 type CategoryDef = IssueCategoryDef;
 
-interface CustomFieldDef {
-  type: "short_text" | "long_text" | "number" | "single_choice" | "multi_choice";
-  id: string;
-  label: string;
-  required?: boolean;
-  placeholder?: string;
-  options?: string[];
-  max_length?: number;
-  sort_order?: number;
-}
 
 function CustomFieldInput({
   field,
   value,
   onChange,
 }: {
-  field: CustomFieldDef;
+  field: IssueFieldDef;
   value: unknown;
   onChange: (v: unknown) => void;
 }): React.ReactElement {
@@ -194,10 +189,11 @@ export default function NewIssuePage(): React.ReactElement {
     );
     return list.sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
   }, [template]);
-  const customFields: CustomFieldDef[] = useMemo(() => {
-    const list = (template?.payload?.custom_fields as CustomFieldDef[]) ?? [];
-    return [...list].sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-  }, [template]);
+  // 전역 필드 + 선택된 카테고리 전용 필드 (순서는 field_order). 서버와 같은 규칙.
+  const customFields: IssueFieldDef[] = useMemo(
+    () => resolveIssueFields(template?.payload as never, category),
+    [template, category],
+  );
 
   /**
    * 카테고리 전환 + description 프리필.
@@ -290,7 +286,10 @@ export default function NewIssuePage(): React.ReactElement {
           // notify_excluded_user_ids 는 더 이상 쓰지 않는다(서버가 무시).
           visibility_scope: visibilityScope,
           extra_viewers: { user_ids: extraViewerIds, position_ids: [] },
-          custom_field_values: customFieldValues,
+          custom_field_values: normalizeIssueFieldValues(
+            customFields,
+            customFieldValues,
+          ),
           links: {
             schedule_ids: links.schedule_ids,
             checklist_instance_ids: links.checklist_instance_ids,

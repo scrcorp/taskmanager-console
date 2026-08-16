@@ -381,6 +381,8 @@ export default function IssueReportDetailPage(): React.ReactElement {
           </div>
         </div>
 
+        <IssueFieldAnswers payload={p} />
+
         {p.description && (
           <div>
             <h3 className="text-xs font-semibold uppercase tracking-wide text-textSecondary mb-2">
@@ -507,6 +509,64 @@ export default function IssueReportDetailPage(): React.ReactElement {
           updateMutation={updateReport}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * 커스텀 필드 답변.
+ *
+ * 라벨은 리포트에 박힌 `fields_snapshot`(작성 당시 정의)에서 가져온다 — 템플릿이 나중에
+ * 바뀌어도 그때 물어본 문구 그대로 보여야 하기 때문이다.
+ *
+ * 값이 `null` 이면 **"물어봤지만 답하지 않았다"** 는 뜻이라 항목 자체는 남기고 "—" 로
+ * 표시한다. 항목을 통째로 감추면 예전 description 시절처럼 "안 물어본 것"과 구분이 사라진다.
+ */
+function IssueFieldAnswers({
+  payload,
+}: {
+  payload: {
+    fields_snapshot?: { id: string; label?: string; type?: string }[];
+    custom_field_values?: Record<string, unknown>;
+  };
+}): React.ReactElement | null {
+  const snapshot = payload.fields_snapshot ?? [];
+  const values = payload.custom_field_values ?? {};
+  if (snapshot.length === 0) return null;
+
+  return (
+    <div>
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-textSecondary mb-2">
+        Details
+      </h3>
+      <dl className="divide-y divide-border rounded-md border border-border">
+        {snapshot.map((f) => {
+          const raw = values[f.id];
+          const answered =
+            raw !== null &&
+            raw !== undefined &&
+            raw !== "" &&
+            !(Array.isArray(raw) && raw.length === 0);
+          const text = Array.isArray(raw) ? raw.join(", ") : String(raw ?? "");
+          return (
+            <div key={f.id} className="flex gap-3 px-3 py-2 text-sm">
+              <dt className="w-40 shrink-0 text-textSecondary">
+                {f.label || f.id}
+              </dt>
+              <dd className="flex-1 min-w-0">
+                {answered ? (
+                  <LinkifiedText
+                    text={text}
+                    className="text-text whitespace-pre-wrap break-words"
+                  />
+                ) : (
+                  <span className="text-textMuted italic">— not answered</span>
+                )}
+              </dd>
+            </div>
+          );
+        })}
+      </dl>
     </div>
   );
 }
