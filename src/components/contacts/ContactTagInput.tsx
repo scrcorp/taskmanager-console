@@ -67,6 +67,18 @@ export function ContactTagInput({
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>): void {
+    // IME(한글/일본어/중국어) 조합 중의 Enter 는 **"조합 확정"이지 "제출"이 아니다.**
+    //
+    // 여기서 걸러내지 않으면 `이런수가` 를 치고 Enter 한 번에 태그가 두 개 생긴다:
+    // 조합 중 keydown 을 제출로 받아 `이런` 을 넣고 입력칸을 비우는데, 곧이어 IME 가
+    // 조합을 확정하면서 남은 `런` 을 **비워진 칸에 다시 써넣기** 때문이다.
+    // (실측 2026-08-15: `이런`, `런`, `수가`, `가` 4개가 들어갔다.)
+    //
+    // 조합 확정용 Enter 를 흘려보내면 확정된 글자가 입력칸에 남고, 사용자는 Enter 를
+    // 한 번 더 눌러 태그를 넣는다 — IME 를 쓰는 칩 입력의 표준 동작이다.
+    // keyCode 229 는 nativeEvent.isComposing 을 안 채우는 브라우저용 보조 신호.
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
+
     if (e.key === "Enter" || e.key === ",") {
       e.preventDefault();
       addTag(text);

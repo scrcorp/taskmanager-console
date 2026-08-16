@@ -107,6 +107,12 @@ export interface RosterRow {
   role_priority: number;
   effective_hourly_rate: number | null;
   has_schedule_in_period: boolean;
+  /**
+   * 조회 기간에 근무 기록이 있어 남은 비활성(퇴사·매장배정 해제) 행.
+   * 서버가 fail-open 으로 포함시킨다 — 과거 조회에서는 보이고, 미래 배정 후보에서는 빠진다.
+   * 미가입(유령)은 앞으로 일할 사람이므로 false.
+   */
+  is_inactive?: boolean;
   confirmed_hours: number;
   pending_hours: number;
   confirmed_cost: number | null;

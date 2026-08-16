@@ -10,7 +10,7 @@
 
 import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Plus, Search, Layers, Copy, Check as CheckIcon, KeyRound } from "lucide-react";
+import { Plus, Search, Layers, Copy, Check as CheckIcon, KeyRound, Download } from "lucide-react";
 import { useUsers, useCreateUser, useCreateProvisionalUser } from "@/hooks/useUsers";
 import { useWarningCounts } from "@/hooks/useWarnings";
 import { useAvailabilityBulk } from "@/hooks/useAvailability";
@@ -26,6 +26,8 @@ import { Table, Badge, Modal, Select, MultiSelectFilter } from "@/components/ui"
 import type { Column } from "@/components/ui/Table";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { formatDate } from "@/lib/utils";
+import api from "@/lib/api";
+import { triggerBlobDownload, blobErrorMessage, filenameFromDisposition } from "@/lib/download";
 import { useTimezone } from "@/hooks/useTimezone";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useModal } from "@/components/ui/imperative-modal";
@@ -232,6 +234,38 @@ export default function UsersPage(): React.ReactElement {
   );
   const createUser = useCreateUser();
   const createProvisionalUser = useCreateProvisionalUser();
+
+  /** Staff xlsx export — 현재 store 필터(userFilters.store_ids)를 그대로 반영 */
+  const [isExporting, setIsExporting] = useState<boolean>(false);
+  const handleExport = useCallback(async (): Promise<void> => {
+    setIsExporting(true);
+    try {
+      const storeCsv = userFilters.store_ids?.join(",");
+      const resp = await api.get("/console/users/export", {
+        responseType: "blob",
+        params: storeCsv ? { store_ids: storeCsv } : undefined,
+      });
+      const dispo = (resp.headers as Record<string, unknown>)["content-disposition"];
+      const filename = filenameFromDisposition(
+        typeof dispo === "string" ? dispo : undefined,
+        "staff_export.xlsx",
+      );
+      triggerBlobDownload(
+        new Blob([resp.data as BlobPart], {
+          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        }),
+        filename,
+      );
+    } catch (err) {
+      const msg = await blobErrorMessage(
+        err,
+        "The export could not be generated. Try again after reloading.",
+      );
+      void modal.alert({ type: "error", title: "Couldn't download the export", message: msg });
+    } finally {
+      setIsExporting(false);
+    }
+  }, [userFilters, modal]);
 
   /** 생성 직후 인수 코드를 보여주는 결과 모달 상태 */
   const [claimResult, setClaimResult] = useState<{ name: string; code: string } | null>(null);
@@ -714,6 +748,16 @@ export default function UsersPage(): React.ReactElement {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-2xl font-extrabold text-text">Staff</h1>
         <div className="flex items-center gap-2">
+          {/* Staff xlsx export — 현재 store 필터 반영. 시급/급여 컬럼은 서버가 아예 제외 */}
+          <Button
+            variant="secondary"
+            onClick={() => void handleExport()}
+            isLoading={isExporting}
+            disabled={isExporting}
+          >
+            <Download className="h-4 w-4" />
+            Export
+          </Button>
           {/* PIN 도구 — 번호가 비었는지 확인하고 그 자리에서 고치거나 지운다. */}
           {canSeePins && (
             <Button variant="secondary" onClick={openPinFinder}>

@@ -730,6 +730,9 @@ export interface AttendanceCorrection {
   reason: string | null;
   corrected_by: string;
   corrected_by_name: string | null;
+  /** 기록 경로(채널) — console / console_compact / htma / staff_app /
+   *  backoffice / system / api. null/미제공 = 채널 도입 전 레거시 행 → 칩 미표시. */
+  channel?: string | null;
   created_at: string;
 }
 
@@ -853,6 +856,12 @@ export type {
 
 // Contacts — canonical types live in ./contact, re-exported below.
 export type {
+  ContactVisibility,
+  ContactTargetType,
+  ContactTargetRef,
+  ContactTargetInput,
+  ContactViewer,
+  ContactVisibilityPreview,
   ContactPhone,
   ContactPhoneInput,
   ContactTag,

@@ -54,6 +54,14 @@ api.interceptors.request.use((config) => {
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
+  // 감사 채널 헤더 — /c 간소화 콘솔은 같은 API 를 쓰므로 헤더로만 구분된다.
+  // 서버는 허용 목록(console/console_compact) 밖 값을 무시한다 (보안 경계 아님).
+  // 주의: startsWith("/c") 는 /contacts, /changelog 등도 잡으므로 정확 매칭.
+  const isCompact =
+    typeof window !== "undefined" &&
+    (window.location.pathname === "/c" ||
+      window.location.pathname.startsWith("/c/"));
+  config.headers["X-Client-Surface"] = isCompact ? "console_compact" : "console";
   return config;
 });
 

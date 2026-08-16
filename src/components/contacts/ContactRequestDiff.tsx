@@ -12,8 +12,17 @@
 
 import React from "react";
 
+import { useRoles } from "@/hooks/useRoles";
 import { useStores } from "@/hooks/useStores";
-import type { Contact, ContactChangeRequest, ContactRequestPayload } from "@/types";
+import { useUsers } from "@/hooks/useUsers";
+import { targetsSummary } from "./visibilityLabel";
+import type {
+  Contact,
+  ContactChangeRequest,
+  ContactRequestPayload,
+  ContactTargetType,
+  ContactVisibility,
+} from "@/types";
 
 const EMPTY = "—";
 
@@ -46,10 +55,39 @@ export function ContactRequestDiff({
   request: ContactChangeRequest;
 }): React.ReactElement {
   const { data: stores } = useStores();
+  const { data: roles } = useRoles();
+  const { data: users } = useUsers();
 
-  function storeLabel(storeId: string | null | undefined): string {
-    if (!storeId) return "Shared with the whole organization";
-    return (stores ?? []).find((s) => s.id === storeId)?.name ?? "A store you cannot access";
+  /**
+   * 가시성 한 줄 (V4).
+   *
+   * 신청 payload 의 대상은 **id 만** 들어 있다(이름이 없다). 승인자가 읽을 수 있게
+   * 매장/직급/사람 목록에서 이름을 찾아 붙인다. 못 찾으면 id 를 그대로 노출하지 않고
+   * "접근 불가"로 적는다 — 전 매장을 볼 수 있는 것과 이름을 아는 것은 다르다.
+   */
+  function nameOf(type: ContactTargetType, id: string): string {
+    if (type === "store") {
+      return (stores ?? []).find((x) => x.id === id)?.name ?? "A store you cannot access";
+    }
+    if (type === "role") {
+      return (roles ?? []).find((x) => x.id === id)?.name ?? "A role you cannot see";
+    }
+    const u = (users ?? []).find((x) => x.id === id);
+    return u ? u.full_name || u.username : "Someone you cannot see";
+  }
+
+  function visibilityText(
+    visibility: ContactVisibility | undefined,
+    targets: { type: ContactTargetType; id: string }[] | undefined,
+    excludedUserIds?: string[],
+  ): string {
+    const named = (targets ?? []).map((t) => ({
+      type: t.type,
+      name: nameOf(t.type, t.id),
+    }));
+    const base = targetsSummary(visibility ?? "organization", named);
+    const removed = (excludedUserIds ?? []).map((id) => nameOf("user", id));
+    return removed.length > 0 ? `${base} — except ${removed.join(", ")}` : base;
   }
 
   const current: Contact | null = request.current_contact;
@@ -70,7 +108,14 @@ export function ContactRequestDiff({
             <Row label="Email" value={current.email || EMPTY} />
             <Row label="Tags" value={formatTags(current.tags.map((t) => t.name))} />
             <Row label="Memo" value={current.memo || EMPTY} />
-            <Row label="Visible to" value={storeLabel(current.store_id)} />
+            <Row
+              label="Visible to"
+              value={visibilityText(
+                current.visibility,
+                current.targets.map((t) => ({ type: t.type, id: t.id })),
+                current.excluded_users.map((u) => u.id),
+              )}
+            />
           </dl>
         ) : (
           <p className="text-xs text-text-muted">
@@ -108,8 +153,18 @@ export function ContactRequestDiff({
     { field: "Memo", current: current?.memo || EMPTY, proposed: payload.memo || EMPTY },
     {
       field: "Visible to",
-      current: current ? storeLabel(current.store_id) : EMPTY,
-      proposed: storeLabel(payload.store_id),
+      current: current
+        ? visibilityText(
+            current.visibility,
+            current.targets.map((t) => ({ type: t.type, id: t.id })),
+            current.excluded_users.map((u) => u.id),
+          )
+        : EMPTY,
+      proposed: visibilityText(
+        payload.visibility,
+        payload.targets,
+        payload.excluded_user_ids,
+      ),
     },
   ];
 

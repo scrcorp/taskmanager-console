@@ -27,6 +27,7 @@ export type EmpidEntryAction =
   | "rebind"
   | "new_assignment"
   | "unmatched_store"
+  | "needs_store"
   | "invalid"
   /** Store & number valid, but the user is unresolved (placeholder/deferred) — operator picks a user. */
   | "needs_user";
@@ -53,6 +54,13 @@ export interface EmpidImportEntry {
   warning: string | null;
   /** Person name from the file row — per-row label for shared-email (placeholder) rows. */
   person_name: string | null;
+  /** Group-scope matching — set when the label was mapped to a multi-store group. */
+  group_id?: string | null;
+  group_name?: string | null;
+  /** Store picker options for needs_store / group-scope needs_user rows. */
+  group_stores?: EmpidGroupStoreOption[] | null;
+  /** 매장→그룹 승격 행이면 파일 corp 가 지목했던 매장 — picker 프리필. */
+  hint_store_id?: string | null;
 }
 
 /** User-picker prefill candidate (deferred bucket; placeholder has an empty list). */
@@ -69,8 +77,12 @@ export interface EmpidImportPerson {
   /** Matched console user id (null in placeholder/deferred buckets). */
   user_id: string | null;
   user_full_name: string | null;
-  /** "crewid" = matched exactly by org number (file's crewid column), null = email/name match. */
-  matched_by: "crewid" | null;
+  /**
+   * "crewid" = matched exactly by org number (file's crewid column);
+   * "name" = auto-matched by unique name (no email/crewid in file — review before commit);
+   * null = matched by email.
+   */
+  matched_by: "crewid" | "name" | null;
   entries: EmpidImportEntry[];
   note: string;
   /** deferred bucket — similar-name DB user hints (display only). */
@@ -79,6 +91,53 @@ export interface EmpidImportPerson {
   members: string[];
   /** User-picker prefill candidates (deferred only; empty for placeholder). */
   similar_users: EmpidSimilarUser[];
+}
+
+/** Store option carried on group-scope entries (needs_store / needs_user pickers). */
+export interface EmpidGroupStoreOption {
+  store_id: string;
+  store_name: string;
+}
+
+/** Per-store number transition for a matched person. */
+export interface EmpidReconChange {
+  store_id: string | null;   // null = store pending (needs_store row)
+  store_name: string | null;
+  current: number | null;
+  new: number;
+  pending_store: boolean;
+}
+
+/** A person matched between the file and HTM. */
+export interface EmpidReconMatched {
+  user_id: string;
+  name: string;
+  changes: EmpidReconChange[];
+}
+
+/** An HTM member in scope the file didn't cover — assign a number inline. */
+export interface EmpidReconHtmPerson {
+  user_id: string;
+  name: string;
+  store_id: string;
+  store_name: string;
+  current_empid: number | null;
+}
+
+/** A file row with no HTM person — resolved via the deferred pickers below. */
+export interface EmpidReconFileRow {
+  empid: number;
+  name: string;
+}
+
+/** Per-scope (group/store) person-centric reconciliation. */
+export interface EmpidReconciliationScope {
+  scope: "group" | "store";
+  id: string;
+  name: string;
+  matched: EmpidReconMatched[];
+  htm_unmatched: EmpidReconHtmPerson[];
+  file_unmatched: EmpidReconFileRow[];
 }
 
 export interface EmpidImportCounts {
@@ -93,6 +152,32 @@ export interface EmpidImportCounts {
   deferred: number;
   excluded_rows: number;
   total_rows: number;
+  /** People auto-matched by name — review-first tile. */
+  matched_by_name?: number;
+  /** Group-scope rows waiting for a store choice. */
+  needs_store?: number;
+  /** Reconciliation totals (person-centric). */
+  htm_unmatched?: number;
+  file_unmatched?: number;
+}
+
+/** One unresolved store label from the file — feed for the mapping panel. */
+export interface EmpidUnmatchedStore {
+  /** Normalized key — send it back verbatim as a store_overrides key. */
+  key: string;
+  company: string;
+  corp_abr: string | null;
+  rows: number;
+}
+
+/** One saved label mapping auto-applied by the server (org-level, learned). */
+export interface EmpidSavedAlias {
+  key: string;
+  /** Saved target — a store id, or a single-store group id. */
+  target_id: string;
+  /** Store the label resolved to for this preview. */
+  store_id: string;
+  store_name: string;
 }
 
 export interface EmpidImportPreviewResult {
@@ -105,6 +190,12 @@ export interface EmpidImportPreviewResult {
   counts: EmpidImportCounts;
   excluded_rows: number;
   total_rows: number;
+  /** Store labels the server couldn't match — map them and re-run the preview. */
+  unmatched_stores: EmpidUnmatchedStore[];
+  /** Saved label mappings applied automatically (map once — remembered per org). */
+  saved_aliases: EmpidSavedAlias[];
+  /** Per-scope two-sided diff — HTM-only vs file-only empids. */
+  reconciliation: EmpidReconciliationScope[];
 }
 
 // ─── Commit types ─────────────────────────────────────────────────────────────
