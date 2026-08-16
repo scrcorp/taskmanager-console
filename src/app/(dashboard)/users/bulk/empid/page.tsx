@@ -29,7 +29,8 @@ import {
 } from "@/hooks/useUsers";
 import { useRoles } from "@/hooks/useRoles";
 import { useStoreGroups } from "@/hooks/useStoreGroups";
-import type { Role, StoreGroup, User } from "@/types";
+import { useStores } from "@/hooks/useStores";
+import type { Role, Store, StoreGroup, User } from "@/types";
 import {
   usePreviewEmpidImport,
   useCommitEmpidImport,
@@ -104,12 +105,25 @@ const isSelectable = (
   !!entry.store_id &&
   entry.emp_id !== null;
 
+/** needs_store 행 — 사람은 확정, 매장은 그룹 매장 중 운영자 선택. */
+const isStorePickable = (
+  person: EmpidImportPerson,
+  entry: EmpidImportEntry,
+): boolean =>
+  entry.action === "needs_store" &&
+  !!person.user_id &&
+  entry.emp_id !== null &&
+  (entry.group_stores?.length ?? 0) > 0;
+
 const COUNT_ITEMS: { key: keyof EmpidImportCounts; label: string }[] = [
   { key: "people", label: "People" },
   { key: "rebind", label: "Rebind" },
   { key: "same", label: "Same" },
   { key: "new_assignment", label: "New assignment" },
   { key: "unmatched_store", label: "Unmatched" },
+  { key: "needs_store", label: "Pick store" },
+  { key: "htm_unmatched", label: "HTM unmatched" },
+  { key: "file_unmatched", label: "File unmatched" },
   { key: "invalid", label: "Invalid" },
   { key: "needs_user", label: "Needs user" },
   { key: "placeholder", label: "Placeholder" },
@@ -218,10 +232,12 @@ function PickUserSection({
   checked,
   pickedUsers,
   pickedRoles,
+  pickedStores,
   duplicateKeys,
   onToggle,
   onPickUser,
   onPickRole,
+  onPickStore,
 }: {
   title: string;
   hint: string;
@@ -234,10 +250,12 @@ function PickUserSection({
   checked: Set<string>;
   pickedUsers: Record<string, string>;
   pickedRoles: Record<string, string>;
+  pickedStores: Record<string, string>;
   duplicateKeys: Set<string>;
   onToggle: (key: string) => void;
   onPickUser: (key: string, userId: string) => void;
   onPickRole: (groupKey: string, roleId: string) => void;
+  onPickStore: (key: string, storeId: string) => void;
 }): React.ReactElement | null {
   if (people.length === 0) return null;
   return (
@@ -308,6 +326,10 @@ function PickUserSection({
                 const pickedUser = pickedUsers[key] ?? "";
                 const willCreate = pickedUser === CREATE_PROVISIONAL;
                 const fullName = entry.person_name ?? person.name;
+                // 그룹 스코프 — 매장도 골라야 등록 가능 (hint = corp 가 지목한 매장 프리필)
+                const needsStorePick = !entry.store_id && (entry.group_stores?.length ?? 0) > 0;
+                const storePicked =
+                  entry.store_id ?? pickedStores[key] ?? entry.hint_store_id ?? "";
                 const groupKey = createGroupKey(prefix, pi, fullName);
                 const roleId = pickedRoles[groupKey] ?? defaultRoleId;
                 return (
@@ -319,13 +341,27 @@ function PickUserSection({
                       type="checkbox"
                       checked={checked.has(key)}
                       onChange={() => onToggle(key)}
-                      disabled={!pickedUser}
+                      disabled={!pickedUser || !storePicked}
                       className="cursor-pointer accent-accent disabled:cursor-not-allowed"
                     />
                     <span className="text-sm text-text">
                       {fullName} — {entry.store_name}:{" "}
                       <span className="font-semibold">{entry.emp_id}</span>
                     </span>
+                    {needsStorePick && (
+                      <select
+                        className="bg-surface border border-border rounded-lg px-2 py-1 text-xs text-text"
+                        value={pickedStores[key] ?? entry.hint_store_id ?? ""}
+                        onChange={(e) => onPickStore(key, e.target.value)}
+                      >
+                        <option value="">Pick a store…</option>
+                        {(entry.group_stores ?? []).map((st) => (
+                          <option key={st.store_id} value={st.store_id}>
+                            {st.store_name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
                     <UserPicker
                       users={users}
                       isLoading={usersLoading}
@@ -1058,6 +1094,10 @@ export default function EmpidImportPage(): React.ReactElement {
   const [pickedUsers, setPickedUsers] = useState<Record<string, string>>({});
   /** Create-group key → role id chosen for the staff member to be created. */
   const [pickedRoles, setPickedRoles] = useState<Record<string, string>>({});
+  /** 그룹 스코프 행의 매장 선택 — needs_store / (그룹) needs_user. entry key → store id. */
+  const [pickedStores, setPickedStores] = useState<Record<string, string>>({});
+  /** 대조 패널의 HTM 미매칭 인원 번호 입력 — "rc|user|store" key → 숫자 문자열. */
+  const [reconNumbers, setReconNumbers] = useState<Record<string, string>>({});
   const [result, setResult] = useState<EmpidCommitResult | null>(null);
   /** Claim codes of staff created during the last Apply (result step). */
   const [createdClaims, setCreatedClaims] = useState<
@@ -1066,6 +1106,32 @@ export default function EmpidImportPage(): React.ReactElement {
   const [claimsCopied, setClaimsCopied] = useState(false);
   /** "Export current" filter modal (upload step). */
   const [exportOpen, setExportOpen] = useState(false);
+  /**
+   * Unmatched store label → store id mapping (preview re-run input).
+   * Keys come verbatim from preview.unmatched_stores[].key — typo'd store
+   * codes ("MBK"), corp names with no code, etc.
+   */
+  const [storeOverrides, setStoreOverrides] = useState<Record<string, string>>({});
+  /** Store options for the unmatched-store mapping panel. */
+  const storesQ = useStores();
+  const storeOptions: Store[] = storesQ.data ?? [];
+  const mappingGroupsQ = useStoreGroups();
+  /** 그룹별 매장 버킷 — 매핑 드롭다운의 optgroup 재료. */
+  const mappingGroups = useMemo(() => {
+    const groups = mappingGroupsQ.data ?? [];
+    const byGroup = new Map<string, Store[]>();
+    const ungrouped: Store[] = [];
+    for (const st of storeOptions) {
+      if (st.group_id) {
+        const list = byGroup.get(st.group_id) ?? [];
+        list.push(st);
+        byGroup.set(st.group_id, list);
+      } else {
+        ungrouped.push(st);
+      }
+    }
+    return { groups, byGroup, ungrouped };
+  }, [mappingGroupsQ.data, storeOptions]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const reset = useCallback(() => {
@@ -1076,9 +1142,12 @@ export default function EmpidImportPage(): React.ReactElement {
     setChecked(new Set());
     setPickedUsers({});
     setPickedRoles({});
+    setPickedStores({});
+    setReconNumbers({});
     setResult(null);
     setCreatedClaims([]);
     setClaimsCopied(false);
+    setStoreOverrides({});
   }, []);
 
   // ── Step 1: file handling ──
@@ -1117,6 +1186,12 @@ export default function EmpidImportPage(): React.ReactElement {
     if (!selectedFile) return;
     const formData = new FormData();
     formData.append("file", selectedFile);
+    const activeOverrides = Object.fromEntries(
+      Object.entries(storeOverrides).filter(([, v]) => v),
+    );
+    if (Object.keys(activeOverrides).length > 0) {
+      formData.append("store_overrides", JSON.stringify(activeOverrides));
+    }
     previewImport.mutate(formData, {
       onSuccess: (data) => {
         setPreview(data);
@@ -1147,7 +1222,7 @@ export default function EmpidImportPage(): React.ReactElement {
       },
       // hook shows the error modal
     });
-  }, [selectedFile, previewImport]);
+  }, [selectedFile, previewImport, storeOverrides]);
 
   // ── Step 2: selection ──
   /** new_assignment checkbox toggle. */
@@ -1187,6 +1262,17 @@ export default function EmpidImportPage(): React.ReactElement {
     });
   }, []);
 
+  /** needs_user(그룹 스코프) 행의 매장 선택 — 유저까지 골라져 있으면 자동 체크. */
+  const pickStore = useCallback((key: string, storeId: string) => {
+    setPickedStores((prev) => ({ ...prev, [key]: storeId }));
+    setChecked((prev) => {
+      const next = new Set(prev);
+      if (storeId && pickedUsers[key]) next.add(key);
+      else next.delete(key);
+      return next;
+    });
+  }, [pickedUsers]);
+
   /** Role for a to-be-created provisional staff member (per create group). */
   const pickRole = useCallback((groupKey: string, roleId: string) => {
     setPickedRoles((prev) => ({ ...prev, [groupKey]: roleId }));
@@ -1221,7 +1307,25 @@ export default function EmpidImportPage(): React.ReactElement {
     const seenPairs = new Set<string>();
     preview.people.forEach((person, pi) => {
       person.entries.forEach((entry, ei) => {
-        if (!checked.has(entryKey("p", pi, ei))) return;
+        const key = entryKey("p", pi, ei);
+        if (!checked.has(key)) return;
+        // needs_store — 사람은 확정, 매장은 운영자가 고른 그룹 매장 (hint = 프리필)
+        if (entry.action === "needs_store") {
+          const storeId = pickedStores[key] ?? entry.hint_store_id ?? undefined;
+          if (!isStorePickable(person, entry) || !storeId) return;
+          const pair = `${person.user_id}|${storeId}`;
+          if (seenPairs.has(pair)) {
+            duplicates.add(key);
+            return;
+          }
+          seenPairs.add(pair);
+          assignments.push({
+            user_id: person.user_id as string,
+            store_id: storeId,
+            empid: entry.emp_id as number,
+          });
+          return;
+        }
         if (!isSelectable(person, entry)) return;
         seenPairs.add(`${person.user_id}|${entry.store_id}`);
         assignments.push({
@@ -1231,6 +1335,27 @@ export default function EmpidImportPage(): React.ReactElement {
         });
       });
     });
+    // 대조 패널 — HTM 미매칭 인원에게 지정한 번호
+    (preview.reconciliation ?? []).forEach((rec) => {
+      rec.htm_unmatched.forEach((x) => {
+        const rkey = `rc|${x.user_id}|${x.store_id}`;
+        if (!checked.has(rkey)) return;
+        const raw = reconNumbers[rkey] ?? "";
+        if (!/^\d+$/.test(raw)) return;
+        const pair = `${x.user_id}|${x.store_id}`;
+        if (seenPairs.has(pair)) {
+          duplicates.add(rkey);
+          return;
+        }
+        seenPairs.add(pair);
+        assignments.push({
+          user_id: x.user_id,
+          store_id: x.store_id,
+          empid: parseInt(raw, 10),
+        });
+      });
+    });
+
     const pickerBuckets: { prefix: string; people: EmpidImportPerson[] }[] = [
       { prefix: "ph", people: preview.placeholder },
       { prefix: "df", people: preview.deferred },
@@ -1242,13 +1367,16 @@ export default function EmpidImportPage(): React.ReactElement {
           const key = entryKey(prefix, pi, ei);
           if (!checked.has(key)) return;
           const userId = pickedUsers[key];
-          if (!userId || !entry.store_id || entry.emp_id === null) return;
+          // 그룹 스코프 needs_user 는 store 도 골라야 한다 (pickedStores → hint 폴백)
+          const entryStoreId =
+            entry.store_id ?? pickedStores[key] ?? entry.hint_store_id ?? null;
+          if (!userId || !entryStoreId || entry.emp_id === null) return;
 
           if (userId === CREATE_PROVISIONAL) {
             const fullName = entry.person_name ?? person.name;
             const groupKey = createGroupKey(prefix, pi, fullName);
             // Group identity stands in for the (not-yet-known) user id.
-            const pair = `create:${groupKey}|${entry.store_id}`;
+            const pair = `create:${groupKey}|${entryStoreId}`;
             if (seenPairs.has(pair)) {
               duplicates.add(key);
               return;
@@ -1261,15 +1389,15 @@ export default function EmpidImportPage(): React.ReactElement {
               store_ids: [],
               rows: [],
             };
-            if (!group.store_ids.includes(entry.store_id)) {
-              group.store_ids.push(entry.store_id);
+            if (!group.store_ids.includes(entryStoreId)) {
+              group.store_ids.push(entryStoreId);
             }
-            group.rows.push({ store_id: entry.store_id, empid: entry.emp_id });
+            group.rows.push({ store_id: entryStoreId, empid: entry.emp_id });
             groups.set(groupKey, group);
             return;
           }
 
-          const pair = `${userId}|${entry.store_id}`;
+          const pair = `${userId}|${entryStoreId}`;
           if (seenPairs.has(pair)) {
             duplicates.add(key);
             return;
@@ -1277,7 +1405,7 @@ export default function EmpidImportPage(): React.ReactElement {
           seenPairs.add(pair);
           assignments.push({
             user_id: userId,
-            store_id: entry.store_id,
+            store_id: entryStoreId,
             empid: entry.emp_id,
           });
         });
@@ -1290,7 +1418,7 @@ export default function EmpidImportPage(): React.ReactElement {
       createGroups: groupList,
       createRowCount: groupList.reduce((n, g) => n + g.rows.length, 0),
     };
-  }, [preview, checked, pickedUsers, pickedRoles, defaultRoleId]);
+  }, [preview, checked, pickedUsers, pickedRoles, pickedStores, reconNumbers, defaultRoleId]);
 
   /** Rows that Apply will write — existing users + rows pending creation. */
   const applyCount = selectedAssignments.length + createRowCount;
@@ -1653,6 +1781,151 @@ export default function EmpidImportPage(): React.ReactElement {
         </p>
       </div>
 
+      {/* Saved label mappings — learned from previous uploads, auto-applied */}
+      {(preview.saved_aliases?.length ?? 0) > 0 && (
+        <div className="bg-card border border-border rounded-xl p-4">
+          <p className="text-sm font-semibold text-text mb-1">
+            Saved label mappings (applied automatically)
+          </p>
+          <p className="text-xs text-text-muted mb-2">
+            Learned from previous uploads. To change one, pick a different store
+            below and re-run — the new choice is remembered.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {preview.saved_aliases.map((a) => (
+              <span
+                key={a.key}
+                className="inline-flex items-center gap-1.5 rounded-full bg-surface px-2.5 py-1 text-xs text-text"
+              >
+                <span className="font-semibold">{a.key}</span>
+                <span className="text-text-muted">→</span>
+                <select
+                  className="bg-transparent text-xs text-text border-0 focus:outline-none cursor-pointer"
+                  value={storeOverrides[a.key] ?? a.target_id}
+                  onChange={(e) =>
+                    setStoreOverrides((prev) => ({ ...prev, [a.key]: e.target.value }))
+                  }
+                >
+                  <option value={a.target_id}>{a.store_name}</option>
+                  {storeOptions
+                    .filter((st) => st.id !== a.target_id)
+                    .map((st) => (
+                      <option key={st.id} value={st.id}>
+                        {st.name}
+                      </option>
+                    ))}
+                </select>
+              </span>
+            ))}
+          </div>
+          {preview.saved_aliases.some(
+            (a) => storeOverrides[a.key] && storeOverrides[a.key] !== a.target_id,
+          ) && (
+            <div className="mt-2">
+              <Button variant="secondary" size="sm" onClick={handlePreview} disabled={previewImport.isPending}>
+                {previewImport.isPending ? "Re-running…" : "Re-run with changed mappings"}
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Unmatched store mapping — map file labels to stores, then re-run */}
+      {preview.unmatched_stores?.length > 0 && (
+        <div className="bg-card border border-warning/40 rounded-xl p-4">
+          <div className="flex items-start gap-2 mb-2">
+            <AlertTriangle className="h-4 w-4 text-warning mt-0.5 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-text">
+                Unrecognized store labels in this file
+              </p>
+              <p className="text-xs text-text-muted mt-0.5">
+                Map each label to a store and re-run the preview. Rows with
+                unmapped labels stay report-only. Re-running resets row
+                selections below.
+              </p>
+            </div>
+          </div>
+          <div className="space-y-2">
+            {preview.unmatched_stores.map((u) => (
+              <div key={u.key} className="flex items-center gap-3 pl-6">
+                <span className="text-sm text-text min-w-[220px]">
+                  {u.corp_abr || u.company}
+                  {u.corp_abr && u.company && (
+                    <span className="text-xs text-text-muted ml-1">({u.company})</span>
+                  )}
+                  <span className="text-xs text-text-muted ml-1">· {u.rows} rows</span>
+                </span>
+                <select
+                  className="bg-surface border border-border rounded-lg px-2 py-1.5 text-sm text-text"
+                  value={storeOverrides[u.key] ?? ""}
+                  onChange={(e) =>
+                    setStoreOverrides((prev) => ({ ...prev, [u.key]: e.target.value }))
+                  }
+                >
+                  <option value="">— skip —</option>
+                  {mappingGroups.groups.length > 0 && (
+                    <optgroup label="Groups">
+                      {mappingGroups.groups.map((g) => {
+                        const members = mappingGroups.byGroup.get(g.id) ?? [];
+                        if (members.length === 0) return null;
+                        // 다매장 그룹도 정식 스코프 — 행의 매장은 각 사람의 그룹 내
+                        // 기존 배정이 결정한다 (배정 없으면 needs_store 로 매장 선택).
+                        return (
+                          <option key={g.id} value={g.id}>
+                            Group: {g.name}
+                            {members.length > 1 ? ` (${members.length} stores)` : ""}
+                          </option>
+                        );
+                      })}
+                    </optgroup>
+                  )}
+                  {mappingGroups.groups.map((g) => {
+                    const members = mappingGroups.byGroup.get(g.id) ?? [];
+                    if (members.length === 0) return null;
+                    return (
+                      <optgroup key={g.id} label={g.name}>
+                        {members.map((st) => (
+                          <option key={st.id} value={st.id}>
+                            {st.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    );
+                  })}
+                  {mappingGroups.ungrouped.length > 0 && (
+                    <optgroup
+                      label={
+                        mappingGroups.groups.length > 0 ? "Ungrouped stores" : "Stores"
+                      }
+                    >
+                      {mappingGroups.ungrouped.map((st) => (
+                        <option key={st.id} value={st.id}>
+                          {st.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              </div>
+            ))}
+          </div>
+          <div className="mt-3 pl-6">
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={handlePreview}
+              disabled={
+                previewImport.isPending ||
+                !Object.values(storeOverrides).some(Boolean)
+              }
+            >
+              {previewImport.isPending ? "Re-running…" : "Re-run preview with mapping"}
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* People cards */}
       <div className="space-y-3">
         {preview.people.length === 0 ? (
@@ -1676,6 +1949,14 @@ export default function EmpidImportPage(): React.ReactElement {
                       className="text-[10px] uppercase tracking-wide ml-2"
                     >
                       Matched by CREWID
+                    </Badge>
+                  )}
+                  {person.matched_by === "name" && (
+                    <Badge
+                      variant="warning"
+                      className="text-[10px] uppercase tracking-wide ml-2"
+                    >
+                      Matched by name — verify
                     </Badge>
                   )}
                 </p>
@@ -1718,6 +1999,56 @@ export default function EmpidImportPage(): React.ReactElement {
                           {entry.store_name || entry.company}: &quot;{entry.emp_id_raw}&quot; —{" "}
                           {entry.warning || "invalid emp_id"}
                         </span>
+                      </div>
+                    );
+                  }
+
+                  // needs_store — 그룹 매핑은 맞지만 그룹 내 배정 매장이 없다.
+                  // 운영자가 그룹 매장 중 하나를 골라야 등록 (체크는 선택 후 자동).
+                  if (entry.action === "needs_store") {
+                    // 파일 corp 가 매장을 지목했던 행(매장→그룹 승격)은 그 매장을 프리필
+                    const storePicked =
+                      pickedStores[key] ?? entry.hint_store_id ?? "";
+                    const pickable = isStorePickable(person, entry);
+                    return (
+                      <div
+                        key={key}
+                        className="flex items-center gap-2 flex-wrap rounded-lg px-2 py-1.5 -mx-2 hover:bg-surface-hover transition-colors"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked.has(key)}
+                          onChange={() => toggle(key)}
+                          disabled={!storePicked || !pickable}
+                          className="cursor-pointer accent-accent disabled:cursor-not-allowed"
+                        />
+                        <span className="text-sm text-text">
+                          {entry.group_name ?? entry.company}:{" "}
+                          <span className="font-semibold">{entry.emp_id}</span>
+                        </span>
+                        <select
+                          className="bg-surface border border-border rounded-lg px-2 py-1 text-xs text-text"
+                          value={storePicked}
+                          onChange={(e) => {
+                            const v = e.target.value;
+                            setPickedStores((prev) => ({ ...prev, [key]: v }));
+                            // 매장 선택 = 등록 의사 — needs_user 의 pickUser 와 동일하게 자동 체크
+                            setChecked((prev) => {
+                              const next = new Set(prev);
+                              if (v) next.add(key);
+                              else next.delete(key);
+                              return next;
+                            });
+                          }}
+                        >
+                          <option value="">Pick a store…</option>
+                          {(entry.group_stores ?? []).map((st) => (
+                            <option key={st.store_id} value={st.store_id}>
+                              {st.store_name}
+                            </option>
+                          ))}
+                        </select>
+                        {entry.warning && <EntryWarning text={entry.warning} />}
                       </div>
                     );
                   }
@@ -1839,6 +2170,138 @@ export default function EmpidImportPage(): React.ReactElement {
         )}
       </div>
 
+      {/* 양측 대조 — 사람 단위 3분류. HTM 미매칭 인원은 여기서 바로 번호 지정 가능 */}
+      {(preview.reconciliation?.length ?? 0) > 0 && (
+        <div className="bg-card border border-border rounded-xl p-4 space-y-4">
+          <div>
+            <p className="text-sm font-bold text-text">Number reconciliation</p>
+            <p className="text-xs text-text-muted mt-0.5">
+              Per mapped scope: matched people, HTM members the file didn&apos;t
+              cover (assign a number right here — checked rows are applied), and
+              file rows with no HTM person (resolve them in the sections below).
+            </p>
+          </div>
+          {preview.reconciliation.map((rec) => (
+            <div key={`${rec.scope}-${rec.id}`} className="border-t border-border/60 pt-3">
+              <p className="text-sm font-semibold text-text">
+                {rec.scope === "group" ? "Group: " : "Store: "}
+                {rec.name}
+                <span className="text-xs text-text-muted font-normal ml-2">
+                  {rec.matched.length} matched · {rec.htm_unmatched.length} in HTM
+                  only · {rec.file_unmatched.length} in file only
+                </span>
+              </p>
+
+              {rec.matched.length > 0 && (
+                <div className="mt-2">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-success mb-1">
+                    Matched ({rec.matched.length})
+                  </p>
+                  <ul className="space-y-0.5 max-h-40 overflow-y-auto pr-1">
+                    {rec.matched.map((m) => (
+                      <li key={m.user_id} className="text-xs text-text">
+                        <span className="font-medium">{m.name}</span>
+                        <span className="text-text-muted">
+                          {" — "}
+                          {m.changes
+                            .map((c) =>
+                              c.pending_store
+                                ? `#${c.new} (pick a store above)`
+                                : c.current === c.new
+                                  ? `${c.store_name}: #${c.new}`
+                                  : `${c.store_name}: ${c.current ?? "—"} → ${c.new}`,
+                            )
+                            .join(" · ")}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div className="grid sm:grid-cols-2 gap-3 mt-3">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-text-muted mb-1">
+                    In HTM, not in file — assign numbers
+                  </p>
+                  {rec.htm_unmatched.length === 0 ? (
+                    <p className="text-xs text-text-muted">None</p>
+                  ) : (
+                    <ul className="space-y-1 max-h-56 overflow-y-auto pr-1">
+                      {rec.htm_unmatched.map((x) => {
+                        const rkey = `rc|${x.user_id}|${x.store_id}`;
+                        const value = reconNumbers[rkey] ?? "";
+                        return (
+                          <li key={rkey} className="flex items-center gap-2 text-xs text-text">
+                            <input
+                              type="checkbox"
+                              checked={checked.has(rkey)}
+                              onChange={() => toggle(rkey)}
+                              disabled={!/^\d+$/.test(value)}
+                              className="cursor-pointer accent-accent disabled:cursor-not-allowed"
+                            />
+                            <span className="min-w-0 truncate">
+                              <span className="font-medium">{x.name}</span>
+                              <span className="text-text-muted"> — {x.store_name}</span>
+                            </span>
+                            <input
+                              type="text"
+                              inputMode="numeric"
+                              placeholder={
+                                x.current_empid != null ? String(x.current_empid) : "number"
+                              }
+                              value={value}
+                              onChange={(e) => {
+                                const v = e.target.value.trim();
+                                setReconNumbers((prev) => ({ ...prev, [rkey]: v }));
+                                setChecked((prev) => {
+                                  const next = new Set(prev);
+                                  if (/^\d+$/.test(v)) next.add(rkey);
+                                  else next.delete(rkey);
+                                  return next;
+                                });
+                              }}
+                              className="w-20 bg-surface border border-border rounded-md px-2 py-0.5 text-xs text-text"
+                            />
+                            {x.current_empid != null && (
+                              <span className="text-text-muted shrink-0">
+                                now #{x.current_empid}
+                              </span>
+                            )}
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  )}
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-text-muted mb-1">
+                    In file, not in HTM
+                  </p>
+                  {rec.file_unmatched.length === 0 ? (
+                    <p className="text-xs text-text-muted">None</p>
+                  ) : (
+                    <ul className="space-y-0.5 max-h-56 overflow-y-auto pr-1">
+                      {rec.file_unmatched.map((x, i) => (
+                        <li key={`f${x.empid}-${i}`} className="text-xs text-text">
+                          <span className="font-semibold">#{x.empid}</span> {x.name}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                  {rec.file_unmatched.length > 0 && (
+                    <p className="text-[11px] text-text-muted mt-1">
+                      Resolve these in the sections below (pick a user or create a
+                      provisional staff member).
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Placeholder / deferred — pick a user per row to register anyway */}
       <PickUserSection
         title="Placeholder emails"
@@ -1852,10 +2315,12 @@ export default function EmpidImportPage(): React.ReactElement {
         checked={checked}
         pickedUsers={pickedUsers}
         pickedRoles={pickedRoles}
+        pickedStores={pickedStores}
         duplicateKeys={duplicateKeys}
         onToggle={toggle}
         onPickUser={pickUser}
         onPickRole={pickRole}
+        onPickStore={pickStore}
       />
       <PickUserSection
         title="Deferred"
@@ -1869,10 +2334,12 @@ export default function EmpidImportPage(): React.ReactElement {
         checked={checked}
         pickedUsers={pickedUsers}
         pickedRoles={pickedRoles}
+        pickedStores={pickedStores}
         duplicateKeys={duplicateKeys}
         onToggle={toggle}
         onPickUser={pickUser}
         onPickRole={pickRole}
+        onPickStore={pickStore}
       />
 
       {/* Apply bar */}

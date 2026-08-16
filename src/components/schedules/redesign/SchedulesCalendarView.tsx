@@ -565,23 +565,9 @@ export default function SchedulesCalendarView() {
   const storesQ = useStores();
   const orgQ = useOrganization();
   const orgDefaultRate = orgQ.data?.default_hourly_rate ?? null;
-  // 다른 매장 스케줄도 보이기 위해 store_id 필터 대신 user_ids로 fetch.
-  // 현재 보이는 user들의 모든 매장 스케줄을 가져온 뒤, ScheduleBlock의 isOtherStore 분기로 dimmed 표시.
-  const allUserIds = useMemo(() => (usersQ.data ?? []).map((u) => u.id), [usersQ.data]);
-  const schedulesQ = useSchedules({
-    user_ids: allUserIds,
-    date_from: dateFrom,
-    date_to: dateTo,
-    per_page: view === "monthly" ? 2000 : 500,
-  });
-  const attendancesQ = useAttendances({
-    store_id: selectedStore || undefined,
-    date_from: dateFrom,
-    date_to: dateTo,
-    per_page: 500,
-  });
   // Windowed roster (Phase 2): 서버가 정렬·필터·집계 소유. roster 가 있으면 헤더/컬럼/행순서/totals 의 source of truth,
   // 없으면(로딩/실패) 기존 클라 계산을 fallback 으로 사용.
+  // schedulesQ 보다 먼저 선언한다 — roster 가 알려주는 퇴사자 id 를 스케줄 fetch 에 포함해야 하기 때문.
   const rosterGranularity = view === "monthly" ? "month" : view === "daily" ? "day" : "week";
   // daily 는 선택한 하루만 집계해야 함 (dateFrom/dateTo 는 주 전체라 그대로 쓰면 한 주치가 시간 슬롯에 합산됨).
   const rosterDateFrom = view === "daily" ? selectedDay : dateFrom;
@@ -600,6 +586,49 @@ export default function SchedulesCalendarView() {
   });
   const roster = rosterQ.data;
 
+  // 퇴사자(비활성) 행 — users 목록엔 없지만 roster 가 그 기간 기록이 있다고 알려준 사람들.
+  // users 로만 매칭하면 서버가 fail-open 으로 살려낸 행이 화면에서 다시 사라진다.
+  const rosterOnlyUsers = useMemo<User[]>(() => {
+    if (!roster) return [];
+    const known = new Set((usersQ.data ?? []).map((u) => u.id));
+    return roster.roster
+      .filter((r) => !known.has(r.user_id))
+      .map((r) => ({
+        id: r.user_id,
+        username: "",
+        full_name: r.user_name ?? "—",
+        email: null,
+        email_verified: false,
+        phone: null,
+        role_name: "",
+        role_priority: r.role_priority,
+        hourly_rate: null,
+        effective_hourly_rate: r.effective_hourly_rate,
+        department: (r.user_department as User["department"]) ?? null,
+        is_active: false,
+        is_provisional: false,
+        created_at: "",
+      } as User));
+  }, [roster, usersQ.data]);
+
+  // 다른 매장 스케줄도 보이기 위해 store_id 필터 대신 user_ids로 fetch.
+  // 현재 보이는 user들의 모든 매장 스케줄을 가져온 뒤, ScheduleBlock의 isOtherStore 분기로 dimmed 표시.
+  const allUserIds = useMemo(
+    () => [...(usersQ.data ?? []).map((u) => u.id), ...rosterOnlyUsers.map((u) => u.id)],
+    [usersQ.data, rosterOnlyUsers],
+  );
+  const schedulesQ = useSchedules({
+    user_ids: allUserIds,
+    date_from: dateFrom,
+    date_to: dateTo,
+    per_page: view === "monthly" ? 2000 : 500,
+  });
+  const attendancesQ = useAttendances({
+    store_id: selectedStore || undefined,
+    date_from: dateFrom,
+    date_to: dateTo,
+    per_page: 500,
+  });
   const users = usersQ.data ?? [];
   const stores = storesQ.data ?? [];
   const schedules: Schedule[] = schedulesQ.data?.items ?? [];
@@ -1157,7 +1186,8 @@ export default function SchedulesCalendarView() {
   // 행 순서/표시 — roster 가 기본 정렬·필터 소유. 컬럼 클릭 정렬 + empty-staff 토글은 클라 유지.
   const rosterDisplayUsers = useMemo(() => {
     if (!roster) return null;
-    const byId = new Map(users.map((u) => [u.id, u]));
+    // 퇴사자(rosterOnlyUsers)도 후보 맵에 넣는다 — 넣지 않으면 서버가 살려낸 행이 여기서 버려진다.
+    const byId = new Map([...users, ...rosterOnlyUsers].map((u) => [u.id, u]));
     const base = roster.roster
       .map((r) => byId.get(r.user_id))
       .filter((u): u is User => Boolean(u));
@@ -1855,6 +1885,15 @@ export default function SchedulesCalendarView() {
                                 className="shrink-0 rounded-full bg-[var(--color-warning-muted)] px-1.5 py-px text-[8px] font-bold uppercase leading-[14px] tracking-wide text-[var(--color-warning)]"
                               >
                                 Not signed up
+                              </span>
+                            )}
+                            {/* 퇴사·배정해제된 직원 — 이 기간 근무 기록이 있어 남긴 행. 새 배정 대상은 아니다 */}
+                            {!u.is_active && !u.is_provisional && (
+                              <span
+                                title="No longer active. Shown because they worked during this period."
+                                className="shrink-0 rounded-full bg-[var(--color-surface-hover)] px-1.5 py-px text-[8px] font-bold uppercase leading-[14px] tracking-wide text-[var(--color-text-muted)]"
+                              >
+                                Former
                               </span>
                             )}
                           </div>

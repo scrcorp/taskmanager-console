@@ -12,7 +12,7 @@ import React, { useState, useMemo, useCallback, useRef, useEffect } from "react"
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePersistedFilters } from "@/hooks/usePersistedFilters";
-import { Plus, Search, Edit, Trash2, X, GripVertical, Layers } from "lucide-react";
+import { Plus, Search, Edit, Trash2, X, GripVertical, Layers, AlertTriangle } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -37,6 +37,8 @@ import {
   useUpdateStoreGroup,
   useDeleteStoreGroup,
   useReorderStoreGroups,
+  previewGroupAssign,
+  type GroupAssignPreview,
 } from "@/hooks/useStoreGroups";
 import { useCreateShift } from "@/hooks/useShifts";
 import { useCreatePosition } from "@/hooks/usePositions";
@@ -46,6 +48,7 @@ import { Select } from "@/components/ui/Select";
 import { Table, Badge, Modal } from "@/components/ui";
 import { LoadingSpinner } from "@/components/ui/LoadingSpinner";
 import { useModal } from "@/components/ui/imperative-modal";
+import { useToast } from "@/components/ui/Toast";
 import { useMutationToast } from "@/lib/mutationToast";
 import { formatDate, parseApiError } from "@/lib/utils";
 import { previewStoreCode } from "@/lib/storeCode";
@@ -149,6 +152,77 @@ interface StoreSection {
 /** EMPID 중복 경고 문구 / Duplicate-EMPID warning copy */
 function duplicateEmpidMessage(count: number): string {
   return `${count} duplicate EMPIDs in this group's shared numbering scope — resolve them in Users → Bulk Edit → EMPID Import.`;
+}
+
+/** 편입 미리보기에서 충돌이 발견된 매장 하나 / One store whose assign preview found issues */
+interface EmpidPreviewFinding {
+  storeId: string;
+  storeName: string;
+  groupName: string;
+  preview: GroupAssignPreview;
+}
+
+/**
+ * 편입 저장 전 EMPID 충돌 확인 다이얼로그 — 서버는 번호를 절대 바꾸지 않으므로(정책 A)
+ * "그대로 편입" 또는 "저장 전체 취소" 만 고른다. modal.open 커스텀 본문.
+ *
+ * Pre-save EMPID conflict dialog. Numbers are never changed automatically, so
+ * the only choices are "assign anyway" or "cancel the whole save".
+ */
+function EmpidConflictDialog({
+  findings,
+  onConfirm,
+  onCancel,
+}: {
+  findings: EmpidPreviewFinding[];
+  onConfirm: () => void;
+  onCancel: () => void;
+}): React.ReactElement {
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-text-secondary">
+        These stores are moving into a group with shared numbering, and some EMPIDs
+        collide with numbers already in use there.
+      </p>
+      {findings.map((f: EmpidPreviewFinding) => (
+        <div key={f.storeId} className="rounded-lg border border-border bg-surface px-3 py-2">
+          <p className="mb-1.5 text-sm font-semibold text-text">
+            {f.storeName} <span className="font-normal text-text-muted">→ {f.groupName}</span>
+          </p>
+          <ul className="space-y-1 text-xs text-text-secondary">
+            {f.preview.conflicts.flatMap((c) =>
+              c.holders.map((h) => (
+                <li key={`c-${c.empid}-${c.incoming.user_id}-${h.user_id}-${h.store_id}`}>
+                  <span className="font-mono text-text">#{c.empid}</span> — {c.incoming.name}{" "}
+                  (incoming) vs {h.name} ({h.store_name})
+                </li>
+              )),
+            )}
+            {f.preview.person_splits.flatMap((p) =>
+              p.elsewhere.map((e) => (
+                <li key={`s-${p.user_id}-${e.store_id}`}>
+                  {p.name} has <span className="font-mono text-text">#{p.incoming_empid}</span> here
+                  but <span className="font-mono text-text">#{e.empid}</span> at {e.store_name}
+                </li>
+              )),
+            )}
+          </ul>
+        </div>
+      ))}
+      <p className="text-xs text-text-muted">
+        Numbers are never changed automatically. You can resolve them afterwards in Users →
+        Bulk Edit → EMPID.
+      </p>
+      <div className="flex justify-end gap-2 pt-2">
+        <Button variant="secondary" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button variant="primary" onClick={onConfirm}>
+          Assign anyway (keep numbers)
+        </Button>
+      </div>
+    </div>
+  );
 }
 
 /** 드래그 가능한 문자열 행 컴포넌트 / Draggable string row component */
@@ -694,6 +768,7 @@ function ManageGroupsModal({
 }): React.ReactElement {
   const modal = useModal();
   const { success } = useMutationToast();
+  const { toast } = useToast();
   const queryClient = useQueryClient();
   const { data: groups, isLoading } = useStoreGroups();
   // 그룹별 매장 칩/추가 select 용 — 기본 뷰(closed 제외), 페이지와 ["stores"] 캐시 공유
@@ -929,6 +1004,67 @@ function ManageGroupsModal({
       return;
     }
     setIsSaving(true);
+    // ── 편입 미리보기: 실그룹으로의 배정 변경(moves 중 target 이 기존 그룹 id)을 저장 전에
+    // 검사해 EMPID 충돌을 확인받는다. 신규 그룹(tempId)은 서버에 없어 검사 불가 — 빈 그룹으로
+    // 만들어지므로 생략. 미리보기는 보조 장치: 호출 실패는 저장을 막지 않는다 (경고 토스트만).
+    // Pre-save assign preview for moves into existing groups. tempId targets are
+    // skipped (not on the server yet; created empty). The preview is best-effort:
+    // a failed call warns via toast and never blocks the save.
+    const assignMoves = ops.moves.filter(
+      (m) => m.target != null && !isTempGroupId(m.target),
+    );
+    if (assignMoves.length > 0) {
+      const findings: EmpidPreviewFinding[] = [];
+      let previewFailed = false;
+      for (const m of assignMoves) {
+        const targetId = m.target as string;
+        try {
+          const preview = await previewGroupAssign(m.storeId, targetId);
+          if (preview.conflicts.length > 0 || preview.person_splits.length > 0) {
+            findings.push({
+              storeId: m.storeId,
+              storeName: storeList.find((s: Store) => s.id === m.storeId)?.name ?? "Store",
+              groupName:
+                draft.groups[targetId]?.name.trim() ||
+                groupList.find((g: StoreGroup) => g.id === targetId)?.name ||
+                "Group",
+              preview,
+            });
+          }
+        } catch {
+          previewFailed = true;
+          break;
+        }
+      }
+      if (previewFailed) {
+        // 미리보기 실패 — 저장은 계속, 사후 확인 경로만 안내 / Preview failed; save proceeds
+        toast({
+          type: "info",
+          message:
+            "Couldn't check EMPID conflicts before saving. Review them afterwards in Users → Bulk Edit → EMPID.",
+        });
+      } else if (findings.length > 0) {
+        const proceed = await modal.open<boolean>(
+          ({ close }) => (
+            <EmpidConflictDialog
+              findings={findings}
+              onConfirm={() => close(true)}
+              onCancel={() => close(false)}
+            />
+          ),
+          {
+            title: "EMPID conflicts in shared numbering",
+            size: "lg",
+            closeOnBackdrop: false,
+          },
+        );
+        if (proceed !== true) {
+          // 저장 전체 중단 — draft 는 그대로 유지 / Abort the whole save, keep the draft
+          setIsSaving(false);
+          return;
+        }
+      }
+    }
     /** tempId → 생성된 실제 id / tempId → created real id */
     const tempIdMap: Record<string, string> = {};
     const realId = (id: string): string => tempIdMap[id] ?? id;
@@ -1057,9 +1193,11 @@ function ManageGroupsModal({
     deleteGroup,
     reorderGroups,
     storeList,
+    groupList,
     queryClient,
     modal,
     success,
+    toast,
   ]);
 
   return (
@@ -1296,6 +1434,21 @@ export default function StoresPage(): React.ReactElement {
     result.push({ groupId: null, name: "Ungrouped", group: null, stores: ungrouped });
     return result;
   }, [filteredStores, groupList]);
+
+  /**
+   * 그룹 미지정 매장 수 (닫힌 매장 제외) — 검색/필터와 무관하게 전체 기준으로 센다.
+   * 급여는 그룹(법인) 단위 산출이라 그룹 없는 매장은 급여에서 빠진다.
+   * Count of stores with no group (excluding closed), independent of search/filter.
+   */
+  const ungroupedActiveCount: number = useMemo(() => {
+    if (!Array.isArray(stores)) return 0;
+    const knownGroupIds = new Set<string>(groupList.map((g: StoreGroup) => g.id));
+    return stores.filter(
+      (st: Store) =>
+        st.status !== "closed" &&
+        (!st.group_id || !knownGroupIds.has(st.group_id)),
+    ).length;
+  }, [stores, groupList]);
 
   /** 검색/상태 필터 중에는 빈 섹션 숨김, 빈 Ungrouped 는 항상 숨김 / Visible sections */
   const isFiltering: boolean = Boolean(searchQuery.trim()) || statusFilter !== "active";
@@ -1572,6 +1725,15 @@ export default function StoresPage(): React.ReactElement {
     [router],
   );
 
+  /** EMPID 관리 진입점 — Bulk Edit 에 매장 프리셀렉트 / Jump to EMPID bulk edit preselecting this store */
+  const handleOpenEmpids = useCallback(
+    (store: Store, e: React.MouseEvent): void => {
+      e.stopPropagation();
+      router.push(`/users/bulk/empid-edit?store=${store.id}`);
+    },
+    [router],
+  );
+
   /** 테이블 컬럼 정의 / Table column definitions */
   const columns: Column<Store>[] = useMemo(
     () => [
@@ -1628,9 +1790,17 @@ export default function StoresPage(): React.ReactElement {
             {
               key: "actions",
               header: "",
-              className: "w-24 text-right",
+              className: "w-36 text-right",
               render: (store: Store) => (
                 <div className="flex items-center justify-end gap-1">
+                  <button
+                    type="button"
+                    onClick={(e: React.MouseEvent) => handleOpenEmpids(store, e)}
+                    className="px-1.5 py-1 rounded-md text-xs text-text-muted hover:text-text hover:bg-surface-hover transition-colors"
+                    aria-label={`Manage EMPIDs for ${store.name}`}
+                  >
+                    EMPIDs
+                  </button>
                   <button
                     type="button"
                     onClick={(e: React.MouseEvent) => handleOpenEdit(store, e)}
@@ -1653,7 +1823,7 @@ export default function StoresPage(): React.ReactElement {
           ]
         : []),
     ],
-    [handleOpenEdit, handleOpenDelete, canWrite, tz],
+    [handleOpenEdit, handleOpenDelete, handleOpenEmpids, canWrite, tz],
   );
 
   if (isLoading) {
@@ -1688,6 +1858,23 @@ export default function StoresPage(): React.ReactElement {
           </div>
         )}
       </div>
+
+      {/* 그룹 미지정 경고 — 급여는 그룹(법인) 단위로 산출되므로 그룹 없는 매장은 급여에서 빠진다.
+          설계: docs/99_inbox/2026-08-13-조직계층-재정의.md §25.1 */}
+      {ungroupedActiveCount > 0 && (
+        <div className="mb-4 flex items-start gap-3 rounded-lg border border-[var(--color-warning)] bg-[var(--color-warning-muted)] px-4 py-3">
+          <AlertTriangle className="mt-px h-4 w-4 shrink-0 text-[var(--color-warning)]" />
+          <div className="min-w-0 text-[13px] leading-relaxed text-text">
+            <span className="font-semibold">
+              {ungroupedActiveCount} {ungroupedActiveCount === 1 ? "store is" : "stores are"} not
+              assigned to a group.
+            </span>{" "}
+            Payroll is calculated per group — a store without one is left out, and overtime
+            won&apos;t be combined across stores of the same company.
+            {canWrite && " Create a group in Manage Groups, then assign each store below."}
+          </div>
+        </div>
+      )}
 
       {/* Search + Status Filter */}
       <div className="mb-4 flex items-center gap-3">

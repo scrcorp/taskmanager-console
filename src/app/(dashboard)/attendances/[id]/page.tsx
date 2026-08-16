@@ -584,6 +584,8 @@ interface ActivityGroup {
   createdAt: string;
   lines: ActivityLine[];
   reason: string;
+  /** 기록 경로(채널) — null = 채널 도입 전 레거시 행 (칩 미표시). */
+  channel: string | null;
 }
 
 /** status 를 병기할 주 항목 우선순위. 앞에 있는 게 카드의 첫 줄이 된다. */
@@ -691,6 +693,8 @@ function useCorrectionGroups(
         createdAt: head.created_at,
         lines,
         reason: rows.find((r) => r.reason)?.reason ?? "(no reason)",
+        // 한 그룹 = 한 요청이므로 채널은 행마다 같다 — 대표 행에서 읽는다.
+        channel: head.channel ?? null,
       };
     });
   }, [attendance, tz]);
@@ -767,6 +771,21 @@ function activityTagInfo(tag: string): { label: string; cls: string } {
   }
 }
 
+/** 채널 코드 → 표시 라벨. 모르는 값은 원문 그대로 (숨기는 것보다 낫다). */
+const CHANNEL_LABELS: Record<string, string> = {
+  console: "Console",
+  console_compact: "Compact",
+  htma: "HTMA",
+  staff_app: "Staff app",
+  backoffice: "Backoffice",
+  system: "System",
+  api: "API",
+};
+
+function channelLabel(channel: string): string {
+  return CHANNEL_LABELS[channel] ?? channel;
+}
+
 interface CorrectionGroupCardProps {
   attendanceId: string;
   group: ActivityGroup;
@@ -819,6 +838,15 @@ function CorrectionGroupCard({
             <span className="text-xs text-text-secondary">{group.subject}</span>
           )}
           <span className="text-xs text-text-muted">by {group.actor}</span>
+          {/* 채널 칩 — 어느 경로로 바뀌었는지. 레거시 행(channel 없음)은 미표시. */}
+          {group.channel && (
+            <span
+              className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium bg-surface text-text-muted border border-border"
+              title={`Changed via ${channelLabel(group.channel)}`}
+            >
+              {channelLabel(group.channel)}
+            </span>
+          )}
         </div>
         <span
           className="text-xs text-text-muted"

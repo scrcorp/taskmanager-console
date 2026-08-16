@@ -43,6 +43,7 @@ import {
 } from "@/hooks/useUsers";
 import { useCommitEmpidImport } from "@/hooks/useEmpidImport";
 import { useStores } from "@/hooks/useStores";
+import { useStoreGroups } from "@/hooks/useStoreGroups";
 import { useRoles } from "@/hooks/useRoles";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
@@ -58,7 +59,7 @@ import { useClockinPin, useUpdateClockinPin } from "@/hooks/useClockinPin";
 import { ResetPasswordResultModal } from "@/components/auth/ResetPasswordResultModal";
 import { StaffWarningsSection } from "@/components/warnings/StaffWarningsSection";
 import { RateChangeSection } from "@/components/users/RateChangeSection";
-import type { User, Store, Role, UserStoreAssignment } from "@/types";
+import type { User, Store, StoreGroup, Role, UserStoreAssignment } from "@/types";
 
 /* -------------------------------------------------------------------------- */
 /*  Type Definitions                                                          */
@@ -153,6 +154,7 @@ export default function UserDetailPage(): React.ReactElement {
   const { data: userStores, isLoading: storesLoading } =
     useUserStores(userId);
   const { data: allStores } = useStores();
+  const { data: storeGroups } = useStoreGroups();
   const { data: roles } = useRoles();
 
   /* ---- Mutation hooks ---------------------------------------------------- */
@@ -267,6 +269,30 @@ export default function UserDetailPage(): React.ReactElement {
     () => (Array.isArray(allStores) ? allStores : []),
     [allStores],
   );
+
+  /**
+   * 매장 테이블을 그룹 단위로 재구성 — shared-numbering 그룹은 번호가 그룹당
+   * 하나라는 모델을 화면에도 드러낸다 (매장 나열 시 "MBQ 6 / MSK 6006" 같은
+   * 모순이 정상처럼 보이는 문제). 그룹 순서는 서버 sort_order, 그룹에 없는
+   * 매장(스테일 group_id 포함)은 뒤에 평평하게 둔다.
+   */
+  const storeSections = useMemo(() => {
+    const groups: StoreGroup[] = Array.isArray(storeGroups) ? storeGroups : [];
+    const byGroup = new Map<string, Store[]>();
+    const ungrouped: Store[] = [];
+    for (const st of allStoreList) {
+      const gid = st.group_id ?? null;
+      if (gid && groups.some((g) => g.id === gid)) {
+        byGroup.set(gid, [...(byGroup.get(gid) ?? []), st]);
+      } else {
+        ungrouped.push(st);
+      }
+    }
+    const sections = groups
+      .filter((g) => byGroup.has(g.id))
+      .map((g) => ({ group: g, stores: byGroup.get(g.id) as Store[] }));
+    return { sections, ungrouped };
+  }, [allStoreList, storeGroups]);
 
   const roleList: Role[] = useMemo(
     () => (Array.isArray(roles) ? roles : []),
@@ -1054,70 +1080,125 @@ export default function UserDetailPage(): React.ReactElement {
                 </tr>
               </thead>
               <tbody>
-                {allStoreList.map((store: Store) => {
-                  const check = storeChecks[store.id];
-                  const isManaged = check?.is_manager ?? false;
-                  const isWork = check?.is_work ?? false;
-                  const assignment = Array.isArray(userStores)
-                    ? userStores.find((u) => u.id === store.id)
-                    : undefined;
+                {(() => {
+                  const renderStoreRow = (
+                    store: Store,
+                    hideEmpid: boolean,
+                  ): React.ReactElement => {
+                    const check = storeChecks[store.id];
+                    const isManaged = check?.is_manager ?? false;
+                    const isWork = check?.is_work ?? false;
+                    const assignment = Array.isArray(userStores)
+                      ? userStores.find((u) => u.id === store.id)
+                      : undefined;
 
-                  // 관리 체크박스 disabled 조건
-                  const managerDisabled =
-                    !isStoreEditing ||
-                    isStaff ||
-                    (isSV && !isManaged && managerCount >= 1);
+                    // 관리 체크박스 disabled 조건
+                    const managerDisabled =
+                      !isStoreEditing ||
+                      isStaff ||
+                      (isSV && !isManaged && managerCount >= 1);
 
-                  // 근무 체크박스 disabled 조건
-                  const workDisabled =
-                    !isStoreEditing ||
-                    isManaged; // 관리매장이면 근무 자동
+                    // 근무 체크박스 disabled 조건
+                    const workDisabled =
+                      !isStoreEditing ||
+                      isManaged; // 관리매장이면 근무 자동
+
+                    return (
+                      <tr
+                        key={store.id}
+                        className="border-b border-border last:border-b-0 hover:bg-surface/50 transition-colors"
+                      >
+                        <td className="py-2.5 px-3">
+                          <div className="flex items-center gap-2">
+                            <div className="flex items-center justify-center h-7 w-7 rounded-md bg-accent-muted text-accent">
+                              <StoreIcon className="h-3.5 w-3.5" />
+                            </div>
+                            <span className="font-medium text-text">{store.name}</span>
+                            {assignment && !hideEmpid && (
+                              <StoreEmpidCell
+                                userId={userId}
+                                targets={[
+                                  { storeId: store.id, empid: assignment.empid ?? null },
+                                ]}
+                                canEdit={canManageUsers && !isStoreEditing}
+                              />
+                            )}
+                            {!store.is_active && (
+                              <Badge variant="danger">Inactive</Badge>
+                            )}
+                          </div>
+                        </td>
+                        <td className="text-center py-2.5 px-3">
+                          <input
+                            type="checkbox"
+                            checked={isManaged}
+                            disabled={managerDisabled}
+                            onChange={(e) => handleManagerToggle(store.id, store.name, e.target.checked)}
+                            className="h-4 w-4 rounded border-border text-accent focus:ring-accent disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+                          />
+                        </td>
+                        <td className="text-center py-2.5 px-3">
+                          <input
+                            type="checkbox"
+                            checked={isWork}
+                            disabled={workDisabled}
+                            onChange={(e) => handleWorkToggle(store.id, e.target.checked)}
+                            className="h-4 w-4 rounded border-border text-accent focus:ring-accent disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
+                          />
+                        </td>
+                      </tr>
+                    );
+                  };
 
                   return (
-                    <tr
-                      key={store.id}
-                      className="border-b border-border last:border-b-0 hover:bg-surface/50 transition-colors"
-                    >
-                      <td className="py-2.5 px-3">
-                        <div className="flex items-center gap-2">
-                          <div className="flex items-center justify-center h-7 w-7 rounded-md bg-accent-muted text-accent">
-                            <StoreIcon className="h-3.5 w-3.5" />
-                          </div>
-                          <span className="font-medium text-text">{store.name}</span>
-                          {assignment && (
-                            <StoreEmpidCell
-                              userId={userId}
-                              storeId={store.id}
-                              empid={assignment.empid ?? null}
-                              canEdit={canManageUsers && !isStoreEditing}
-                            />
-                          )}
-                          {!store.is_active && (
-                            <Badge variant="danger">Inactive</Badge>
-                          )}
-                        </div>
-                      </td>
-                      <td className="text-center py-2.5 px-3">
-                        <input
-                          type="checkbox"
-                          checked={isManaged}
-                          disabled={managerDisabled}
-                          onChange={(e) => handleManagerToggle(store.id, store.name, e.target.checked)}
-                          className="h-4 w-4 rounded border-border text-accent focus:ring-accent disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
-                        />
-                      </td>
-                      <td className="text-center py-2.5 px-3">
-                        <input
-                          type="checkbox"
-                          checked={isWork}
-                          disabled={workDisabled}
-                          onChange={(e) => handleWorkToggle(store.id, e.target.checked)}
-                          className="h-4 w-4 rounded border-border text-accent focus:ring-accent disabled:opacity-40 cursor-pointer disabled:cursor-not-allowed"
-                        />
-                      </td>
-                    </tr>
+                    <>
+                      {storeSections.sections.map(({ group, stores: groupStores }) => {
+                        const shared = group.numbering_mode === "group";
+                        // 그룹 레벨 EMPID 대상 — 이 사람의 그룹 내 배정 전부.
+                        // shared 그룹의 번호는 그룹당 하나이므로 편집도 여기 한 곳.
+                        const assignedTargets = groupStores.flatMap((store) => {
+                          const a = Array.isArray(userStores)
+                            ? userStores.find((u) => u.id === store.id)
+                            : undefined;
+                          return a
+                            ? [{ storeId: store.id, empid: a.empid ?? null }]
+                            : [];
+                        });
+                        return (
+                          <React.Fragment key={`grp-${group.id}`}>
+                            <tr className="border-b border-border bg-surface/40">
+                              <td className="py-2 px-3" colSpan={3}>
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs font-semibold uppercase tracking-wide text-text-secondary">
+                                    {group.name}
+                                  </span>
+                                  {shared ? (
+                                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-accent-muted text-accent">
+                                      Shared numbering
+                                    </span>
+                                  ) : (
+                                    <span className="text-[10px] font-medium px-1.5 py-0.5 rounded border border-border text-text-muted">
+                                      Per-store numbers
+                                    </span>
+                                  )}
+                                  {shared && assignedTargets.length > 0 && (
+                                    <StoreEmpidCell
+                                      userId={userId}
+                                      targets={assignedTargets}
+                                      canEdit={canManageUsers && !isStoreEditing}
+                                    />
+                                  )}
+                                </div>
+                              </td>
+                            </tr>
+                            {groupStores.map((store) => renderStoreRow(store, shared))}
+                          </React.Fragment>
+                        );
+                      })}
+                      {storeSections.ungrouped.map((store) => renderStoreRow(store, false))}
+                    </>
                   );
-                })}
+                })()}
               </tbody>
             </table>
           </div>
@@ -1759,9 +1840,11 @@ function ProfilePinRow({ userId }: ProfilePinRowProps): React.ReactElement {
 
 interface StoreEmpidCellProps {
   userId: string;
-  storeId: string;
-  /** 현재 배정된 EMPID (null = 배정 행만 있고 번호는 없음). */
-  empid: number | null;
+  /**
+   * 번호를 쓸 배정 대상들. 매장 행에서는 1개, shared-numbering 그룹 헤더에서는
+   * 그 사람의 그룹 내 배정 전부 — 저장 시 모든 대상에 같은 번호가 간다.
+   */
+  targets: { storeId: string; empid: number | null }[];
   canEdit: boolean;
 }
 
@@ -1771,11 +1854,13 @@ interface StoreEmpidCellProps {
  * 권한: `users:update` — 연필 아이콘으로 인라인 편집 모드 진입 (PIN 행과 동일 패턴).
  * 저장은 useCommitEmpidImport 재사용 — 빈 값으로 저장하면 번호 삭제(배정 행은 유지),
  * 다른 직원이 재채번되면 결과 모달로 안내.
+ *
+ * shared 그룹인데 대상들의 번호가 서로 다르면(과거 매장 단위 갱신의 잔재)
+ * 값들을 나란히 경고색으로 보여준다 — 한 번 저장하면 통일된다.
  */
 function StoreEmpidCell({
   userId,
-  storeId,
-  empid,
+  targets,
   canEdit,
 }: StoreEmpidCellProps): React.ReactElement | null {
   const queryClient = useQueryClient();
@@ -1783,6 +1868,11 @@ function StoreEmpidCell({
   const commitEmpid = useCommitEmpidImport();
   const [editing, setEditing] = useState<boolean>(false);
   const [draft, setDraft] = useState<string>("");
+
+  // 대상들의 현재 번호 — 전부 같으면 그 값, 다르면 mixed(모순 표시 대상).
+  const currentValues = Array.from(new Set(targets.map((t) => t.empid)));
+  const uniform = currentValues.length <= 1;
+  const empid: number | null = uniform ? (currentValues[0] ?? null) : null;
 
   // 편집 중 권한이 회수되면 편집 모드를 강제 종료 / Close the editor if edit rights go away.
   useEffect(() => {
@@ -1793,7 +1883,7 @@ function StoreEmpidCell({
   }, [canEdit]);
 
   const startEdit = (): void => {
-    setDraft(empid != null ? String(empid) : "");
+    setDraft(uniform && empid != null ? String(empid) : "");
     setEditing(true);
   };
   const cancelEdit = (): void => {
@@ -1807,12 +1897,18 @@ function StoreEmpidCell({
 
   const saveEdit = (): void => {
     if (!draftValid || commitEmpid.isPending) return;
-    if (nextEmpid === empid) {
+    if (uniform && nextEmpid === empid) {
       cancelEdit();
       return;
     }
     commitEmpid.mutate(
-      { assignments: [{ user_id: userId, store_id: storeId, empid: nextEmpid }] },
+      {
+        assignments: targets.map((t) => ({
+          user_id: userId,
+          store_id: t.storeId,
+          empid: nextEmpid,
+        })),
+      },
       {
         onSuccess: (result): void => {
           // 미적용이면 입력을 유지해 바로 재시도할 수 있게 한다.
@@ -1840,13 +1936,18 @@ function StoreEmpidCell({
               ),
             });
           }
+          // 그룹 셀은 매장별 커밋이라 일부가 already-set 으로 skip 되는 게 정상.
+          // 뭔가 적용됐으면 조용히 넘어가고, 진짜 미적용(0건)일 때만 알린다.
           const rejected = result.rejected ?? [];
           const skipped = result.skipped ?? [];
-          if (rejected.length > 0 || skipped.length > 0) {
+          if (rejected.length > 0 || (applied.length === 0 && skipped.length > 0)) {
             void modal.alert({
               type: "error",
-              title: "Not applied",
-              message: "The change was not applied:",
+              title: applied.length > 0 ? "Partially applied" : "Not applied",
+              message:
+                applied.length > 0
+                  ? "Some changes were not applied:"
+                  : "The change was not applied:",
               details: [
                 ...rejected.map((r) => r.reason),
                 ...skipped.map((s) => `#${s.empid}: ${s.reason}`),
@@ -1873,7 +1974,7 @@ function StoreEmpidCell({
             if (e.key === "Enter") saveEdit();
             if (e.key === "Escape") cancelEdit();
           }}
-          placeholder={empid != null ? "Empty to remove" : "Number"}
+          placeholder={uniform && empid != null ? "Empty to remove" : "Number"}
           className="w-28 px-2 py-0.5 rounded bg-surface border border-border text-xs font-mono text-text focus:outline-none focus:border-accent"
           autoFocus
         />
@@ -1901,13 +2002,24 @@ function StoreEmpidCell({
     );
   }
 
-  if (empid == null && !canEdit) return null;
+  const hasAny = !uniform || empid != null;
+  if (!hasAny && !canEdit) return null;
 
   return (
     <span className="flex items-center gap-1.5">
-      {empid != null && (
-        <span className="text-xs font-mono font-semibold text-accent bg-accent-muted rounded px-1.5 py-0.5">
-          EMPID {empid}
+      {uniform ? (
+        empid != null && (
+          <span className="text-xs font-mono font-semibold text-accent bg-accent-muted rounded px-1.5 py-0.5">
+            EMPID {empid}
+          </span>
+        )
+      ) : (
+        // shared 그룹인데 매장별 번호가 갈라져 있음 — 저장 한 번으로 통일된다.
+        <span
+          className="text-xs font-mono font-semibold text-danger bg-danger-muted rounded px-1.5 py-0.5"
+          title="Shared numbering group has different numbers per store — save once to unify"
+        >
+          EMPID {currentValues.map((v) => v ?? "—").join(" / ")}
         </span>
       )}
       {canEdit && (
@@ -1915,8 +2027,8 @@ function StoreEmpidCell({
           type="button"
           onClick={startEdit}
           className="text-text-muted hover:text-accent transition-colors"
-          title={empid != null ? "Edit EMPID" : "Assign EMPID"}
-          aria-label={empid != null ? "Edit EMPID" : "Assign EMPID"}
+          title={hasAny ? "Edit EMPID" : "Assign EMPID"}
+          aria-label={hasAny ? "Edit EMPID" : "Assign EMPID"}
         >
           <Pencil className="h-3.5 w-3.5" />
         </button>

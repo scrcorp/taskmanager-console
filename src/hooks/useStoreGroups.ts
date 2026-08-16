@@ -31,6 +31,61 @@ export const useStoreGroups = (): UseQueryResult<StoreGroup[], Error> => {
   });
 };
 
+// ── 편입 미리보기 (Assign preview) — 저장 전 EMPID 충돌 사전 확인 ──
+// 서버는 편입 시 empid 를 절대 바꾸지 않으므로(정책 A) 이건 순수 조회.
+// 타입은 이 훅 파일이 소유 (src/types 에 올리지 않음 — 이 흐름 전용).
+
+/** 그룹 내 다른 매장에서 그 번호를 이미 쓰는 사람 / Existing holder of a number */
+export interface AssignPreviewHolder {
+  user_id: string;
+  name: string;
+  store_id: string;
+  store_name: string;
+}
+
+/** 번호 충돌 한 건 — 편입 멤버 vs 그룹 내 기존 보유자 / One number conflict */
+export interface AssignPreviewConflict {
+  empid: number;
+  incoming: { user_id: string; name: string };
+  holders: AssignPreviewHolder[];
+}
+
+/** 같은 사람이 편입 매장과 그룹 내 다른 매장에서 다른 번호 / Same person, different numbers */
+export interface AssignPreviewPersonSplit {
+  user_id: string;
+  name: string;
+  incoming_empid: number;
+  elsewhere: { store_id: string; store_name: string; empid: number }[];
+}
+
+/** 편입 미리보기 응답 (읽기 전용) / Assign-preview response (read-only) */
+export interface GroupAssignPreview {
+  /** 대상 그룹 채번 모드 (null = 그룹 이탈) / Target group's numbering mode */
+  numbering_mode: "group" | "store" | null;
+  conflicts: AssignPreviewConflict[];
+  person_splits: AssignPreviewPersonSplit[];
+  incoming_with_empid: number;
+}
+
+/**
+ * 편입 미리보기 호출 -- 매장을 그룹에 넣으면 생길 EMPID 충돌을 조회만 합니다.
+ * Save 흐름(순차 호출)에서 imperative 하게 쓰므로 훅이 아닌 일반 함수.
+ *
+ * Read-only assign preview: what EMPID conflicts would appear if the store
+ * joined the group. Plain function (not a hook) — the save flow calls it
+ * imperatively and sequentially.
+ */
+export async function previewGroupAssign(
+  storeId: string,
+  groupId: string | null,
+): Promise<GroupAssignPreview> {
+  const response: AxiosResponse<GroupAssignPreview> = await api.post(
+    "/console/store-groups/assign-preview",
+    { store_id: storeId, group_id: groupId },
+  );
+  return response.data;
+}
+
 /** 그룹 생성 요청 데이터 타입 (Store group creation request data type) */
 interface CreateStoreGroupData {
   name: string;
