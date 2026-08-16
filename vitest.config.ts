@@ -13,6 +13,8 @@ export default defineConfig({
     },
   },
   test: {
+    // 워크트리(.claude/worktrees) 내부 테스트가 메인 체크아웃 alias 로 해석돼 깨지는 것 방지
+    exclude: ["**/node_modules/**", "**/.claude/**"],
     environment: "jsdom",
     setupFiles: ["./vitest.setup.ts"],
     globals: true,

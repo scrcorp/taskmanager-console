@@ -6,7 +6,8 @@
  * 변경은 로컬 draft 에 쌓아 useCommitEmpidImport 로 일괄 커밋 (empid null = 번호 삭제).
  */
 
-import React, { useState, useMemo, useCallback } from "react";
+import React, { Suspense, useState, useMemo, useCallback } from "react";
+import { useSearchParams } from "next/navigation";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import { X, Plus } from "lucide-react";
 import {
@@ -51,11 +52,12 @@ interface DraftChange {
   invalid: boolean;
 }
 
-export default function EmpidEditPage(): React.ReactElement {
+function EmpidEditPageBody(): React.ReactElement {
   const { hasPermission } = usePermissions();
   const canUpdate = hasPermission(PERMISSIONS.USERS_UPDATE);
   const modal = useModal();
   const queryClient: QueryClient = useQueryClient();
+  const searchParams = useSearchParams();
   const { data: rosterData, isLoading } = useEmpidRoster();
   const { data: usersData } = useUsers();
   const commit = useCommitEmpidImport();
@@ -70,9 +72,13 @@ export default function EmpidEditPage(): React.ReactElement {
     return m;
   }, [usersData]);
 
-  // ── Store selection (default: first store) ──
-  const [storeSel, setStoreSel] = useState("");
-  const storeId = storeSel || roster[0]?.store_id || "";
+  // ── Store selection — ?store= 프리셀렉트 (stores 페이지 EMPIDs 링크 진입점),
+  // roster 에 없는 값이면 첫 매장으로 폴백 / URL param preselects; unknown ids fall back ──
+  const [storeSel, setStoreSel] = useState(searchParams.get("store") ?? "");
+  const storeId =
+    storeSel && roster.some((s) => s.store_id === storeSel)
+      ? storeSel
+      : roster[0]?.store_id || "";
   const store = roster.find((s) => s.store_id === storeId);
 
   // ── Draft — raw input strings keyed by store|user; added people tracked separately ──
@@ -559,5 +565,14 @@ export default function EmpidEditPage(): React.ReactElement {
         </div>
       </div>
     </div>
+  );
+}
+
+/** useSearchParams 는 Suspense 경계가 필요 — tasks/new 페이지와 동일 패턴 */
+export default function EmpidEditPage(): React.ReactElement {
+  return (
+    <Suspense>
+      <EmpidEditPageBody />
+    </Suspense>
   );
 }

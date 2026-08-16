@@ -10,10 +10,16 @@
  * 헤더 (store/title/toggle/date) 는 부모(AttendancePage) 가 관리.
  */
 
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { Pencil } from "lucide-react";
 import { useAttendances } from "@/hooks/useAttendances";
 import { useUsers } from "@/hooks/useUsers";
+import { usePermissions } from "@/hooks/usePermissions";
+import { PERMISSIONS } from "@/lib/permissions";
+import { useModal } from "@/components/ui/imperative-modal";
+import { useStoreTimezone } from "@/hooks/useTimezone";
+import { AttendanceCorrectionModal } from "@/components/attendances/AttendanceCorrectionModal";
 import type { Attendance, User } from "@/types";
 import {
   isUnconfirmedAutoClockOut,
@@ -133,7 +139,27 @@ interface Props {
 
 export function AttendanceWeeklyView({ storeId, weekStart, filters, storeUsers: storeUsersProp }: Props) {
   const router = useRouter();
+  const modal = useModal();
+  const { hasPermission } = usePermissions();
+  // 셀 인라인 시각 수정 — 상세 페이지의 correction 게이트와 동일 permission.
+  const canEditTimes = hasPermission(PERMISSIONS.SCHEDULES_UPDATE);
+  // 매장 tz — correction 모달의 datetime-local 입력 해석용.
+  const storeTz = useStoreTimezone(storeId || undefined);
   const normalizedWeekStart = useMemo(() => sundayOf(weekStart), [weekStart]);
+
+  /** 셀에서 바로 시각 수정 — 상세 페이지와 같은 모달을 그 자리에서 연다.
+   *  저장 성공 시 useCorrectAttendance 훅이 attendances 쿼리를 invalidate 해 그리드가 갱신된다. */
+  const openCorrectionModal = useCallback(
+    (att: Attendance): void => {
+      void modal.open<boolean>(
+        ({ close }) => (
+          <AttendanceCorrectionModal attendance={att} tz={storeTz} onClose={close} />
+        ),
+        { title: "Make Correction", size: "lg", closeOnBackdrop: false },
+      );
+    },
+    [modal, storeTz],
+  );
   const days = useMemo(() => weekDates(normalizedWeekStart), [normalizedWeekStart]);
   const dateFrom = days[0]!;
   const dateTo = days[6]!;
@@ -357,6 +383,7 @@ export function AttendanceWeeklyView({ storeId, weekStart, filters, storeUsers: 
                                 key={att.id}
                                 attendance={att}
                                 onClick={() => router.push(`/attendances/${att.id}?from=${d}`)}
+                                onEdit={canEditTimes ? () => openCorrectionModal(att) : undefined}
                               />
                             ))}
                           </div>
@@ -377,9 +404,12 @@ export function AttendanceWeeklyView({ storeId, weekStart, filters, storeUsers: 
 function DayCell({
   attendance,
   onClick,
+  onEdit,
 }: {
   attendance: Attendance;
   onClick: () => void;
+  /** 빠른 시각 수정 (권한 없으면 undefined — 연필 미노출). */
+  onEdit?: () => void;
 }) {
   const meta = stateMeta[attendance.status] ?? stateMeta.upcoming;
   const inT = attendance.clock_in_display ?? formatHHmm24(attendance.clock_in);
@@ -403,8 +433,32 @@ function DayCell({
     <button
       type="button"
       onClick={onClick}
-      className={`relative w-full text-left rounded-md px-2 py-1.5 transition-colors hover:brightness-110 ${meta.bg} ${meta.ring} ${cancelled ? "opacity-60" : ""}`}
+      className={`group relative w-full text-left rounded-md px-2 py-1.5 transition-colors hover:brightness-110 ${meta.bg} ${meta.ring} ${cancelled ? "opacity-60" : ""}`}
     >
+      {/* 빠른 시각 수정 — hover 시에만 노출. 셀 클릭(상세 이동)과 분리 (stopPropagation).
+          button 중첩은 invalid HTML 이라 span[role=button] 사용. */}
+      {onEdit && (
+        <span
+          role="button"
+          tabIndex={0}
+          aria-label="Edit times"
+          title="Edit times / note"
+          onClick={(e) => {
+            e.stopPropagation();
+            onEdit();
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              e.stopPropagation();
+              onEdit();
+            }
+          }}
+          className="absolute bottom-1 right-1 p-0.5 rounded opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-surface)]/80 transition-opacity"
+        >
+          <Pencil className="w-3 h-3" />
+        </span>
+      )}
       {hasCorrection && (
         <span
           className="absolute top-1 right-1 w-2 h-2 rounded-full bg-[var(--color-warning)] ring-2 ring-[var(--color-surface)]"

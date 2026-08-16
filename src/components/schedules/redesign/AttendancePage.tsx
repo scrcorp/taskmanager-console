@@ -9,10 +9,15 @@ import { useAuthStore } from '@/stores/authStore'
 import { usePersistedFilters } from '@/hooks/usePersistedFilters'
 import { formatDateTime, minutesBetween, todayInTimezone } from '@/lib/utils'
 import { useMidnightRefresh } from '@/hooks/useMidnightRefresh'
-import type { AttendanceBreakItem } from '@/types'
-import { AlertTriangle, Check, Download } from 'lucide-react'
+import type { Attendance, AttendanceBreakItem } from '@/types'
+import { AlertTriangle, Check, Download, FileDown, Pencil } from 'lucide-react'
 import { usePermissions } from '@/hooks/usePermissions'
 import { PERMISSIONS } from '@/lib/permissions'
+import { useModal } from '@/components/ui/imperative-modal'
+import { useStoreTimezone } from '@/hooks/useTimezone'
+import api from '@/lib/api'
+import { blobErrorMessage, filenameFromDisposition, triggerBlobDownload } from '@/lib/download'
+import { AttendanceCorrectionModal } from '@/components/attendances/AttendanceCorrectionModal'
 import { AttendanceWeeklyView } from './AttendanceWeeklyView'
 import { WeekPickerCalendar, DatePickerCalendar, getWeekStart } from './WeekPickerCalendar'
 import {
@@ -296,8 +301,11 @@ function computeLateMinutes(clockInIso?: string | null, scheduledIso?: string | 
 
 export function AttendancePage() {
   const router = useRouter()
+  const modal = useModal()
   const { isGMPlus, hasPermission } = usePermissions()
   const canConfirmAutoOut = hasPermission(PERMISSIONS.SCHEDULES_UPDATE)
+  // 리스트 인라인 시각 수정 — 상세 페이지의 correction 게이트와 동일 permission.
+  const canEditTimes = hasPermission(PERMISSIONS.SCHEDULES_UPDATE)
   const currentUserId = useAuthStore((s) => s.user?.id)
   const confirmAutoOut = useConfirmAutoClockout()
   const confirmEarlyIn = useConfirmEarlyClockIn()
@@ -378,6 +386,68 @@ export function AttendancePage() {
     per_page: 200,
   })
   const records = attendancesQ.data?.items ?? []
+
+  // 매장 tz — correction 모달의 datetime-local 입력 해석용 (매장 없으면 org tz fallback).
+  const storeTz = useStoreTimezone(effectiveStore || undefined)
+
+  /** 리스트에서 바로 시각 수정 — 상세 페이지와 같은 모달을 그 자리에서 연다.
+   *  저장 성공 시 useCorrectAttendance 훅이 attendances 쿼리를 invalidate 해 리스트가 갱신된다. */
+  const openCorrectionModal = useCallback(
+    (att: Attendance): void => {
+      void modal.open<boolean>(
+        ({ close }) => (
+          <AttendanceCorrectionModal attendance={att} tz={storeTz} onClose={close} />
+        ),
+        { title: 'Make Correction', size: 'lg', closeOnBackdrop: false },
+      )
+    },
+    [modal, storeTz],
+  )
+
+  // xlsx export — Daily 는 현재 날짜 하루, Weekly 는 표시 중인 주 (Sun–Sat).
+  const [exporting, setExporting] = useState(false)
+  const handleExport = useCallback(async (): Promise<void> => {
+    if (exporting) return
+    const weekStartD = getWeekStart(ymdToDate(date))
+    const weekEndD = new Date(weekStartD)
+    weekEndD.setDate(weekEndD.getDate() + 6)
+    const from = view === 'weekly' ? dateToYmd(weekStartD) : date
+    const to = view === 'weekly' ? dateToYmd(weekEndD) : date
+    setExporting(true)
+    try {
+      const resp = await api.get('/console/attendances/export', {
+        params: {
+          date_from: from,
+          date_to: to,
+          ...(effectiveStore ? { store_id: effectiveStore } : {}),
+        },
+        responseType: 'blob',
+      })
+      const dispo = (resp.headers as Record<string, unknown>)['content-disposition']
+      const filename = filenameFromDisposition(
+        typeof dispo === 'string' ? dispo : undefined,
+        `attendance_${from}_${to}.xlsx`,
+      )
+      triggerBlobDownload(
+        new Blob([resp.data as BlobPart], {
+          type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        }),
+        filename,
+      )
+    } catch (err) {
+      const msg = await blobErrorMessage(
+        err,
+        'The export could not be generated. Try again after reloading.',
+      )
+      void modal.alert({
+        type: 'error',
+        title: "Couldn't download the export",
+        message: msg,
+      })
+    } finally {
+      setExporting(false)
+    }
+  }, [exporting, date, view, effectiveStore, modal])
 
   // FilterBar 의 Staff 옵션 + Role 매칭 source. Weekly view 의 직원 행 source 와 동일.
   const usersQ = useUsers(effectiveStore ? { store_id: effectiveStore, is_active: true } : undefined)
@@ -491,6 +561,17 @@ export function AttendancePage() {
           {attendancesQ.isLoading && view === 'daily' && <span className="text-[11px] text-[var(--color-text-muted)]">Loading…</span>}
         </div>
         <div className="flex items-center gap-2">
+          {/* xlsx export — Daily 는 하루, Weekly 는 표시 중인 주. 현재 store 필터 반영. */}
+          <button
+            type="button"
+            onClick={() => void handleExport()}
+            disabled={exporting}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)] text-[12px] font-medium text-[var(--color-text-secondary)] hover:text-[var(--color-text)] transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            <FileDown className="w-3.5 h-3.5" />
+            {exporting ? 'Exporting…' : 'Export'}
+          </button>
+
           {/* View toggle — Daily / Weekly */}
           <div className="inline-flex p-0.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-surface)]">
             <button
@@ -677,7 +758,7 @@ export function AttendancePage() {
                 <tr
                   key={att.id}
                   onClick={() => router.push(`/attendances/${att.id}?from=${date}`)}
-                  className="border-b border-[var(--color-border)] last:border-b-0 hover:bg-[var(--color-surface-hover)] transition-colors cursor-pointer"
+                  className="group border-b border-[var(--color-border)] last:border-b-0 hover:bg-[var(--color-surface-hover)] transition-colors cursor-pointer"
                 >
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-3">
@@ -696,12 +777,29 @@ export function AttendancePage() {
                     />
                   </td>
                   <td className="px-3 py-3 text-[12px] tabular-nums">
-                    <ClockCell
-                      actualIso={att.clock_out}
-                      scheduledIso={att.scheduled_end}
-                      actualDisplay={att.clock_out_display}
-                      scheduledDisplay={att.scheduled_end_display}
-                    />
+                    <div className="flex items-center gap-1">
+                      <ClockCell
+                        actualIso={att.clock_out}
+                        scheduledIso={att.scheduled_end}
+                        actualDisplay={att.clock_out_display}
+                        scheduledDisplay={att.scheduled_end_display}
+                      />
+                      {/* 빠른 시각 수정 — 행 hover 시에만 노출, 행 클릭(상세 이동) 훼손 금지 */}
+                      {canEditTimes && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            openCorrectionModal(att)
+                          }}
+                          title="Edit times / note"
+                          aria-label="Edit times"
+                          className="p-1 rounded opacity-0 group-hover:opacity-100 focus-visible:opacity-100 text-[var(--color-text-muted)] hover:text-[var(--color-text)] hover:bg-[var(--color-bg)] transition-opacity"
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
                   </td>
                   <td className="px-3 py-3">
                     <BreakCell items={paidBreaks} tone="paid" nowMs={nowMs} />

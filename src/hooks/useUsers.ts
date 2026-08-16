@@ -487,6 +487,38 @@ export const useToggleUserActive = (): UseMutationResult<
 };
 
 /**
+ * 이메일 수동 인증 훅 -- 관리자가 인증코드 없이 이메일 인증을 확정합니다.
+ *
+ * Mutation hook to manually mark a user's email as verified (admin action
+ * for staff who cannot receive the verification email). The server also
+ * assigns a clock-in PIN if the user does not have one yet.
+ */
+export const useVerifyUserEmail = (): UseMutationResult<User, Error, string> => {
+  const queryClient: QueryClient = useQueryClient();
+  const { success, error } = useMutationToast();
+  return useMutation<User, Error, string>({
+    mutationFn: async (id: string): Promise<User> => {
+      const response: AxiosResponse<User> = await api.post(
+        `/console/users/${id}/verify-email`,
+      );
+      return response.data;
+    },
+    onSuccess: (updated: User, id: string): void => {
+      queryClient.setQueriesData<User[]>(
+        { queryKey: ["users"] },
+        (old) => {
+          if (!old || !Array.isArray(old)) return old;
+          return old.map((u) => (u.id === id ? updated : u));
+        },
+      );
+      queryClient.setQueryData<User>(["users", id], updated);
+      success("Email marked as verified.");
+    },
+    onError: error("Failed to verify email"),
+  });
+};
+
+/**
  * 사용자 삭제 훅 -- 사용자를 삭제하고 목록을 갱신합니다.
  *
  * Mutation hook to delete a user and invalidate the users list.

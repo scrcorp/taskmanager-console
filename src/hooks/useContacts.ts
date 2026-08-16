@@ -38,6 +38,9 @@ import type {
   ContactRequestApprove,
   ContactRequestApproveResult,
   ContactRequestReject,
+  ContactVisibility,
+  ContactTargetInput,
+  ContactVisibilityPreview as ContactVisibilityPreviewResult,
   PaginatedResponse,
 } from "@/types";
 
@@ -345,5 +348,33 @@ export const useRejectContactRequest = (): UseMutationResult<
       success("Request rejected.");
     },
     onError: error("Couldn't reject request"),
+  });
+};
+
+/**
+ * 가시성 미리보기 — "이 설정이면 지금 누가 보는가" (V4/V5).
+ *
+ * 저장 전에 부른다. role 대상이 동적이라 인원이 조용히 바뀌는데, 그 변화를
+ * 숫자와 명단으로 드러내는 게 이 호출의 목적이다.
+ * 대상이 없으면(전 조직 공유 아님) 호출하지 않는다 — 서버가 어차피 거부한다.
+ */
+export const useVisibilityPreview = (
+  visibility: ContactVisibility,
+  targets: ContactTargetInput[],
+  excludedUserIds: string[],
+): UseQueryResult<ContactVisibilityPreviewResult, Error> => {
+  const enabled = visibility === "organization" || targets.length > 0;
+  return useQuery<ContactVisibilityPreviewResult, Error>({
+    queryKey: ["contact-visibility-preview", visibility, targets, excludedUserIds],
+    queryFn: async (): Promise<ContactVisibilityPreviewResult> => {
+      const res: AxiosResponse<ContactVisibilityPreviewResult> = await api.post(
+        `${COLLECTION}visibility-preview`,
+        { visibility, targets, excluded_user_ids: excludedUserIds },
+      );
+      return res.data;
+    },
+    enabled,
+    // 체크를 연달아 누를 때 매번 깜빡이지 않게 이전 명단을 유지한다.
+    placeholderData: keepPreviousData,
   });
 };

@@ -23,6 +23,8 @@ import { describeApiError } from "@/lib/errorDisplay";
 import { CONTACT_STORE_SHARED } from "@/types";
 import type { Contact, ContactFilters, ContactPhone, ContactSort } from "@/types";
 import { ContactDetailModal, type ContactDetailAction } from "./ContactDetailModal";
+import { highlight, matchedFirst, matchesTerm } from "./contactHighlight";
+import { visibilityLabel } from "./visibilityLabel";
 import type { ContactActions } from "./useContactActions";
 
 const PER_PAGE = 20;
@@ -45,16 +47,29 @@ function orderPhones(phones: ContactPhone[]): ContactPhone[] {
   return [...phones].sort((a, b) => Number(b.is_primary) - Number(a.is_primary));
 }
 
-/** 전화번호 셀 — 대표 번호를 크게, 나머지는 아래 작게 (라벨이 있으면 함께). */
-function PhoneCell({ phones }: { phones: ContactPhone[] }): React.ReactElement {
+/**
+ * 전화번호 셀 — 대표 번호를 크게, 나머지는 아래 작게 (라벨이 있으면 함께).
+ *
+ * 검색어에 걸린 번호는 앞으로 당기고 강조한다 — 대표번호가 아닌 번호로 검색해 놓고
+ * 왜 걸렸는지 안 보이면 결과를 신뢰하기 어렵다 (확장 U1).
+ */
+function PhoneCell({
+  phones,
+  term,
+}: {
+  phones: ContactPhone[];
+  term: string;
+}): React.ReactElement {
   if (phones.length === 0) {
     return <span className="text-sm text-text-muted">—</span>;
   }
-  const [primary, ...rest] = orderPhones(phones);
+  const [primary, ...rest] = matchedFirst(orderPhones(phones), term, (p) => p.number);
   return (
     <div className="min-w-0">
       <div className="flex items-baseline gap-1.5">
-        <span className="whitespace-nowrap text-sm font-medium text-text">{primary.number}</span>
+        <span className="whitespace-nowrap text-sm font-medium text-text">
+          {highlight(primary.number, term, { phone: true })}
+        </span>
         {primary.label && (
           <span className="text-[11px] uppercase tracking-wide text-text-muted">
             {primary.label}
@@ -63,7 +78,9 @@ function PhoneCell({ phones }: { phones: ContactPhone[] }): React.ReactElement {
       </div>
       {rest.map((p) => (
         <div key={p.id} className="flex items-baseline gap-1.5">
-          <span className="whitespace-nowrap text-xs text-text-secondary">{p.number}</span>
+          <span className="whitespace-nowrap text-xs text-text-secondary">
+            {highlight(p.number, term, { phone: true })}
+          </span>
           {p.label && (
             <span className="text-[10px] uppercase tracking-wide text-text-muted">{p.label}</span>
           )}
@@ -73,17 +90,25 @@ function PhoneCell({ phones }: { phones: ContactPhone[] }): React.ReactElement {
   );
 }
 
-/** 태그 칩 — 3개까지 보여주고 나머지는 +N. */
-function TagChips({ contact }: { contact: Contact }): React.ReactElement {
+/**
+ * 태그 칩 — 3개까지 보여주고 나머지는 +N.
+ *
+ * 검색 중이면 **걸린 태그를 맨 앞으로** 당긴다 (확장 U2). 잘려서 안 보이는 일이 없어진다.
+ * 상한 3은 유지한다 — 전부 펼치면 행 높이가 태그 수에 따라 들쭉날쭉해져 목록을
+ * 훑기 나빠진다. 전부 보는 곳은 상세 모달이고 거기는 이미 전부 보인다.
+ */
+function TagChips({ contact, term }: { contact: Contact; term: string }): React.ReactElement {
   if (contact.tags.length === 0) {
     return <span className="text-sm text-text-muted">—</span>;
   }
-  const shown = contact.tags.slice(0, 3);
-  const overflow = contact.tags.length - shown.length;
+  const ordered = matchedFirst(contact.tags, term, (t) => t.name);
+  const shown = ordered.slice(0, 3);
+  const overflow = ordered.length - shown.length;
   return (
     <div className="flex flex-wrap gap-1">
       {shown.map((t) => (
-        <Badge key={t.id} variant="default">
+        // 칩 전체를 물들인다 — 칩 안에서 글자 일부만 칠하면 배경 두 겹이 겹쳐 탁해진다.
+        <Badge key={t.id} variant={matchesTerm(t.name, term) ? "warning" : "default"}>
           {t.name}
         </Badge>
       ))}
@@ -167,9 +192,23 @@ export function ContactsDirectory({
       { title: "Contact", size: "lg" },
     );
     if (!action) return;
+    if (action.kind === "searchTag") {
+      // 태그를 **검색창에 써 넣는다** (확장 U3). 태그 필터에 넣지 않는 이유:
+      //  - 검색창으로 가면 그 글자가 태그든 이름이든 메모든 걸리는 대로 다 잡힌다.
+      //  - 그리고 강조(U1)와 매칭 태그 앞당김(U2)이 함께 걸려 **왜 걸렸는지가 보인다.**
+      //    태그 필터는 정확 일치라 강조가 안 붙어 결과만 덩그러니 남는다.
+      // 태그 필터가 켜져 있으면 교집합이 되어 결과가 0건이 되기 쉬우므로 함께 비운다.
+      setSearchInput(action.tagName);
+      setFilters({ q: action.tagName, tag: null, page: "1" });
+      return;
+    }
     if (action.kind === "edit") await actions.startEdit(action.contact);
     else await actions.startDelete(action.contact);
   }
+
+  // 서버가 검색을 하고 강조만 여기서 한다 (확장 U1). 필터에 반영된 값을 쓴다 —
+  // 입력 중인 값(searchInput)으로 칠하면 아직 그 검색으로 안 걸러진 행이 칠해진다.
+  const term = filters.q ?? "";
 
   const columns: Column<Contact>[] = [
     {
@@ -178,8 +217,8 @@ export function ContactsDirectory({
       className: "max-w-[240px]",
       render: (c) => (
         <div className="min-w-0">
-          <div className="truncate font-semibold text-text">{c.name}</div>
-          <div className="truncate text-xs text-text-muted">{c.store_name ?? "All stores"}</div>
+          <div className="truncate font-semibold text-text">{highlight(c.name, term)}</div>
+          <div className="truncate text-xs text-text-muted">{visibilityLabel(c)}</div>
         </div>
       ),
     },
@@ -189,13 +228,15 @@ export function ContactsDirectory({
       hideOnMobile: true,
       className: "max-w-[200px]",
       render: (c) => (
-        <span className="block truncate text-sm text-text-secondary">{c.company || "—"}</span>
+        <span className="block truncate text-sm text-text-secondary">
+          {c.company ? highlight(c.company, term) : "—"}
+        </span>
       ),
     },
     {
       key: "phones",
       header: "Phone",
-      render: (c) => <PhoneCell phones={c.phones} />,
+      render: (c) => <PhoneCell phones={c.phones} term={term} />,
     },
     {
       key: "email",
@@ -203,14 +244,16 @@ export function ContactsDirectory({
       hideOnMobile: true,
       className: "max-w-[220px]",
       render: (c) => (
-        <span className="block truncate text-sm text-text-secondary">{c.email || "—"}</span>
+        <span className="block truncate text-sm text-text-secondary">
+          {c.email ? highlight(c.email, term) : "—"}
+        </span>
       ),
     },
     {
       key: "tags",
       header: "Tags",
       hideOnMobile: true,
-      render: (c) => <TagChips contact={c} />,
+      render: (c) => <TagChips contact={c} term={term} />,
     },
     {
       key: "memo",
@@ -218,7 +261,9 @@ export function ContactsDirectory({
       hideOnMobile: true,
       className: "max-w-[280px]",
       render: (c) => (
-        <span className="block truncate text-sm text-text-muted">{c.memo || "—"}</span>
+        <span className="block truncate text-sm text-text-muted">
+          {c.memo ? highlight(c.memo, term) : "—"}
+        </span>
       ),
     },
   ];
