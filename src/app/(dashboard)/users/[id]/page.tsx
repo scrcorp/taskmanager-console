@@ -33,6 +33,7 @@ import {
   useUsers,
   useUpdateUser,
   useToggleUserActive,
+  useVerifyUserEmail,
   useUserStores,
   useSyncUserStores,
   useRegenerateClaimCode,
@@ -157,6 +158,7 @@ export default function UserDetailPage(): React.ReactElement {
   /* ---- Mutation hooks ---------------------------------------------------- */
   const updateUser = useUpdateUser();
   const toggleActive = useToggleUserActive();
+  const verifyEmail = useVerifyUserEmail();
   const syncUserStores = useSyncUserStores();
   const adminResetPassword = useAdminResetPassword();
   const regenerateClaimCode = useRegenerateClaimCode();
@@ -522,6 +524,27 @@ export default function UserDetailPage(): React.ReactElement {
     }
   }, [userId, user, toggleActive]);
 
+  /** 이메일 수동 인증 — 인증 메일을 받을 수 없는 직원용 관리자 대행 */
+  const handleVerifyEmail = useCallback(async (): Promise<void> => {
+    if (!user?.email) return;
+    const ok = await modal.confirm({
+      title: "Mark Email as Verified",
+      message:
+        `Mark "${user.email}" as verified without a verification code? ` +
+        "Use this only when the employee cannot receive the verification email. " +
+        "Ownership of the address will NOT be checked — make sure it is typed correctly, " +
+        "since password reset emails will be sent there. " +
+        "A clock-in PIN will also be assigned if they don't have one yet.",
+      confirmLabel: "Mark Verified",
+    });
+    if (!ok) return;
+    try {
+      await verifyEmail.mutateAsync(userId);
+    } catch {
+      // hook 자동 모달
+    }
+  }, [userId, user, verifyEmail, modal]);
+
   /** 관리자 비밀번호 초기화 */
   const handleResetPassword = useCallback(async (): Promise<void> => {
     if (!user) return;
@@ -713,6 +736,21 @@ export default function UserDetailPage(): React.ReactElement {
                         ? <span className="text-xs text-success" title="Verified">✓ Verified</span>
                         : <span className="text-xs text-warning" title="Not verified">Not verified</span>
                     )}
+                    {/* 수동 인증 — 인증 메일 수신이 어려운 직원용. 유령/비활성은 서버 가드와 동일하게 숨김 */}
+                    {canManageUsers &&
+                      user.email &&
+                      !user.email_verified &&
+                      !isProvisional &&
+                      user.is_active && (
+                        <button
+                          type="button"
+                          className="text-xs text-accent hover:underline disabled:opacity-50"
+                          onClick={() => void handleVerifyEmail()}
+                          disabled={verifyEmail.isPending}
+                        >
+                          {verifyEmail.isPending ? "Verifying..." : "Mark verified"}
+                        </button>
+                      )}
                   </span>
                 </div>
                 <div>
