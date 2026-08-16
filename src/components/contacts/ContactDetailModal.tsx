@@ -16,8 +16,12 @@ import { useContact } from "@/hooks/useContacts";
 import { describeApiError } from "@/lib/errorDisplay";
 import { formatDateTime } from "@/lib/utils";
 import type { Contact } from "@/types";
+import { visibilitySentence } from "./visibilityLabel";
 
-export type ContactDetailAction = { kind: "edit" | "delete"; contact: Contact };
+export type ContactDetailAction =
+  | { kind: "edit" | "delete"; contact: Contact }
+  /** 태그를 눌러 **그 글자를 검색창에 넣는다** (확장 U3). 태그 필터가 아니라 통합 검색이다. */
+  | { kind: "searchTag"; tagName: string };
 
 interface ContactDetailModalProps {
   contactId: string;
@@ -97,11 +101,7 @@ export function ContactDetailModal({
     <div className="space-y-5">
       <div>
         <h3 className="text-lg font-semibold text-text">{contact.name}</h3>
-        <p className="text-xs text-text-muted">
-          {contact.store_name
-            ? `Visible to ${contact.store_name} (plus GMs and Owners)`
-            : "Shared with the whole organization"}
-        </p>
+        <p className="text-xs text-text-muted">{visibilitySentence(contact)}</p>
       </div>
 
       {contact.pending_request_count > 0 && (
@@ -139,9 +139,15 @@ export function ContactDetailModal({
         ) : (
           <div className="flex flex-wrap gap-1">
             {contact.tags.map((t) => (
-              <Badge key={t.id} variant="accent">
-                {t.name}
-              </Badge>
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => onAction({ kind: "searchTag", tagName: t.name })}
+                title={`Search for ${t.name}`}
+                className="rounded-full transition-opacity hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-accent/50"
+              >
+                <Badge variant="accent">{t.name}</Badge>
+              </button>
             ))}
           </div>
         )}

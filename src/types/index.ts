@@ -853,6 +853,12 @@ export type {
 
 // Contacts — canonical types live in ./contact, re-exported below.
 export type {
+  ContactVisibility,
+  ContactTargetType,
+  ContactTargetRef,
+  ContactTargetInput,
+  ContactViewer,
+  ContactVisibilityPreview,
   ContactPhone,
   ContactPhoneInput,
   ContactTag,

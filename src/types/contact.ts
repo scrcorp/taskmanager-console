@@ -8,7 +8,9 @@
  *  - `number_normalized` 는 서버 계산값. 클라이언트가 보내도 무시된다 → 입력 타입에 없음.
  *  - `sort_order` 는 배열 순서로 결정된다 → 입력 타입에 없음.
  *  - 태그는 **문자열 배열**로 보낸다 (ID 아님). 서버가 org 단위로 upsert.
- *  - `store_id === null` = 조직 전체 공유. 목록 필터에서는 리터럴 `"none"` 을 쓴다.
+ *  - 가시성은 **명시 모드**다: `visibility="organization"`(전 조직) | `"stores"`(지정 매장).
+ *    매장 목록이 비었다고 전체 공유가 되지 않는다 — 서버가 거부한다 (확장 D1).
+ *    목록 필터에서 "전체 공유만"은 리터럴 `"none"` 을 쓴다 (파라미터 이름은 store_id 유지).
  */
 
 // ─── 연락처 ──────────────────────────────────────────────────────────────────
@@ -33,6 +35,40 @@ export interface ContactPhoneInput {
   is_primary?: boolean;
 }
 
+/** 연락처 가시성 모드. `restricted` = 아래 대상들에게만. */
+export type ContactVisibility = "organization" | "restricted";
+
+/** 공개 대상 축 (V4). position 은 이 프로젝트에 "사용자의 직책"이 없어 제외. */
+export type ContactTargetType = "store" | "role" | "user";
+
+/** 공개 대상 한 건 (응답) — 타입 + id + 표시명. */
+export interface ContactTargetRef {
+  type: ContactTargetType;
+  id: string;
+  name: string;
+}
+
+/** 공개 대상 한 건 (요청). */
+export interface ContactTargetInput {
+  type: ContactTargetType;
+  id: string;
+}
+
+/** 가시성 미리보기 응답 — "지금 누가 보는가" (V4/V5). */
+export interface ContactViewer {
+  id: string;
+  name: string;
+  /** Owner / Everyone / Store / Role / Named */
+  reason: string;
+  /** Owner 는 뺄 수 없다 (V1). */
+  can_exclude: boolean;
+}
+
+export interface ContactVisibilityPreview {
+  viewers: ContactViewer[];
+  total: number;
+}
+
 /** org 단위 태그 마스터 항목 (응답). */
 export interface ContactTag {
   id: string;
@@ -55,9 +91,11 @@ export interface Contact {
   company: string | null;
   email: string | null;
   memo: string | null;
-  /** null = 조직 전체 공유. */
-  store_id: string | null;
-  store_name: string | null;
+  visibility: ContactVisibility;
+  /** visibility === "restricted" 일 때만 채워진다. (타입, 이름) 순. */
+  targets: ContactTargetRef[];
+  /** 명시적으로 제외된 사람들 (V4). */
+  excluded_users: ContactTargetRef[];
   phones: ContactPhone[];
   tags: ContactTag[];
   created_by: string | null;
@@ -74,7 +112,10 @@ export interface ContactCreate {
   company?: string | null;
   email?: string | null;
   memo?: string | null;
-  store_id?: string | null;
+  visibility?: ContactVisibility;
+  /** visibility === "restricted" 이면 1개 이상 필수. */
+  targets?: ContactTargetInput[];
+  excluded_user_ids?: string[];
   phones?: ContactPhoneInput[];
   tags?: string[];
   /** 등록 사유 — 선택 (이력에 남는다). */
@@ -92,7 +133,9 @@ export interface ContactUpdate {
   company?: string | null;
   email?: string | null;
   memo?: string | null;
-  store_id?: string | null;
+  visibility?: ContactVisibility;
+  targets?: ContactTargetInput[];
+  excluded_user_ids?: string[];
   phones?: ContactPhoneInput[];
   tags?: string[];
   /** 수정 사유 — **필수**. */
@@ -147,7 +190,9 @@ export interface ContactRequestPayload {
   company?: string | null;
   email?: string | null;
   memo?: string | null;
-  store_id?: string | null;
+  visibility?: ContactVisibility;
+  targets?: ContactTargetInput[];
+  excluded_user_ids?: string[];
   phones?: ContactPhoneInput[];
   tags?: string[];
 }

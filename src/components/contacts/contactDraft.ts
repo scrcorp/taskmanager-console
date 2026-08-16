@@ -7,7 +7,12 @@
  * 계약: docs/99_inbox/2026-08-14-연락처-API계약.md
  */
 
-import type { Contact, ContactRequestPayload } from "@/types";
+import type {
+  Contact,
+  ContactRequestPayload,
+  ContactTargetInput,
+  ContactVisibility,
+} from "@/types";
 
 /** 계약상 상한 — 서버 422 를 맞기 전에 폼에서 먼저 잡는다. */
 export const CONTACT_LIMITS = {
@@ -37,8 +42,12 @@ export interface ContactDraft {
   company: string;
   email: string;
   memo: string;
-  /** `""` = 매장 미지정 = 조직 전체 공유. */
-  store_id: string;
+  /** 가시성 모드 — 명시 값이다. 대상이 비었다고 전체 공유가 되지 않는다 (V1). */
+  visibility: ContactVisibility;
+  /** visibility === "restricted" 일 때 고른 대상들(매장/직급/개인). OR 로 합쳐진다 (V4). */
+  targets: ContactTargetInput[];
+  /** 후보 명단에서 개인 단위로 뺀 사람들 (V4). Owner 는 뺄 수 없다. */
+  excluded_user_ids: string[];
   phones: ContactPhoneDraft[];
   tags: string[];
   /** 사유. 필수 여부는 화면(모드)이 정한다. */
@@ -66,7 +75,9 @@ export function emptyContactDraft(): ContactDraft {
     company: "",
     email: "",
     memo: "",
-    store_id: "",
+    visibility: "organization",
+    targets: [],
+    excluded_user_ids: [],
     phones: [newPhoneRow({ is_primary: true })],
     tags: [],
     reason: "",
@@ -96,7 +107,9 @@ export function draftFromContact(contact: Contact): ContactDraft {
     company: contact.company ?? "",
     email: contact.email ?? "",
     memo: contact.memo ?? "",
-    store_id: contact.store_id ?? "",
+    visibility: contact.visibility,
+    targets: contact.targets.map((t) => ({ type: t.type, id: t.id })),
+    excluded_user_ids: contact.excluded_users.map((t) => t.id),
     phones: phoneRowsFrom(ordered),
     tags: contact.tags.map((t) => t.name),
     reason: "",
@@ -110,7 +123,9 @@ export function draftFromPayload(payload: ContactRequestPayload): ContactDraft {
     company: payload.company ?? "",
     email: payload.email ?? "",
     memo: payload.memo ?? "",
-    store_id: payload.store_id ?? "",
+    visibility: payload.visibility ?? "organization",
+    targets: payload.targets ?? [],
+    excluded_user_ids: payload.excluded_user_ids ?? [],
     phones: phoneRowsFrom(payload.phones),
     tags: payload.tags ?? [],
     reason: "",
@@ -150,7 +165,11 @@ export function draftToPayload(draft: ContactDraft): ContactRequestPayload {
     company: orNull(draft.company),
     email: orNull(draft.email),
     memo: orNull(draft.memo),
-    store_id: draft.store_id || null,
+    visibility: draft.visibility,
+    // 전체 공유면 대상을 딸려 보내지 않는다 — 서버가 모순 상태로 거부한다.
+    targets: draft.visibility === "restricted" ? draft.targets : [],
+    excluded_user_ids:
+      draft.visibility === "restricted" ? draft.excluded_user_ids : [],
     phones,
     tags: draft.tags,
   };
@@ -158,7 +177,17 @@ export function draftToPayload(draft: ContactDraft): ContactRequestPayload {
 
 /** 필드별 폼 에러. 비어 있으면 통과. */
 export type ContactDraftErrors = Partial<
-  Record<"name" | "email" | "memo" | "company" | "phones" | "tags" | "reason", string>
+  Record<
+    | "name"
+    | "email"
+    | "memo"
+    | "company"
+    | "phones"
+    | "tags"
+    | "reason"
+    | "visibility",
+    string
+  >
 >;
 
 /**
@@ -208,6 +237,13 @@ export function validateContactDraft(
     errors.tags = `Up to ${CONTACT_LIMITS.tags} tags per contact. Remove a few.`;
   } else if (draft.tags.some((t) => t.length > CONTACT_LIMITS.tagLength)) {
     errors.tags = `A tag is too long (max ${CONTACT_LIMITS.tagLength} characters).`;
+  }
+
+  // 가시성 — 서버와 같은 규칙을 폼에서 먼저 잡는다 (V1).
+  // 대상 0개를 조용히 전체 공유로 떨어뜨리지 않는다.
+  if (draft.visibility === "restricted" && draft.targets.length === 0) {
+    errors.visibility =
+      "Pick at least one store, role or person, or share this contact with the whole organization.";
   }
 
   const reason = draft.reason.trim();

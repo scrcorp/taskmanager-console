@@ -12,10 +12,10 @@
 import React, { useEffect, useState } from "react";
 import { AlertTriangle, Plus, Star, Trash2 } from "lucide-react";
 
-import { Button, Input, Select, Textarea } from "@/components/ui";
-import { useStores } from "@/hooks/useStores";
+import { Button, Input, Textarea } from "@/components/ui";
 import { DUPLICATE_MIN_DIGITS, DuplicatePhoneNotice } from "./DuplicatePhoneNotice";
 import { ContactTagInput } from "./ContactTagInput";
+import { VisibilityPicker } from "./VisibilityPicker";
 import {
   CONTACT_LIMITS,
   newPhoneRow,
@@ -61,7 +61,6 @@ export function ContactForm({
   // 해당 문구가 사라져야 한다 — 안 그러면 사유를 채우고도 빨간 글씨가 남아
   // 아직 안 된 것처럼 읽힌다.
   const [submitAttempted, setSubmitAttempted] = useState(false);
-  const { data: stores } = useStores();
 
   useEffect(() => {
     if (!submitAttempted) return;
@@ -111,11 +110,6 @@ export function ContactForm({
     if (Object.keys(found).length > 0) return;
     onSubmit(draft);
   }
-
-  const storeOptions = [
-    { value: "", label: "Shared with the whole organization" },
-    ...(stores ?? []).map((s) => ({ value: s.id, label: s.name })),
-  ];
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
@@ -238,20 +232,15 @@ export function ContactForm({
         placeholder="Anything worth remembering — hours, who to ask for, account number"
       />
 
-      {/* Store scope — 미선택이 곧 "전체 공유"라는 뜻이 화면에 드러나야 한다 (설계 D1). */}
-      <div className="flex flex-col gap-1.5">
-        <Select
-          label="Visible to"
-          options={storeOptions}
-          value={draft.store_id}
-          onChange={(e) => patch({ store_id: e.target.value })}
-        />
-        <p className="text-xs text-text-muted">
-          {draft.store_id
-            ? "Only people assigned to this store (plus GMs and Owners) will see this contact."
-            : "No store selected — everyone in the organization with contacts access will see it."}
-        </p>
-      </div>
+      {/* 가시성 — 전체 공유는 **고르는 것**이지 "아무것도 안 고른 상태"가 아니다 (V1).
+          대상은 매장/직급/개인 3축이 OR 로 합쳐지고, 그 결과 명단에서 개인을 뺄 수 있다 (V4). */}
+      <VisibilityPicker
+        visibility={draft.visibility}
+        targets={draft.targets}
+        excludedUserIds={draft.excluded_user_ids}
+        error={errors.visibility}
+        onChange={(next) => patch(next)}
+      />
 
       <Textarea
         label={reasonLabel}
