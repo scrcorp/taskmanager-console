@@ -141,6 +141,34 @@ function isValidRangeInput(value: string): boolean {
   return /^\d+$/.test(trimmed) && parseInt(trimmed, 10) >= 1;
 }
 
+/**
+ * 그룹 이름에서 코드 후보를 만든다 — 운영자가 비워두면 이걸 쓴다.
+ * 단어가 여러 개면 각 단어 첫 글자(최대 4자), 한 단어면 앞 3자.
+ * "M Korean BBQ" → MKB, "Orange Dining Group" → ODG, "Bakery" → BAK.
+ * 이미 쓰는 코드와 겹치면 뒤에 2,3… 을 붙인다 (서버 20자 제한 안에서).
+ *
+ * Derive a group code from its name when the operator leaves it blank.
+ */
+function suggestGroupCode(name: string, taken: Set<string>): string {
+  const words: string[] = name
+    .toUpperCase()
+    .replace(/[^A-Z0-9 ]/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+  let base: string =
+    words.length >= 2
+      ? words.map((w: string) => w[0]).join("").slice(0, 4)
+      : (words[0] ?? "").slice(0, 3);
+  if (!base) return "";
+  base = base.slice(0, 20);
+  if (!taken.has(base)) return base;
+  for (let n = 2; n < 100; n += 1) {
+    const candidate: string = `${base.slice(0, 20 - String(n).length)}${n}`;
+    if (!taken.has(candidate)) return candidate;
+  }
+  return base;
+}
+
 /** 그룹 섹션 (마지막은 Ungrouped) / One rendered store section (last = Ungrouped) */
 interface StoreSection {
   groupId: string | null;
@@ -300,6 +328,8 @@ interface DraftGroup {
   /** 기존 그룹 id 또는 "new-N" tempId / Existing id or "new-N" tempId */
   id: string;
   name: string;
+  /** 그룹 코드 raw 입력 ("" = null) — 급여/외부 표기(예: "ODG"), 임포트 매칭 키 / Raw code input, empty = null */
+  code: string;
   numbering_mode: "group" | "store";
   /** number_range_start raw 입력 ("" = null) / Raw range-start input, empty = null */
   rangeStart: string;
@@ -330,6 +360,7 @@ function buildGroupsDraft(groups: StoreGroup[], stores: Store[]): GroupsDraft {
         {
           id: g.id,
           name: g.name,
+          code: g.code ?? "",
           numbering_mode: g.numbering_mode,
           rangeStart: g.number_range_start != null ? String(g.number_range_start) : "",
         },
@@ -359,7 +390,12 @@ interface GroupSaveOps {
   /** ② 변경 필드만 담은 기존 그룹 수정 / Changed fields per existing group to PUT */
   updates: {
     id: string;
-    data: { name?: string; numbering_mode?: "group" | "store"; number_range_start?: number | null };
+    data: {
+      name?: string;
+      code?: string | null;
+      numbering_mode?: "group" | "store";
+      number_range_start?: number | null;
+    };
   }[];
   /**
    * ③ 변경 필드만 담은 매장 수정 — 필드 생략 = 미변경. target 은 tempId 일 수 있고,
@@ -414,6 +450,8 @@ function computeGroupSaveOps(
     const data: GroupSaveOps["updates"][number]["data"] = {};
     const name: string = d.name.trim();
     if (name && name !== server.name) data.name = name;
+    const code: string | null = d.code.trim() || null;
+    if (code !== (server.code ?? null)) data.code = code;
     if (d.numbering_mode !== server.numbering_mode) data.numbering_mode = d.numbering_mode;
     const range: number | null = parseRangeStart(d.rangeStart);
     if (range !== (server.number_range_start ?? null)) data.number_range_start = range;
@@ -497,6 +535,7 @@ function SortableGroupRow({
   effectiveGroupIds,
   groupNamesById,
   storeRanges,
+  codeConflict,
   disabled,
   onPatch,
   onDelete,
@@ -521,6 +560,8 @@ function SortableGroupRow({
   groupNamesById: Record<string, string>;
   /** 매장별 number_range_start raw 입력 (draft) / Raw per-store range inputs from the draft */
   storeRanges: Record<string, string>;
+  /** 같은 코드를 쓰는 다른 그룹 이름 (없으면 null) / Other group using the same code */
+  codeConflict: string | null;
   /** 저장 중 — 조작 전체 잠금 / Saving in progress, all controls locked */
   disabled: boolean;
   /** draft 필드 갱신 / Patch draft fields */
@@ -556,6 +597,8 @@ function SortableGroupRow({
     }
   };
 
+  /** 매장 추가 패널 열림 여부 / Whether the add-stores panel is open */
+  const [adding, setAdding] = useState<boolean>(false);
   const displayName: string = draftGroup.name.trim() || "Untitled group";
   /** Per-store 채번 모드 — 매장 칩마다 번호대 입력 노출 / Per-store numbering shows a range input per chip */
   const perStore: boolean = draftGroup.numbering_mode === "store";
@@ -614,6 +657,22 @@ function SortableGroupRow({
           aria-label={`Group name for ${displayName}`}
           className="flex-1 min-w-0 rounded-md border border-transparent bg-transparent px-2 py-1 text-sm text-text hover:border-border focus:border-accent focus:bg-surface focus:outline-none focus:ring-2 focus:ring-accent/50 transition-colors disabled:opacity-50"
         />
+        {/* 그룹 코드 — 급여/외부 시스템 표기 (예: ODG). EMPID 임포트가 이 키로도 자연 매칭 */}
+        <input
+          type="text"
+          value={draftGroup.code}
+          maxLength={20}
+          disabled={disabled}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+            onPatch({ code: e.target.value.toUpperCase() })
+          }
+          onKeyDown={blurOnEnter}
+          placeholder="Code"
+          aria-label={`Group code for ${displayName}`}
+          aria-invalid={!!codeConflict || undefined}
+          title={codeConflict ? `Also used by ${codeConflict}` : undefined}
+          className={`w-20 shrink-0 rounded-md border bg-transparent px-2 py-1 text-xs font-mono text-text placeholder:text-text-muted focus:bg-surface focus:outline-none focus:ring-2 focus:ring-accent/50 transition-colors disabled:opacity-50 ${codeConflict ? "border-danger" : "border-border focus:border-accent"}`}
+        />
         {isNew && <Badge variant="accent">New</Badge>}
         <span className="text-xs text-text-muted shrink-0">
           {members.length} {members.length === 1 ? "store" : "stores"}
@@ -670,6 +729,21 @@ function SortableGroupRow({
           <span className="text-xs text-danger">Whole number of 1 or more.</span>
         )}
       </div>
+      {(codeConflict || !groupRangeBad) && (
+        <div className="mt-1 pl-7 space-y-0.5">
+          {codeConflict && (
+            <p className="text-xs text-danger">
+              Code <span className="font-mono">{draftGroup.code.trim()}</span> is also used by{" "}
+              {codeConflict}.
+            </p>
+          )}
+          {!groupRangeBad && (
+            <p className="text-xs text-text-muted">
+              {rangePreview(draftGroup.rangeStart, draftGroup.numbering_mode)}
+            </p>
+          )}
+        </div>
+      )}
       {/* 소속 매장 칩 + 추가 select — draft 만 갱신. Per-store 모드에선 칩마다 번호대
           입력을 노출 (Shared 모드에선 숨김 — 값은 draft 에 보존) / Member chips +
           add-store select (draft only); per-store mode adds a range input per chip
@@ -718,34 +792,316 @@ function SortableGroupRow({
         {members.length === 0 && (
           <span className="text-xs text-text-muted">No stores in this group yet.</span>
         )}
-        <select
-          value=""
+        <button
+          type="button"
+          onClick={() => setAdding((v: boolean) => !v)}
           disabled={disabled || candidates.length === 0}
-          onChange={(e: React.ChangeEvent<HTMLSelectElement>) => {
-            const store = candidates.find((s: Store) => s.id === e.target.value);
-            if (store) onAddStore(store);
-          }}
-          aria-label={`Add store to ${displayName}`}
-          className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-text focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent disabled:opacity-50"
+          aria-expanded={adding}
+          className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-text hover:bg-surface-hover transition-colors disabled:opacity-50"
         >
-          <option value="">Add store...</option>
-          {candidates.map((store: Store) => {
-            const currentId: string | null = effectiveGroupIds[store.id] ?? null;
-            return (
-              <option key={store.id} value={store.id}>
-                {currentId && groupNamesById[currentId]
-                  ? `${store.name} (current: ${groupNamesById[currentId]})`
-                  : store.name}
-              </option>
-            );
-          })}
-        </select>
+          {adding ? "Done adding" : "Add stores…"}
+        </button>
       </div>
+      {/* 다중 추가 — 체크하면 즉시 draft 에 편성된다(칩으로 나타남). 매장이 많으면 검색 */}
+      {adding && (
+        <div className="mt-2 pl-7">
+          <StoreChecklist
+            stores={candidates}
+            isChecked={() => false}
+            onToggle={(store: Store) => onAddStore(store)}
+            effectiveGroupIds={effectiveGroupIds}
+            groupNamesById={groupNamesById}
+            disabled={disabled}
+            emptyText="Every store is already in this group."
+          />
+        </div>
+      )}
       {perStore && members.some((s: Store) => !isValidRangeInput(storeRanges[s.id] ?? "")) && (
         <p className="mt-1 pl-7 text-xs text-danger">
           Store range must be a whole number of 1 or more.
         </p>
       )}
+    </div>
+  );
+}
+
+/**
+ * 매장 체크리스트 — 검색 + 다중 선택. 그룹 생성 폼과 그룹 행의 "매장 추가"가
+ * 같은 컴포넌트를 쓴다(매장이 늘어나면 select 하나로는 못 찾는다).
+ * 다른 그룹 소속이면 어디서 옮겨오는지 함께 보여준다.
+ *
+ * Store checklist with search, shared by the new-group form and the row's
+ * add-stores panel. Shows where a store would move from.
+ */
+function StoreChecklist({
+  stores,
+  isChecked,
+  onToggle,
+  effectiveGroupIds,
+  groupNamesById,
+  disabled,
+  emptyText,
+}: {
+  stores: Store[];
+  isChecked: (storeId: string) => boolean;
+  onToggle: (store: Store) => void;
+  effectiveGroupIds: Record<string, string | null>;
+  groupNamesById: Record<string, string>;
+  disabled: boolean;
+  emptyText: string;
+}): React.ReactElement {
+  const [query, setQuery] = useState<string>("");
+  const q: string = query.trim().toLowerCase();
+  const shown: Store[] = q
+    ? stores.filter(
+        (s: Store) =>
+          s.name.toLowerCase().includes(q) || (s.code ?? "").toLowerCase().includes(q),
+      )
+    : stores;
+
+  return (
+    <div className="space-y-1.5">
+      {stores.length > 6 && (
+        <input
+          type="text"
+          value={query}
+          disabled={disabled}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => setQuery(e.target.value)}
+          placeholder="Search stores..."
+          className="w-full rounded-lg border border-border bg-surface px-3 py-1.5 text-xs text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent disabled:opacity-50"
+        />
+      )}
+      <div className="max-h-40 overflow-y-auto rounded-lg border border-border bg-surface p-2 space-y-1">
+        {shown.length === 0 && (
+          <p className="px-1 py-2 text-xs text-text-muted">
+            {stores.length === 0 ? emptyText : "No stores match that search."}
+          </p>
+        )}
+        {shown.map((store: Store) => {
+          const currentId: string | null = effectiveGroupIds[store.id] ?? null;
+          const currentName: string | null = currentId
+            ? groupNamesById[currentId] ?? null
+            : null;
+          return (
+            <label
+              key={store.id}
+              className="flex items-center gap-2 rounded-md px-1.5 py-1 text-sm text-text hover:bg-surface-hover cursor-pointer"
+            >
+              <input
+                type="checkbox"
+                checked={isChecked(store.id)}
+                disabled={disabled}
+                onChange={() => onToggle(store)}
+                className="cursor-pointer accent-accent"
+              />
+              {store.code && (
+                <span className="shrink-0 rounded border border-border bg-surface-2 px-1 py-0.5 text-[10px] font-mono text-text-muted">
+                  {store.code}
+                </span>
+              )}
+              <span className="flex-1 min-w-0 truncate">{store.name}</span>
+              {currentName && (
+                <span className="shrink-0 text-xs text-warning">moves from {currentName}</span>
+              )}
+            </label>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 번호대 설명 한 줄 — 입력한 시작 번호가 실제로 무슨 뜻인지 미리 보여준다.
+ * "1000" 이라고만 적혀 있으면 그게 이 그룹 전체의 시작인지 매장별인지 알 수 없다.
+ *
+ * One-line preview of what a range start actually means.
+ */
+function rangePreview(rangeStart: string, mode: "group" | "store"): string {
+  const parsed: number | null = parseRangeStart(rangeStart);
+  const from: number = parsed ?? 1;
+  const seq = `${from}, ${from + 1}, ${from + 2}…`;
+  return mode === "group"
+    ? `New EMPIDs in this group: ${seq}`
+    : `Stores without their own start use: ${seq}`;
+}
+
+/**
+ * 신규 그룹 생성 폼 — 이름만 받고 끝내지 않는다. 그룹을 만들 때 실제로 정해야 하는
+ * 것(이름·코드·소속 매장·채번 방식·시작 번호)을 한 화면에서 받아 draft 에 넣는다.
+ * 코드를 비우면 이름에서 자동 생성한다(§EMPID 임포트가 코드로도 그룹을 매칭).
+ *
+ * New-group form. Creating a group means deciding its name, code, member
+ * stores, numbering mode and range — all in one place, not just a name.
+ * A blank code is auto-derived from the name.
+ */
+function NewGroupForm({
+  stores,
+  effectiveGroupIds,
+  groupNamesById,
+  takenCodes,
+  disabled,
+  onCancel,
+  onCreate,
+}: {
+  stores: Store[];
+  effectiveGroupIds: Record<string, string | null>;
+  groupNamesById: Record<string, string>;
+  takenCodes: Set<string>;
+  disabled: boolean;
+  onCancel: () => void;
+  onCreate: (draft: {
+    name: string;
+    code: string;
+    numbering_mode: "group" | "store";
+    rangeStart: string;
+    storeIds: string[];
+  }) => void;
+}): React.ReactElement {
+  const [name, setName] = useState<string>("");
+  const [code, setCode] = useState<string>("");
+  const [mode, setMode] = useState<"group" | "store">("group");
+  const [rangeStart, setRangeStart] = useState<string>("");
+  const [picked, setPicked] = useState<string[]>([]);
+
+  const trimmedName: string = name.trim();
+  /** 코드 미입력 시 이름에서 파생 — placeholder 로 미리 보여준다 / Preview of the auto code */
+  const autoCode: string = useMemo(
+    () => (trimmedName ? suggestGroupCode(trimmedName, takenCodes) : ""),
+    [trimmedName, takenCodes],
+  );
+  const rangeBad: boolean = !isValidRangeInput(rangeStart);
+  /** 입력한 코드가 이미 다른 그룹에 있는지 — 자동 생성값은 애초에 겹치지 않는다 */
+  const codeTaken: boolean = !!code.trim() && takenCodes.has(code.trim().toUpperCase());
+  const canCreate: boolean = !!trimmedName && !rangeBad && !codeTaken && !disabled;
+
+  const toggleStore = (storeId: string): void => {
+    setPicked((prev: string[]) =>
+      prev.includes(storeId) ? prev.filter((id: string) => id !== storeId) : [...prev, storeId],
+    );
+  };
+
+  return (
+    <div className="rounded-lg border border-accent/40 bg-accent-muted/30 p-3 space-y-3">
+      <p className="text-sm font-semibold text-text">New group</p>
+
+      <div className="flex flex-wrap gap-2">
+        <label className="flex-1 min-w-[180px] space-y-1">
+          <span className="text-xs text-text-secondary">Name *</span>
+          <input
+            type="text"
+            value={name}
+            disabled={disabled}
+            autoFocus
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setName(e.target.value)}
+            placeholder="e.g. M Korean BBQ"
+            className="w-full rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent disabled:opacity-50"
+          />
+        </label>
+        <label className="w-32 space-y-1">
+          <span className="text-xs text-text-secondary">Code</span>
+          <input
+            type="text"
+            value={code}
+            maxLength={20}
+            disabled={disabled}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setCode(e.target.value.toUpperCase())
+            }
+            placeholder={autoCode || "Auto"}
+            className="w-full rounded-lg border border-border bg-surface px-3 py-1.5 text-sm font-mono text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent disabled:opacity-50"
+          />
+        </label>
+      </div>
+      {codeTaken ? (
+        <p className="text-xs text-danger">
+          <span className="font-mono">{code.trim()}</span> is already used by another group. Pick a
+          different code.
+        </p>
+      ) : (
+        <p className="text-xs text-text-muted">
+          Code is how payroll and other systems name this company (e.g. ODG). Leave it blank and{" "}
+          {autoCode ? <span className="font-mono text-text-secondary">{autoCode}</span> : "one"} is
+          used. EMPID import matches this code to the group.
+        </p>
+      )}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="inline-flex rounded-lg border border-border overflow-hidden">
+          {(["group", "store"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              disabled={disabled}
+              onClick={() => setMode(m)}
+              className={`px-2.5 py-1 text-xs transition-colors disabled:opacity-50 ${
+                mode === m
+                  ? "bg-accent-muted text-accent font-medium"
+                  : "text-text-muted hover:text-text hover:bg-surface-hover"
+              }`}
+            >
+              {NUMBERING_MODE_LABEL[m]}
+            </button>
+          ))}
+        </div>
+        <label className="flex items-center gap-1.5 text-xs text-text-muted">
+          {mode === "store" ? "Default range" : "Range start"}
+          <input
+            type="number"
+            min={1}
+            value={rangeStart}
+            placeholder="Default"
+            disabled={disabled}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setRangeStart(e.target.value)}
+            className={`w-20 rounded-md border bg-surface px-2 py-1 text-xs text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent disabled:opacity-50 ${rangeBad ? "border-danger" : "border-border"}`}
+          />
+        </label>
+        {rangeBad && <span className="text-xs text-danger">Whole number of 1 or more.</span>}
+      </div>
+      {!rangeBad && (
+        <p className="text-xs text-text-muted">{rangePreview(rangeStart, mode)}</p>
+      )}
+      <p className="text-xs text-text-muted">
+        {mode === "group"
+          ? "Shared numbering — one EMPID per person across every store in this group."
+          : "Per-store numbering — each store keeps its own EMPID sequence."}
+      </p>
+
+      <div className="space-y-1.5">
+        <span className="text-xs text-text-secondary">
+          Stores {picked.length > 0 && <span className="text-text-muted">· {picked.length} selected</span>}
+        </span>
+        <StoreChecklist
+          stores={stores}
+          isChecked={(id: string) => picked.includes(id)}
+          onToggle={(store: Store) => toggleStore(store.id)}
+          effectiveGroupIds={effectiveGroupIds}
+          groupNamesById={groupNamesById}
+          disabled={disabled}
+          emptyText="No stores yet."
+        />
+      </div>
+
+      <div className="flex justify-end gap-2">
+        <Button variant="secondary" size="sm" onClick={onCancel} disabled={disabled}>
+          Cancel
+        </Button>
+        <Button
+          size="sm"
+          disabled={!canCreate}
+          onClick={() =>
+            onCreate({
+              name: trimmedName,
+              code: code.trim() || autoCode,
+              numbering_mode: mode,
+              rangeStart,
+              storeIds: picked,
+            })
+          }
+        >
+          Add group
+        </Button>
+      </div>
     </div>
   );
 }
@@ -780,7 +1136,8 @@ function ManageGroupsModal({
   const reorderGroups = useReorderStoreGroups({ silent: true });
   const updateStore = useUpdateStore({ silent: true });
 
-  const [newName, setNewName] = useState<string>("");
+  /** 신규 그룹 폼 표시 여부 / Whether the new-group form is open */
+  const [isAdding, setIsAdding] = useState<boolean>(false);
   /** 그룹별 EMPID 중복 경고 (실제 group id 키) / Per-group duplicate-EMPID warnings keyed by real group id */
   const [dupWarnings, setDupWarnings] = useState<Record<string, { groupName: string; count: number }>>({});
   /** 모달 안의 모든 편집이 쌓이는 draft — null 이면 서버 데이터로 (재)초기화 대기 / Local draft; null = awaiting (re)init */
@@ -808,7 +1165,7 @@ function ManageGroupsModal({
   useEffect(() => {
     if (isOpen && !wasOpen.current) {
       setDraft(null);
-      setNewName("");
+      setIsAdding(false);
     }
     wasOpen.current = isOpen;
   }, [isOpen]);
@@ -880,6 +1237,47 @@ function ManageGroupsModal({
     );
   }, [draft]);
 
+  /**
+   * 같은 코드를 두 그룹이 쓰면 EMPID 임포트가 어느 쪽인지 정하지 못한다 —
+   * 행별로 상대 그룹 이름을 붙여 저장 전에 잡는다 (id → 상대 이름).
+   * Code collisions between groups (id → the other group's name).
+   */
+  const codeConflicts: Record<string, string> = useMemo(() => {
+    if (!draft) return {};
+    const deleted = new Set<string>(draft.deleted);
+    const byCode: Record<string, string[]> = {};
+    draft.order
+      .filter((id: string) => !deleted.has(id))
+      .forEach((id: string) => {
+        const code: string = (draft.groups[id]?.code ?? "").trim().toUpperCase();
+        if (code) (byCode[code] ||= []).push(id);
+      });
+    const out: Record<string, string> = {};
+    Object.values(byCode).forEach((ids: string[]) => {
+      if (ids.length < 2) return;
+      ids.forEach((id: string) => {
+        const other: string | undefined = ids.find((x: string) => x !== id);
+        if (other) out[id] = draft.groups[other]?.name.trim() || "Untitled group";
+      });
+    });
+    return out;
+  }, [draft]);
+
+  /** 코드 충돌이 하나라도 있으면 저장을 막는다 / Block save while codes collide */
+  const hasCodeConflict: boolean = Object.keys(codeConflicts).length > 0;
+
+  /** 이미 쓰는 그룹 코드 — 자동 생성이 겹치지 않게 (삭제 표시 그룹은 제외) / Codes in use */
+  const takenCodes: Set<string> = useMemo(() => {
+    if (!draft) return new Set<string>();
+    const deleted = new Set<string>(draft.deleted);
+    return new Set<string>(
+      draft.order
+        .filter((id: string) => !deleted.has(id))
+        .map((id: string) => draft.groups[id]?.code.trim().toUpperCase() ?? "")
+        .filter(Boolean),
+    );
+  }, [draft]);
+
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
@@ -934,26 +1332,48 @@ function ManageGroupsModal({
     );
   }, []);
 
-  /** 그룹 추가 — tempId 로 draft 에만 추가, POST 는 Save 에서 / Add a group to the draft only */
-  const handleAdd = useCallback((): void => {
-    const trimmed: string = newName.trim();
-    if (!trimmed) return;
-    tempIdCounter.current += 1;
-    const tempId: string = `${TEMP_GROUP_ID_PREFIX}${tempIdCounter.current}`;
-    setDraft((prev) =>
-      prev
-        ? {
-            ...prev,
-            groups: {
-              ...prev.groups,
-              [tempId]: { id: tempId, name: trimmed, numbering_mode: "group", rangeStart: "" },
-            },
-            order: [...prev.order, tempId],
-          }
-        : prev,
-    );
-    setNewName("");
-  }, [newName]);
+  /**
+   * 그룹 추가 — 폼이 넘긴 값(이름·코드·채번·번호대·소속 매장)을 tempId 로 draft 에만
+   * 넣는다. POST 와 매장 편성 PUT 은 Save 에서 한꺼번에.
+   * Add a group to the draft (POST + store moves happen on Save).
+   */
+  const handleAdd = useCallback(
+    (payload: {
+      name: string;
+      code: string;
+      numbering_mode: "group" | "store";
+      rangeStart: string;
+      storeIds: string[];
+    }): void => {
+      if (!payload.name) return;
+      tempIdCounter.current += 1;
+      const tempId: string = `${TEMP_GROUP_ID_PREFIX}${tempIdCounter.current}`;
+      setDraft((prev) =>
+        prev
+          ? {
+              ...prev,
+              groups: {
+                ...prev.groups,
+                [tempId]: {
+                  id: tempId,
+                  name: payload.name,
+                  code: payload.code,
+                  numbering_mode: payload.numbering_mode,
+                  rangeStart: payload.rangeStart,
+                },
+              },
+              order: [...prev.order, tempId],
+              storeAssign: {
+                ...prev.storeAssign,
+                ...Object.fromEntries(payload.storeIds.map((id: string) => [id, tempId])),
+              },
+            }
+          : prev,
+      );
+      setIsAdding(false);
+    },
+    [],
+  );
 
   /** 폐기 확인 모달 표시 중 재진입 방지 (ESC 연타 등) / Guards re-entrant discard confirms (e.g. ESC mashing) */
   const confirmingRef = useRef(false);
@@ -993,7 +1413,7 @@ function ManageGroupsModal({
    * caches invalidate, and the draft re-initializes with the modal kept open.
    */
   const handleSave = useCallback(async (): Promise<void> => {
-    if (!draft || !ops || ops.count === 0 || isSaving || invalidRanges) return;
+    if (!draft || !ops || ops.count === 0 || isSaving || invalidRanges || hasCodeConflict) return;
     // 빈 이름은 서버 요청 전에 차단 / Block empty names before any request
     const unnamed: string[] = ops.finalOrder.filter((id: string) => !draft.groups[id]?.name.trim());
     if (unnamed.length > 0) {
@@ -1075,6 +1495,7 @@ function ManageGroupsModal({
       for (const g of ops.creates) {
         const created = await createGroup.mutateAsync({
           name: g.name.trim(),
+          code: g.code.trim() || null,
           numbering_mode: g.numbering_mode,
           number_range_start: parseRangeStart(g.rangeStart),
         });
@@ -1187,6 +1608,7 @@ function ManageGroupsModal({
     ops,
     isSaving,
     invalidRanges,
+    hasCodeConflict,
     createGroup,
     updateGroup,
     updateStore,
@@ -1244,6 +1666,7 @@ function ManageGroupsModal({
                       effectiveGroupIds={effectiveGroupIds}
                       groupNamesById={groupNamesById}
                       storeRanges={draft.storeRange}
+                      codeConflict={codeConflicts[id] ?? null}
                       disabled={isSaving}
                       onPatch={(fields) => patchGroup(id, fields)}
                       onDelete={() => markDeleted(id)}
@@ -1258,33 +1681,35 @@ function ManageGroupsModal({
             </SortableContext>
           </DndContext>
         )}
-        <div className="flex gap-2">
-          <input
-            type="text"
-            placeholder="New group name"
-            value={newName}
-            disabled={isSaving || !draft}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewName(e.target.value)}
-            onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                handleAdd();
-              }
-            }}
-            className="flex-1 rounded-lg border border-border bg-surface px-3 py-1.5 text-sm text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent disabled:opacity-50"
+        {isAdding && draft ? (
+          <NewGroupForm
+            stores={storeList}
+            effectiveGroupIds={effectiveGroupIds}
+            groupNamesById={groupNamesById}
+            takenCodes={takenCodes}
+            disabled={isSaving}
+            onCancel={() => setIsAdding(false)}
+            onCreate={handleAdd}
           />
+        ) : (
           <Button
             variant="secondary"
             size="sm"
-            onClick={handleAdd}
-            disabled={!newName.trim() || isSaving || !draft}
+            onClick={() => setIsAdding(true)}
+            disabled={isSaving || !draft}
           >
-            Add
+            <Plus className="h-4 w-4 mr-1" />
+            New group
           </Button>
-        </div>
+        )}
         {/* Footer — draft 폐기(dirty 면 확인) / 일괄 저장 (N = 적용될 서버 연산 수) */}
         <div className="flex items-center justify-end gap-2 pt-2">
-          {invalidRanges && (
+          {hasCodeConflict && (
+            <span className="mr-auto text-xs text-danger">
+              Two groups share the same code — make them unique.
+            </span>
+          )}
+          {invalidRanges && !hasCodeConflict && (
             <span className="mr-auto text-xs text-danger">
               Range inputs must be whole numbers of 1 or more.
             </span>
@@ -1296,7 +1721,7 @@ function ManageGroupsModal({
             variant="primary"
             onClick={() => void handleSave()}
             isLoading={isSaving}
-            disabled={!dirty || isSaving || invalidRanges}
+            disabled={!dirty || isSaving || invalidRanges || hasCodeConflict}
           >
             {isSaving ? "Saving..." : dirty ? `Save changes (${ops?.count ?? 0})` : "Save changes"}
           </Button>
