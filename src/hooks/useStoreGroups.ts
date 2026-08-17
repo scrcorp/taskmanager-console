@@ -89,6 +89,8 @@ export async function previewGroupAssign(
 /** 그룹 생성 요청 데이터 타입 (Store group creation request data type) */
 interface CreateStoreGroupData {
   name: string;
+  /** 그룹 코드 — 급여/외부 시스템의 법인 표기 (예: "ODG"). EMPID 임포트 자연 매칭 키 */
+  code?: string | null;
   numbering_mode?: "group" | "store";
   number_range_start?: number | null;
 }
@@ -127,6 +129,8 @@ export const useCreateStoreGroup = (options?: {
 interface UpdateStoreGroupData {
   id: string;
   name?: string;
+  /** 그룹 코드 (null = 제거) / Group code, null clears it */
+  code?: string | null;
   numbering_mode?: "group" | "store";
   number_range_start?: number | null;
 }
