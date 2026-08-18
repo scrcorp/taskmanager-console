@@ -121,6 +121,8 @@ export interface StoreGroup {
   id: string;
   organization_id: string;
   name: string;
+  /** 그룹 코드 — 급여/외부 시스템의 법인 표기 (예: "ODG"). EMPID 임포트 자연 매칭 키 */
+  code: string | null;
   sort_order: number;
   /** "group" = shared numbering across the group, "store" = per-store numbering */
   numbering_mode: "group" | "store";
