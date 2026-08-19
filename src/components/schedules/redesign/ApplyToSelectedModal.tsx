@@ -9,7 +9,7 @@
  * Reset 버튼: 행별 커스텀을 기본값으로 되돌림.
  */
 
-import { storeStartOffset, stepTimeOptions } from "@/lib/scheduleTime";
+import { addDay, rollEndDate, storeStartOffset, stepTimeOptions } from "@/lib/scheduleTime";
 import { useState, useRef, useEffect, useCallback } from "react";
 import type { User, WorkRole, Store } from "@/types";
 
@@ -28,6 +28,12 @@ export interface PreviewEntry {
   breakEndTime: string | null;
   /** 새벽근무(+1d) 시작 달력일 오프셋 (영업일 대비, 0|1). 복사·붙여넣기 시 보존. */
   startOffsetDays?: number;
+  /**
+   * 위 오프셋이 **어느 시작 시각에서 파생됐는지**. 복사 경로가 시각과 오프셋을 함께
+   * 들고 다니게 해서, 시각이 바뀐 엔트리는 저장 시 오프셋을 버리고 재판정하게 한다
+   * (2026-08 오염은 시각만 바뀐 복사본이 옛 +1일을 그대로 들고 저장돼 생겼다).
+   */
+  startOffsetFromTime?: string;
   /** Status to apply when saved. Default 'confirmed'. */
   status: PreviewStatus;
 }
@@ -71,6 +77,29 @@ function workRoleLabel(wr: WorkRole): string {
 function fmtDate(dateStr: string): string {
   const d = new Date(dateStr + "T00:00:00");
   return d.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
+
+/** 계산된 달력일 셀 — `+1` 은 별도 줄이 아니라 **그 날짜 안에** 붙는다
+ *  ("Aug 18 → Aug 18 (+1)" 처럼 어느 쪽이 다음날인지 모호한 표기 금지). */
+function DateCell({ date, plus }: { date: string; plus: boolean }) {
+  return (
+    <div className={`rounded-lg border px-1.5 py-1 text-center ${
+      plus ? "border-[var(--color-warning)] bg-[var(--color-warning-muted)]" : "border-[var(--color-border)] bg-[var(--color-bg)]"
+    }`}>
+      <span className={`block text-[11px] font-semibold tabular-nums truncate ${
+        plus ? "text-[var(--color-warning)]" : "text-[var(--color-text-secondary)]"
+      }`}>
+        {fmtChip(date)}{plus ? " +1" : ""}
+      </span>
+    </div>
+  );
+}
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** "YYYY-MM-DD" → "Aug 20" (로컬 tz 파싱 없이 문자열 성분만). */
+function fmtChip(d: string): string {
+  const [, m, dd] = d.split("-").map(Number);
+  return `${MONTHS[(m ?? 1) - 1]} ${dd}`;
 }
 
 function getInitials(name: string | null | undefined): string {
@@ -273,19 +302,31 @@ export function ApplyToSelectedModal({
           endTime: row.endTime || globalEnd || "18:00",
           breakStartTime: row.breakStartTime || null,
           breakEndTime: row.breakEndTime || null,
-          // 벌크 그리드는 날짜 UI가 없음 — 경계 이전 새벽 시각은 영업일+1일로 추론.
-          // 경계는 **이 매장 설정**을 쓴다 (상수 06:00 을 쓰면 04:00 매장에서 오판).
+          // 경계 이전 새벽 시각은 영업일+1일. 경계는 **이 매장 설정**을 쓴다
+          // (상수 06:00 을 쓰면 04:00 매장에서 오판). 파생 시각을 함께 실어 보낸다.
           startOffsetDays: storeStartOffset(
             row.startTime || globalStart || "09:00",
-            stores.find((s2) => s2.id === storeId)?.day_start_time ?? null,
+            dayStartCfg,
             c.date,
           ),
+          startOffsetFromTime: row.startTime || globalStart || "09:00",
           status: globalStatus,
         };
       })
       .filter((e) => e.startTime && e.endTime);
     if (entries.length === 0) return;
     onApply(entries);
+  }
+
+  const dayStartCfg = stores.find((s2) => s2.id === storeId)?.day_start_time ?? null;
+
+  /**
+   * 그 행이 실제로 저장될 달력 날짜 — 규칙은 `scheduleTime` 하나뿐이다.
+   * 시각만 보여주면 "Aug 18 시프트"라고 믿은 근무가 Aug 19 로 저장되는 걸 아무도 못 본다.
+   */
+  function rowDates(date: string, start: string, end: string): { startDate: string; endDate: string } {
+    const startDate = addDay(date, storeStartOffset(start, dayStartCfg, date));
+    return { startDate, endDate: rollEndDate(startDate, start, end) };
   }
 
   // 모든 checked 행에 startTime + endTime이 설정되어야 Add 가능
@@ -353,15 +394,16 @@ export function ApplyToSelectedModal({
         </div>
 
         {/* Table header */}
-        <div className="grid grid-cols-[40px_1fr_120px_80px_16px_80px_80px_16px_80px_32px] items-center gap-2 px-5 py-2 border-b border-[var(--color-border)] bg-[var(--color-bg)]">
+        <div className="grid grid-cols-[36px_minmax(0,1fr)_104px_74px_84px_74px_84px_70px_10px_70px_26px] items-center gap-2 px-5 py-2 border-b border-[var(--color-border)] bg-[var(--color-bg)]">
           <div className="flex items-center justify-center">
             <input ref={headerCheckRef} type="checkbox" onChange={toggleAll} className="w-4 h-4 accent-[var(--color-accent)] cursor-pointer" />
           </div>
-          <span className="text-[11px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide">Staff / Date</span>
+          <span className="text-[11px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide">Staff / Day</span>
           <span className="text-[11px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide">Work Role</span>
           <span className="text-[11px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide">Start</span>
-          <span />
+          <span className="text-[11px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide">Start date</span>
           <span className="text-[11px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide">End</span>
+          <span className="text-[11px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide">End date</span>
           <span className="text-[11px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide">Break</span>
           <span />
           <span className="text-[11px] font-semibold text-[var(--color-text-secondary)] uppercase tracking-wide" />
@@ -374,11 +416,16 @@ export function ApplyToSelectedModal({
             const isUnchecked = unchecked.has(c.key);
             const user = users.find((u) => u.id === c.userId);
             const row = getRow(c.key);
+            const dates = rowDates(
+              c.date,
+              row.startTime || globalStart || "09:00",
+              row.endTime || globalEnd || "18:00",
+            );
 
             return (
               <div
                 key={c.key}
-                className={`grid grid-cols-[40px_1fr_120px_80px_16px_80px_80px_16px_80px_32px] items-center gap-2 px-5 py-2.5 border-b border-[var(--color-border)] last:border-0 transition-opacity ${isUnchecked ? "opacity-40" : ""}`}
+                className={`grid grid-cols-[36px_minmax(0,1fr)_104px_74px_84px_74px_84px_70px_10px_70px_26px] items-center gap-2 px-5 py-2.5 border-b border-[var(--color-border)] last:border-0 transition-opacity ${isUnchecked ? "opacity-40" : ""}`}
               >
                 <div className="flex items-center justify-center">
                   <input type="checkbox" checked={!isUnchecked} onChange={() => toggleRow(c.key)} className="w-4 h-4 accent-[var(--color-accent)] cursor-pointer" />
@@ -418,7 +465,8 @@ export function ApplyToSelectedModal({
                   <option value="">Start</option>
                   {TIME_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
-                <span className="text-[var(--color-text-muted)] text-[10px] text-center">→</span>
+                {/* Start date — 계산된 달력일. 영업일과 다르면 +1 배지를 그 셀 안에 붙인다. */}
+                <DateCell date={dates.startDate} plus={dates.startDate !== c.date} />
                 {/* End */}
                 <select
                   value={row.endTime}
@@ -429,6 +477,8 @@ export function ApplyToSelectedModal({
                   <option value="">End</option>
                   {TIME_OPTIONS.map((t) => <option key={t} value={t}>{t}</option>)}
                 </select>
+                {/* End date */}
+                <DateCell date={dates.endDate} plus={dates.endDate !== dates.startDate} />
                 {/* Break */}
                 <select
                   value={row.breakStartTime}

@@ -73,8 +73,10 @@ const appRoot = resolveRepo("app");
 describe("스케줄 코드 3-repo 일치", () => {
   const consoleCodes = extractCodes(fs.readFileSync(CONSOLE_FILE, "utf8"));
 
-  it("콘솔이 18개 코드를 들고 있다 (참조 구현 규모 고정)", () => {
-    expect(consoleCodes.size).toBe(18);
+  // 20 = 최상위 2 + 에러/경고 18. 2026-08-19 에 START_AFTER_DAY_BOUNDARY /
+  // START_BEFORE_DAY_BOUNDARY 가 삭제되면서 22 → 20 이 됐다(구간 밖 시작은 이제 경고가 아니라 차단).
+  it("콘솔이 20개 코드를 들고 있다 (참조 구현 규모 고정)", () => {
+    expect(consoleCodes.size).toBe(20);
   });
 
   it.skipIf(serverRoot === null)("server 와 일치", () => {

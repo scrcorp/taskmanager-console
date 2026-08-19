@@ -26,7 +26,40 @@ import { PERMISSIONS } from "@/lib/permissions";
 import { Button } from "@/components/ui/Button";
 import { Badge, Select } from "@/components/ui";
 import { useModal } from "@/components/ui/imperative-modal";
-import { type User } from "@/types";
+import { useStores } from "@/hooks/useStores";
+import { useStoreGroups } from "@/hooks/useStoreGroups";
+import { EmpidCommitSummary } from "@/components/users/EmpidCommitSummary";
+import type { EmpidKind, EmpidKindFields, Store, StoreGroup, User } from "@/types";
+
+/**
+ * 채번 계약(§3-4·§3-6)으로 넓어진 요청/응답 모양. roster/commit 훅 타입은 다른
+ * 트랙이 소유하고 있어 여기서 얹어 쓴다 — 필드 이름은 계약 그대로다.
+ *
+ * Contract-widened shapes; the hook types are owned by another track, so they
+ * are intersected here with the exact contract field names.
+ */
+type RosterMember = EmpidRosterMember & {
+  /** 번호 구분 (§3-6) — 없으면 sequence / Number kind; absent = sequence */
+  empid_kind?: EmpidKind;
+};
+type CommitAssignment = EmpidCommitAssignment & EmpidKindFields;
+type CommitResult = EmpidCommitResult & {
+  exception_count?: number;
+  cursor_after?: Record<string, number>;
+};
+
+/** 번호 구분 — 서버가 안 주면 계약 기본값 sequence (INV-6). */
+const kindOf = (m: EmpidRosterMember): EmpidKind =>
+  (m as RosterMember).empid_kind ?? "sequence";
+
+/** 구분 필터 — 조용한 컬럼이지 경고가 아니다 (a column, not a warning). */
+type KindFilter = "all" | EmpidKind;
+
+/** 구분 라벨 (English UI labels for the kind column). */
+const KIND_LABEL: Record<EmpidKind, string> = {
+  sequence: "Sequence",
+  exception: "Exception",
+};
 
 /** Draft key — one editable cell per (store, user). */
 const keyOf = (storeId: string, userId: string): string => `${storeId}|${userId}`;
@@ -47,6 +80,8 @@ interface DraftChange {
   user_id: string;
   /** Committed value — null clears the number (assignment row kept). */
   empid: number | null;
+  /** 커밋할 번호 구분 (Kind to commit) */
+  empid_kind: EmpidKind;
   isNew: boolean;
   /** Raw input is neither empty nor a whole number ≥ 1. */
   invalid: boolean;
@@ -60,6 +95,9 @@ function EmpidEditPageBody(): React.ReactElement {
   const searchParams = useSearchParams();
   const { data: rosterData, isLoading } = useEmpidRoster();
   const { data: usersData } = useUsers();
+  // 커서(numbering.next_empid)와 스코프 이름 — 판정은 서버가 하고 여기선 비교/표시만
+  const { data: storesData } = useStores();
+  const { data: groupsData } = useStoreGroups();
   const commit = useCommitEmpidImport();
 
   const roster: EmpidRosterStore[] = useMemo(
@@ -84,7 +122,11 @@ function EmpidEditPageBody(): React.ReactElement {
   // ── Draft — raw input strings keyed by store|user; added people tracked separately ──
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [added, setAdded] = useState<{ store_id: string; user_id: string }[]>([]);
-  const [result, setResult] = useState<EmpidCommitResult | null>(null);
+  const [result, setResult] = useState<CommitResult | null>(null);
+  /** 구분 변경 초안 — store|user → kind (Kind draft per row). */
+  const [kindDraft, setKindDraft] = useState<Record<string, EmpidKind>>({});
+  /** 목록 필터 — 구분별로 좁혀 본다 (quiet column filter). */
+  const [kindFilter, setKindFilter] = useState<KindFilter>("all");
 
   // ── "Add person" form (per selected store) ──
   const [addUserId, setAddUserId] = useState("");
@@ -106,9 +148,27 @@ function EmpidEditPageBody(): React.ReactElement {
     setDraft((prev) => ({ ...prev, [k]: value }));
   }, []);
 
+  /** 구분 선택 — 현재 값과 같으면 초안에서 뺀다 (kind pick; same value clears). */
+  const setKindDraftValue = useCallback(
+    (k: string, value: EmpidKind, current: EmpidKind) => {
+      setKindDraft((prev) => {
+        const n = { ...prev };
+        if (value === current) delete n[k];
+        else n[k] = value;
+        return n;
+      });
+    },
+    [],
+  );
+
   const removeAdded = useCallback((sid: string, uid: string) => {
     setAdded((prev) => prev.filter((a) => !(a.store_id === sid && a.user_id === uid)));
     setDraft((prev) => {
+      const n = { ...prev };
+      delete n[keyOf(sid, uid)];
+      return n;
+    });
+    setKindDraft((prev) => {
       const n = { ...prev };
       delete n[keyOf(sid, uid)];
       return n;
@@ -123,6 +183,7 @@ function EmpidEditPageBody(): React.ReactElement {
       userId: string,
       raw: string,
       isNew: boolean,
+      kind: EmpidKind,
     ): void => {
       const t = raw.trim();
       const valid = /^\d+$/.test(t) && parseInt(t, 10) >= 1;
@@ -131,24 +192,37 @@ function EmpidEditPageBody(): React.ReactElement {
         store_name: s.store_name,
         user_id: userId,
         empid: valid ? parseInt(t, 10) : null,
+        empid_kind: kind,
         isNew,
         invalid: t !== "" && !valid,
       });
     };
     roster.forEach((s) => {
       s.members.forEach((m) => {
-        const v = draft[keyOf(s.store_id, m.user_id)];
-        if (v === undefined || isSameAsCurrent(v, m.empid)) return;
-        push(s, m.user_id, v, false);
+        const k = keyOf(s.store_id, m.user_id);
+        const v = draft[k];
+        const current = kindOf(m);
+        const numberChanged = v !== undefined && !isSameAsCurrent(v, m.empid);
+        // 구분만 바꾼 행도 변경이다 — 번호는 현재 값 그대로 다시 보낸다
+        const kindChanged =
+          kindDraft[k] !== undefined && kindDraft[k] !== current;
+        if (!numberChanged && !kindChanged) return;
+        const raw = numberChanged
+          ? (v as string)
+          : m.empid !== null
+            ? String(m.empid)
+            : "";
+        push(s, m.user_id, raw, false, kindDraft[k] ?? current);
       });
     });
     added.forEach((a) => {
       const s = roster.find((r) => r.store_id === a.store_id);
       if (!s) return;
-      push(s, a.user_id, draft[keyOf(a.store_id, a.user_id)] ?? "", true);
+      const k = keyOf(a.store_id, a.user_id);
+      push(s, a.user_id, draft[k] ?? "", true, kindDraft[k] ?? "sequence");
     });
     return out;
-  }, [roster, draft, added]);
+  }, [roster, draft, added, kindDraft]);
 
   /** Keys of draft rows sharing a number with another draft row of the same store. */
   const dupKeys = useMemo(() => {
@@ -195,6 +269,7 @@ function EmpidEditPageBody(): React.ReactElement {
 
   const reset = useCallback(() => {
     setDraft({});
+    setKindDraft({});
     setAdded([]);
     setAddUserId("");
     setAddEmpid("");
@@ -208,22 +283,114 @@ function EmpidEditPageBody(): React.ReactElement {
     setAddEmpid("");
   }, [addUserId, addEmpid, storeId]);
 
+  /**
+   * 매장의 현재 커서 — 서버가 매장/그룹 응답에 실어 준 numbering.next_empid.
+   * 커서가 안 오면(구버전 서버) 이탈 판정을 하지 않는다.
+   *
+   * The store's current cursor, straight from the server. No cursor = no check.
+   */
+  const cursorFor = useCallback(
+    (sid: string): number | null => {
+      const stores: Store[] = Array.isArray(storesData) ? storesData : [];
+      return stores.find((x) => x.id === sid)?.numbering?.next_empid ?? null;
+    },
+    [storesData],
+  );
+
+  /** 확인창에 쓸 사람 이름 (Display name for the confirm dialog). */
+  const nameOf = useCallback(
+    (sid: string, uid: string): string => {
+      const member = roster
+        .find((r) => r.store_id === sid)
+        ?.members.find((m) => m.user_id === uid);
+      if (member) return member.full_name;
+      const u = usersById.get(uid);
+      return u ? u.full_name || u.username : uid;
+    },
+    [roster, usersById],
+  );
+
+  /**
+   * 커밋 응답 cursor_after 의 스코프 id → 이름 (그룹 커서일 수도, 매장일 수도).
+   * Resolve a cursor scope id (group or store) to a display name.
+   */
+  const scopeName = useCallback(
+    (id: string): string | undefined => {
+      const stores: Store[] = Array.isArray(storesData) ? storesData : [];
+      const groups: StoreGroup[] = Array.isArray(groupsData) ? groupsData : [];
+      return (
+        stores.find((st) => st.id === id)?.name ??
+        groups.find((g) => g.id === id)?.name
+      );
+    },
+    [storesData, groupsData],
+  );
+
   const save = useCallback(async () => {
     if (!canSave) return;
     const storeCount = new Set(changes.map((c) => c.store_id)).size;
-    const ok = await modal.confirm({
-      title: `Save ${changes.length} change(s)?`,
-      message:
-        `${changes.length} change(s) across ${storeCount} store(s). ` +
-        "Existing numbers may be renumbered to make room; empty values release the number.",
-      confirmLabel: "Save",
-      variant: "warning",
+    const base =
+      `${changes.length} change(s) across ${storeCount} store(s). ` +
+      "Existing numbers may be renumbered to make room; empty values release the number.";
+
+    // RULE-D — 서버가 준 커서와 다른 값을 직접 기입하면 확인 + 사유. 다음 번호를
+    // 콘솔이 계산하지 않는다(INV-8): numbering.next_empid 와 비교만 한다.
+    const offSequence = changes.filter((c) => {
+      if (c.empid === null || c.invalid) return false;
+      const cursor = cursorFor(c.store_id);
+      return cursor !== null && c.empid !== cursor;
     });
-    if (!ok) return;
-    const assignments: EmpidCommitAssignment[] = changes.map((c) => ({
+
+    let reason: string | undefined;
+    if (offSequence.length > 0) {
+      const lines = offSequence
+        .slice(0, 8)
+        .map(
+          (c) =>
+            `· ${nameOf(c.store_id, c.user_id)} — ${c.store_name}: ${c.empid}` +
+            ` (next EMPID ${cursorFor(c.store_id)})`,
+        )
+        .join("\n");
+      const more =
+        offSequence.length > 8 ? `\n· and ${offSequence.length - 8} more` : "";
+      const answer = await modal.confirm({
+        title: `Save ${changes.length} change(s)?`,
+        message:
+          `${offSequence.length} number(s) are not the next EMPID for their store:\n` +
+          `${lines}${more}\n\n` +
+          "Saving keeps the next EMPID where it is. Set the kind to Exception on " +
+          "rows that should stay out of the sequence.\n\n" +
+          base,
+        confirmLabel: "Save",
+        variant: "warning",
+        requiresReason: true,
+        reasonMandatory: true,
+        reasonLabel: "Reason",
+      });
+      if (!answer) return;
+      reason = answer;
+    } else {
+      const ok = await modal.confirm({
+        title: `Save ${changes.length} change(s)?`,
+        message: base,
+        confirmLabel: "Save",
+        variant: "warning",
+      });
+      if (!ok) return;
+    }
+
+    const offKeys = new Set(
+      offSequence.map((c) => keyOf(c.store_id, c.user_id)),
+    );
+    const assignments: CommitAssignment[] = changes.map((c) => ({
       user_id: c.user_id,
       store_id: c.store_id,
       empid: c.empid,
+      empid_kind: c.empid_kind,
+      // 사유는 이탈값을 기입한 행에만 붙인다 (§3-4 reason)
+      ...(reason && offKeys.has(keyOf(c.store_id, c.user_id))
+        ? { reason }
+        : {}),
     }));
     commit.mutate(
       { assignments },
@@ -240,7 +407,7 @@ function EmpidEditPageBody(): React.ReactElement {
         // hook shows the error modal
       },
     );
-  }, [canSave, changes, modal, commit, reset, queryClient]);
+  }, [canSave, changes, modal, commit, reset, queryClient, cursorFor, nameOf]);
 
   if (!canUpdate) {
     return (
@@ -258,13 +425,41 @@ function EmpidEditPageBody(): React.ReactElement {
     .filter((u) => !memberIds.has(u.id))
     .sort((a, b) => (a.full_name || a.username).localeCompare(b.full_name || b.username));
 
+  // ── 구분(kind) 카운트 · 필터 — 선택된 매장 기준. 경고가 아니라 조용한 분류다 ──
+  const members: EmpidRosterMember[] = store?.members ?? [];
+  const kindCounts = {
+    all: members.length,
+    sequence: members.filter((m) => m.empid !== null && kindOf(m) === "sequence")
+      .length,
+    exception: members.filter(
+      (m) => m.empid !== null && kindOf(m) === "exception",
+    ).length,
+  };
+  const visibleMembers = members.filter(
+    (m) =>
+      kindFilter === "all" || (m.empid !== null && kindOf(m) === kindFilter),
+  );
+  const KIND_FILTERS: { value: KindFilter; label: string; count: number }[] = [
+    { value: "all", label: "All", count: kindCounts.all },
+    { value: "sequence", label: "Sequence", count: kindCounts.sequence },
+    { value: "exception", label: "Exception", count: kindCounts.exception },
+  ];
+
   const inputClass = (changed: boolean, bad: boolean): string =>
     `w-24 px-2 py-1 rounded-lg bg-surface border text-sm text-text text-right focus:outline-none focus:ring-2 focus:ring-accent/20 ${
       bad ? "border-danger" : changed ? "border-accent" : "border-border"
     }`;
 
   const renderRow = (
-    m: { user_id: string; name: string; email: string | null; empid: number | null; dormant: boolean },
+    m: {
+      user_id: string;
+      name: string;
+      email: string | null;
+      empid: number | null;
+      dormant: boolean;
+      /** 서버가 준 현재 구분 (Current kind from the server) */
+      kind: EmpidKind;
+    },
     isNew: boolean,
   ): React.ReactElement => {
     const k = keyOf(storeId, m.user_id);
@@ -304,6 +499,25 @@ function EmpidEditPageBody(): React.ReactElement {
               number required for new assignment
             </p>
           )}
+        </td>
+        {/* 구분 — 번호가 있는 행에서만 의미가 있다 (§1-2) */}
+        <td className="px-3 py-2">
+          <select
+            aria-label={`Number kind for ${m.name}`}
+            value={kindDraft[k] ?? m.kind}
+            onChange={(e) =>
+              setKindDraftValue(k, e.target.value as EmpidKind, m.kind)
+            }
+            disabled={t === ""}
+            className={`px-2 py-1 rounded-md bg-surface border text-xs focus:outline-none focus:ring-2 focus:ring-accent/20 disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer ${
+              kindDraft[k] !== undefined && kindDraft[k] !== m.kind
+                ? "border-accent text-text"
+                : "border-border text-text-secondary"
+            }`}
+          >
+            <option value="sequence">{KIND_LABEL.sequence}</option>
+            <option value="exception">{KIND_LABEL.exception}</option>
+          </select>
         </td>
         <td className="px-3 py-2">
           <div className="flex items-center justify-end gap-1">
@@ -362,6 +576,13 @@ function EmpidEditPageBody(): React.ReactElement {
               <div className="text-xs text-text-muted mt-0.5">Rejected</div>
             </div>
           </div>
+
+          {/* 예외 제외 건수 + 저장 후 커서 (§3-4) — 값은 전부 서버가 준 것 */}
+          <EmpidCommitSummary
+            exceptionCount={result.exception_count}
+            cursorAfter={result.cursor_after}
+            scopeName={scopeName}
+          />
 
           {result.applied.length > 0 && (
             <div>
@@ -439,6 +660,25 @@ function EmpidEditPageBody(): React.ReactElement {
           <span className="text-xs text-text-muted">
             {store ? `${store.members.length + addedHere.length} member(s)` : ""}
           </span>
+          {/* 구분 필터 — 임포트 인원 대다수는 그냥 sequence 다. 조용한 분류. */}
+          {store && (
+            <div className="inline-flex items-center gap-1 ml-auto">
+              {KIND_FILTERS.map((f) => (
+                <button
+                  key={f.value}
+                  type="button"
+                  onClick={() => setKindFilter(f.value)}
+                  className={`rounded-full border px-2.5 py-1 text-xs transition-colors ${
+                    kindFilter === f.value
+                      ? "border-accent bg-accent-muted text-accent font-semibold"
+                      : "border-border text-text-secondary hover:bg-surface-hover"
+                  }`}
+                >
+                  {f.label} {f.count}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
 
         {isLoading ? (
@@ -453,11 +693,12 @@ function EmpidEditPageBody(): React.ReactElement {
                   <th className="px-3 py-2 text-xs font-semibold text-text-secondary">Name</th>
                   <th className="px-3 py-2 text-xs font-semibold text-text-secondary">Email</th>
                   <th className="px-3 py-2 text-xs font-semibold text-text-secondary text-right">EMPID</th>
+                  <th className="px-3 py-2 text-xs font-semibold text-text-secondary">Kind</th>
                   <th className="px-3 py-2" />
                 </tr>
               </thead>
               <tbody>
-                {store.members.map((m: EmpidRosterMember) =>
+                {visibleMembers.map((m: EmpidRosterMember) =>
                   renderRow(
                     {
                       user_id: m.user_id,
@@ -465,6 +706,7 @@ function EmpidEditPageBody(): React.ReactElement {
                       email: m.email,
                       empid: m.empid,
                       dormant: !m.is_work_assignment,
+                      kind: kindOf(m),
                     },
                     false,
                   ),
@@ -478,14 +720,17 @@ function EmpidEditPageBody(): React.ReactElement {
                       email: u?.email ?? null,
                       empid: null,
                       dormant: false,
+                      kind: "sequence",
                     },
                     true,
                   );
                 })}
-                {store.members.length === 0 && addedHere.length === 0 && (
+                {visibleMembers.length === 0 && addedHere.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="px-3 py-6 text-center text-sm text-text-muted">
-                      No members in this store yet.
+                    <td colSpan={5} className="px-3 py-6 text-center text-sm text-text-muted">
+                      {members.length === 0
+                        ? "No members in this store yet."
+                        : "No members match this filter."}
                     </td>
                   </tr>
                 )}

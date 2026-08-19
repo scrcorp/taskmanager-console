@@ -33,7 +33,10 @@ import { useStoreTimezone } from "@/hooks/useTimezone";
 import { useModal } from "@/components/ui/imperative-modal";
 import { PERMISSIONS } from "@/lib/permissions";
 import { isoToLocalInputInTz, localInputToIsoInTz, cn } from "@/lib/utils";
-import { rollEndDate, shiftIsoFields } from "@/lib/scheduleTime";
+import { useStores } from "@/hooks/useStores";
+import {
+  addDay, rollEndDate, shiftIsoFields, startOffsetDaysOf, storeStartOffset,
+} from "@/lib/scheduleTime";
 import { wallClock, type DayRow } from "@/lib/compactDay";
 import {
   OVERLAP_EXPLANATION,
@@ -87,6 +90,14 @@ function deltaLabel(planned: string | null, actual: string | null, kind: "in" | 
 }
 
 const CELL = "flex h-11 w-full items-center justify-center gap-1 rounded-lg border text-lg font-extrabold tabular-nums";
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+/** "YYYY-MM-DD" → "Aug 20" (로컬 tz 파싱 없이 문자열 성분만). */
+function fmtShort(d: string): string {
+  if (!d) return "";
+  const [, m, dd] = d.split("-").map(Number);
+  return `${MONTHS[(m ?? 1) - 1]} ${dd}`;
+}
 
 export function CompactEntryDetail({
   row,
@@ -149,6 +160,25 @@ export function CompactEntryDetail({
    *  A 가 찍은 시각이 B 의 기록으로 둔갑한다. 시프트를 취소하고 새로 만드는 게 맞다. */
   const staffLocked = clockedIn;
 
+  // ── 시프트 달력일 ──────────────────────────────────────────────────
+  // **시각이 그대로일 때만** 저장된 시작 달력일을 보존한다. 시각을 고쳤으면 경계 규칙으로
+  // 다시 판정한다 — 옛 오프셋을 그대로 들고 저장하던 게 2026-08 오염의 경로였다.
+  const { data: storeList } = useStores();
+  const schedDayStartCfg = storeList?.find((s) => s.id === storeId)?.day_start_time ?? null;
+  const schedOperatingDay = schedule ? (schedule.operating_day ?? schedule.work_date) : "";
+  const schedAutoOffset: 0 | 1 = schedule
+    ? storeStartOffset(schedStart || "09:00", schedDayStartCfg, schedOperatingDay)
+    : 0;
+  const schedStartOffset: 0 | 1 = !schedule
+    ? 0
+    : schedStart === origSchedStart
+      ? (startOffsetDaysOf(schedule) === 1 ? 1 : 0)
+      : schedAutoOffset;
+  const schedStartDate = schedule ? addDay(schedOperatingDay, schedStartOffset) : "";
+  const schedEndDate = schedule ? rollEndDate(schedStartDate, schedStart, schedEnd) : "";
+  /** 보존한 날짜가 자동 판정과 다르면 "사람이 고른 값"으로 신고해야 서버가 400 으로 막지 않는다. */
+  const schedDateOverride = schedStartOffset !== schedAutoOffset;
+
   /** 근태 시각의 날짜 열 후보 — 영업일 전날/당일/다음날. 자정 넘긴 퇴근을 한 번에 고른다. */
   const dateChoices = useMemo(() => {
     const base = schedule?.operating_day ?? schedule?.work_date ?? attendance?.work_date ?? "";
@@ -190,6 +220,11 @@ export function CompactEntryDetail({
     if (schedEnd !== origSchedEnd) {
       lines.push({ label: "End", before: origSchedEnd || "—", after: schedEnd });
     }
+    // 시각을 바꾸면 달력일이 함께 움직일 수 있다 — 저장 전에 그 사실이 보여야 한다.
+    const origStartDate = schedule.start_at?.slice(0, 10) ?? schedOperatingDay;
+    if (schedStartDate !== origStartDate) {
+      lines.push({ label: "Start date", before: fmtShort(origStartDate), after: fmtShort(schedStartDate) });
+    }
     if (userId !== origUserId) {
       lines.push({ label: "Staff", before: row.userName, after: userName });
     }
@@ -197,7 +232,7 @@ export function CompactEntryDetail({
       lines.push({ label: "Note", before: origNote || "(empty)", after: note || "(empty)" });
     }
     return lines;
-  }, [schedule, schedStart, schedEnd, userId, userName, note, origSchedStart, origSchedEnd, origUserId, origNote, row.userName]);
+  }, [schedule, schedStart, schedEnd, schedStartDate, schedOperatingDay, userId, userName, note, origSchedStart, origSchedEnd, origUserId, origNote, row.userName]);
 
   const attendanceChanges: ChangeLine[] = useMemo(() => {
     const lines: ChangeLine[] = [];
@@ -327,18 +362,16 @@ export function CompactEntryDetail({
       // 1) shift 먼저 — 근태 status 가 스케줄 시각 기준으로 재판정되므로 순서가 뒤집히면
       //    방금 고친 근태가 옛 스케줄 기준으로 판정된다.
       if (schedule && shiftChanges.length > 0) {
-        const operatingDay = schedule.operating_day ?? schedule.work_date;
-        const startDate = schedule.start_at?.slice(0, 10) ?? operatingDay;
-        const endDate = rollEndDate(startDate, schedStart, schedEnd);
         await updateSchedule.mutateAsync({
           id: schedule.id,
           data: {
             user_id: userId,
             work_role_id: origRoleId || null,
-            work_date: operatingDay,
+            work_date: schedOperatingDay,
             start_time: schedStart,
             end_time: schedEnd,
-            ...shiftIsoFields(operatingDay, startDate, schedStart, endDate, schedEnd, null, null),
+            ...shiftIsoFields(schedOperatingDay, schedStartDate, schedStart, schedEndDate, schedEnd, null, null),
+            date_override: schedDateOverride,
             note: note || null,
             change_reason: result.shiftReason,
           },
@@ -598,6 +631,9 @@ export function CompactEntryDetail({
                 {origSchedStart || "—"}
               </span>
             )}
+            {schedule && (
+              <span className="mt-0.5 block text-[10px] tabular-nums text-text-muted">{fmtShort(schedStartDate)}</span>
+            )}
           </div>
           <div className="px-1.5 py-1 text-center">
             {editing && schedule ? (
@@ -617,6 +653,11 @@ export function CompactEntryDetail({
             ) : (
               <span className="text-base font-semibold tabular-nums text-text-secondary">
                 {origSchedEnd || "—"}
+              </span>
+            )}
+            {schedule && (
+              <span className="mt-0.5 block text-[10px] tabular-nums text-text-muted">
+                {fmtShort(schedEndDate)}{schedEndDate !== schedStartDate ? " +1" : ""}
               </span>
             )}
           </div>
