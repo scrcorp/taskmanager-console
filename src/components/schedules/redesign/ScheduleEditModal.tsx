@@ -16,10 +16,13 @@ import { todayInTimezone } from "@/lib/utils";
 import {
   addDay, dayDiff, shiftIsoFields, timeToMin,
   SCHEDULE_STEP_MINUTES, isOnScheduleGrid, snapToStep, wrapMinutes,
-  withStart, withEnd, withDuration, endOf, formatWallClock,
-  dayStartFor, dawnStartOffset, minToTime,
+  withStart, withEnd, withDuration, endOf,
+  dayBoundaryFor, storeStartOffset, autoEndOffset, durationForEndOffset, minToTime,
+  START_OUTSIDE_WINDOW_TEXT,
 } from "@/lib/scheduleTime";
-import { describeScheduleIssues } from "@/lib/scheduleCodes";
+import {
+  describeScheduleIssue, describeScheduleIssues, SHIFT_SPAN_TOO_LONG,
+} from "@/lib/scheduleCodes";
 import type { Schedule, User, WorkRole, Store } from "@/types";
 import { ROLE_PRIORITY } from "@/lib/permissions";
 
@@ -40,6 +43,12 @@ export interface ScheduleEditPayload {
   force?: boolean;
   /** 영업일 라벨(= date). 벽시계 datetime 인코딩. */
   operatingDay: string;
+  /**
+   * 시작 달력일을 **사람이 후보에서 직접 골라 자동값과 달라졌다**는 표시.
+   * 이게 빠지면 서버가 START_DATE_MISMATCH(400)로 거부한다 — 옛 오프셋이 실려 오는
+   * 클라 버그와 사람의 의도적 선택을 서버가 구분할 방법이 이 플래그뿐이다.
+   */
+  dateOverride: boolean;
   /** "YYYY-MM-DDTHH:MM" — end는 end≤start면 익일 자동. */
   startAt: string;
   endAt: string;
@@ -174,6 +183,202 @@ function fmtFeedbackDate(d: string): string {
   return `${MONTHS[(m ?? 1) - 1]} ${dd}`;
 }
 
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+/** "YYYY-MM-DD" → "Thu Aug 20" (날짜 후보 칩). 로컬 tz 파싱 없이 UTC 순수 날짜 산술. */
+function fmtChipDate(d: string): string {
+  const [y, m, dd] = d.split("-").map(Number);
+  const w = WEEKDAYS[new Date(Date.UTC(y ?? 1970, (m ?? 1) - 1, dd ?? 1)).getUTCDay()];
+  return `${w} ${MONTHS[(m ?? 1) - 1]} ${dd}`;
+}
+/** "HH:MM" → "5:00 PM" (12시간제 표기 — 시각 컨트롤과 같은 문법). */
+function fmtClock12(hhmm: string): string {
+  const [h, m] = hhmm.split(":").map(Number);
+  const hh = (h ?? 0) % 12 === 0 ? 12 : (h ?? 0) % 12;
+  return `${hh}:${String(m ?? 0).padStart(2, "0")} ${(h ?? 0) < 12 ? "AM" : "PM"}`;
+}
+/** 저장 문장용 "Aug 20, 5:00 PM". */
+function fmtStamp(date: string, time: string): string {
+  return `${fmtFeedbackDate(date)}, ${fmtClock12(time)}`;
+}
+
+interface DateOption {
+  date: string;
+  /** 왜 이 날짜인지 — 후보 자리에서 바로 읽히게 (선택 전에 결과를 안다). */
+  why: string;
+  /** 자동 판정 결과인가 (AUTO 배지) */
+  auto: boolean;
+  selected: boolean;
+  /** 고를 수 없는 후보. 지우지 않고 이유와 함께 흐리게 남긴다. */
+  disabled?: boolean;
+  /** 왜 고를 수 없는지 — 칩의 짧은 `why` 와 달리 전체 문장(툴팁/보조 문구). */
+  disabledReason?: string;
+  /** 사람이 자동값과 다른 쪽을 고른 상태 — 앰버로 표시 */
+  amber?: boolean;
+}
+
+/**
+ * 날짜 = **항상 펼쳐진 2-후보 세그먼트** (승인 화면 D-final-console).
+ * 자유 캘린더는 없다 — 시작은 `영업일 / 영업일+1`, 종료는 `시작일 / 시작일+1` 뿐이다.
+ */
+/** 근무 길이 입력 — 시/분 두 칸, **숫자만**. 표기는 고정폭(`7h 00m`).
+ *
+ * 값을 조용히 고치지 않는다:
+ *   - 24h 초과라도 잘라내지 않는다. 저장 단계에서 `SHIFT_SPAN_TOO_LONG` 로 막고 색으로 알린다
+ *     (조용히 24h 로 바꾸면 입력한 값과 저장될 값이 달라진다).
+ *   - 5분 배수가 아니어도 반올림하지 않는다. 마찬가지로 저장 단계에서 거절한다.
+ * 편집 중에는 부모 상태를 덮어쓰지 않는다 — "7" 을 지우고 "12" 를 치는 동안 값이 튀지 않게.
+ */
+function DurationInput({ minutes, onChange, over }: {
+  minutes: number;
+  onChange: (mins: number) => void;
+  over: boolean;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [h, setH] = useState("");
+  const [m, setM] = useState("");
+
+  const shownH = editing ? h : String(Math.floor(minutes / 60));
+  const shownM = editing ? m : String(minutes % 60).padStart(2, "0");
+
+  function begin() {
+    if (editing) return;
+    setH(String(Math.floor(minutes / 60)));
+    setM(String(minutes % 60).padStart(2, "0"));
+    setEditing(true);
+  }
+  function commit(nextH: string, nextM: string) {
+    setEditing(false);
+    const total = Number(nextH || 0) * 60 + Number(nextM || 0);
+    if (total !== minutes) onChange(total);
+  }
+  const digits = (v: string) => v.replace(/[^0-9]/g, "").slice(0, 2);
+  const box = `w-[2.1em] bg-transparent text-center tabular-nums font-bold text-[14px] focus:outline-none ${
+    over ? "text-[var(--color-warning)]" : "text-[var(--color-text)]"
+  }`;
+
+  return (
+    <span
+      className={`inline-flex items-baseline gap-0.5 rounded-md border px-2 py-0.5 bg-[var(--color-surface)] ${
+        over ? "border-[var(--color-warning)]" : "border-[var(--color-border)]"
+      }`}
+    >
+      <input
+        value={shownH}
+        onFocus={begin}
+        onChange={(e) => { begin(); setH(digits(e.target.value)); }}
+        onBlur={(e) => commit(digits(e.target.value), m)}
+        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+        inputMode="numeric"
+        maxLength={2}
+        aria-label="Length hours"
+        className={box}
+      />
+      <span className="text-[10px] text-[var(--color-text-muted)]">h</span>
+      <input
+        value={shownM}
+        onFocus={begin}
+        onChange={(e) => { begin(); setM(digits(e.target.value)); }}
+        onBlur={(e) => commit(h, digits(e.target.value))}
+        onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
+        inputMode="numeric"
+        maxLength={2}
+        aria-label="Length minutes"
+        className={box}
+      />
+      <span className="text-[10px] text-[var(--color-text-muted)]">m</span>
+    </span>
+  );
+}
+
+function DateSegment({ options, onPick, disabled }: {
+  options: [DateOption, DateOption];
+  onPick: (index: 0 | 1) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="grid grid-cols-2 gap-1 p-[3px] rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)]">
+      {options.map((o, i) => (
+        <button
+          key={o.date}
+          type="button"
+          disabled={disabled || o.disabled}
+          onClick={() => onPick(i as 0 | 1)}
+          title={o.disabled ? (o.disabledReason ?? o.why) : undefined}
+          className={`min-w-0 rounded-md px-1.5 py-1 text-left border transition-colors ${
+            o.selected
+              ? o.amber
+                ? "border-[var(--color-warning)] bg-[var(--color-warning-muted)]"
+                : "border-[var(--color-accent)] bg-[var(--color-surface)]"
+              : "border-transparent hover:bg-[var(--color-surface-hover)]"
+          } ${o.disabled ? "opacity-45 cursor-not-allowed" : ""}`}
+        >
+          <span className={`block text-[13px] font-bold tabular-nums leading-tight truncate ${
+            o.selected ? "text-[var(--color-text)]" : "text-[var(--color-text-secondary)]"
+          }`}>
+            {fmtChipDate(o.date)}
+            {o.auto && (
+              <span className="ml-1 align-[1px] px-1 rounded-full border border-[var(--color-success)] text-[8px] font-extrabold tracking-wide text-[var(--color-success)]">
+                AUTO
+              </span>
+            )}
+          </span>
+          <span className={`block text-[9.5px] leading-tight ${
+            o.selected
+              ? o.amber ? "text-[var(--color-warning)] font-semibold" : "text-[var(--color-accent)] font-semibold"
+              : "text-[var(--color-text-muted)]"
+          }`}>
+            {o.why}
+          </span>
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** 고를 값이 아니라 파생값인 날짜(휴게) — 같은 자리·같은 크기로 읽기 전용 표시. */
+function ReadonlyDateCell({ date, why }: { date: string; why: string }) {
+  return (
+    <div className="rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2 py-[7px]">
+      <span className="block text-[13px] font-bold tabular-nums leading-tight text-[var(--color-text-secondary)] truncate">{fmtChipDate(date)}</span>
+      <span className="block text-[9.5px] leading-tight text-[var(--color-text-muted)]">{why}</span>
+    </div>
+  );
+}
+
+/** 끝점 한 줄 = [ DATE ][ TIME ]. 날짜가 왼쪽 첫 칸이고 폭이 더 넓다(배치 계약). */
+function EndpointRow({ caption, hint, tone, date, time }: {
+  caption: string;
+  hint?: string;
+  tone?: "shifted" | "flagged";
+  date: React.ReactNode;
+  time: React.ReactNode;
+}) {
+  return (
+    <div className={`rounded-lg border px-2.5 py-2 bg-[var(--color-surface)] ${
+      tone === "flagged"
+        ? "border-[var(--color-warning)]"
+        : tone === "shifted"
+          ? "border-[var(--color-accent)]"
+          : "border-[var(--color-border)]"
+    }`}>
+      <div className="flex items-center gap-2 mb-1.5">
+        <span className="text-[10px] font-bold uppercase tracking-[0.11em] text-[var(--color-text-muted)]">{caption}</span>
+        {hint && <span className="ml-auto text-[10px] text-[var(--color-text-muted)] truncate">{hint}</span>}
+      </div>
+      <div className="grid grid-cols-[minmax(0,1.35fr)_minmax(0,0.65fr)] gap-2 items-start">
+        <div className="min-w-0">
+          <span className="block text-[9px] font-bold uppercase tracking-[0.12em] text-[var(--color-text-muted)] mb-1">Date</span>
+          {date}
+        </div>
+        <div className="min-w-0">
+          <span className="block text-[9px] font-bold uppercase tracking-[0.12em] text-[var(--color-text-muted)] mb-1">Time</span>
+          {time}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 
 /**
  * Start/End 사이에서 설정된 break 길이로 break 구간 산출.
@@ -210,11 +415,14 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
   // 3필드의 실제 상태는 시작 + 길이뿐. 종료는 항상 파생이다 (D5-2: 종료 = 시작 + 길이).
   const [durationMin, setDurationMin] = useState(480);
   /**
-   * 영업일 소속 선택 (D3-3) — null = 자동 판정 사용, 0/1 = 사용자가 뒤집은 값.
-   * 자동은 "시작 시각이 매장 영업일 경계 이전이면 달력상 +1일"(dawnStartOffset).
-   * 숨은 플래그가 아니라 화면에 그대로 보이는 선택이며, 자동과 다르면 경고를 띄운다.
+   * 시작 달력일 선택 — `null` = 자동 판정, `0|1` = **사용자가 후보를 직접 누른** 값.
+   *
+   * 예전엔 모달을 열 때 저장된 오프셋을 그대로 override 로 박아 넣었다. 그러면 시각만
+   * 09:00 → 17:00 으로 바꿔도 새벽조의 +1일이 그대로 남아 하루 뒤 날짜로 저장됐다 —
+   * 2026-08 오염 24건의 생성 경로가 정확히 이것이다. 이제 **시각이 바뀌면 자동으로
+   * 되돌아가고**, 사람이 후보를 누른 경우에만 값이 선다.
    */
-  const [startOffsetOverride, setStartOffsetOverride] = useState<0 | 1 | null>(null);
+  const [startDateOverride, setStartDateOverride] = useState<0 | 1 | null>(null);
   const [splitEnabled, setSplitEnabled] = useState(false);
   const [breakStart, setBreakStart] = useState("");
   const [breakEnd, setBreakEnd] = useState("");
@@ -318,9 +526,11 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
       setDate(initDate);
       setStartTime(initStart);
       setDurationMin(Math.max(0, initDuration));
-      // 저장된 소속을 그대로 존중한다. 자동과 같은 값이어도 명시해 두면 사용자가 시각을 바꿔도
-      // 소속이 조용히 뒤집히지 않는다 (기존 스케줄이 말없이 다른 영업일로 옮겨가는 사고 방지).
-      setStartOffsetOverride(initStartOffset === 1 ? 1 : 0);
+      // 저장된 시작 달력일이 **자동 판정과 다를 때만** 명시 선택으로 되살린다.
+      // 같으면 null(자동) — 그래야 시각을 고치는 순간 날짜가 규칙대로 따라온다.
+      const initDayCfg = stores?.find((s2) => s2.id === initStore)?.day_start_time ?? null;
+      const initAutoOffset = storeStartOffset(initStart, initDayCfg, initDate);
+      setStartDateOverride(initStartOffset === initAutoOffset ? null : (initStartOffset === 1 ? 1 : 0));
       setSplitEnabled(hasBreak);
       setBreakStart(initBreakStart);
       setBreakEnd(initBreakEnd);
@@ -346,7 +556,7 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
       // 자동 계산 값이 grid 를 어기고 들어와 저장 시 거절되는 일이 없도록.
       setDurationMin(Math.round(defaultShiftMin / SCHEDULE_STEP_MINUTES) * SCHEDULE_STEP_MINUTES);
       // +1 시간대(1A+1 등) gap 클릭이면 그 칸의 의도(새벽조)를 소속 선택으로 옮긴다.
-      setStartOffsetOverride(prefilledStartOffsetDays === 1 ? 1 : null);
+      setStartDateOverride(prefilledStartOffsetDays === 1 ? 1 : null);
       setSplitEnabled(false);
       setBreakStart("");
       setBreakEnd("");
@@ -385,16 +595,21 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
   // 상태는 [영업일, 시작 시각, 길이, 소속 선택] 넷뿐. 나머지는 전부 여기서 계산된다.
   // 종료 시각·종료 달력일을 상태로 들고 있으면 세 값이 서로 어긋난 채 저장되는 경로가 생긴다.
   const selectedStore = stores?.find((s) => s.id === effectiveStoreId);
-  const dayBoundary = dayStartFor(selectedStore?.day_start_time ?? null, date);
-  /** 자동 판정 — 경계 이전 새벽 시각이면 달력상 영업일 +1일 (서버 판정과 같은 규칙). */
-  const autoStartOffset = dawnStartOffset(startTime, dayBoundary);
-  const startOffsetDays: number = startOffsetOverride ?? autoStartOffset;
+  const dayStartCfg = selectedStore?.day_start_time ?? null;
+  /** 이 영업일의 창을 가르는 경계 — 영업일+1일의 값(서버와 같은 기준). */
+  const dayBoundary = dayBoundaryFor(date, dayStartCfg);
+  /** 자동 판정 — 경계 이전 시각이면 달력상 영업일 +1일 (서버 판정과 같은 규칙). */
+  const autoStartOffset: 0 | 1 = storeStartOffset(startTime, dayStartCfg, date);
+  const startOffsetDays: 0 | 1 = startDateOverride ?? autoStartOffset;
   const startDate = addDay(date, startOffsetDays);
   const derivedEnd = endOf({ startMin: timeToMinutes(startTime), durationMin });
   const endTime = derivedEnd.time;
-  const endDate = addDay(startDate, derivedEnd.offsetDays);
-  /** 자동과 다른 소속을 골랐는가 (D3-3 — 막지 않고 경고만) */
-  const operatingDayOverridden = startOffsetDays !== autoStartOffset;
+  const endOffsetDays = derivedEnd.offsetDays;
+  const endDate = addDay(startDate, endOffsetDays);
+  /** 자동과 다른 시작 달력일을 사람이 골랐는가 → 저장 시 date_override:true */
+  const startDateOverridden = startOffsetDays !== autoStartOffset;
+  /** 자동과 다른 종료 달력일인가 (길이가 ±24h 튄 상태) */
+  const endDateOverridden = endOffsetDays !== autoEndOffset(startTime, endTime);
 
   // Dirty check (edit 모드) + 필드별 changed 체크
   const orig = originalRef.current;
@@ -469,6 +684,9 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
   /** 시작 변경 — 길이 유지, 종료가 따라 이동. 휴게도 같은 오프셋으로 동반 이동(B2). */
   function onChangeStart(v: string) {
     const delta = timeToMinutes(v) - shiftFields.startMin;
+    // **시각이 바뀌면 날짜는 자동 판정으로 돌아간다.** 사람이 고른 값은 그 시각에 대한
+    // 판단이었으므로 다른 시각에까지 눌러앉으면 안 된다(2026-08 오염의 원인).
+    setStartDateOverride(null);
     applyShift(withStart(shiftFields, timeToMinutes(v)));
     // 손대지도 않은 휴게가 근무창 밖으로 남아 저장이 거부되는 데드락을 막는다.
     // 원치 않으면 휴게를 지우고 다시 넣으면 된다(B4).
@@ -483,7 +701,33 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
   }
   /** 길이 변경 — 시작 유지, 종료가 따라 이동. */
   function onChangeDuration(mins: number) {
-    applyShift(withDuration(shiftFields, Math.max(0, Math.min(1440, mins))));
+    // 상한을 1440 으로 잘라내지 않는다 — 24h 초과는 저장 차단으로 알려야지,
+    // 조용히 24h 로 바꿔놓으면 사용자가 넣은 값과 저장될 값이 달라진다.
+    applyShift(withDuration(shiftFields, Math.max(0, mins)));
+  }
+  /**
+   * 시작 달력일 후보 선택.
+   *
+   * **자동값이 아닌 후보는 고를 수 없다** (2026-08-19 결정). 자동값과 다른 시작 달력일은
+   * 예외 없이 자기 영업일 구간 밖이라 서버가 400 START_DATE_MISMATCH 로 막는다 —
+   * 여기서 고를 수 있게 두면 "고를 수는 있는데 저장하면 거부" 가 된다.
+   * 후보 버튼 자체가 disabled 지만, 키보드/프로그램 경로에서도 상태가 움직이지 않게 여기서도 막는다.
+   *
+   * NOTE: 이 가드와 아래 `startDateOverride` 상태는 **이벤트 특수근무 트랙에서 다시 열 자리**다
+   * (영업일 밖 근무를 1급 개념으로 표현하게 되면 그때 통로를 되살린다). 그래서 지우지 않는다.
+   */
+  function pickStartDate(offset: 0 | 1) {
+    if (offset !== autoStartOffset) return;
+    setStartDateOverride(null);
+  }
+  /**
+   * 종료 달력일 후보 선택 = **길이를 ±24h 옮기는 조작**.
+   * 종료 달력일은 별도 상태가 아니라 길이가 표현한다(scheduleTime 주석 참조).
+   */
+  function pickEndDate(offset: 0 | 1) {
+    const next = durationForEndOffset(startTime, endTime, offset);
+    timeDirtyRef.current = true;
+    setDurationMin(next);
   }
   // 영업일(Operating day)을 옮기면 시작 달력일도 함께 간다 — 소속 오프셋이 영업일 기준이라
   // 별도 보정이 필요 없다(예전엔 start/end 달력일을 따로 밀어야 했다).
@@ -525,17 +769,89 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
 
   // 파생 값: 길이는 상태 그대로. 종료가 파생이라 "end < start" 라는 상태 자체가 존재하지 않는다.
   const shiftTotalMin = durationMin;
-  const overnightShift = derivedEnd.offsetDays > 0;
   const breakMinutes = splitEnabled && breakStart && breakEnd
     ? durationMinutes(breakStart, breakEnd)
     : 0;
   const totalWorkMinutes = Math.max(0, shiftTotalMin - breakMinutes);
 
+  // ─── 날짜 후보 (승인 화면의 2-후보 세그먼트) ─────────────
+  // 시작 후보는 영업일/영업일+1, 종료 후보는 시작일/시작일+1 — 그 둘뿐이다.
+  // 종료 후보에는 **그 선택의 결과 길이**를 미리 적는다: ±24h 점프가 누른 뒤가 아니라
+  // 누르기 전에 보여야 한다.
+  // 시작 후보 중 **자동값이 아닌 쪽은 고를 수 없다** (2026-08-19). 자동과 다른 시작 달력일은
+  // 예외 없이 영업일 구간 `[day_start(D), day_start(D+1))` 밖이라 서버가 400 으로 막는다.
+  // 그래도 지우지 않고 남긴다 — 두 날짜가 다 보여야 왜 그 날짜인지 이해된다(END 후보의 `over 24h` 와 같은 방식).
+  const autoStartDate = addDay(date, autoStartOffset);
+  const blockedStartOffset: 0 | 1 = autoStartOffset === 0 ? 1 : 0;
+  const blockedStartDate = addDay(date, blockedStartOffset);
+  /** 그 달력일에 정말 일하려면 바꿔야 할 값 = 영업일 (서버 `suggested_operating_day` 와 같은 식). */
+  const suggestedOperatingDay = addDay(blockedStartDate, -autoStartOffset);
+  /** 왜 못 고르는지 — ① 경계와 시각의 관계 ② 고르면 생기는 일 ③ 그럼 뭘 바꿔야 하는지. */
+  const blockedStartReason =
+    `${fmtClock12(startTime)} is ${autoStartOffset === 1 ? "before" : "at or after"} this store's business day start ` +
+    `(${fmtClock12(dayBoundary)}), so this shift starts on ${fmtChipDate(autoStartDate)}. ` +
+    `Dating it ${fmtChipDate(blockedStartDate)} would put the start in a different business day, ` +
+    `and staff could not clock in for it. ` +
+    `To run this shift on ${fmtChipDate(blockedStartDate)}, change the Operating day to ${fmtFeedbackDate(suggestedOperatingDay)}.`;
+
+  const startDateOptions: [DateOption, DateOption] = [0, 1].map((k) => ({
+    date: addDay(date, k),
+    why: k === autoStartOffset
+      ? (k === 0 ? "Operating day" : "+1 day · before day start")
+      : "Different business day · not allowed",
+    auto: k === autoStartOffset,
+    selected: k === startOffsetDays,
+    amber: k === startOffsetDays && startDateOverridden,
+    disabled: k !== autoStartOffset,
+    disabledReason: blockedStartReason,
+  })) as [DateOption, DateOption];
+
+  const autoEnd = autoEndOffset(startTime, endTime);
+  const endDateOptions: [DateOption, DateOption] = [0, 1].map((k) => {
+    const len = durationForEndOffset(startTime, endTime, k as 0 | 1);
+    const why =
+      len <= 0
+        ? "Would end before the start · invalid"
+        : len > 1440
+          ? `${k === 1 ? "+1 day · " : ""}${fmtDuration(len)} · over 24h`
+          : k === 0
+            ? `Same day as start · ${fmtDuration(len)}`
+            : `+1 day · ${fmtDuration(len)}`;
+    return {
+      date: addDay(startDate, k),
+      why,
+      auto: k === autoEnd,
+      selected: k === endOffsetDays,
+      amber: k === endOffsetDays && endDateOverridden,
+      disabled: len <= 0 || len > 1440,
+    };
+  }) as [DateOption, DateOption];
+
+  /** 자동 종료일이었을 때와의 길이 차이 — 날짜 하나 바꿨을 뿐인데 24h 튄 걸 같은 줄에서 보여준다. */
+  const lengthDelta = shiftTotalMin - durationForEndOffset(startTime, endTime, autoEnd);
+
+  /** 휴게 끝점의 달력일 — `shiftIsoFields` 의 앵커 규칙과 같은 식이어야 표시와 저장이 일치한다. */
+  function breakDateOf(t: string): string {
+    if (!t) return startDate;
+    return timeToMinutes(t) < timeToMinutes(startTime) ? addDay(startDate, 1) : startDate;
+  }
+
   // Validation — 서버 검증(D9)의 앞단 미러. 문구는 서버 코드와 같은 뜻으로 유지한다.
   const gridText = `${SCHEDULE_STEP_MINUTES}-minute increments`;
   const validationError: string | null = (() => {
     if (shiftTotalMin === 0) return "The shift is 0 minutes long. Set a duration or an end time.";
-    if (shiftTotalMin > 1440) return "Shift cannot exceed 24 hours."; // safety
+    if (shiftTotalMin > 1440) {
+      // 24h 초과는 "긴 근무"가 아니라 **날짜 조립이 틀렸다**는 신호다 (서버 SHIFT_SPAN_TOO_LONG).
+      // 문구는 코드 단일 출처(lib/scheduleCodes)에서 만든다 — 서버/콘솔이 같은 문장을 쓴다.
+      return describeScheduleIssue({
+        code: SHIFT_SPAN_TOO_LONG,
+        params: {
+          span_minutes: shiftTotalMin,
+          start_at: `${startDate} ${startTime}`,
+          end_at: `${endDate} ${endTime}`,
+        },
+      });
+    }
     // 입력 단위 강제 — 반올림하지 않고 reject. 키보드로 :07 등 입력 시 차단.
     if (!isOnScheduleGrid(startTime) || !isOnScheduleGrid(endTime) || durationMin % SCHEDULE_STEP_MINUTES !== 0) {
       return `Start, end and duration must be in ${gridText}.`;
@@ -575,6 +891,10 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
       notes,
       hourlyRate,
       force,
+      // 서버는 이제 `date_override`/`force` 로도 시작 달력일 불일치를 넘겨주지 않는다(400 START_DATE_MISMATCH).
+      // 화면에서 자동값 아닌 후보를 고를 수 없으므로 이 값은 자연히 false 다. 보내도 무해해서 남긴다 —
+      // **이벤트 특수근무 트랙에서 통로를 다시 열 자리**.
+      dateOverride: startDateOverridden,
       operatingDay: iso.operating_day,
       startAt: iso.start_at,
       endAt: iso.end_at,
@@ -603,6 +923,9 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
         end_at: payload.endAt,
         break_start_at: payload.breakStartAt,
         break_end_at: payload.breakEndAt,
+        // 프리플라이트도 저장과 같은 의사표시를 실어야 한다 — 안 그러면 화면에는
+        // START_DATE_MISMATCH 가 뜨는데 실제 저장은 통과하는 식으로 두 판정이 갈린다.
+        date_override: payload.dateOverride,
         work_role_id: payload.workRoleId,
         hourly_rate: payload.hourlyRate,
         note: payload.notes || null,
@@ -630,7 +953,7 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
     <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">
       {/* Backdrop: 입력/수정 폼이라 클릭으로 닫히지 않음 (우발적 변경 분실 방지) */}
       <div className="absolute inset-0 bg-black/40" />
-      <div className="relative bg-[var(--color-surface)] rounded-2xl shadow-[0_16px_48px_rgba(0,0,0,0.2)] w-full max-w-md max-h-[90vh] flex flex-col">
+      <div className="relative bg-[var(--color-surface)] rounded-2xl shadow-[0_16px_48px_rgba(0,0,0,0.2)] w-full max-w-lg max-h-[90vh] flex flex-col">
         {/* Header (sticky) */}
         <div className="shrink-0 px-5 py-4 border-b border-[var(--color-border)] flex items-center justify-between">
           <h2 className="text-[15px] font-bold text-[var(--color-text)]">
@@ -676,15 +999,42 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
 
         {/* Form */}
         <div className="px-5 py-4 space-y-3.5">
-          {/* Operating day (operating_day) — 이 근무가 표시/집계되는 영업일. 실제 시각은 Start/End. */}
+          {/* Operating day — 이 근무가 집계되는 영업일. 달력일(Start/End)과 다를 수 있고,
+              그 차이를 만드는 경계 시각을 같은 줄에 붙여 눈으로 대조하게 한다. */}
           <div>
-            <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">Operating day</label>
-            <input
-              type="date"
-              value={date}
-              onChange={(e) => onChangeOperatingDay(e.target.value)}
-              className={`w-full px-3 py-2 border rounded-lg text-[13px] bg-[var(--color-surface)] ${changed("date", date) ? changedCls : "border-[var(--color-border)]"}`}
-            />
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">
+              Operating day <span className="normal-case tracking-normal font-normal">· the business day this shift counts on</span>
+            </label>
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className={`flex items-center rounded-lg border overflow-hidden bg-[var(--color-surface)] ${changed("date", date) ? changedCls : "border-[var(--color-border)]"}`}>
+                <button
+                  type="button"
+                  onClick={() => onChangeOperatingDay(addDay(date, -1))}
+                  className="px-2.5 py-2 text-[12px] text-[var(--color-text-muted)] hover:bg-[var(--color-surface-hover)]"
+                  aria-label="Previous operating day"
+                >
+                  ◀
+                </button>
+                <input
+                  type="date"
+                  value={date}
+                  onChange={(e) => e.target.value && onChangeOperatingDay(e.target.value)}
+                  className="px-2 py-2 text-[13px] tabular-nums font-semibold bg-transparent outline-none"
+                  aria-label="Operating day"
+                />
+                <button
+                  type="button"
+                  onClick={() => onChangeOperatingDay(addDay(date, 1))}
+                  className="px-2.5 py-2 text-[12px] text-[var(--color-text-muted)] hover:bg-[var(--color-surface-hover)]"
+                  aria-label="Next operating day"
+                >
+                  ▶
+                </button>
+              </div>
+              <span className="text-[11px] text-[var(--color-text-muted)] whitespace-nowrap">
+                Day starts <strong className="text-[var(--color-text-secondary)] tabular-nums">{fmtClock12(dayBoundary)}</strong>
+              </span>
+            </div>
           </div>
 
           {/* Staff */}
@@ -758,122 +1108,169 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
             )}
           </div>
 
-          {/* Time — single or split (2 segments) */}
-          {!splitEnabled ? (
-            <div>
-              {/* 시작 / 길이 / 종료 3필드 (D5-2). 종료는 파생이지만 직접 입력도 받는다 —
-                  입력하면 길이가 재계산될 뿐 시작은 움직이지 않는다. */}
-              <div className="grid grid-cols-3 gap-2">
-                <div>
-                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">Start</label>
+          {/* ── Shift: 끝점 한 줄 = [ DATE ][ TIME ], Length 는 두 행 아래 (승인 화면 D-final-console) ──
+              날짜는 읽기 전용 텍스트가 아니라 **항상 펼쳐진 2-후보 선택 구간**이다.
+              접어두는 정보는 없다 — 영업일·경계·두 날짜·두 시각·길이가 한 화면에 있다. */}
+          <div>
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">Shift</label>
+            <div className="rounded-xl border border-[var(--color-border)] bg-[var(--color-bg)] p-1 space-y-1">
+
+              <EndpointRow
+                caption={splitEnabled ? "Start (segment 1)" : "Start"}
+                hint={autoStartOffset === 1 ? `before ${fmtClock12(dayBoundary)} → next calendar day` : undefined}
+                tone={startDateOverridden ? "flagged" : startOffsetDays === 1 ? "shifted" : undefined}
+                date={
+                  <DateSegment
+                    options={startDateOptions}
+                    onPick={pickStartDate}
+                  />
+                }
+                time={
                   <TimeSelect
                     value={startTime}
                     onChange={onChangeStart}
                     className={`w-full px-2 py-2 border rounded-lg text-[13px] bg-[var(--color-surface)] ${changed("startTime", startTime) ? changedCls : "border-[var(--color-border)]"}`}
                   />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">Length</label>
-                  <div className={`flex items-center gap-1 px-2 py-2 border rounded-lg bg-[var(--color-surface)] ${changed("durationMin", durationMin) ? changedCls : "border-[var(--color-border)]"}`}>
-                    <input
-                      type="number"
-                      min={SCHEDULE_STEP_MINUTES}
-                      max={1440}
-                      step={SCHEDULE_STEP_MINUTES}
-                      value={durationMin}
-                      onChange={(e) => onChangeDuration(Number(e.target.value))}
-                      className="w-full min-w-0 text-[13px] bg-transparent outline-none tabular-nums"
-                      aria-label="Shift length in minutes"
-                    />
-                    <span className="text-[11px] text-[var(--color-text-muted)] shrink-0">min</span>
-                  </div>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">
-                    End {overnightShift && <span className="text-[var(--color-warning)] normal-case font-bold" title="Ends the next day">+1</span>}
-                  </label>
+                }
+              />
+
+              {/* 휴게가 켜지면 같은 [Date | Time] 행 문법을 그대로 반복한다 — 새 레이아웃을 만들지 않는다.
+                  휴게 날짜는 고를 값이 아니라 근무 구간에서 파생되므로 읽기 전용으로 같은 자리에 둔다. */}
+              {splitEnabled && (
+                <>
+                  <EndpointRow
+                    caption="Break start"
+                    date={<ReadonlyDateCell date={breakDateOf(breakStart)} why="Derived from the shift" />}
+                    time={
+                      <TimeSelect
+                        value={breakStart}
+                        onChange={onChangeBreakStart}
+                        className={`w-full px-2 py-2 border rounded-lg text-[13px] bg-[var(--color-surface)] ${changed("breakStart", breakStart) ? changedCls : "border-[var(--color-border)]"}`}
+                      />
+                    }
+                  />
+                  <EndpointRow
+                    caption="Break end"
+                    hint={breakMinutes > 0 ? `${fmtDuration(breakMinutes)} break` : undefined}
+                    date={<ReadonlyDateCell date={breakDateOf(breakEnd)} why="Derived from the shift" />}
+                    time={
+                      <TimeSelect
+                        value={breakEnd}
+                        onChange={onChangeBreakEnd}
+                        className={`w-full px-2 py-2 border rounded-lg text-[13px] bg-[var(--color-surface)] ${changed("breakEnd", breakEnd) ? changedCls : "border-[var(--color-border)]"}`}
+                      />
+                    }
+                  />
+                </>
+              )}
+
+              <EndpointRow
+                caption={splitEnabled ? "End (segment 2)" : "End"}
+                hint={
+                  endDateOverridden
+                    ? "changed by you"
+                    : endOffsetDays === 1
+                      ? "past midnight → next calendar day"
+                      : undefined
+                }
+                tone={endDateOverridden ? "flagged" : endOffsetDays === 1 ? "shifted" : undefined}
+                date={<DateSegment options={endDateOptions} onPick={pickEndDate} />}
+                time={
                   <TimeSelect
                     value={endTime}
                     onChange={onChangeEnd}
                     className="w-full px-2 py-2 border border-[var(--color-border)] rounded-lg text-[13px] bg-[var(--color-surface)]"
                   />
-                </div>
+                }
+              />
+
+              {/* Length — 두 행 **아래** 한 줄. Start/End 사이에는 아무것도 두지 않는다.
+                  값은 고정폭(`7h 00m`)이고 시/분을 직접 입력할 수 있다. 스테퍼는 5·15·60 세 단계다:
+                  5=미세, 15=통상, 60=도약. 10 은 5 두 번과 겹쳐 뺐다(버튼이 양쪽에 붙어 폭이 비싸다). */}
+              <div className="flex items-center gap-2 flex-wrap px-2.5 py-2 border-t border-dashed border-[var(--color-border)]">
+                <span className="text-[10px] font-bold uppercase tracking-[0.11em] text-[var(--color-text-muted)]">Length</span>
+
+                <span className="inline-flex rounded-md border border-[var(--color-border)] overflow-hidden bg-[var(--color-surface)]">
+                  {[60, 15, 5].map((n) => (
+                    <button
+                      key={`minus-${n}`}
+                      type="button"
+                      onClick={() => onChangeDuration(durationMin - n)}
+                      className="px-1.5 py-0.5 text-[11px] tabular-nums text-[var(--color-text-secondary)] border-r border-[var(--color-border)] hover:bg-[var(--color-surface-hover)]"
+                      aria-label={`Shorten by ${n} minutes`}
+                    >
+                      −{n}
+                    </button>
+                  ))}
+                </span>
+
+                <DurationInput
+                  minutes={shiftTotalMin}
+                  onChange={onChangeDuration}
+                  over={shiftTotalMin > 1440}
+                />
+
+                <span className="inline-flex rounded-md border border-[var(--color-border)] overflow-hidden bg-[var(--color-surface)]">
+                  {[5, 15, 60].map((n) => (
+                    <button
+                      key={`plus-${n}`}
+                      type="button"
+                      onClick={() => onChangeDuration(durationMin + n)}
+                      className="px-1.5 py-0.5 text-[11px] tabular-nums text-[var(--color-text-secondary)] border-l border-[var(--color-border)] first:border-l-0 hover:bg-[var(--color-surface-hover)]"
+                      aria-label={`Extend by ${n} minutes`}
+                    >
+                      +{n}
+                    </button>
+                  ))}
+                </span>
+
+                {lengthDelta !== 0 && (
+                  <span className="px-1.5 py-0.5 rounded-full text-[10px] font-bold tabular-nums border border-[var(--color-warning)] bg-[var(--color-warning-muted)] text-[var(--color-warning)]">
+                    {lengthDelta > 0 ? "+" : "−"}{fmtDuration(Math.abs(lengthDelta))}
+                  </span>
+                )}
+                <span className="ml-auto text-[10px] text-[var(--color-text-muted)]">{SCHEDULE_STEP_MINUTES}-min steps · max 24h</span>
               </div>
-              {/* 절대날짜 라이브 피드백 (2026-05-29 결정) — 저장될 실제 구간을 즉시 확인.
-                  자정 넘김은 `+1` 마커로만 표기한다(26:00 같은 24 초과 표기 금지 — D2-8). */}
-              <div className="mt-1.5 text-[12px] text-[var(--color-text-secondary)]">
-                → {fmtFeedbackDate(startDate)} {startTime} – {formatWallClock(endTime, derivedEnd.offsetDays)}
-                {" "}({fmtDuration(shiftTotalMin)})
-              </div>
-              {/* 영업일 소속 (D3-3) — 자동 판정이 기본, 필요하면 뒤집는다. */}
-              <div className="mt-2 flex items-start gap-2 text-[11px]">
-                <div className="flex-1 text-[var(--color-text-muted)]">
-                  Starts on <strong className="text-[var(--color-text-secondary)]">{fmtFeedbackDate(startDate)}</strong>
-                  {startOffsetDays === 1 ? " (day after the operating day)" : " (the operating day)"}
-                  {" · "}day starts at {dayBoundary}
-                </div>
+            </div>
+
+            {/* 저장 문장 — 화면 값과 저장 값이 어긋날 자리를 없앤다(실제 start_at/end_at 을 읽어준다). */}
+            <div className="mt-2 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] px-2.5 py-2 text-[12px] text-[var(--color-text-secondary)]">
+              Saves as <strong className="text-[var(--color-text)]">{fmtStamp(startDate, startTime)}</strong> →{" "}
+              <strong className="text-[var(--color-text)]">{fmtStamp(endDate, endTime)}</strong>. Counts on operating day {fmtFeedbackDate(date)}.
+            </div>
+
+            {/* 자동값과 다른 시작 달력일 — 이제 화면에서 고를 수 없으므로 여기 오지 않는다.
+                기존 데이터(경계 설정을 나중에 바꾼 행 등)로 열렸을 때를 위한 안전망이자
+                이벤트 특수근무 트랙에서 통로를 되살릴 때 다시 쓸 자리다. */}
+            {startDateOverridden ? (
+              <div className="mt-1.5 rounded-lg border border-[var(--color-danger)] bg-[var(--color-danger-muted)] px-2.5 py-2 text-[11px] text-[var(--color-danger)] flex items-start gap-2">
+                <span className="flex-1">
+                  {START_OUTSIDE_WINDOW_TEXT} {blockedStartReason}
+                </span>
                 <button
                   type="button"
-                  onClick={() => setStartOffsetOverride(startOffsetDays === 1 ? 0 : 1)}
-                  className="shrink-0 font-semibold text-[var(--color-accent)] hover:underline"
+                  onClick={() => setStartDateOverride(null)}
+                  className="shrink-0 font-bold underline underline-offset-2"
                 >
-                  {startOffsetDays === 1 ? "Use operating day" : "Use next day"}
+                  Back to {fmtChipDate(addDay(date, autoStartOffset))}
                 </button>
               </div>
-              {operatingDayOverridden && (
-                <div className="mt-1 text-[11px] text-[var(--color-warning)]">
-                  This differs from the automatic result ({autoStartOffset === 1 ? "day after the operating day" : "the operating day"}). The server will flag it when saving.
-                </div>
-              )}
+            ) : startOffsetDays === 1 ? (
+              <div className="mt-1.5 text-[11px] text-[var(--color-text-muted)]">
+                {fmtClock12(startTime)} is before the {fmtClock12(dayBoundary)} day start, so this shift runs on{" "}
+                <strong className="text-[var(--color-text-secondary)]">{fmtChipDate(startDate)}</strong> and still counts on operating day {fmtFeedbackDate(date)}.
+              </div>
+            ) : null}
+
+            {/* 다른 후보가 왜 잠겼는지 — 흐린 후보만 보여주면 "왜"를 알 수 없다. */}
+            <div
+              data-testid="start-date-locked-reason"
+              className="mt-1.5 text-[11px] text-[var(--color-text-muted)]"
+            >
+              <strong className="text-[var(--color-text-secondary)]">{fmtChipDate(blockedStartDate)}</strong>{" "}
+              is not selectable. {blockedStartReason}
             </div>
-          ) : (
-            <div className="space-y-2">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">Segment 1 Start</label>
-                  <TimeSelect
-                    value={startTime}
-                    onChange={onChangeStart}
-                    className="w-full px-3 py-2 border border-[var(--color-border)] rounded-lg text-[13px] bg-[var(--color-surface)]"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">Segment 1 End</label>
-                  <TimeSelect
-                    value={breakStart}
-                    onChange={onChangeBreakStart}
-                    className={`w-full px-3 py-2 border rounded-lg text-[13px] bg-[var(--color-surface)] ${changed("breakStart", breakStart) ? changedCls : "border-[var(--color-border)]"}`}
-                  />
-                </div>
-              </div>
-              <div className="flex items-center gap-1.5 text-[11px] text-[var(--color-text-muted)] pl-1">
-                <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
-                  <path d="M3 8h10M11 5l3 3-3 3" />
-                </svg>
-                Break {breakMinutes > 0 ? `· ${breakMinutes}min` : ""}
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">Segment 2 Start</label>
-                  <TimeSelect
-                    value={breakEnd}
-                    onChange={onChangeBreakEnd}
-                    className={`w-full px-3 py-2 border rounded-lg text-[13px] bg-[var(--color-surface)] ${changed("breakEnd", breakEnd) ? changedCls : "border-[var(--color-border)]"}`}
-                  />
-                </div>
-                <div>
-                  <label className="block text-[11px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1.5">
-                    Segment 2 End {overnightShift && <span className="text-[var(--color-warning)] normal-case font-bold" title="Ends the next day">+1</span>}
-                  </label>
-                  <TimeSelect
-                    value={endTime}
-                    onChange={onChangeEnd}
-                    className="w-full px-3 py-2 border border-[var(--color-border)] rounded-lg text-[13px] bg-[var(--color-surface)]"
-                  />
-                </div>
-              </div>
-            </div>
-          )}
+          </div>
 
           {/* Split toggle + summary */}
           <div className="flex items-center justify-between">

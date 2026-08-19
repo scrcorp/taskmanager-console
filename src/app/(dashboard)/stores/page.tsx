@@ -12,7 +12,7 @@ import React, { useState, useMemo, useCallback, useRef, useEffect } from "react"
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePersistedFilters } from "@/hooks/usePersistedFilters";
-import { Plus, Search, Edit, Trash2, X, GripVertical, Layers, AlertTriangle } from "lucide-react";
+import { Plus, Search, Edit, Trash2, X, GripVertical, Layers, AlertTriangle, Archive, RefreshCw } from "lucide-react";
 import {
   DndContext,
   closestCenter,
@@ -40,6 +40,10 @@ import {
   previewGroupAssign,
   type GroupAssignPreview,
 } from "@/hooks/useStoreGroups";
+import {
+  useUpdateEmpidNumbering,
+  useRecalculateEmpidNumbering,
+} from "@/hooks/useEmpidNumbering";
 import { useCreateShift } from "@/hooks/useShifts";
 import { useCreatePosition } from "@/hooks/usePositions";
 import { Button } from "@/components/ui/Button";
@@ -56,7 +60,7 @@ import { useTimezone } from "@/hooks/useTimezone";
 import { TIMEZONE_OPTIONS } from "@/lib/timezones";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@/lib/permissions";
-import type { Store, StoreGroup, StoreStatus } from "@/types";
+import type { EmpidNumbering, Store, StoreGroup, StoreStatus } from "@/types";
 import { STORE_STATUS_OPTIONS } from "@/types";
 
 /** status → Badge variant 매핑 / Store status → badge variant */
@@ -180,6 +184,212 @@ interface StoreSection {
 /** EMPID 중복 경고 문구 / Duplicate-EMPID warning copy */
 function duplicateEmpidMessage(count: number): string {
   return `${count} duplicate EMPIDs in this group's shared numbering scope — resolve them in Users → Bulk Edit → EMPID Import.`;
+}
+
+/**
+ * 예외 제외 안내 — 재계산이 몇 건을 빼고 계산했는지. 분류는 경고가 아니라 사실 안내다.
+ * How many exception numbers the recalculation left out. This is a fact, not a warning.
+ */
+function exceptionNote(count: number): string {
+  return `${count} exception${count === 1 ? "" : "s"} excluded from this calculation`;
+}
+
+/**
+ * 불일치 경고 문구 (RULE-E) — 원인 + 다음 행동. 커서가 이미 발급된 순번 번호보다
+ * 뒤에 있어 다음 채용이 사용 중인 번호를 받게 되는 상태다. 판정(mismatch)과 권고값은
+ * 서버가 준 값 그대로 쓴다 — 콘솔은 계산하지 않는다 (INV-8).
+ *
+ * Mismatch copy: cause + next action. Both the verdict and the recommendation
+ * come from the server; the console never computes them.
+ */
+function mismatchMessage(numbering: EmpidNumbering): string {
+  return (
+    `Next EMPID ${numbering.next_empid} is behind the numbers already issued in sequence ` +
+    `(recommended ${numbering.recommended}). A new hire would get a number that is already ` +
+    `taken — recalculate to move it forward.`
+  );
+}
+
+/**
+ * 다음 발급 번호(커서) 편집기 — 값·권고값·예외 건수·불일치는 전부 서버가 준
+ * numbering 스냅샷이고, 여기서는 표시와 두 가지 조작(수동 조정 · 재계산)만 한다.
+ * 수동 조정은 사유 필수(§3-2)이고, 커서를 낮춘 응답(lowered)은 확인 안내를 띄운다.
+ * 재계산은 먼저 apply=false 로 미리보기를 받고, 사유를 받아 적용한다(§3-3).
+ *
+ * Next-EMPID cursor editor. Every number shown comes from the server's
+ * numbering snapshot; this control only displays it and offers the two
+ * operations (manual adjust, recalculate). Adjusting requires a reason, and a
+ * lowered cursor gets an explicit confirmation. Recalculation previews first
+ * (apply=false), then applies with a reason.
+ */
+function NumberingCursorControl({
+  label,
+  numbering,
+  disabled,
+}: {
+  /** 커서 주체 표시명 (그룹명 또는 매장명) / Display name of the cursor owner */
+  label: string;
+  /** 서버 판정 스냅샷 / Server-decided snapshot */
+  numbering: EmpidNumbering;
+  /** 상위 저장 중 등으로 잠김 / Locked by the parent (e.g. a save in flight) */
+  disabled: boolean;
+}): React.ReactElement {
+  const modal = useModal();
+  const updateNumbering = useUpdateEmpidNumbering({ silent: true });
+  const recalculate = useRecalculateEmpidNumbering({ silent: true });
+
+  const [value, setValue] = useState<string>(String(numbering.next_empid));
+  /** 서버 값이 바뀌면(조정·재계산·refetch) 입력을 서버 값으로 되돌린다 / Resync on server change */
+  useEffect(() => {
+    setValue(String(numbering.next_empid));
+  }, [numbering.next_empid]);
+
+  const busy: boolean = disabled || updateNumbering.isPending || recalculate.isPending;
+  const inputValid: boolean = /^\d+$/.test(value.trim()) && parseInt(value.trim(), 10) >= 1;
+  const changed: boolean = inputValid && parseInt(value.trim(), 10) !== numbering.next_empid;
+  const target = { scope: numbering.scope, scope_id: numbering.scope_id };
+
+  /** 수동 조정 — 사유 필수, 낮추면 응답의 lowered 로 확인 안내 / Manual adjust */
+  const handleApply = useCallback(async (): Promise<void> => {
+    if (!changed || busy) return;
+    const next: number = parseInt(value.trim(), 10);
+    // 커서 미초기화(null)면 "낮추는 것"이 아니다 / An unset cursor cannot be lowered
+    const lowering: boolean =
+      numbering.next_empid != null && next < numbering.next_empid;
+    const reason: string | undefined = await modal.confirm({
+      title: "Change next EMPID",
+      message:
+        `${label}: the next EMPID becomes ${next} (now ${numbering.next_empid}).` +
+        (lowering
+          ? " Lowering it can hand out numbers that are already in use — numbers are never reused automatically."
+          : ""),
+      confirmLabel: "Change",
+      variant: lowering ? "danger" : "primary",
+      requiresReason: true,
+      reasonMandatory: true,
+      reasonLabel: "Reason for this change",
+    });
+    if (reason === undefined) return;
+    try {
+      const result = await updateNumbering.mutateAsync({ ...target, next_empid: next, reason });
+      if (result.lowered) {
+        void modal.alert({
+          type: "info",
+          title: "Next EMPID lowered",
+          message:
+            `${label}: the next EMPID went from ${result.previous} down to ${result.next_empid}. ` +
+            `Issued numbers are kept, so the next few hires may hit numbers that are already ` +
+            `taken. Check them in Users → Bulk Edit → EMPID.`,
+        });
+      }
+    } catch (err) {
+      void modal.alert({
+        type: "error",
+        title: "Couldn't change the next EMPID",
+        message: parseApiError(err, "Something went wrong while saving the next EMPID."),
+      });
+      setValue(String(numbering.next_empid));
+    }
+  }, [changed, busy, value, numbering.next_empid, target, label, modal, updateNumbering]);
+
+  /** 재계산 — 미리보기(apply=false) → 사유 확인 → 적용 / Recalculate: preview, then apply */
+  const handleRecalculate = useCallback(async (): Promise<void> => {
+    if (busy) return;
+    try {
+      const preview = await recalculate.mutateAsync({ ...target, apply: false, reason: null });
+      if (preview.recommended === preview.previous) {
+        void modal.alert({
+          type: "info",
+          title: "Nothing to change",
+          message:
+            `${label}: the next EMPID is already ${preview.recommended}. ` +
+            (preview.exception_count > 0
+              ? `${exceptionNote(preview.exception_count)}.`
+              : ""),
+        });
+        return;
+      }
+      const reason: string | undefined = await modal.confirm({
+        title: "Recalculate next EMPID",
+        message:
+          `${label}: the next EMPID becomes ${preview.recommended} (now ${preview.previous}).` +
+          (preview.exception_count > 0 ? ` ${exceptionNote(preview.exception_count)}.` : "") +
+          (preview.recommended < preview.previous
+            ? " This moves the cursor backwards — the numbers in between stay issued."
+            : ""),
+        confirmLabel: "Apply",
+        variant: preview.recommended < preview.previous ? "danger" : "primary",
+        requiresReason: true,
+        reasonMandatory: true,
+        reasonLabel: "Reason for this change",
+      });
+      if (reason === undefined) return;
+      await recalculate.mutateAsync({ ...target, apply: true, reason });
+    } catch (err) {
+      void modal.alert({
+        type: "error",
+        title: "Couldn't recalculate the next EMPID",
+        message: parseApiError(err, "Something went wrong while recalculating."),
+      });
+    }
+  }, [busy, target, label, modal, recalculate]);
+
+  return (
+    <div className="space-y-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="flex items-center gap-1.5 text-xs text-text-muted">
+          Next EMPID
+          <input
+            type="number"
+            min={1}
+            value={value}
+            disabled={busy}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setValue(e.target.value)}
+            onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                void handleApply();
+              }
+            }}
+            aria-label={`Next EMPID for ${label}`}
+            aria-invalid={!inputValid || undefined}
+            className={`w-20 rounded-md border bg-surface px-2 py-1 text-xs text-text focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent disabled:opacity-50 ${inputValid ? "border-border" : "border-danger"}`}
+          />
+        </label>
+        <button
+          type="button"
+          onClick={() => void handleApply()}
+          disabled={busy || !changed}
+          className="rounded-md border border-border bg-surface px-2 py-1 text-xs text-text hover:bg-surface-hover transition-colors disabled:opacity-50"
+        >
+          Change
+        </button>
+        <button
+          type="button"
+          onClick={() => void handleRecalculate()}
+          disabled={busy}
+          className="inline-flex items-center gap-1 rounded-md border border-border bg-surface px-2 py-1 text-xs text-text hover:bg-surface-hover transition-colors disabled:opacity-50"
+        >
+          <RefreshCw className="h-3 w-3" />
+          Recalculate
+        </button>
+        {numbering.mismatch && (
+          <Badge variant="warning">Numbering out of sync</Badge>
+        )}
+      </div>
+      {!inputValid && (
+        <p className="text-xs text-danger">Next EMPID must be a whole number of 1 or more.</p>
+      )}
+      {numbering.mismatch && <p className="text-xs text-warning">{mismatchMessage(numbering)}</p>}
+      <p className="text-xs text-text-muted">
+        {numbering.sequence_count} in sequence
+        {numbering.exception_count > 0 && <> · {exceptionNote(numbering.exception_count)}</>}
+        {numbering.recommended !== numbering.next_empid && (
+          <> · Recommended {numbering.recommended}</>
+        )}
+      </p>
+    </div>
+  );
 }
 
 /** 편입 미리보기에서 충돌이 발견된 매장 하나 / One store whose assign preview found issues */
@@ -528,6 +738,7 @@ function computeGroupSaveOps(
  */
 function SortableGroupRow({
   draftGroup,
+  serverGroup,
   isNew,
   isDeleted,
   members,
@@ -546,6 +757,8 @@ function SortableGroupRow({
 }: {
   /** draft 상의 그룹 값 / Draft values for this row */
   draftGroup: DraftGroup;
+  /** 서버가 준 그룹 (신규 행은 null) — 커서 스냅샷의 출처 / Server-side group; null for new rows */
+  serverGroup: StoreGroup | null;
   /** 신규(미생성) 그룹 — Save 시 생성 / Not yet created on the server */
   isNew: boolean;
   /** 삭제 표시 — Save 시 삭제, Undo 로 복구 / Marked for deletion (Undo restores) */
@@ -603,6 +816,22 @@ function SortableGroupRow({
   /** Per-store 채번 모드 — 매장 칩마다 번호대 입력 노출 / Per-store numbering shows a range input per chip */
   const perStore: boolean = draftGroup.numbering_mode === "store";
   const groupRangeBad: boolean = !isValidRangeInput(draftGroup.rangeStart);
+  /**
+   * 채번 모드를 draft 에서 바꿔놓고 아직 저장하지 않았으면 서버의 커서 스냅샷이
+   * 다른 스코프를 가리킨다 — 저장 전에는 커서를 손대지 못하게 한다.
+   * A not-yet-saved numbering-mode change makes the server snapshot point at a
+   * different scope, so cursor editing waits until the change is saved.
+   */
+  const modeUnsaved: boolean =
+    serverGroup !== null && serverGroup.numbering_mode !== draftGroup.numbering_mode;
+  /** 커서를 보여줄 수 있는 상태 / Whether a cursor snapshot is available to show */
+  const showCursor: boolean = serverGroup !== null && !modeUnsaved;
+  /** Per-store 모드에서 자기 커서를 가진 매장 (서버 기준 소속만) / Stores holding their own cursor */
+  const cursorStores: Store[] = showCursor && perStore
+    ? members.filter(
+        (s: Store) => s.group_id === draftGroup.id && s.numbering?.scope === "store",
+      )
+    : [];
 
   // 삭제 표시 행 — 편집 대신 Undo 만 제공 (Save 전까지 복구 가능, 실수 방지)
   // Deletion-marked row: no editing, just Undo until Save (mistake-proofing)
@@ -708,8 +937,8 @@ function SortableGroupRow({
           ))}
         </div>
         <label className="flex items-center gap-1.5 text-xs text-text-muted">
-          {/* Per-store 모드에선 매장 미설정 시 폴백이라 "Default range" / Fallback label in per-store mode */}
-          {perStore ? "Default range" : "Range start"}
+          {/* Per-store 모드에선 매장 미설정 시 폴백이라 "Default" / Fallback label in per-store mode */}
+          {perStore ? "Default first EMPID" : "First EMPID"}
           <input
             type="number"
             min={1}
@@ -720,7 +949,7 @@ function SortableGroupRow({
               onPatch({ rangeStart: e.target.value })
             }
             onKeyDown={blurOnEnter}
-            aria-label={`Number range start for ${displayName}`}
+            aria-label={`First EMPID for ${displayName}`}
             aria-invalid={groupRangeBad || undefined}
             className={`w-20 rounded-md border bg-surface px-2 py-1 text-xs text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent disabled:opacity-50 ${groupRangeBad ? "border-danger" : "border-border"}`}
           />
@@ -744,6 +973,41 @@ function SortableGroupRow({
           )}
         </div>
       )}
+      {/* 다음 발급 번호(커서) — draft 와 무관한 즉시 조작이다. 값·권고·불일치는 서버가
+          판정해 numbering 으로 내려준 것을 그대로 쓴다 (INV-8). Shared 모드는 그룹이,
+          Per-store 모드는 매장이 커서를 보유한다 (§3-1 scope).
+          Next-EMPID cursor: an immediate operation, independent of the draft. Every
+          number comes from the server's numbering snapshot. */}
+      {showCursor && !perStore && serverGroup?.numbering && (
+        <div className="mt-2 pl-7">
+          <NumberingCursorControl
+            label={displayName}
+            numbering={serverGroup.numbering}
+            disabled={disabled}
+          />
+        </div>
+      )}
+      {showCursor && perStore && cursorStores.length > 0 && (
+        <div className="mt-2 pl-7 space-y-2">
+          {cursorStores.map((store: Store) =>
+            store.numbering ? (
+              <div key={store.id} className="space-y-0.5">
+                <p className="text-xs font-medium text-text-secondary">{store.name}</p>
+                <NumberingCursorControl
+                  label={store.name}
+                  numbering={store.numbering}
+                  disabled={disabled}
+                />
+              </div>
+            ) : null,
+          )}
+        </div>
+      )}
+      {modeUnsaved && (
+        <p className="mt-2 pl-7 text-xs text-text-muted">
+          Save this numbering mode change to manage the next EMPID.
+        </p>
+      )}
       {/* 소속 매장 칩 + 추가 select — draft 만 갱신. Per-store 모드에선 칩마다 번호대
           입력을 노출 (Shared 모드에선 숨김 — 값은 draft 에 보존) / Member chips +
           add-store select (draft only); per-store mode adds a range input per chip
@@ -760,7 +1024,7 @@ function SortableGroupRow({
               {store.name}
               {perStore && (
                 <label className="ml-1 flex items-center gap-1 text-text-muted">
-                  Range
+                  First EMPID
                   <input
                     type="number"
                     min={1}
@@ -771,7 +1035,7 @@ function SortableGroupRow({
                       onStoreRangeChange(store.id, e.target.value)
                     }
                     onKeyDown={blurOnEnter}
-                    aria-label={`Number range start for ${store.name}`}
+                    aria-label={`First EMPID for ${store.name}`}
                     aria-invalid={rangeBad || undefined}
                     className={`w-16 rounded-md border bg-surface px-1.5 py-0.5 text-xs text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent disabled:opacity-50 ${rangeBad ? "border-danger" : "border-border"}`}
                   />
@@ -818,7 +1082,7 @@ function SortableGroupRow({
       )}
       {perStore && members.some((s: Store) => !isValidRangeInput(storeRanges[s.id] ?? "")) && (
         <p className="mt-1 pl-7 text-xs text-danger">
-          Store range must be a whole number of 1 or more.
+          First EMPID must be a whole number of 1 or more.
         </p>
       )}
     </div>
@@ -924,6 +1188,94 @@ function rangePreview(rangeStart: string, mode: "group" | "store"): string {
   return mode === "group"
     ? `New EMPIDs in this group: ${seq}`
     : `Stores without their own start use: ${seq}`;
+}
+
+/**
+ * 매장 모달의 번호 프리뷰 — 이 매장에서 다음에 만들어질 번호가 무엇인지.
+ * One-line preview for a store's own First EMPID.
+ */
+function storeRangePreview(rangeStart: string): string {
+  const parsed: number | null = parseRangeStart(rangeStart);
+  const from: number = parsed ?? 1;
+  return `New EMPIDs at this store: ${from}, ${from + 1}, ${from + 2}…`;
+}
+
+/**
+ * 매장 모달의 Group + First EMPID 한 줄 — 소속 그룹이 Shared 채번이면 이 매장의
+ * First EMPID 는 쓰이지 않는다(서버가 ERR_RANGE_IGNORED 로 거절한다). 그래서 칸을
+ * 잠그고 무엇을 따르는지 사실대로 적고, 저장 때도 값을 보내지 않는다.
+ * 그 외(Per-store 그룹·미그룹)에는 입력 + 프리뷰를 보여준다.
+ * 표시되는 다음 발급 번호는 전부 서버가 준 numbering 값이다 (INV-8).
+ *
+ * Group + First EMPID row of the store modal. When the selected group uses
+ * shared numbering, this store's own value is never used (the server rejects
+ * it), so the field is locked with a factual explanation and nothing is sent.
+ * Otherwise the field is editable with a preview. Every "next EMPID" shown
+ * comes from the server.
+ */
+function StoreNumberingRow({
+  groupSelect,
+  group,
+  storeNumbering,
+  value,
+  onChange,
+}: {
+  /** Group select 엘리먼트 (모달마다 상태가 달라 밖에서 넘긴다) / The group select element */
+  groupSelect: React.ReactNode;
+  /** 폼에서 선택된 그룹 (없으면 Ungrouped) / Group picked in the form; null = ungrouped */
+  group: StoreGroup | null;
+  /** 이 매장의 채번 스냅샷 (생성 모달엔 없음) / This store's numbering snapshot (absent on create) */
+  storeNumbering: EmpidNumbering | undefined;
+  value: string;
+  onChange: (value: string) => void;
+}): React.ReactElement {
+  /** 그룹 공유 채번 — 매장 값이 무시되는 문맥 / Shared numbering: the store value is ignored */
+  const shared: boolean = group?.numbering_mode === "group";
+  const rangeBad: boolean = !isValidRangeInput(value);
+  const sharedStart: number | null = group?.number_range_start ?? null;
+  /** 이미 자체 커서로 발급을 시작한 매장 / Store that already issues from its own cursor */
+  const started: boolean =
+    !shared && storeNumbering?.scope === "store" && storeNumbering.next_empid != null;
+
+  return (
+    <div>
+      <div className="grid grid-cols-2 gap-3">
+        {groupSelect}
+        <Input
+          label="First EMPID"
+          type="number"
+          min={1}
+          placeholder={shared ? "Set in Groups" : "Optional"}
+          value={shared ? (sharedStart != null ? String(sharedStart) : "") : value}
+          disabled={shared}
+          readOnly={shared}
+          error={!shared && rangeBad ? "Whole number of 1 or more." : undefined}
+          onChange={(e: React.ChangeEvent<HTMLInputElement>) => onChange(e.target.value)}
+        />
+      </div>
+      {shared && group ? (
+        <p className="mt-1 text-xs text-text-muted">
+          This store follows group {group.name}&apos;s shared numbering
+          {sharedStart != null ? ` (starts at ${sharedStart})` : ""}. Change it in Groups.
+          {group.numbering?.next_empid != null
+            ? ` Next EMPID: ${group.numbering.next_empid}.`
+            : ""}
+        </p>
+      ) : (
+        <p className="mt-1 text-xs text-text-muted">
+          {/* 이미 번호를 발급한 매장은 First EMPID 가 다음 번호를 바꾸지 않는다(커서가 결정).
+              그래서 입력값 기반 프리뷰를 앞세우면 거짓말이 된다 — 서버 커서를 그대로 말한다.
+              Once a store has issued numbers, First EMPID no longer decides the next one
+              (the cursor does), so state the server's cursor instead of an input preview. */}
+          {rangeBad
+            ? "First EMPID must be a whole number of 1 or more."
+            : started
+              ? `This store has already started — its next EMPID is ${storeNumbering!.next_empid}. Changing the first EMPID doesn't move it; use Recalculate in Groups.`
+              : `${storeRangePreview(value)} Leave blank for the default.`}
+        </p>
+      )}
+    </div>
+  );
 }
 
 /**
@@ -1045,7 +1397,7 @@ function NewGroupForm({
           ))}
         </div>
         <label className="flex items-center gap-1.5 text-xs text-text-muted">
-          {mode === "store" ? "Default range" : "Range start"}
+          {mode === "store" ? "Default first EMPID" : "First EMPID"}
           <input
             type="number"
             min={1}
@@ -1277,6 +1629,20 @@ function ManageGroupsModal({
         .filter(Boolean),
     );
   }, [draft]);
+
+  /**
+   * 그룹에 속하지 않은 매장은 자기 커서를 갖는다 — 그룹 행에 나타나지 않으므로
+   * 여기서 따로 보여주지 않으면 고칠 방법이 없다 (서버 소속 기준).
+   * Ungrouped stores own their cursor and appear in no group row, so they get
+   * their own section (based on server-side membership).
+   */
+  const ungroupedCursorStores: Store[] = useMemo(
+    () =>
+      storeList.filter(
+        (s: Store) => (s.group_id ?? null) === null && s.numbering?.scope === "store",
+      ),
+    [storeList],
+  );
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
@@ -1659,6 +2025,7 @@ function ManageGroupsModal({
                     <SortableGroupRow
                       key={id}
                       draftGroup={draftGroup}
+                      serverGroup={groupList.find((g: StoreGroup) => g.id === id) ?? null}
                       isNew={isTempGroupId(id)}
                       isDeleted={draft.deleted.includes(id)}
                       members={storeList.filter((s: Store) => effectiveGroupIds[s.id] === id)}
@@ -1680,6 +2047,24 @@ function ManageGroupsModal({
               </div>
             </SortableContext>
           </DndContext>
+        )}
+        {/* 미그룹 매장의 커서 — 매장이 자기 스코프를 갖는 경우만 (§3-1 scope="store") */}
+        {ungroupedCursorStores.length > 0 && (
+          <div className="rounded-lg border border-border bg-surface px-3 py-2 space-y-2">
+            <p className="text-sm font-semibold text-text">Ungrouped stores</p>
+            {ungroupedCursorStores.map((store: Store) =>
+              store.numbering ? (
+                <div key={store.id} className="space-y-0.5">
+                  <p className="text-xs font-medium text-text-secondary">{store.name}</p>
+                  <NumberingCursorControl
+                    label={store.name}
+                    numbering={store.numbering}
+                    disabled={isSaving}
+                  />
+                </div>
+              ) : null,
+            )}
+          </div>
         )}
         {isAdding && draft ? (
           <NewGroupForm
@@ -1711,7 +2096,7 @@ function ManageGroupsModal({
           )}
           {invalidRanges && !hasCodeConflict && (
             <span className="mr-auto text-xs text-danger">
-              Range inputs must be whole numbers of 1 or more.
+              First EMPID values must be whole numbers of 1 or more.
             </span>
           )}
           <Button variant="secondary" onClick={() => void requestClose()} disabled={isSaving}>
@@ -1833,6 +2218,28 @@ export default function StoresPage(): React.ReactElement {
       ...groupList.map((g: StoreGroup) => ({ value: g.id, label: g.name })),
     ],
     [groupList],
+  );
+
+  /**
+   * 폼에서 선택된 그룹 — First EMPID 칸의 문맥(공유 채번인지)을 정한다. 채번 모드는
+   * 서버가 가진 값이고, 콘솔은 그걸 읽어 표시만 한다 (INV-8).
+   * The group picked in each form; decides the First EMPID field's context.
+   */
+  const createFormGroup: StoreGroup | null = useMemo(
+    () => groupList.find((g: StoreGroup) => g.id === createForm.groupId) ?? null,
+    [groupList, createForm.groupId],
+  );
+  const editFormGroup: StoreGroup | null = useMemo(
+    () => groupList.find((g: StoreGroup) => g.id === editForm.groupId) ?? null,
+    [groupList, editForm.groupId],
+  );
+  /** 수정 중인 매장의 서버 스냅샷 (numbering 표시용) / Server snapshot of the store being edited */
+  const editingStore: Store | null = useMemo(
+    () =>
+      Array.isArray(stores)
+        ? stores.find((s: Store) => s.id === editingStoreId) ?? null
+        : null,
+    [stores, editingStoreId],
   );
 
   /** 그룹 섹션 (sort_order 순) + 마지막 Ungrouped / Group sections in sort_order, Ungrouped last */
@@ -2001,7 +2408,11 @@ export default function StoresPage(): React.ReactElement {
         status: createForm.status,
         timezone: createForm.timezone || null,
         group_id: createForm.groupId || null,
-        number_range_start: parseRangeStart(createForm.numberRangeStart),
+        // 공유 채번 그룹에는 매장 First EMPID 를 보내지 않는다 — 서버가 ERR_RANGE_IGNORED
+        // 로 거절한다 / Shared-numbering groups reject a per-store first EMPID
+        ...(createFormGroup?.numbering_mode === "group"
+          ? {}
+          : { number_range_start: parseRangeStart(createForm.numberRangeStart) }),
       };
       const store = await createStore.mutateAsync(payload);
       // 그룹 store_count 갱신 / Refresh group store counts
@@ -2051,7 +2462,7 @@ export default function StoresPage(): React.ReactElement {
     } finally {
       setIsCreating(false);
     }
-  }, [createForm, createStore, createShift, createPosition, modal, router, queryClient]);
+  }, [createForm, createFormGroup, createStore, createShift, createPosition, modal, router, queryClient]);
 
   /** 수정 모달 열기 / Open edit modal */
   const handleOpenEdit = useCallback(
@@ -2091,7 +2502,10 @@ export default function StoresPage(): React.ReactElement {
         status: editForm.status,
         timezone: editForm.timezone || null,
         group_id: editForm.groupId || null, // 명시적 null = 그룹 해제
-        number_range_start: parseRangeStart(editForm.numberRangeStart),
+        // 공유 채번 그룹에는 매장 First EMPID 를 보내지 않는다 (ERR_RANGE_IGNORED)
+        ...(editFormGroup?.numbering_mode === "group"
+          ? {}
+          : { number_range_start: parseRangeStart(editForm.numberRangeStart) }),
       };
       const updated = await updateStore.mutateAsync(payload);
       // 그룹 편성이 바뀌었을 수 있으므로 store_count 갱신 / Group membership may have changed
@@ -2110,29 +2524,29 @@ export default function StoresPage(): React.ReactElement {
     } catch {
       // hook 이 자동으로 에러 모달
     }
-  }, [editingStoreId, editForm, updateStore, queryClient, modal]);
+  }, [editingStoreId, editForm, editFormGroup, updateStore, queryClient, modal]);
 
-  /** 매장 삭제 핸들러 / Handle store deletion (inline confirm) */
-  const handleOpenDelete = useCallback(
+  /**
+   * 매장 폐점 핸들러 — DELETE 는 소프트 삭제(status=closed)로 동작한다(§3-7).
+   * 데이터도 EMPID 도 남고 되돌릴 수 있으므로, 영구 삭제를 전제한 이름 입력 가드는
+   * 두지 않고 문구를 실제 동작에 맞춘다.
+   *
+   * Close a store. DELETE is a soft delete (status=closed): data and EMPIDs
+   * stay and it can be reopened, so the copy matches what actually happens.
+   */
+  const handleOpenClose = useCallback(
     async (store: Store, e: React.MouseEvent): Promise<void> => {
       e.stopPropagation();
-      // Hard delete 가드 — 데이터 영구 삭제. store 이름을 직접 입력해야 진행.
-      const typed = await modal.confirm({
-        title: "Permanently delete store",
+      const ok = await modal.confirm({
+        title: "Close store",
         message:
-          `This permanently deletes "${store.name}" and all its data (shifts, positions, schedules, assignments). ` +
-          `This cannot be undone. To only stop operating, set status to Paused or Closed instead.\n\n` +
-          `Type the store name to confirm.`,
-        confirmLabel: "Delete forever",
+          `This closes "${store.name}". Staff can't be scheduled there or clock in, and it drops out of ` +
+          `active lists. Its data — EMPIDs, schedules and attendance history — is kept, and you can ` +
+          `reopen it later by setting its status back to Open.`,
+        confirmLabel: "Close store",
         variant: "danger",
-        requiresReason: true,
-        reasonLabel: `Type "${store.name}" to confirm`,
       });
-      if (typed === undefined) return; // 취소
-      if (typed.trim() !== store.name) {
-        void modal.alert({ type: "error", message: "The name you typed doesn't match. Deletion cancelled." });
-        return;
-      }
+      if (!ok) return;
       try {
         await deleteStore.mutateAsync(store.id);
       } catch {
@@ -2179,7 +2593,15 @@ export default function StoresPage(): React.ReactElement {
         key: "name",
         header: "Name",
         render: (store: Store) => (
-          <span className="font-medium text-text">{store.name}</span>
+          <span className="inline-flex items-center gap-2">
+            <span className="font-medium text-text">{store.name}</span>
+            {/* 매장 단독 스코프의 불일치만 (그룹 스코프는 섹션 헤더가 표시) */}
+            {store.numbering?.scope === "store" && store.numbering.mismatch && (
+              <span title={mismatchMessage(store.numbering)}>
+                <Badge variant="warning">Numbering out of sync</Badge>
+              </span>
+            )}
+          </span>
         ),
       },
       {
@@ -2234,21 +2656,24 @@ export default function StoresPage(): React.ReactElement {
                   >
                     <Edit className="h-4 w-4" />
                   </button>
-                  <button
-                    type="button"
-                    onClick={(e: React.MouseEvent) => void handleOpenDelete(store, e)}
-                    className="p-1.5 rounded-md text-text-muted hover:text-danger hover:bg-danger-muted transition-colors"
-                    aria-label={`Delete ${store.name}`}
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
+                  {store.status !== "closed" && (
+                    <button
+                      type="button"
+                      onClick={(e: React.MouseEvent) => void handleOpenClose(store, e)}
+                      className="p-1.5 rounded-md text-text-muted hover:text-danger hover:bg-danger-muted transition-colors"
+                      aria-label={`Close ${store.name}`}
+                      title="Close store"
+                    >
+                      <Archive className="h-4 w-4" />
+                    </button>
+                  )}
                 </div>
               ),
             },
           ]
         : []),
     ],
-    [handleOpenEdit, handleOpenDelete, handleOpenEmpids, canWrite, tz],
+    [handleOpenEdit, handleOpenClose, handleOpenEmpids, canWrite, tz],
   );
 
   if (isLoading) {
@@ -2376,7 +2801,18 @@ export default function StoresPage(): React.ReactElement {
                 )}
                 {section.group?.number_range_start != null && (
                   <span className="text-xs text-text-muted">
-                    Starts at {section.group.number_range_start}
+                    First EMPID {section.group.number_range_start}
+                  </span>
+                )}
+                {section.group?.numbering && (
+                  <span className="text-xs text-text-muted">
+                    Next EMPID {section.group.numbering.next_empid}
+                  </span>
+                )}
+                {/* 불일치만 경고 — 예외 건수(분류)는 경고가 아니다 (RULE-E) */}
+                {section.group?.numbering?.mismatch && (
+                  <span title={mismatchMessage(section.group.numbering)}>
+                    <Badge variant="warning">Numbering out of sync</Badge>
                   </span>
                 )}
                 <div className="flex-1 border-t border-border" />
@@ -2517,8 +2953,8 @@ export default function StoresPage(): React.ReactElement {
               }
             />
           </div>
-          <div>
-            <div className="grid grid-cols-2 gap-3">
+          <StoreNumberingRow
+            groupSelect={
               <Select
                 label="Group"
                 options={groupOptions}
@@ -2530,24 +2966,14 @@ export default function StoresPage(): React.ReactElement {
                   }))
                 }
               />
-              <Input
-                label="Number Range Start"
-                type="number"
-                min={1}
-                placeholder="Optional"
-                value={createForm.numberRangeStart}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  setCreateForm((prev: StoreFormData) => ({
-                    ...prev,
-                    numberRangeStart: e.target.value,
-                  }))
-                }
-              />
-            </div>
-            <p className="mt-1 text-xs text-text-muted">
-              Number range start sets the first EMPID for this store&apos;s own numbering. Leave blank for the default.
-            </p>
-          </div>
+            }
+            group={createFormGroup}
+            storeNumbering={undefined}
+            value={createForm.numberRangeStart}
+            onChange={(v: string) =>
+              setCreateForm((prev: StoreFormData) => ({ ...prev, numberRangeStart: v }))
+            }
+          />
 
           {/* Shifts Section */}
           <div>
@@ -2779,8 +3205,8 @@ export default function StoresPage(): React.ReactElement {
               }
             />
           </div>
-          <div>
-            <div className="grid grid-cols-2 gap-3">
+          <StoreNumberingRow
+            groupSelect={
               <Select
                 label="Group"
                 options={groupOptions}
@@ -2792,24 +3218,14 @@ export default function StoresPage(): React.ReactElement {
                   }))
                 }
               />
-              <Input
-                label="Number Range Start"
-                type="number"
-                min={1}
-                placeholder="Optional"
-                value={editForm.numberRangeStart}
-                onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                  setEditForm((prev: StoreFormData) => ({
-                    ...prev,
-                    numberRangeStart: e.target.value,
-                  }))
-                }
-              />
-            </div>
-            <p className="mt-1 text-xs text-text-muted">
-              Number range start sets the first EMPID for this store&apos;s own numbering. Leave blank for the default.
-            </p>
-          </div>
+            }
+            group={editFormGroup}
+            storeNumbering={editingStore?.numbering}
+            value={editForm.numberRangeStart}
+            onChange={(v: string) =>
+              setEditForm((prev: StoreFormData) => ({ ...prev, numberRangeStart: v }))
+            }
+          />
           <div className="flex justify-end gap-2 pt-2">
             <Button
               variant="secondary"

@@ -108,6 +108,12 @@ export interface Store {
   number_range_start?: number | null;
   /** 그룹 편성 변경 PUT 응답에서만 비어있지 않음 / Only populated on group-changing PUT responses. */
   duplicate_empids?: DuplicateEmpid[];
+  /**
+   * EMPID 채번 상태 (서버 판정). Optional — 서버 미배포/기존 mock·test 리터럴 호환.
+   *
+   * EMPID numbering state decided by the server. The console only displays it.
+   */
+  numbering?: EmpidNumbering;
 }
 
 /** 그룹/매장 numbering 범위 안에서 중복된 EMPID / Duplicated EMPID within a numbering scope */
@@ -115,6 +121,103 @@ export interface DuplicateEmpid {
   empid: number;
   count: number;
 }
+
+// ── EMPID numbering (채번) — API 계약 §3 ──────────────────────────────────────
+// 판정(다음 번호·예외 여부·불일치)은 서버 전용이다. 콘솔은 아래 값을 표시만 하고
+// 스스로 계산하지 않는다. 계약 SoT: docs/99_inbox/2026-08-18 empid 채번 API계약·규칙.
+
+/**
+ * 번호 구분 — 순번(sequence) / 예외(exception).
+ * 기본값은 항상 "sequence" 이며, 경로(임포트·직접기입)로 추론하지 않는다.
+ *
+ * Number kind: in-sequence vs. exception. Defaults to "sequence"; never inferred
+ * from the write path.
+ */
+export type EmpidKind = "sequence" | "exception";
+
+/** 커서를 보유한 주체 — 그룹 공유 스코프면 "group", 매장 단독이면 "store" */
+export type EmpidNumberingScope = "group" | "store";
+
+/**
+ * 채번 상태 (§3-1) — 그룹/매장 응답에 실려 오는 커서 스냅샷.
+ *
+ * Numbering snapshot carried on store-group / store responses.
+ */
+export interface EmpidNumbering {
+  /** 현재 커서 — 다음에 발급될 번호. 미초기화 스코프는 null / Current cursor; null when uninitialised */
+  next_empid: number | null;
+  /** 재계산 권고값 (sequence 번호 기준) / Recalculated recommendation */
+  recommended: number;
+  /** 재계산에서 제외된 예외 건수 / Exception numbers excluded from the calculation */
+  exception_count: number;
+  /** 순번(sequence) 번호 보유 인원 수 / People holding an in-sequence number */
+  sequence_count: number;
+  /** 커서가 권고값보다 낮음 — 행동이 필요한 경고 / Cursor lags the recommendation */
+  mismatch: boolean;
+  /** 커서를 수정해야 하는 주체 종류 / Which subject owns the cursor */
+  scope: EmpidNumberingScope;
+  /** 커서 보유 주체 id (그룹 또는 매장) / Id of the cursor-owning subject */
+  scope_id: string;
+}
+
+/** 커서 수동 조정 요청 (§3-2) — reason 필수 / Manual cursor adjustment; reason required */
+export interface EmpidNumberingUpdateRequest {
+  next_empid: number;
+  reason: string;
+}
+
+/** 커서 수동 조정 응답 (§3-2) / Manual cursor adjustment response */
+export interface EmpidNumberingUpdateResult extends EmpidNumbering {
+  /** 조정 전 커서 값 — 미초기화였으면 null / Cursor before the change; null if it was unset */
+  previous: number | null;
+  /** 커서를 낮춘 조정 — 콘솔이 확인 UI 를 띄운다 / The cursor was lowered */
+  lowered: boolean;
+}
+
+/** 커서 재계산 요청 (§3-3) — apply=false 면 미리보기만, true 면 reason 필수 */
+export interface EmpidNumberingRecalculateRequest {
+  apply: boolean;
+  reason?: string | null;
+}
+
+/** 커서 재계산 응답 (§3-3) / Cursor recalculation response */
+export interface EmpidNumberingRecalculateResult extends EmpidNumbering {
+  /** 실제로 커서에 적용됐는지 (apply=false 면 false) / Whether it was applied */
+  applied: boolean;
+  /** 재계산 전 커서 값 / Cursor value before the recalculation */
+  previous: number;
+}
+
+/**
+ * 임포트 커밋 요청 항목의 번호 구분 필드 (§3-4).
+ * 기존 commit assignment 항목에 얹어 쓴다 — 생략 시 서버가 "sequence" 로 본다.
+ *
+ * Kind fields mixed into an import-commit assignment item. Omitted = "sequence".
+ */
+export interface EmpidKindFields {
+  empid_kind?: EmpidKind;
+  reason?: string | null;
+}
+
+/** 임포트 프리뷰 분포 한 칸 (§3-5) — 100 단위 묶음 / One 100-wide distribution bucket */
+export interface EmpidDistributionBand {
+  /** 표시용 라벨 (예: "1000-1099") / Display label */
+  band: string;
+  lo: number;
+  hi: number;
+  count: number;
+}
+
+/**
+ * 채번 관련 도메인 에러 코드 (§4).
+ * 문구는 서버가 아니라 화면이 소유한다 — 원인 + 다음 행동을 담는다.
+ */
+export type EmpidNumberingErrorCode =
+  | "ERR_REASON_REQUIRED"
+  | "ERR_CURSOR_INVALID"
+  | "ERR_BAND_EXHAUSTED"
+  | "ERR_BAND_OVERLAP"
+  | "ERR_RANGE_IGNORED";
 
 // Store Group
 export interface StoreGroup {
@@ -130,6 +233,12 @@ export interface StoreGroup {
   store_count: number;
   duplicate_empids: DuplicateEmpid[];
   created_at: string;
+  /**
+   * EMPID 채번 상태 (서버 판정). Optional — 서버 미배포/기존 mock·test 리터럴 호환.
+   *
+   * EMPID numbering state decided by the server. The console only displays it.
+   */
+  numbering?: EmpidNumbering;
 }
 
 export interface UserStoreAssignment extends Store {
@@ -1215,6 +1324,15 @@ export interface Schedule {
   end_at?: string | null;
   break_start_at?: string | null;
   break_end_at?: string | null;
+  /**
+   * 시작이 자기 영업일 구간 `[day_start(D), day_start(D+1))` **밖**인가 (서버 판정).
+   *
+   * true 면 이 행은 현장에서 쓸 수 없다 — 출근하려는 시각의 영업일과 라벨이 달라
+   * 후보 조회에 안 잡힌다. 저장 검증(400 START_DATE_MISMATCH) 이전 행·SQL 직접 수정·
+   * 임포트·**매장 경계 설정을 나중에 바꾼 경우**가 여기 해당한다.
+   * 화면은 이 행을 정상처럼 보이게 두지 않고 "에러 스케줄"로 드러낸다.
+   */
+  start_outside_operating_window?: boolean;
   net_work_minutes: number;
   /** 저장된 스냅샷 시급 (0이면 override 없음) */
   hourly_rate: number;
@@ -1264,6 +1382,12 @@ export interface ScheduleCreate {
   /** Initial status. Default 'confirmed' for direct admin creation. */
   status?: "draft" | "requested" | "confirmed";
   force?: boolean;
+  /**
+   * 시작 달력일을 **사람이 화면에서 직접 골랐다**는 의사표시.
+   * 날짜는 (영업일, 시작 시각, 매장 경계)에서 하나로 결정되는 파생값이라, 표시 없이
+   * 자동값과 다른 날짜가 오면 서버가 START_DATE_MISMATCH(400)로 차단한다.
+   */
+  date_override?: boolean;
 }
 
 /**
@@ -1314,6 +1438,12 @@ export interface ScheduleUpdate {
   hourly_rate?: number | null;
   note?: string | null;
   force?: boolean;
+  /**
+   * 시작 달력일을 **사람이 화면에서 직접 골랐다**는 의사표시.
+   * 날짜는 (영업일, 시작 시각, 매장 경계)에서 하나로 결정되는 파생값이라, 표시 없이
+   * 자동값과 다른 날짜가 오면 서버가 START_DATE_MISMATCH(400)로 차단한다.
+   */
+  date_override?: boolean;
   /** 수정 사유 — schedule_audit_logs.reason 에 기록되어 History 에 노출된다.
    *  선택 입력이지만 compact 편집 경로는 항상 채워 보낸다 (근태 정정과 기록 수준을 맞추려고). */
   change_reason?: string | null;
@@ -1378,6 +1508,12 @@ export interface BulkUpdateItem {
   note?: string | null;
   hourly_rate?: number | null;
   reset_checklist?: boolean | null;
+  /**
+   * 시작 달력일을 **사람이 화면에서 직접 골랐다**는 의사표시.
+   * 날짜는 (영업일, 시작 시각, 매장 경계)에서 하나로 결정되는 파생값이라, 표시 없이
+   * 자동값과 다른 날짜가 오면 서버가 START_DATE_MISMATCH(400)로 차단한다.
+   */
+  date_override?: boolean;
   /** Target status. If set, server triggers the matching status transition (submit/confirm/revert). */
   status?: "draft" | "requested" | "confirmed";
 }

@@ -14,6 +14,13 @@
  */
 export const SCHEDULE_STEP_MINUTES = 5;
 
+/**
+ * 서버 `start_outside_operating_window` 가 선 스케줄의 사용자 문구 — **한 곳에서만 정의한다**.
+ * 블록/상세/목록이 같은 문장을 써야 사용자가 같은 사실을 두 가지로 읽지 않는다.
+ */
+export const START_OUTSIDE_WINDOW_TEXT =
+  "This shift starts outside its business day \u2014 staff cannot clock in for it. Fix the operating day or the start time.";
+
 /** "YYYY-MM-DD" 에 n일 더하기 (UTC 기준 순수 날짜 산술). */
 export function addDay(d: string, n: number): string {
   const [y, m, dd] = d.split("-").map(Number);
@@ -155,19 +162,63 @@ export function dawnStartOffset(startTime: string, boundary: string = DEFAULT_DA
 }
 
 /**
- * 매장 설정을 반영한 시작일 오프셋 — 날짜 UI 없는 표면은 **반드시** 이걸 쓴다.
+ * 영업일 D 의 창을 가르는 경계 — **영업일 D+1 의 값**이다.
+ *
+ * 영업일 D 의 창은 `[day_start(D), day_start(D+1))` 이므로, "이 시각이 창의 앞쪽(=D 달력일)이냐
+ * 뒤쪽(=D+1 달력일)이냐"를 가르는 건 D+1 의 경계다. 서버(`schedule_service._validate_entry`,
+ * `manage._kiosk_shift_iso`)가 같은 기준을 쓴다 — 여기서 D 의 요일 값을 쓰면 요일별 경계를
+ * 운영하는 매장에서 콘솔과 서버 판정이 갈려 저장이 START_DATE_MISMATCH 로 거부된다.
+ */
+export function dayBoundaryFor(
+  operatingDay: string,
+  dayStartTime: Record<string, string> | null | undefined,
+): string {
+  return dayStartFor(dayStartTime ?? null, addDay(operatingDay, 1));
+}
+
+/**
+ * 매장 설정을 반영한 시작일 오프셋 — **모든 표면의 단일 판정 함수**.
+ *
+ *     so = 시작 시각 < day_start(operating_day + 1) ? 1 : 0
  *
  * `dawnStartOffset` 의 boundary 기본값(06:00)을 그대로 두면, 경계를 04:00 으로
  * 운영하는 매장에서 04~06시 시작 근무가 전부 "새벽조"로 오판돼 시작일이 다음날로
- * 밀린다. 그러면 서버(실제 경계 기준)가 START_AFTER_DAY_BOUNDARY 경고를 내고,
+ * 밀린다. 그러면 서버(실제 경계 기준)가 START_DATE_MISMATCH 로 저장을 막고,
  * 단건 모달로는 멀쩡히 저장되는 근무가 벌크에서만 걸린다.
  */
 export function storeStartOffset(
   startTime: string,
   dayStartTime: Record<string, string> | null | undefined,
-  dateStr: string,
+  operatingDay: string,
 ): 0 | 1 {
-  return dawnStartOffset(startTime, dayStartFor(dayStartTime ?? null, dateStr));
+  return dawnStartOffset(startTime, dayBoundaryFor(operatingDay, dayStartTime));
+}
+
+/* `carriedStartOffset` 은 2026-08-19 에 제거됐다.
+ *
+ * 복사한 시프트의 오프셋을 "시각이 같을 때만" 보존하던 함수다. 이제 유효한 시작 달력일은
+ * 경계 규칙이 주는 자동값 하나뿐이라(그 밖은 서버가 START_DATE_MISMATCH 로 거부한다)
+ * 보존은 불필요하고, 매장 경계가 바뀐 뒤에는 옛 오프셋이 정확히 틀린 값이 되어 위험하다.
+ * 시작 날짜가 필요한 곳은 전부 `storeStartOffset` 을 쓴다.
+ */
+
+// ── 종료 달력일 (eo) ────────────────────────────────────────
+//
+//     eo = 종료 시각 <= 시작 시각 ? 1 : 0     → 종료 날짜 = 시작 날짜 + eo
+//
+// 종료 달력일은 별도 상태가 아니라 **길이**가 표현한다: 길이 = (종료일-시작일)*1440 + (종료-시작).
+// 그래서 "종료 날짜 후보를 고른다" = "길이를 ±1440분 옮긴다" 와 같은 조작이다.
+// 상태를 하나 더 두면 시각·날짜·길이 셋이 서로 어긋난 채 저장되는 경로가 생긴다.
+
+/** 시각만 보고 판정한 종료일 오프셋(자정 넘김이면 1). */
+export function autoEndOffset(startTime: string, endTime: string): 0 | 1 {
+  return timeToMin(endTime) <= timeToMin(startTime) ? 1 : 0;
+}
+
+/** 종료 달력일 후보 k(0|1)를 골랐을 때의 근무 길이(분). 0 이하/1440 초과면 그 후보는 불가. */
+export function durationForEndOffset(startTime: string, endTime: string, endOffsetDays: 0 | 1): number {
+  const base = wrapMinutes(timeToMin(endTime) - timeToMin(startTime));
+  return base + 1440 * (endOffsetDays - autoEndOffset(startTime, endTime));
 }
 
 /** 기존 스케줄의 start_at day-offset(영업일 라벨 대비, 0|1) — 새벽근무(+1d) 보존용. */

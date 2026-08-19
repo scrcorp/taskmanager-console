@@ -30,7 +30,17 @@ import {
 import { useRoles } from "@/hooks/useRoles";
 import { useStoreGroups } from "@/hooks/useStoreGroups";
 import { useStores } from "@/hooks/useStores";
-import type { Role, Store, StoreGroup, User } from "@/types";
+import type {
+  EmpidDistributionBand,
+  EmpidKind,
+  EmpidKindFields,
+  Role,
+  Store,
+  StoreGroup,
+  User,
+} from "@/types";
+import { EmpidDistribution } from "@/components/users/EmpidDistribution";
+import { EmpidCommitSummary } from "@/components/users/EmpidCommitSummary";
 import {
   usePreviewEmpidImport,
   useCommitEmpidImport,
@@ -52,6 +62,26 @@ import {
 } from "@/hooks/useEmpidRoster";
 
 type Step = "upload" | "preview" | "result";
+
+/**
+ * 채번 계약(§3-4·§3-5)으로 넓어진 요청/응답 모양. 훅 타입은 다른 트랙이 소유하고
+ * 있어 여기서 얹어 쓴다 — 필드 이름은 계약 그대로다.
+ *
+ * Contract-widened shapes for the import commit/preview. The hook types are
+ * owned by another track, so they are intersected here with the exact
+ * contract field names.
+ */
+type PreviewResult = EmpidImportPreviewResult & {
+  /** 100 단위 분포 (§3-5) — 서버가 계산한다 / Hundreds-band distribution */
+  distribution?: EmpidDistributionBand[];
+};
+type CommitResult = EmpidCommitResult & {
+  /** 예외로 기록된 건수 (§3-4) / Numbers recorded as exceptions */
+  exception_count?: number;
+  /** 스코프 id → 커밋 후 커서 (§3-4) / Scope id → cursor after the commit */
+  cursor_after?: Record<string, number>;
+};
+type CommitAssignment = EmpidCommitAssignment & EmpidKindFields;
 
 /**
  * Stable key for a bucket×person×entry selection (checkbox, rebind choice,
@@ -86,7 +116,7 @@ interface ProvisionalCreateGroup {
   role_id: string;
   /** Every store the person appears in — one user, many store assignments. */
   store_ids: string[];
-  rows: { store_id: string; empid: number }[];
+  rows: { store_id: string; empid: number; empid_kind: EmpidKind }[];
 }
 
 /** Rebind pill options — Current (DB value) vs Upload (file value, default). */
@@ -115,6 +145,26 @@ const isStorePickable = (
   entry.emp_id !== null &&
   (entry.group_stores?.length ?? 0) > 0;
 
+/**
+ * 프리뷰 탭 — 한 화면에 다 쌓으면 스크롤이 감당이 안 된다. 성격별로 갈라 빠르게 오간다.
+ *   all     한번에보기 — 지금까지 정한 것을 커밋 직전 쫙 훑는 곳
+ *   matched 일치하는유저 — 파일과 HTM 양쪽에 있는 사람 (same 은 기본 숨김)
+ *   htm     HTM만존재 — 파일이 안 덮은 인원. 번호 지정 or 그대로 두기
+ *   file    파일에만존재 — HTM 사람이 없는 행. 사람 지정 or 새로 만들기
+ *
+ * Preview tabs. Everything on one page scrolls past the point of usefulness,
+ * so rows are split by kind. Tabs only gate visibility — the underlying
+ * selection state is shared, so a choice made in one tab survives in the others.
+ */
+type PreviewTab = "all" | "matched" | "htm" | "file";
+
+const PREVIEW_TABS: { key: PreviewTab; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "matched", label: "Matched" },
+  { key: "htm", label: "In HTM only" },
+  { key: "file", label: "In file only" },
+];
+
 const COUNT_ITEMS: { key: keyof EmpidImportCounts; label: string }[] = [
   { key: "people", label: "People" },
   { key: "rebind", label: "Rebind" },
@@ -129,6 +179,44 @@ const COUNT_ITEMS: { key: keyof EmpidImportCounts; label: string }[] = [
   { key: "placeholder", label: "Placeholder" },
   { key: "deferred", label: "Deferred" },
 ];
+
+/**
+ * 행 단위 예외 체크박스 — 체크하면 그 번호가 empid_kind="exception" 으로 커밋된다.
+ * 기본은 항상 해제(= sequence)이고, 경로(임포트라는 이유)로 자동 판단하지 않는다(INV-6).
+ *
+ * Per-row Exception toggle. Ticked rows commit with empid_kind="exception";
+ * the default is always off and is never inferred from the write path.
+ */
+function ExceptionToggle({
+  checked,
+  onToggle,
+  disabled,
+}: {
+  checked: boolean;
+  onToggle: () => void;
+  disabled?: boolean;
+}): React.ReactElement {
+  return (
+    <label
+      title="Keep this number out of the sequence — it won't move the next EMPID."
+      className={cn(
+        "inline-flex items-center gap-1 text-[11px]",
+        disabled
+          ? "text-text-muted cursor-not-allowed opacity-60"
+          : "text-text-secondary cursor-pointer",
+      )}
+    >
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onToggle}
+        disabled={disabled}
+        className="cursor-pointer accent-accent disabled:cursor-not-allowed"
+      />
+      Exception
+    </label>
+  );
+}
 
 /** Amber inline warning shown next to an entry (non-blocking). */
 function EntryWarning({ text }: { text: string }): React.ReactElement {
@@ -234,10 +322,12 @@ function PickUserSection({
   pickedRoles,
   pickedStores,
   duplicateKeys,
+  exceptionKeys,
   onToggle,
   onPickUser,
   onPickRole,
   onPickStore,
+  onToggleException,
 }: {
   title: string;
   hint: string;
@@ -252,10 +342,13 @@ function PickUserSection({
   pickedRoles: Record<string, string>;
   pickedStores: Record<string, string>;
   duplicateKeys: Set<string>;
+  /** 예외로 표시된 행 키 (Rows ticked as exceptions) */
+  exceptionKeys: Set<string>;
   onToggle: (key: string) => void;
   onPickUser: (key: string, userId: string) => void;
   onPickRole: (groupKey: string, roleId: string) => void;
   onPickStore: (key: string, storeId: string) => void;
+  onToggleException: (key: string) => void;
 }): React.ReactElement | null {
   if (people.length === 0) return null;
   return (
@@ -368,6 +461,10 @@ function PickUserSection({
                       value={pickedUser}
                       suggestedId={suggestedId}
                       onChange={(userId) => onPickUser(key, userId)}
+                    />
+                    <ExceptionToggle
+                      checked={exceptionKeys.has(key)}
+                      onToggle={() => onToggleException(key)}
                     />
                     {willCreate && (
                       <>
@@ -1079,7 +1176,7 @@ export default function EmpidImportPage(): React.ReactElement {
   const [step, setStep] = useState<Step>("upload");
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [preview, setPreview] = useState<EmpidImportPreviewResult | null>(null);
+  const [preview, setPreview] = useState<PreviewResult | null>(null);
   /**
    * Keys of entries that will be written on commit:
    * - rebind rows: in the set = "Upload" chosen (default); absent = keep Current
@@ -1096,9 +1193,50 @@ export default function EmpidImportPage(): React.ReactElement {
   const [pickedRoles, setPickedRoles] = useState<Record<string, string>>({});
   /** 그룹 스코프 행의 매장 선택 — needs_store / (그룹) needs_user. entry key → store id. */
   const [pickedStores, setPickedStores] = useState<Record<string, string>>({});
+  /**
+   * 예외로 표시된 행 — entry key(또는 "rc|user|store"). 기본은 전부 비어 있고,
+   * 사람이 체크한 행만 empid_kind="exception" 으로 커밋된다 (INV-6).
+   *
+   * Rows the operator ticked as exceptions; everything else commits as sequence.
+   */
+  const [exceptionKeys, setExceptionKeys] = useState<Set<string>>(new Set());
   /** 대조 패널의 HTM 미매칭 인원 번호 입력 — "rc|user|store" key → 숫자 문자열. */
   const [reconNumbers, setReconNumbers] = useState<Record<string, string>>({});
-  const [result, setResult] = useState<EmpidCommitResult | null>(null);
+  /** 프리뷰 탭 — 노출만 가른다. 선택 상태는 탭 간 공유된다 / Visibility only; selection is shared */
+  const [tab, setTab] = useState<PreviewTab>("all");
+  /** `same`(이미 맞는 번호) 펼치기 — 기본 숨김. 대부분이고 볼 이유가 없다 / Unchanged rows are hidden by default */
+  const [showSame, setShowSame] = useState<boolean>(false);
+
+  /**
+   * 탭 배지 숫자 — 조치 대상만 센다. `same` 은 어느 숫자에도 안 들어간다(숨김이 기본).
+   * All 은 합계가 아니라 null 로 두어 "여기선 다 본다"를 표현한다.
+   *
+   * Tab badge counts: actionable rows only. `same` never counts (hidden by default).
+   */
+  const tabCounts: Record<PreviewTab, number | null> = useMemo(() => {
+    const recs = preview?.reconciliation ?? [];
+    const htm = recs.reduce((n, r) => n + r.htm_unmatched.length, 0);
+    const file =
+      recs.reduce((n, r) => n + r.file_unmatched.length, 0) +
+      (preview?.placeholder.length ?? 0) +
+      (preview?.deferred.length ?? 0);
+    const matched = (preview?.people ?? []).reduce(
+      (n, person) => n + person.entries.filter((e) => e.action !== "same").length,
+      0,
+    );
+    return { all: null, matched, htm, file };
+  }, [preview]);
+
+  /** 이미 맞는 번호(`same`) 건수 — 펼치기 토글 라벨용 / Rows that already hold the right number */
+  const sameCount: number = useMemo(
+    () =>
+      (preview?.people ?? []).reduce(
+        (n, person) => n + person.entries.filter((e) => e.action === "same").length,
+        0,
+      ),
+    [preview],
+  );
+  const [result, setResult] = useState<CommitResult | null>(null);
   /** Claim codes of staff created during the last Apply (result step). */
   const [createdClaims, setCreatedClaims] = useState<
     { name: string; code: string }[]
@@ -1132,6 +1270,18 @@ export default function EmpidImportPage(): React.ReactElement {
     }
     return { groups, byGroup, ungrouped };
   }, [mappingGroupsQ.data, storeOptions]);
+  /**
+   * 커밋 응답의 cursor_after 키(스코프 id)를 이름으로 — 그룹 커서일 수도, 매장
+   * 커서일 수도 있다(§3-1 scope). 못 찾으면 이름 없이 번호만 보여준다.
+   *
+   * Resolve a cursor scope id (group or store) to a display name.
+   */
+  const scopeName = useCallback(
+    (id: string): string | undefined =>
+      storeOptions.find((st) => st.id === id)?.name ??
+      mappingGroups.groups.find((g) => g.id === id)?.name,
+    [storeOptions, mappingGroups],
+  );
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const reset = useCallback(() => {
@@ -1143,6 +1293,7 @@ export default function EmpidImportPage(): React.ReactElement {
     setPickedUsers({});
     setPickedRoles({});
     setPickedStores({});
+    setExceptionKeys(new Set());
     setReconNumbers({});
     setResult(null);
     setCreatedClaims([]);
@@ -1218,6 +1369,8 @@ export default function EmpidImportPage(): React.ReactElement {
         setChecked(initial);
         setPickedUsers(initialPicks);
         setPickedRoles({});
+        // 예외 표시는 파일마다 새로 — 자동 추천 없음 (no auto-suggestion by design)
+        setExceptionKeys(new Set());
         setStep("preview");
       },
       // hook shows the error modal
@@ -1228,6 +1381,16 @@ export default function EmpidImportPage(): React.ReactElement {
   /** new_assignment checkbox toggle. */
   const toggle = useCallback((key: string) => {
     setChecked((prev) => {
+      const n = new Set(prev);
+      if (n.has(key)) n.delete(key);
+      else n.add(key);
+      return n;
+    });
+  }, []);
+
+  /** 예외 체크 토글 — 커밋 시 empid_kind 를 정한다 (Exception tick). */
+  const toggleException = useCallback((key: string) => {
+    setExceptionKeys((prev) => {
       const n = new Set(prev);
       if (n.has(key)) n.delete(key);
       else n.add(key);
@@ -1294,8 +1457,11 @@ export default function EmpidImportPage(): React.ReactElement {
     createGroups,
     createRowCount,
   } = useMemo(() => {
-    const assignments: EmpidCommitAssignment[] = [];
+    const assignments: CommitAssignment[] = [];
     const duplicates = new Set<string>();
+    // 체크된 행만 예외 — 나머지는 계약 기본값 sequence (INV-6)
+    const kindFor = (key: string): EmpidKind =>
+      exceptionKeys.has(key) ? "exception" : "sequence";
     const groups = new Map<string, ProvisionalCreateGroup>();
     if (!preview)
       return {
@@ -1323,6 +1489,7 @@ export default function EmpidImportPage(): React.ReactElement {
             user_id: person.user_id as string,
             store_id: storeId,
             empid: entry.emp_id as number,
+            empid_kind: kindFor(key),
           });
           return;
         }
@@ -1332,6 +1499,7 @@ export default function EmpidImportPage(): React.ReactElement {
           user_id: person.user_id as string,
           store_id: entry.store_id as string,
           empid: entry.emp_id as number,
+          empid_kind: kindFor(key),
         });
       });
     });
@@ -1352,6 +1520,7 @@ export default function EmpidImportPage(): React.ReactElement {
           user_id: x.user_id,
           store_id: x.store_id,
           empid: parseInt(raw, 10),
+          empid_kind: kindFor(rkey),
         });
       });
     });
@@ -1392,7 +1561,11 @@ export default function EmpidImportPage(): React.ReactElement {
             if (!group.store_ids.includes(entryStoreId)) {
               group.store_ids.push(entryStoreId);
             }
-            group.rows.push({ store_id: entryStoreId, empid: entry.emp_id });
+            group.rows.push({
+              store_id: entryStoreId,
+              empid: entry.emp_id,
+              empid_kind: kindFor(key),
+            });
             groups.set(groupKey, group);
             return;
           }
@@ -1407,6 +1580,7 @@ export default function EmpidImportPage(): React.ReactElement {
             user_id: userId,
             store_id: entryStoreId,
             empid: entry.emp_id,
+            empid_kind: kindFor(key),
           });
         });
       });
@@ -1418,10 +1592,26 @@ export default function EmpidImportPage(): React.ReactElement {
       createGroups: groupList,
       createRowCount: groupList.reduce((n, g) => n + g.rows.length, 0),
     };
-  }, [preview, checked, pickedUsers, pickedRoles, pickedStores, reconNumbers, defaultRoleId]);
+  }, [
+    preview,
+    checked,
+    pickedUsers,
+    pickedRoles,
+    pickedStores,
+    reconNumbers,
+    exceptionKeys,
+    defaultRoleId,
+  ]);
 
   /** Rows that Apply will write — existing users + rows pending creation. */
   const applyCount = selectedAssignments.length + createRowCount;
+  /** 예외로 표시된 행 수 — 커밋 요약과 확인창에 그대로 쓴다. */
+  const exceptionCount =
+    selectedAssignments.filter((a) => a.empid_kind === "exception").length +
+    createGroups.reduce(
+      (n, g) => n + g.rows.filter((r) => r.empid_kind === "exception").length,
+      0,
+    );
 
   const apply = useCallback(async () => {
     if (applyCount === 0) return;
@@ -1437,6 +1627,9 @@ export default function EmpidImportPage(): React.ReactElement {
       title: `Apply ${applyCount} number(s)?`,
       message:
         "Numbers are written per store. Existing numbers may be renumbered to make room." +
+        (exceptionCount > 0
+          ? `\n${exceptionCount} marked as exception — they stay out of the sequence.`
+          : "") +
         (createGroups.length > 0
           ? `\n${createGroups.length} will be created as provisional staff.`
           : ""),
@@ -1447,7 +1640,7 @@ export default function EmpidImportPage(): React.ReactElement {
 
     // Step a — create the missing people first. A failure here aborts before
     // any number is written (the server creates them in one transaction).
-    const assignments: EmpidCommitAssignment[] = [...selectedAssignments];
+    const assignments: CommitAssignment[] = [...selectedAssignments];
     const claims: { name: string; code: string }[] = [];
     if (createGroups.length > 0) {
       const people: CreateProvisionalUserData[] = createGroups.map((g) => ({
@@ -1481,6 +1674,7 @@ export default function EmpidImportPage(): React.ReactElement {
             user_id: user.id,
             store_id: row.store_id,
             empid: row.empid,
+            empid_kind: row.empid_kind,
           });
         });
       });
@@ -1500,6 +1694,7 @@ export default function EmpidImportPage(): React.ReactElement {
     );
   }, [
     applyCount,
+    exceptionCount,
     selectedAssignments,
     createGroups,
     modal,
@@ -1651,6 +1846,13 @@ export default function EmpidImportPage(): React.ReactElement {
             </div>
           </div>
 
+          {/* 예외 제외 건수 + 커밋 후 커서 (§3-4) — 값은 전부 서버가 준 것 */}
+          <EmpidCommitSummary
+            exceptionCount={result.exception_count}
+            cursorAfter={result.cursor_after}
+            scopeName={scopeName}
+          />
+
           {createdClaims.length > 0 && (
             <div className="rounded-lg bg-accent-muted border border-accent/20 p-3">
               <div className="flex items-center justify-between gap-2 flex-wrap mb-1">
@@ -1780,6 +1982,44 @@ export default function EmpidImportPage(): React.ReactElement {
           {preview.total_rows} rows in file · {preview.excluded_rows} excluded
         </p>
       </div>
+
+      {/* 탭 — 성격별로 갈라 본다. 배지 숫자가 줄어드는 게 진행감이다 */}
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="inline-flex rounded-lg border border-border overflow-hidden">
+          {PREVIEW_TABS.map(({ key, label }) => {
+            const n: number | null = tabCounts[key];
+            return (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setTab(key)}
+                className={`px-3 py-1.5 text-xs transition-colors ${
+                  tab === key
+                    ? "bg-accent-muted text-accent font-semibold"
+                    : "text-text-muted hover:text-text hover:bg-surface-hover"
+                }`}
+              >
+                {label}
+                {n !== null && <span className="ml-1.5 opacity-70">{n}</span>}
+              </button>
+            );
+          })}
+        </div>
+        {sameCount > 0 && (
+          <label className="flex items-center gap-1.5 text-xs text-text-muted cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showSame}
+              onChange={() => setShowSame((v) => !v)}
+              className="cursor-pointer accent-accent"
+            />
+            Show {sameCount} already correct
+          </label>
+        )}
+      </div>
+
+      {/* 100 단위 분포 (§3-5) — 서버가 준 묶음을 그대로 그린다 */}
+      <EmpidDistribution bands={preview.distribution ?? []} />
 
       {/* Saved label mappings — learned from previous uploads, auto-applied */}
       {(preview.saved_aliases?.length ?? 0) > 0 && (
@@ -1926,8 +2166,8 @@ export default function EmpidImportPage(): React.ReactElement {
         </div>
       )}
 
-      {/* People cards */}
-      <div className="space-y-3">
+      {/* People cards — 파일과 HTM 양쪽에 있는 사람 (all / matched 탭) */}
+      <div className={`space-y-3 ${tab === "all" || tab === "matched" ? "" : "hidden"}`}>
         {preview.people.length === 0 ? (
           <div className="bg-card border border-border rounded-xl p-8 text-center text-text-muted text-sm">
             No matched people in this file.
@@ -1971,6 +2211,9 @@ export default function EmpidImportPage(): React.ReactElement {
                   const selectable = isSelectable(person, entry);
 
                   if (entry.action === "same") {
+                    // 이미 맞는 번호는 기본으로 접는다 — 대부분이고 조치가 없다.
+                    // Already-correct rows are hidden unless the operator asks.
+                    if (!showSame) return null;
                     return (
                       <div key={key} className="flex items-center gap-2 pl-6 text-sm text-text-muted">
                         <span>
@@ -2048,6 +2291,10 @@ export default function EmpidImportPage(): React.ReactElement {
                             </option>
                           ))}
                         </select>
+                        <ExceptionToggle
+                          checked={exceptionKeys.has(key)}
+                          onToggle={() => toggleException(key)}
+                        />
                         {entry.warning && <EntryWarning text={entry.warning} />}
                       </div>
                     );
@@ -2078,9 +2325,19 @@ export default function EmpidImportPage(): React.ReactElement {
                               value === "upload" ? entry.emp_id : entry.current_empid;
                             const selected = choice === value;
                             return (
+                              // `relative` 필수 — 라디오가 sr-only(= position:absolute)라
+                              // 위치 기준 조상이 없으면 문서 기준으로 배치된다. 그러면 칩을
+                              // 누르는 순간 브라우저가 그 엉뚱한 위치로 스크롤해서 화면이
+                              // 아래로 튀고, 스크롤 영역까지 늘어난다.
+                              // The radio is sr-only (absolutely positioned); without a
+                              // positioned ancestor it anchors to the document, so focusing
+                              // it on click scrolls the page away and inflates the scroll area.
                               <label
                                 key={value}
-                                className={selectable ? "cursor-pointer" : "cursor-not-allowed"}
+                                className={cn(
+                                  "relative",
+                                  selectable ? "cursor-pointer" : "cursor-not-allowed",
+                                )}
                               >
                                 <input
                                   type="radio"
@@ -2107,6 +2364,11 @@ export default function EmpidImportPage(): React.ReactElement {
                             );
                           })}
                         </span>
+                        <ExceptionToggle
+                          checked={exceptionKeys.has(key)}
+                          onToggle={() => toggleException(key)}
+                          disabled={!checked.has(key)}
+                        />
                         {entry.dormant && (
                           <Badge variant="warning" className="text-[10px] uppercase tracking-wide">
                             Dormant
@@ -2150,6 +2412,10 @@ export default function EmpidImportPage(): React.ReactElement {
                       <span className="text-[11px] text-text-muted">
                         store assignment will be created
                       </span>
+                      <ExceptionToggle
+                        checked={exceptionKeys.has(key)}
+                        onToggle={() => toggleException(key)}
+                      />
                       {entry.dormant && (
                         <Badge variant="warning" className="text-[10px] uppercase tracking-wide">
                           Dormant
@@ -2170,8 +2436,9 @@ export default function EmpidImportPage(): React.ReactElement {
         )}
       </div>
 
-      {/* 양측 대조 — 사람 단위 3분류. HTM 미매칭 인원은 여기서 바로 번호 지정 가능 */}
-      {(preview.reconciliation?.length ?? 0) > 0 && (
+      {/* 양측 대조 — 사람 단위 3분류. HTM 미매칭 인원은 여기서 바로 번호 지정 가능.
+          탭에 따라 한쪽 열만 보인다(노출만 가르고 선택 상태는 공유). */}
+      {(preview.reconciliation?.length ?? 0) > 0 && tab !== "matched" && (
         <div className="bg-card border border-border rounded-xl p-4 space-y-4">
           <div>
             <p className="text-sm font-bold text-text">Number reconciliation</p>
@@ -2192,7 +2459,7 @@ export default function EmpidImportPage(): React.ReactElement {
                 </span>
               </p>
 
-              {rec.matched.length > 0 && (
+              {rec.matched.length > 0 && tab === "all" && (
                 <div className="mt-2">
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-success mb-1">
                     Matched ({rec.matched.length})
@@ -2219,11 +2486,19 @@ export default function EmpidImportPage(): React.ReactElement {
                 </div>
               )}
 
-              <div className="grid sm:grid-cols-2 gap-3 mt-3">
-                <div>
+              <div className={`grid gap-3 mt-3 ${tab === "all" ? "sm:grid-cols-2" : ""}`}>
+                <div className={tab === "file" ? "hidden" : ""}>
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-text-muted mb-1">
                     In HTM, not in file — assign numbers
                   </p>
+                  {/* 부분 업로드면 이 목록이 길어도 정상이다 — 그 사실을 말해줘야 불안하지 않다.
+                      A partial upload makes this list long by design; say so. */}
+                  {tab === "htm" && rec.htm_unmatched.length > 0 && (
+                    <p className="text-[11px] text-text-muted mb-1.5">
+                      If you uploaded only some people, this is expected — leaving a
+                      row unchecked keeps that person unchanged.
+                    </p>
+                  )}
                   {rec.htm_unmatched.length === 0 ? (
                     <p className="text-xs text-text-muted">None</p>
                   ) : (
@@ -2263,6 +2538,11 @@ export default function EmpidImportPage(): React.ReactElement {
                               }}
                               className="w-20 bg-surface border border-border rounded-md px-2 py-0.5 text-xs text-text"
                             />
+                            <ExceptionToggle
+                              checked={exceptionKeys.has(rkey)}
+                              onToggle={() => toggleException(rkey)}
+                              disabled={!/^\d+$/.test(value)}
+                            />
                             {x.current_empid != null && (
                               <span className="text-text-muted shrink-0">
                                 now #{x.current_empid}
@@ -2274,7 +2554,7 @@ export default function EmpidImportPage(): React.ReactElement {
                     </ul>
                   )}
                 </div>
-                <div>
+                <div className={tab === "htm" ? "hidden" : ""}>
                   <p className="text-[11px] font-semibold uppercase tracking-wide text-text-muted mb-1">
                     In file, not in HTM
                   </p>
@@ -2302,7 +2582,9 @@ export default function EmpidImportPage(): React.ReactElement {
         </div>
       )}
 
-      {/* Placeholder / deferred — pick a user per row to register anyway */}
+      {/* Placeholder / deferred — pick a user per row to register anyway.
+          파일에만 있는 행의 사람 해결 경로라 all / file 탭에 속한다. */}
+      <div className={tab === "all" || tab === "file" ? "" : "hidden"}>
       <PickUserSection
         title="Placeholder emails"
         hint="Shared/dummy emails — pick a user, or create a provisional staff member, to register each row."
@@ -2317,10 +2599,12 @@ export default function EmpidImportPage(): React.ReactElement {
         pickedRoles={pickedRoles}
         pickedStores={pickedStores}
         duplicateKeys={duplicateKeys}
+        exceptionKeys={exceptionKeys}
         onToggle={toggle}
         onPickUser={pickUser}
         onPickRole={pickRole}
         onPickStore={pickStore}
+        onToggleException={toggleException}
       />
       <PickUserSection
         title="Deferred"
@@ -2336,17 +2620,24 @@ export default function EmpidImportPage(): React.ReactElement {
         pickedRoles={pickedRoles}
         pickedStores={pickedStores}
         duplicateKeys={duplicateKeys}
+        exceptionKeys={exceptionKeys}
         onToggle={toggle}
         onPickUser={pickUser}
         onPickRole={pickRole}
         onPickStore={pickStore}
+        onToggleException={toggleException}
       />
+
+      </div>
 
       {/* Apply bar */}
       <div className="bg-card border border-border rounded-xl p-4 flex items-center justify-between gap-3 flex-wrap">
         <p className="text-xs text-text-muted">
           Rebind rows set to Upload, checked new-assignment rows, and checked
           picked-user rows are applied. Existing numbers may be renumbered.
+          {exceptionCount > 0 && (
+            <> {exceptionCount} row(s) marked as exception.</>
+          )}
           {createGroups.length > 0 && (
             <>
               {" "}

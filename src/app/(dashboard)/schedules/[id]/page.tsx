@@ -182,6 +182,7 @@ export default function SchedulesDetailPage() {
           end_at: payload.endAt,
           break_start_at: payload.breakStartAt,
           break_end_at: payload.breakEndAt,
+          date_override: payload.dateOverride,
           note: payload.notes || null,
           hourly_rate: payload.hourlyRate,
           // 확인한 경고를 다시 물어보지 않도록 그대로 전달 (예전엔 여기서 버려져
