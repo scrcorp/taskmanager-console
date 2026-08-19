@@ -14,6 +14,7 @@
  * "직책이 X인 사람" 집합이 존재하지 않는다.
  */
 
+import { staffStatusOf } from "@/components/ui/StaffStatusBadge";
 import React, { useState } from "react";
 import { Search, X } from "lucide-react";
 
@@ -98,7 +99,19 @@ export function VisibilityPicker({
       ? (stores ?? []).map((s) => ({ id: s.id, name: s.name }))
       : axis === "role"
         ? (roles ?? []).map((r) => ({ id: r.id, name: r.name }))
-        : (users ?? []).map((u) => ({ id: u.id, name: u.full_name || u.username }));
+        : (users ?? [])
+            /*
+              1차 억제 — 퇴사·비활성 직원은 공개 대상 후보에서 뺀다 (2026-08-19).
+              **이미 지정된 사람은 남긴다** — 후보에서 사라지면 기존 설정을 볼 수도,
+              해제할 수도 없게 된다.
+            */
+            .filter((u) => u.is_active !== false || has("user", u.id))
+            .map((u) => {
+              // 옵션이 문자열 목록이라 배지 대신 이름 뒤에 상태를 적는다.
+              const status = staffStatusOf(u);
+              const base = u.full_name || u.username;
+              return { id: u.id, name: status ? `${base} — ${status.label}` : base };
+            });
 
   const filtered = search.trim()
     ? options.filter((o) => o.name.toLowerCase().includes(search.trim().toLowerCase()))

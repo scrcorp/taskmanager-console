@@ -6,6 +6,7 @@
 
 import { useState, useMemo } from "react";
 import type { Schedule, User } from "@/types";
+import { canAssignOn } from "@/lib/assignability";
 
 interface Props {
   open: boolean;
@@ -33,7 +34,10 @@ export function ChangeStaffModal({ open, onClose, schedule, currentUser, users, 
 
   const candidates = useMemo(() => {
     if (!schedule) return [];
-    let list = users.filter((u) => u.id !== schedule.user_id);
+    // 이 근무 날짜에 배정할 수 없는 사람(퇴사·비활성)은 교체 후보가 아니다 — 서버도 거절한다.
+    let list = users.filter(
+      (u) => u.id !== schedule.user_id && canAssignOn(u, schedule.work_date),
+    );
     if (search.trim()) {
       const q = search.toLowerCase();
       list = list.filter((u) => (u.full_name || u.username || "").toLowerCase().includes(q));

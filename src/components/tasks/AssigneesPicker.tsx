@@ -12,6 +12,7 @@
  * 호환되어 prefill 흐름이 자연스럽게 동작.
  */
 
+import { StaffStatusBadge } from "@/components/ui/StaffStatusBadge";
 import React, { useMemo, useState } from "react";
 import { Search, UserCircle2, Users } from "lucide-react";
 
@@ -220,6 +221,8 @@ export function AssigneesPicker({
                   />
                   <span className="text-text">{u.full_name ?? u.username}</span>
                   <span className="text-xs text-textMuted">· {u.role_name}</span>
+                  {/* 퇴사·비활성 직원이 목록에 섞여 있어도 한눈에 보이게 (2026-08-19) */}
+                  <StaffStatusBadge staff={u} />
                 </label>
               );
             })}
