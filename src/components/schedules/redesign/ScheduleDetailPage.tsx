@@ -10,6 +10,7 @@
 import type { Schedule, User, Attendance } from "@/types";
 import { ROLE_PRIORITY } from "@/lib/permissions";
 import { anomalyLabel } from "@/lib/attendanceAnomalies";
+import { START_OUTSIDE_WINDOW_TEXT } from "@/lib/scheduleTime";
 import type { ScheduleAuditLogEntry } from "@/hooks/useSchedules";
 import { DiffDisplay } from "./DiffDisplay";
 
@@ -254,6 +255,18 @@ export function ScheduleDetailPage({ schedule, user, attendance, auditEvents, re
               </span>
             </div>
             <div className="space-y-3">
+              {/* 에러 스케줄 — 시작이 자기 영업일 구간 밖. 조용히 정상처럼 보이면 안 된다. */}
+              {schedule.start_outside_operating_window === true && (
+                <div
+                  data-testid="schedule-outside-window"
+                  className="px-3 py-2 rounded-lg border border-[var(--color-danger)] bg-[var(--color-danger-muted)]"
+                >
+                  <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--color-danger)] mb-0.5">
+                    Invalid shift date
+                  </div>
+                  <div className="text-[12px] text-[var(--color-text)]">{START_OUTSIDE_WINDOW_TEXT}</div>
+                </div>
+              )}
               <div>
                 <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-text-muted)] mb-1">Date</div>
                 <div className="text-[14px] font-semibold text-[var(--color-text)]">{formatFullDate(schedule.work_date)}</div>

@@ -5,7 +5,7 @@
  *   벌크 저장이 `dawnStartOffset(startTime)` 을 boundary 인자 없이 호출해서
  *   상수 06:00 을 기준으로 삼았다. 경계를 04:00 으로 운영하는 매장에서는
  *   04~06시 시작 근무가 전부 "새벽조"로 오판돼 시작일이 다음날로 밀렸고,
- *   서버(실제 경계 기준)가 START_AFTER_DAY_BOUNDARY 경고를 내면서
+ *   서버(실제 경계 기준)가 START_DATE_MISMATCH 로 거부하면서
  *   **단건 모달로는 저장되는 근무가 벌크에서만 실패**했다.
  */
 
@@ -35,11 +35,16 @@ describe("storeStartOffset", () => {
     expect(storeStartOffset("03:00", { all: "00:00" }, DAY)).toBe(0);
   });
 
-  it("요일별 경계도 그 날짜의 값을 쓴다", () => {
-    // 2026-08-14 는 금요일 — fri 값(05:00)이 적용되어야 한다.
-    const byDay = { mon: "04:00", fri: "05:00", all: "09:00" };
-    expect(storeStartOffset("04:30", byDay, DAY)).toBe(1); // 05:00 미만
-    expect(storeStartOffset("05:30", byDay, DAY)).toBe(0);
+  it("요일별 경계는 **영업일+1일**의 값을 쓴다 (서버와 같은 기준)", () => {
+    // 영업일 D 의 창은 [day_start(D), day_start(D+1)) 이므로, 창의 앞/뒤를 가르는 건 D+1 의 경계다.
+    // 서버(`_validate_entry` / `_kiosk_shift_iso`)가 그렇게 판정한다 — 여기서 D 의 요일 값을 쓰면
+    // 요일별 경계를 운영하는 매장에서 콘솔이 만든 날짜를 서버가 START_DATE_MISMATCH 로 거부한다.
+    // 2026-08-14 는 금요일이므로 적용되는 값은 토요일(sat) 경계다.
+    const byDay = { fri: "05:00", sat: "08:00", all: "09:00" };
+    expect(storeStartOffset("07:30", byDay, DAY)).toBe(1); // sat 08:00 미만
+    expect(storeStartOffset("08:30", byDay, DAY)).toBe(0);
+    // sat 이 없으면 all 로 떨어진다 (fri 값은 쓰이지 않는다).
+    expect(storeStartOffset("08:30", { fri: "05:00", all: "09:00" }, DAY)).toBe(1);
   });
 
   it("설정이 없으면 기본 경계로 떨어진다 (서버 기본과 동일해야 함)", () => {

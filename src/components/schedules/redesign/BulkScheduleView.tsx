@@ -168,7 +168,9 @@ export default function BulkScheduleView({
   type ClipboardType = "row" | "column" | "block";
   type ClipboardData = {
     type: ClipboardType;
-    entries: { workRoleId: string | null; workRoleName: string | null; startTime: string; endTime: string; breakStartTime: string | null; breakEndTime: string | null; startOffsetDays?: number; dayIndex?: number; sourceUserId?: string }[];
+    // startOffsetFromTime: 오프셋이 파생된 그때의 시작 시각. 붙여넣은 뒤 시각이 바뀌면
+    // 저장 단계에서 오프셋을 버리고 재판정한다(복사가 옛 +1일을 퍼뜨리지 않게).
+    entries: { workRoleId: string | null; workRoleName: string | null; startTime: string; endTime: string; breakStartTime: string | null; breakEndTime: string | null; startOffsetDays?: number; startOffsetFromTime?: string; dayIndex?: number; sourceUserId?: string }[];
     sourceUserId?: string;
     sourceDate?: string;
   };
@@ -378,10 +380,10 @@ export default function BulkScheduleView({
     const result: ClipboardData["entries"] = [];
     for (const s of getSchedulesForCell(userId, date).filter((x) => !isDeleted(x.id))) {
       const eff = getEffectiveSchedule(s);
-      result.push({ workRoleId: eff.work_role_id, workRoleName: eff.work_role_name, startTime: eff.start_time ?? "", endTime: eff.end_time ?? "", breakStartTime: eff.break_start_time, breakEndTime: eff.break_end_time, startOffsetDays: startOffsetDaysOf(s), dayIndex, sourceUserId: userId });
+      result.push({ workRoleId: eff.work_role_id, workRoleName: eff.work_role_name, startTime: eff.start_time ?? "", endTime: eff.end_time ?? "", breakStartTime: eff.break_start_time, breakEndTime: eff.break_end_time, startOffsetDays: startOffsetDaysOf(s), startOffsetFromTime: eff.start_time?.slice(0, 5) ?? undefined, dayIndex, sourceUserId: userId });
     }
     for (const p of getPreviewsForCell(userId, date)) {
-      result.push({ workRoleId: p.workRoleId, workRoleName: p.workRoleName, startTime: p.startTime, endTime: p.endTime, breakStartTime: p.breakStartTime, breakEndTime: p.breakEndTime, startOffsetDays: p.startOffsetDays, dayIndex, sourceUserId: userId });
+      result.push({ workRoleId: p.workRoleId, workRoleName: p.workRoleName, startTime: p.startTime, endTime: p.endTime, breakStartTime: p.breakStartTime, breakEndTime: p.breakEndTime, startOffsetDays: p.startOffsetDays, startOffsetFromTime: p.startOffsetFromTime, dayIndex, sourceUserId: userId });
     }
     return result;
   }
@@ -426,6 +428,7 @@ export default function BulkScheduleView({
           workDate: targetDate, startTime: e.startTime, endTime: e.endTime,
           breakStartTime: e.breakStartTime, breakEndTime: e.breakEndTime,
           startOffsetDays: e.startOffsetDays,
+          startOffsetFromTime: e.startOffsetFromTime,
           status: "confirmed",
         });
       }
@@ -442,6 +445,7 @@ export default function BulkScheduleView({
           workDate: date, startTime: e.startTime, endTime: e.endTime,
           breakStartTime: e.breakStartTime, breakEndTime: e.breakEndTime,
           startOffsetDays: e.startOffsetDays,
+          startOffsetFromTime: e.startOffsetFromTime,
           status: "confirmed",
         });
       }
@@ -488,6 +492,7 @@ export default function BulkScheduleView({
           workDate: date, startTime: entry.startTime, endTime: entry.endTime,
           breakStartTime: entry.breakStartTime, breakEndTime: entry.breakEndTime,
           startOffsetDays: entry.startOffsetDays,
+          startOffsetFromTime: entry.startOffsetFromTime,
           status: "confirmed",
         });
       }
@@ -511,6 +516,7 @@ export default function BulkScheduleView({
           workDate: date, startTime: entry.startTime, endTime: entry.endTime,
           breakStartTime: entry.breakStartTime, breakEndTime: entry.breakEndTime,
           startOffsetDays: entry.startOffsetDays,
+          startOffsetFromTime: entry.startOffsetFromTime,
           status: "confirmed",
         });
       }
@@ -530,6 +536,7 @@ export default function BulkScheduleView({
       workDate: date, startTime: e.startTime, endTime: e.endTime,
       breakStartTime: e.breakStartTime, breakEndTime: e.breakEndTime,
       startOffsetDays: e.startOffsetDays,
+      startOffsetFromTime: e.startOffsetFromTime,
       status: "confirmed",
     }));
     setPreviewEntries((prev) => [...prev, ...newEntries]);
@@ -549,6 +556,7 @@ export default function BulkScheduleView({
           workDate: date, startTime: e.startTime, endTime: e.endTime,
           breakStartTime: e.breakStartTime, breakEndTime: e.breakEndTime,
           startOffsetDays: e.startOffsetDays,
+          startOffsetFromTime: e.startOffsetFromTime,
           status: "confirmed",
         });
       }
@@ -840,6 +848,7 @@ export default function BulkScheduleView({
         breakStartTime: s.break_start_time,
         breakEndTime: s.break_end_time,
         startOffsetDays: startOffsetDaysOf(s),
+        startOffsetFromTime: s.start_time?.slice(0, 5) ?? undefined,
         // 복사 시 원본 status가 confirmed가 아닐 수 있지만, 사용자가 명시적으로 새로 생성하는 흐름이므로 default confirmed.
         // Review 모달에서 entry/cluster/group 단위로 변경 가능.
         status: "confirmed",

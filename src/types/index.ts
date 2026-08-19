@@ -1215,6 +1215,15 @@ export interface Schedule {
   end_at?: string | null;
   break_start_at?: string | null;
   break_end_at?: string | null;
+  /**
+   * 시작이 자기 영업일 구간 `[day_start(D), day_start(D+1))` **밖**인가 (서버 판정).
+   *
+   * true 면 이 행은 현장에서 쓸 수 없다 — 출근하려는 시각의 영업일과 라벨이 달라
+   * 후보 조회에 안 잡힌다. 저장 검증(400 START_DATE_MISMATCH) 이전 행·SQL 직접 수정·
+   * 임포트·**매장 경계 설정을 나중에 바꾼 경우**가 여기 해당한다.
+   * 화면은 이 행을 정상처럼 보이게 두지 않고 "에러 스케줄"로 드러낸다.
+   */
+  start_outside_operating_window?: boolean;
   net_work_minutes: number;
   /** 저장된 스냅샷 시급 (0이면 override 없음) */
   hourly_rate: number;
@@ -1264,6 +1273,12 @@ export interface ScheduleCreate {
   /** Initial status. Default 'confirmed' for direct admin creation. */
   status?: "draft" | "requested" | "confirmed";
   force?: boolean;
+  /**
+   * 시작 달력일을 **사람이 화면에서 직접 골랐다**는 의사표시.
+   * 날짜는 (영업일, 시작 시각, 매장 경계)에서 하나로 결정되는 파생값이라, 표시 없이
+   * 자동값과 다른 날짜가 오면 서버가 START_DATE_MISMATCH(400)로 차단한다.
+   */
+  date_override?: boolean;
 }
 
 /**
@@ -1314,6 +1329,12 @@ export interface ScheduleUpdate {
   hourly_rate?: number | null;
   note?: string | null;
   force?: boolean;
+  /**
+   * 시작 달력일을 **사람이 화면에서 직접 골랐다**는 의사표시.
+   * 날짜는 (영업일, 시작 시각, 매장 경계)에서 하나로 결정되는 파생값이라, 표시 없이
+   * 자동값과 다른 날짜가 오면 서버가 START_DATE_MISMATCH(400)로 차단한다.
+   */
+  date_override?: boolean;
   /** 수정 사유 — schedule_audit_logs.reason 에 기록되어 History 에 노출된다.
    *  선택 입력이지만 compact 편집 경로는 항상 채워 보낸다 (근태 정정과 기록 수준을 맞추려고). */
   change_reason?: string | null;
@@ -1378,6 +1399,12 @@ export interface BulkUpdateItem {
   note?: string | null;
   hourly_rate?: number | null;
   reset_checklist?: boolean | null;
+  /**
+   * 시작 달력일을 **사람이 화면에서 직접 골랐다**는 의사표시.
+   * 날짜는 (영업일, 시작 시각, 매장 경계)에서 하나로 결정되는 파생값이라, 표시 없이
+   * 자동값과 다른 날짜가 오면 서버가 START_DATE_MISMATCH(400)로 차단한다.
+   */
+  date_override?: boolean;
   /** Target status. If set, server triggers the matching status transition (submit/confirm/revert). */
   status?: "draft" | "requested" | "confirmed";
 }

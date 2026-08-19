@@ -5,6 +5,7 @@
  */
 
 import type { Schedule, Attendance } from "@/types";
+import { START_OUTSIDE_WINDOW_TEXT } from "@/lib/scheduleTime";
 
 interface Props {
   schedule: Schedule;
@@ -134,6 +135,31 @@ function WalkInChip() {
   );
 }
 
+/**
+ * 에러 스케줄 칩 — 서버 `start_outside_operating_window` 가 선 블록.
+ *
+ * 이 행은 저장돼 있어도 현장에서 못 쓴다(출근 후보 조회에 안 잡힌다). 조용히 정상처럼
+ * 보이면 안 되므로 위험색으로 드러내되, 블록 내용을 덮지 않는 칩 한 칸으로 둔다.
+ * 이유는 hover(title)로 읽고, 클릭하면 기존 편집 진입이 그대로 열려 고칠 수 있다.
+ */
+function OutsideWindowChip() {
+  return (
+    <span
+      data-testid="schedule-outside-window"
+      title={START_OUTSIDE_WINDOW_TEXT}
+      aria-label={START_OUTSIDE_WINDOW_TEXT}
+      className="inline-flex items-center gap-0.5 shrink-0 text-[8px] font-bold uppercase tracking-wider px-1 py-px rounded bg-[var(--color-danger-muted)] text-[var(--color-danger)] border border-[var(--color-danger)]"
+    >
+      <svg width="8" height="8" viewBox="0 0 8 8" aria-hidden="true">
+        <path d="M4 0.8L7.6 7.2H0.4L4 0.8z" fill="none" stroke="currentColor" strokeWidth="1" strokeLinejoin="round" />
+        <path d="M4 3v1.8" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+        <circle cx="4" cy="6" r="0.5" fill="currentColor" />
+      </svg>
+      Error
+    </span>
+  );
+}
+
 function elapsedSince(iso: string): string {
   const start = new Date(iso).getTime();
   const diff = Math.max(0, Date.now() - start);
@@ -182,6 +208,8 @@ export function ScheduleBlock({ schedule, showCost, attendance, currentStoreId, 
   const showStoreName = true; // 뷰 모드와 무관하게 항상 스토어명 노출 (맥락 유지)
   // 워크인 스케줄: 흐림 + dashed + WALK-IN 칩으로 구분 (설계 §F6 — 계획시각=기본값이라 판정 주의)
   const isWalkIn = schedule.origin === "walk_in";
+  // 서버 판정 — 시작이 자기 영업일 구간 밖. 저장 검증 이전 행/임포트/경계 설정 변경으로 생긴다.
+  const startsOutsideWindow = schedule.start_outside_operating_window === true;
   const autoClockedOut = isAutoClockedOut(attendance);
 
   if (isOtherStore) {
@@ -192,6 +220,7 @@ export function ScheduleBlock({ schedule, showCost, attendance, currentStoreId, 
       >
         <div className="flex items-center justify-between gap-1 mb-0.5">
           <div className="text-[10px] font-semibold truncate">{schedule.store_name ?? "—"}</div>
+          {startsOutsideWindow && <OutsideWindowChip />}
           {isWalkIn && <WalkInChip />}
         </div>
         <div className="text-[11px] font-semibold leading-tight truncate">{roleName} · {positionName}</div>
@@ -225,11 +254,13 @@ export function ScheduleBlock({ schedule, showCost, attendance, currentStoreId, 
       onClick={onClick}
       role="button"
       title={
-        isRejected
-          ? `Rejected: ${schedule.rejection_reason ?? ""}`
-          : isCancelled
-            ? `Cancelled: ${schedule.cancellation_reason ?? ""}`
-            : undefined
+        startsOutsideWindow
+          ? START_OUTSIDE_WINDOW_TEXT
+          : isRejected
+            ? `Rejected: ${schedule.rejection_reason ?? ""}`
+            : isCancelled
+              ? `Cancelled: ${schedule.cancellation_reason ?? ""}`
+              : undefined
       }
       className={`
         group rounded-md border-[1.5px] px-2 py-1.5 cursor-pointer relative
@@ -241,6 +272,7 @@ export function ScheduleBlock({ schedule, showCost, attendance, currentStoreId, 
         ${isWalkIn && !isRejected && !isCancelled && !isDraft ? "border-dashed opacity-80" : ""}
         ${rejectedClasses}
         ${cancelledClasses}
+        ${startsOutsideWindow ? "border-[var(--color-danger)] ring-1 ring-[var(--color-danger)]/50" : ""}
         ${isActive ? "ring-2 ring-[var(--color-accent)] ring-offset-1 ring-offset-[var(--color-bg)] shadow-[0_4px_16px_rgba(108,92,231,0.35)] z-20" : ""}
       `}
       style={isRequested ? { backgroundImage: pendingBg } : undefined}
@@ -255,6 +287,7 @@ export function ScheduleBlock({ schedule, showCost, attendance, currentStoreId, 
         <span className="text-[11px] font-semibold text-[var(--color-text)] truncate flex-1 min-w-0">
           {roleName}{positionName !== "—" ? ` · ${positionName}` : ""}
         </span>
+        {startsOutsideWindow && <OutsideWindowChip />}
         {isWalkIn && <WalkInChip />}
         <span className={`text-[11px] font-bold tabular-nums shrink-0 ${styles.text}`}>{fmtH(hours)} h</span>
       </div>
@@ -263,6 +296,13 @@ export function ScheduleBlock({ schedule, showCost, attendance, currentStoreId, 
       <div className="text-[11px] font-medium text-[var(--color-text)] tabular-nums mt-0.5">
         {timeRange}
       </div>
+
+      {/* Row 2.6: 에러 사유 — 위험색 한 줄. 정상 블록에는 렌더되지 않는다. */}
+      {startsOutsideWindow && (
+        <div className="mt-0.5 text-[9.5px] font-semibold leading-tight text-[var(--color-danger)]">
+          Outside its business day · staff cannot clock in
+        </div>
+      )}
 
       {/* Row 2.5: Timeline bar — status색 바. break 있으면 중간에 회색 gap. */}
       {grossHours > 0 && !isRejected && !isCancelled && (

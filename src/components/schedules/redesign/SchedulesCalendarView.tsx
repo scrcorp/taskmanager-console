@@ -437,12 +437,14 @@ export default function SchedulesCalendarView() {
       //    Non-GM+ requests for "confirmed" will be downgraded server-side per Decision #10.
       if (payload.creates.length > 0) {
         const creates = payload.creates.map((e) => {
-          // 벌크 그리드: 영업일=work_date. 복사된 새벽근무(+1d)의 시작 오프셋 보존,
-          // end는 end≤start면 익일 자동.
-          // 복사 엔트리는 원본 오프셋, 신규 입력은 경계 규칙으로 추론(벌크는 날짜 UI 없음)
+          // 벌크 그리드: 영업일=work_date. 시작 달력일은 **언제나 경계 규칙으로 파생**한다.
+          //
+          // 복사된 오프셋을 보존하던 코드가 있었다(시각이 같을 때만). 이제 유효한 시작 날짜는
+          // 자동 판정 하나뿐이라 보존은 불필요할 뿐 아니라 **위험하다** — 매장 경계가 바뀌면
+          // 옛 오프셋이 정확히 틀린 값이 되고, 서버는 그 행을 START_DATE_MISMATCH(400)로 거부한다.
+          // (클립보드가 나르는 startOffsetDays/startOffsetFromTime 은 이제 쓰이지 않는다.)
           const startDate = addDay(
-            e.workDate,
-            e.startOffsetDays ?? storeStartOffset(e.startTime, storeDayStart(e.storeId), e.workDate),
+            e.workDate, storeStartOffset(e.startTime, storeDayStart(e.storeId), e.workDate),
           );
           const endDate = rollEndDate(startDate, e.startTime, e.endTime);
           const iso = shiftIsoFields(
@@ -463,6 +465,8 @@ export default function SchedulesCalendarView() {
             end_at: iso.end_at,
             break_start_at: iso.break_start_at,
             break_end_at: iso.break_end_at,
+            // 항상 자동 판정이므로 "사람이 고른 값" 이 아니다.
+            date_override: false,
             status: e.status,
           };
         });
@@ -483,11 +487,12 @@ export default function SchedulesCalendarView() {
           // 시간 수정 시 신 인코딩 동봉 — 주간↔새벽 전환이 표현되도록(경계 규칙).
           // HH:MM만 보내면 서버가 기존 오프셋을 보존해 전환이 불가능했다.
           let iso: Partial<Record<"operating_day" | "start_at" | "end_at" | "break_start_at" | "break_end_at", string | null>> = {};
+          const origSched = schedules.find((s2) => s2.id === u.id);
+          let dateOverride = false;
           if (u.operatingDay && u.data.startTime && u.data.endTime) {
+            // 수정 경로도 같다 — 시작 날짜는 경계 규칙으로만 정해진다.
             const off = storeStartOffset(
-              u.data.startTime,
-              storeDayStart(schedules.find((s2) => s2.id === u.id)?.store_id),
-              u.operatingDay,
+              u.data.startTime, storeDayStart(origSched?.store_id), u.operatingDay,
             );
             const sd = addDay(u.operatingDay, off);
             const ed = rollEndDate(sd, u.data.startTime, u.data.endTime);
@@ -504,6 +509,7 @@ export default function SchedulesCalendarView() {
             break_start_time: u.data.breakStartTime,
             break_end_time: u.data.breakEndTime,
             ...iso,
+            date_override: dateOverride,
             reset_checklist: u.data.resetChecklist,
             status: u.data.status,
           };
@@ -1365,6 +1371,8 @@ export default function SchedulesCalendarView() {
         end_at: payload.endAt,
         break_start_at: payload.breakStartAt,
         break_end_at: payload.breakEndAt,
+        // 사람이 자동값과 다른 시작 날짜를 골랐을 때만 true — 없으면 서버가 400 으로 막는다.
+        date_override: payload.dateOverride,
         // GM+: 바로 confirmed, SV: requested
         status: isGMView ? "confirmed" : "requested",
         note: payload.notes || null,
@@ -1402,6 +1410,7 @@ export default function SchedulesCalendarView() {
         end_at: payload.endAt,
         break_start_at: payload.breakStartAt,
         break_end_at: payload.breakEndAt,
+        date_override: payload.dateOverride,
         note: payload.notes || null,
         hourly_rate: (userChanged && rateUntouched) ? null : payload.hourlyRate,
         force: payload.force,
