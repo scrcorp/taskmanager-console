@@ -10,6 +10,7 @@ import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
 import { useMutationResult } from "@/lib/mutationResult";
 import type { ChecklistTemplate, ChecklistItem, ExcelImportResponse } from "@/types";
+import { downloadFromResponse } from "@/lib/download";
 
 /** 체크리스트 템플릿 필터 타입 (Checklist template filter type) */
 interface ChecklistTemplateFilters {
@@ -540,10 +541,5 @@ export const downloadSampleExcel = async (): Promise<void> => {
     "/console/checklist-templates/import/sample",
     { responseType: "blob" },
   );
-  const url = window.URL.createObjectURL(response.data);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "checklist_template_sample.xlsx";
-  link.click();
-  window.URL.revokeObjectURL(url);
+  downloadFromResponse(response, "checklist_template_sample.xlsx");
 };

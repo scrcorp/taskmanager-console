@@ -7,6 +7,7 @@ import {
 import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
 import { useMutationResult } from "@/lib/mutationResult";
+import { downloadFromResponse } from "@/lib/download";
 
 /**
  * EMPID Import hooks — legacy roster Excel → per-store empid registration.
@@ -300,12 +301,11 @@ export const useDownloadEmpidTemplate = (): ((
         responseType: "blob",
       },
     );
-    const url = URL.createObjectURL(response.data);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = mode === "current" ? "empid_export.xlsx" : "empid_import_template.xlsx";
-    a.click();
-    URL.revokeObjectURL(url);
+    // 파일명은 서버가 붙인다 — 어떤 매장/필터로 뽑았는지는 서버만 안다.
+    downloadFromResponse(
+      response,
+      mode === "current" ? "EmpID_Export.xlsx" : "EmpID_ImportTemplate.xlsx",
+    );
   };
 };
 
@@ -347,12 +347,7 @@ export const useExportEmpids = (): ((
       request,
       { responseType: "blob" },
     );
-    const url = URL.createObjectURL(response.data);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "empid_export.xlsx";
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadFromResponse(response, "EmpID_Export.xlsx");
   };
 };
 

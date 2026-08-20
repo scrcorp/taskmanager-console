@@ -16,6 +16,7 @@ import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import { todayInTimezone } from "@/lib/utils";
 import type { Attendance, User } from "@/types";
 import { ROLE_PRIORITY } from "@/lib/permissions";
+import { buildExportFilename, triggerBlobDownload } from "@/lib/download";
 
 function getWeekStart(d: Date): Date {
   const r = new Date(d);
@@ -175,12 +176,17 @@ export function AttendanceSummaryPage() {
     });
     const csv = rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `attendance_summary_${dateFrom}_${dateTo}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    // 파일명은 서버 export 와 같은 규칙 — 매장/주간/받은시각이 다 들어가야
+    // 여러 주를 연달아 받았을 때 어떤 파일인지 구분된다.
+    triggerBlobDownload(
+      blob,
+      buildExportFilename({
+        kind: "AttendanceSummary",
+        scope: stores.find((s) => s.id === selectedStore)?.name,
+        startDate: dateFrom,
+        endDate: dateTo,
+      }),
+    );
   }
 
   return (
