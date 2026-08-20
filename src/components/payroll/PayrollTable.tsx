@@ -49,6 +49,10 @@ const BADGES: Record<string, { label: string; className: string }> = {
     label: "Open shift",
     className: "bg-[rgba(240,165,0,0.12)] text-[#B45F06]",
   },
+  [PAYROLL_GATE.NO_SHOW]: {
+    label: "No show",
+    className: "bg-[rgba(240,165,0,0.12)] text-[#B45F06]",
+  },
   [PAYROLL_GATE.UNCONFIRMED_AUTO_CLOCKOUT]: {
     label: "Auto clock-out",
     className: "bg-[rgba(240,165,0,0.12)] text-[#B45F06]",

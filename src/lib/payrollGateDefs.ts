@@ -103,3 +103,17 @@ export const EXTRA_GATE_LABELS: Record<
     okNote: "",
   },
 };
+
+/**
+ * 경고 전용 코드 — 확정을 **막지 않으므로** 마감 게이트 카드가 없다.
+ *
+ * 카드로 올리면 매니저가 "이걸 해결해야 확정된다" 로 읽는데 실제로는 통과한다 —
+ * 게이트 목록의 뜻이 흐려진다. 대신 행 배지(PayrollTable BADGES)로 보여주고
+ * 지급 전 확인은 사람 판단에 맡긴다.
+ *
+ * 여기 등록하는 건 "카드가 없어도 되는 코드"를 **의도적으로 선언**하는 것이다.
+ * 선언도 카드도 없으면 커버리지 테스트가 잡는다 (모르는 코드가 조용히 사라지는 것 방지).
+ */
+export const WARNING_ONLY_GATE_CODES: readonly string[] = [
+  PAYROLL_GATE.NO_SHOW,
+];

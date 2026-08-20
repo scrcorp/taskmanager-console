@@ -12,7 +12,11 @@
 export const ONE_SHOT_PARAM = "_ext";
 
 export interface AttendanceLinkOptions {
-  storeId: string;
+  /**
+   * group 스코프 기간은 매장 귀속이 없어 null — store 필터 없이 연다
+   * (근태 페이지가 기본 매장으로 열리고, 날짜/직원 필터는 그대로 적용).
+   */
+  storeId: string | null;
   /** YYYY-MM-DD. 없으면 근태 페이지 기본값(오늘)으로 열림. */
   date?: string | null;
   /** 대상 직원 — attendance `staff` 필터(CSV) 1건. */
@@ -35,7 +39,7 @@ export function buildAttendanceOneShotLink({
   overlappingOnly = false,
 }: AttendanceLinkOptions): string {
   const params = new URLSearchParams();
-  params.set("store", storeId);
+  if (storeId) params.set("store", storeId);
   if (date) params.set("date", date);
   if (userId) params.set("staff", userId);
   if (unconfirmedAutoOnly) params.set("unconf", "1");

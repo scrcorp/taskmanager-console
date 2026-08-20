@@ -43,6 +43,8 @@ export function OpenPeriodView({ period }: Props) {
   const [gateFailures, setGateFailures] = useState<ConfirmGateFailure[] | null>(
     null,
   );
+  // export 전용 옵션 — 화면 로스터(활동 있는 직원만)는 바뀌지 않는다
+  const [includeIdle, setIncludeIdle] = useState(false);
 
   // 기간 전환 시 이전 confirm 실패 상태 제거
   useEffect(() => {
@@ -159,15 +161,31 @@ export function OpenPeriodView({ period }: Props) {
         <div className="flex items-center gap-2">
           {/* 확정 전에도 숫자를 검토용으로 받아볼 수 있게 — 서버가 DRAFT 로 표시 */}
           {canExport && (
-            <button
-              type="button"
-              onClick={() => exportMut.mutate({ periodId: period.id })}
-              disabled={exportMut.isPending}
-              className="flex items-center gap-1.5 rounded-lg border border-[#E2E4EA] bg-white px-3 py-2 text-[12.5px] font-semibold text-[#1A1D27] hover:border-[#CBD2DA] hover:bg-[#F5F6FA] disabled:opacity-50"
-            >
-              <Download size={14} />
-              {exportMut.isPending ? "Preparing..." : "Export draft (.xlsx)"}
-            </button>
+            <>
+              <label className="flex cursor-pointer items-center gap-1.5 text-[12px] text-[#5B6170]">
+                <input
+                  type="checkbox"
+                  checked={includeIdle}
+                  onChange={(e) => setIncludeIdle(e.target.checked)}
+                  className="h-3.5 w-3.5 accent-[#6C5CE7]"
+                />
+                Include active staff with no activity
+              </label>
+              <button
+                type="button"
+                onClick={() =>
+                  exportMut.mutate({
+                    periodId: period.id,
+                    includeIdleMembers: includeIdle,
+                  })
+                }
+                disabled={exportMut.isPending}
+                className="flex items-center gap-1.5 rounded-lg border border-[#E2E4EA] bg-white px-3 py-2 text-[12.5px] font-semibold text-[#1A1D27] hover:border-[#CBD2DA] hover:bg-[#F5F6FA] disabled:opacity-50"
+              >
+                <Download size={14} />
+                {exportMut.isPending ? "Preparing..." : "Export draft (.xlsx)"}
+              </button>
+            </>
           )}
           {canConfirm && (
             <button
