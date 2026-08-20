@@ -8,6 +8,8 @@ import {
   useManagerUpdateTipEntry,
 } from "@/hooks/useTips";
 import { useUsers } from "@/hooks/useUsers";
+import { staffStatusOf } from "@/components/ui/StaffStatusBadge";
+import { canAssignOn } from "@/lib/assignability";
 import { useWorkRoles } from "@/hooks/useWorkRoles";
 import { useSchedules } from "@/hooks/useSchedules";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -131,6 +133,18 @@ export function EntryFormModal(props: Props) {
 
   const { data: workRoles = [] } = useWorkRoles(storeId);
   const { data: storeUsers = [] } = useUsers({ store_ids: [storeId] });
+  /**
+   * 팁 수령자 후보 — **그 날짜에 근무할 수 있었던 사람만.** (2026-08-19)
+   *
+   * 단순히 비활성자를 다 빼면 안 된다. 퇴사자도 재직 중이던 과거 날짜의 팁은
+   * 입력해야 하기 때문이다. 그래서 날짜 기준(`canAssignOn`)으로 거른다 —
+   * 스케줄 저장 게이트와 **같은 판정**이라 기준이 갈리지 않는다.
+   * 이미 선택된 사람(수정 모드)은 후보에서 빠져도 값이 사라지지 않도록 남긴다.
+   */
+  const receiverCandidates = useMemo(
+    () => storeUsers.filter((u) => canAssignOn(u, date) || u.id === employeeId),
+    [storeUsers, date, employeeId],
+  );
   // 직원+날짜에 해당하는 schedule 옵션 — Add 모드일 때만 fetch.
   const scheduleFilters = useMemo(
     () =>
@@ -291,11 +305,16 @@ export function EntryFormModal(props: Props) {
               className={fieldBase}
             >
               <option value="">Select staff...</option>
-              {storeUsers.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.full_name} ({u.role_name})
-                </option>
-              ))}
+              {receiverCandidates.map((u) => {
+                // native <select> 안에는 컴포넌트를 못 넣으므로 상태를 문자열로 붙인다.
+                // 퇴사·비활성 직원이 아무 표시 없이 후보로 보이던 문제(2026-08-19).
+                const status = staffStatusOf(u);
+                return (
+                  <option key={u.id} value={u.id}>
+                    {u.full_name} ({u.role_name}){status ? ` — ${status.label}` : ""}
+                  </option>
+                );
+              })}
             </select>
           </Field>
           <Field label="Date">

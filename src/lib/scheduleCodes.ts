@@ -43,6 +43,10 @@ export const START_DATE_MISMATCH = "START_DATE_MISMATCH";
 export const SHIFT_SPAN_TOO_LONG = "SHIFT_SPAN_TOO_LONG";
 export const USER_NOT_IN_STORE = "USER_NOT_IN_STORE";
 export const USER_NOT_MARKED_FOR_STORE = "USER_NOT_MARKED_FOR_STORE";
+/** 재직 중이 아닌 직원 — 어떤 날짜로도 배정 불가. */
+export const USER_NOT_EMPLOYED = "USER_NOT_EMPLOYED";
+/** 퇴사일 **이후** 날짜로 배정 시도. 퇴사일 당일까지는 가능하다. */
+export const USER_TERMINATED_BEFORE_DATE = "USER_TERMINATED_BEFORE_DATE";
 export const TIME_NOT_ON_GRID = "TIME_NOT_ON_GRID";
 export const BREAK_PAIR_INCOMPLETE = "BREAK_PAIR_INCOMPLETE";
 export const BREAK_REVERSED = "BREAK_REVERSED";
@@ -136,6 +140,10 @@ export function describeScheduleIssue(issue: ScheduleIssue): string {
       return "This employee is not assigned to this store.";
     case USER_NOT_MARKED_FOR_STORE:
       return "This employee is not marked for work at this store. Enable “Work” in their store assignments first.";
+    case USER_NOT_EMPLOYED:
+      return "This employee is no longer active, so they can't be scheduled.";
+    case USER_TERMINATED_BEFORE_DATE:
+      return `This employee's last working day was ${p.termination_date ?? "?"}, so they can't be scheduled on ${p.operating_day ?? "that date"}.`;
     case TIME_NOT_ON_GRID:
       return `${p.field ?? "Time"} (${timeText(p.value)}) must be in ${p.step_minutes ?? "5"}-minute increments.`;
     case BREAK_PAIR_INCOMPLETE:

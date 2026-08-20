@@ -9,7 +9,7 @@
  */
 
 import React from "react";
-import { AlertTriangle, Pencil, RefreshCw, Star, Trash2 } from "lucide-react";
+import { AlertTriangle, Pencil, Plus, RefreshCw, Star, Trash2 } from "lucide-react";
 
 import { Badge, Button, LoadingSpinner } from "@/components/ui";
 import { useContact } from "@/hooks/useContacts";
@@ -17,6 +17,7 @@ import { describeApiError } from "@/lib/errorDisplay";
 import { formatDateTime } from "@/lib/utils";
 import type { Contact } from "@/types";
 import { visibilitySentence } from "./visibilityLabel";
+import { CopyLine, LinkLine, SectionHead } from "./contactFieldUI";
 
 export type ContactDetailAction =
   | { kind: "edit" | "delete"; contact: Contact }
@@ -30,22 +31,9 @@ interface ContactDetailModalProps {
   canUpdate: boolean;
   canDelete: boolean;
   onAction: (action: ContactDetailAction) => void;
+  /** 별 토글 — 상세를 닫지 않고 그 자리에서 켜고 끈다. */
+  onToggleFavorite: (contact: Contact) => void;
   onClose: () => void;
-}
-
-function Field({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}): React.ReactElement {
-  return (
-    <div>
-      <p className="text-xs font-medium uppercase tracking-wide text-text-muted">{label}</p>
-      <div className="mt-0.5 text-sm text-text">{children}</div>
-    </div>
-  );
 }
 
 export function ContactDetailModal({
@@ -54,6 +42,7 @@ export function ContactDetailModal({
   canUpdate,
   canDelete,
   onAction,
+  onToggleFavorite,
   onClose,
 }: ContactDetailModalProps): React.ReactElement {
   const query = useContact(contactId);
@@ -96,12 +85,44 @@ export function ContactDetailModal({
   const phones = [...contact.phones].sort(
     (a, b) => Number(b.is_primary) - Number(a.is_primary) || a.sort_order - b.sort_order,
   );
+  const emails = [...contact.emails].sort(
+    (a, b) => Number(b.is_primary) - Number(a.is_primary) || a.sort_order - b.sort_order,
+  );
+  const links = [...contact.links].sort((a, b) => a.sort_order - b.sort_order);
+
+  /** 아직 안 채운 항목 — 없는 값을 "—" 로 늘어놓는 대신, 채우러 가는 길만 남긴다. */
+  const missing: string[] = [];
+  if (!contact.company) missing.push("Company");
+  if (!contact.summary) missing.push("Summary");
+  if (phones.length === 0) missing.push("Phone");
+  if (emails.length === 0) missing.push("Email");
+  if (links.length === 0) missing.push("Link");
+  if (contact.tags.length === 0) missing.push("Tags");
+  if (!contact.notes) missing.push("Notes");
 
   return (
-    <div className="space-y-5">
-      <div>
-        <h3 className="text-lg font-semibold text-text">{contact.name}</h3>
-        <p className="text-xs text-text-muted">{visibilitySentence(contact)}</p>
+    <div className="space-y-4">
+      <div className="flex items-start gap-2">
+        <button
+          type="button"
+          onClick={() => onToggleFavorite(contact)}
+          aria-pressed={contact.is_favorite}
+          title={contact.is_favorite ? "Remove from favorites" : "Add to favorites"}
+          className={`mt-0.5 rounded-lg p-1 transition-colors ${
+            contact.is_favorite
+              ? "text-warning hover:bg-warning-muted"
+              : "text-text-muted hover:bg-warning-muted hover:text-warning"
+          }`}
+        >
+          <Star size={18} fill={contact.is_favorite ? "currentColor" : "none"} />
+        </button>
+        <div className="min-w-0">
+          <h3 className="text-lg font-semibold text-text">{contact.name}</h3>
+          {contact.company && (
+            <p className="text-sm text-text-secondary">{contact.company}</p>
+          )}
+          <p className="text-xs text-text-muted">{visibilitySentence(contact)}</p>
+        </div>
       </div>
 
       {contact.pending_request_count > 0 && (
@@ -112,31 +133,44 @@ export function ContactDetailModal({
         </div>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Company">{contact.company || "—"}</Field>
-        <Field label="Email">{contact.email || "—"}</Field>
-      </div>
+      {/* 값이 있는 것만 보여준다 — 빈 칸을 "—" 로 채우면 읽을 게 없는 자리를 계속 훑게 된다 */}
+      {contact.summary && (
+        <section>
+          <SectionHead label="Summary" />
+          <CopyLine value={contact.summary} muted />
+        </section>
+      )}
 
-      <Field label="Phone numbers">
-        {phones.length === 0 ? (
-          "—"
-        ) : (
-          <ul className="space-y-1">
-            {phones.map((p) => (
-              <li key={p.id} className="flex items-center gap-2">
-                {p.is_primary && <Star size={12} className="text-accent" fill="currentColor" />}
-                <span className="font-medium">{p.number}</span>
-                {p.label && <span className="text-xs text-text-muted">{p.label}</span>}
-              </li>
-            ))}
-          </ul>
-        )}
-      </Field>
+      {phones.length > 0 && (
+        <section>
+          <SectionHead channel="phone" count={phones.length} />
+          {phones.map((p) => (
+            <CopyLine key={p.id} value={p.number} label={p.label} />
+          ))}
+        </section>
+      )}
 
-      <Field label="Tags">
-        {contact.tags.length === 0 ? (
-          "—"
-        ) : (
+      {emails.length > 0 && (
+        <section>
+          <SectionHead channel="email" count={emails.length} />
+          {emails.map((e) => (
+            <CopyLine key={e.id} value={e.address} label={e.label} />
+          ))}
+        </section>
+      )}
+
+      {links.length > 0 && (
+        <section>
+          <SectionHead channel="link" count={links.length} />
+          {links.map((l) => (
+            <LinkLine key={l.id} url={l.url} label={l.label} />
+          ))}
+        </section>
+      )}
+
+      {contact.tags.length > 0 && (
+        <section>
+          <SectionHead label="Tags" />
           <div className="flex flex-wrap gap-1">
             {contact.tags.map((t) => (
               <button
@@ -150,12 +184,33 @@ export function ContactDetailModal({
               </button>
             ))}
           </div>
-        )}
-      </Field>
+        </section>
+      )}
 
-      <Field label="Memo">
-        <span className="whitespace-pre-wrap">{contact.memo || "—"}</span>
-      </Field>
+      {contact.notes && (
+        <section>
+          <SectionHead label="Notes" />
+          <p className="whitespace-pre-wrap text-sm text-text-secondary">{contact.notes}</p>
+        </section>
+      )}
+
+      {missing.length > 0 && canUpdate && (
+        <section className="border-t border-border pt-3">
+          <SectionHead label="Not saved yet" />
+          <div className="flex flex-wrap gap-1.5">
+            {missing.map((m) => (
+              <button
+                key={m}
+                type="button"
+                onClick={() => onAction({ kind: "edit", contact })}
+                className="inline-flex items-center gap-1 rounded-full border border-dashed border-border bg-surface px-3 py-1 text-xs font-medium text-text-secondary transition-colors hover:border-accent hover:bg-accent-muted hover:text-accent"
+              >
+                <Plus size={12} /> {m}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
 
       <p className="text-xs text-text-muted">
         Added by {contact.created_by_name ?? "unknown"} on {formatDateTime(contact.created_at)}

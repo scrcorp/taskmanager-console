@@ -18,12 +18,24 @@ import type {
 export const CONTACT_LIMITS = {
   name: 200,
   company: 200,
-  email: 255,
-  memo: 4000,
+  summary: 72,
+  /** 새로 쓰는 메모 상한 (D8-2). */
+  notes: 300,
+  /**
+   * 구 memo 시절 상한. **기존 값을 손대지 않은 경우**에만 여기까지 통과한다 —
+   * 서버도 같은 규칙이다. 안 그러면 예전에 길게 적힌 연락처는 이름 한 글자도 못 고친다.
+   */
+  notesLegacy: 4000,
   reason: 500,
   phoneNumber: 50,
   phoneLabel: 30,
   phones: 10,
+  emailAddress: 255,
+  emailLabel: 30,
+  emails: 10,
+  linkUrl: 500,
+  linkLabel: 40,
+  links: 10,
   tags: 20,
   tagLength: 40,
 } as const;
@@ -36,12 +48,33 @@ export interface ContactPhoneDraft {
   is_primary: boolean;
 }
 
+/** 폼 안에서만 쓰는 이메일 행. */
+export interface ContactEmailDraft {
+  key: string;
+  label: string;
+  address: string;
+  is_primary: boolean;
+}
+
+/** 폼 안에서만 쓰는 링크 행. */
+export interface ContactLinkDraft {
+  key: string;
+  label: string;
+  url: string;
+  is_primary: boolean;
+}
+
 /** 폼 상태. 빈 값은 `""` 로 두고 payload 변환 시 null 로 바꾼다. */
 export interface ContactDraft {
   name: string;
   company: string;
-  email: string;
-  memo: string;
+  summary: string;
+  notes: string;
+  /**
+   * 폼을 열 때의 notes 값. 300 상한을 **바뀐 값에만** 걸기 위한 기준선이다
+   * (서버 규칙과 동일). 서버로는 보내지 않는다.
+   */
+  notesBaseline: string;
   /** 가시성 모드 — 명시 값이다. 대상이 비었다고 전체 공유가 되지 않는다 (V1). */
   visibility: ContactVisibility;
   /** visibility === "restricted" 일 때 고른 대상들(매장/직급/개인). OR 로 합쳐진다 (V4). */
@@ -49,18 +82,20 @@ export interface ContactDraft {
   /** 후보 명단에서 개인 단위로 뺀 사람들 (V4). Owner 는 뺄 수 없다. */
   excluded_user_ids: string[];
   phones: ContactPhoneDraft[];
+  emails: ContactEmailDraft[];
+  links: ContactLinkDraft[];
   tags: string[];
   /** 사유. 필수 여부는 화면(모드)이 정한다. */
   reason: string;
 }
 
-let phoneKeySeq = 0;
+let rowKeySeq = 0;
 
 /** 전화번호 행 키 생성 — 값이 같아도 행은 구분되어야 한다. */
 export function newPhoneRow(overrides: Partial<ContactPhoneDraft> = {}): ContactPhoneDraft {
-  phoneKeySeq += 1;
+  rowKeySeq += 1;
   return {
-    key: `phone-${phoneKeySeq}`,
+    key: `phone-${rowKeySeq}`,
     label: "",
     number: "",
     is_primary: false,
@@ -68,17 +103,43 @@ export function newPhoneRow(overrides: Partial<ContactPhoneDraft> = {}): Contact
   };
 }
 
-/** 빈 폼 — 전화번호 한 줄을 대표번호로 미리 깔아 둔다. */
+/** 이메일 행 키 생성. */
+export function newEmailRow(overrides: Partial<ContactEmailDraft> = {}): ContactEmailDraft {
+  rowKeySeq += 1;
+  return {
+    key: `email-${rowKeySeq}`,
+    label: "",
+    address: "",
+    is_primary: false,
+    ...overrides,
+  };
+}
+
+/** 링크 행 키 생성. */
+export function newLinkRow(overrides: Partial<ContactLinkDraft> = {}): ContactLinkDraft {
+  rowKeySeq += 1;
+  return { key: `link-${rowKeySeq}`, label: "", url: "", is_primary: false, ...overrides };
+}
+
+/**
+ * 빈 폼 — **아무 칸도 미리 깔지 않는다** (D6).
+ *
+ * 이름 말고는 전부 선택 항목이라, 빈 칸을 늘어놓으면 "채워야 하는 것"처럼 보이고
+ * 폼만 길어진다. 필요한 항목은 사용자가 `+ 추가` 로 꺼내 쓴다.
+ */
 export function emptyContactDraft(): ContactDraft {
   return {
     name: "",
     company: "",
-    email: "",
-    memo: "",
+    summary: "",
+    notes: "",
+    notesBaseline: "",
     visibility: "organization",
     targets: [],
     excluded_user_ids: [],
-    phones: [newPhoneRow({ is_primary: true })],
+    phones: [],
+    emails: [],
+    links: [],
     tags: [],
     reason: "",
   };
@@ -94,9 +155,30 @@ function phoneRowsFrom(
       is_primary: Boolean(p.is_primary),
     }),
   );
-  if (rows.length === 0) return [newPhoneRow({ is_primary: true })];
-  if (!rows.some((r) => r.is_primary)) rows[0].is_primary = true;
+  // 값이 없으면 **빈 줄도 만들지 않는다** — 안 쓰는 항목은 폼에 나타나지 않는다 (D6).
+  // 대표 승격은 여기서 하지 않는다 — 메인은 전화/이메일/링크를 통틀어 하나라서
+  // 채널 하나만 보고 정할 수 없다 (draftToPayload 가 마지막에 정한다).
   return rows;
+}
+
+function emailRowsFrom(
+  emails: { label?: string | null; address: string; is_primary?: boolean }[] | undefined,
+): ContactEmailDraft[] {
+  return (emails ?? []).map((e) =>
+    newEmailRow({
+      label: e.label ?? "",
+      address: e.address,
+      is_primary: Boolean(e.is_primary),
+    }),
+  );
+}
+
+function linkRowsFrom(
+  links: { label?: string | null; url: string; is_primary?: boolean }[] | undefined,
+): ContactLinkDraft[] {
+  return (links ?? []).map((l) =>
+    newLinkRow({ label: l.label ?? "", url: l.url, is_primary: Boolean(l.is_primary) }),
+  );
 }
 
 /** 기존 연락처 → 폼 초안 (수정/수정신청). */
@@ -105,12 +187,17 @@ export function draftFromContact(contact: Contact): ContactDraft {
   return {
     name: contact.name,
     company: contact.company ?? "",
-    email: contact.email ?? "",
-    memo: contact.memo ?? "",
+    summary: contact.summary ?? "",
+    notes: contact.notes ?? "",
+    notesBaseline: contact.notes ?? "",
     visibility: contact.visibility,
     targets: contact.targets.map((t) => ({ type: t.type, id: t.id })),
     excluded_user_ids: contact.excluded_users.map((t) => t.id),
     phones: phoneRowsFrom(ordered),
+    emails: emailRowsFrom(
+      [...contact.emails].sort((a, b) => a.sort_order - b.sort_order),
+    ),
+    links: linkRowsFrom([...contact.links].sort((a, b) => a.sort_order - b.sort_order)),
     tags: contact.tags.map((t) => t.name),
     reason: "",
   };
@@ -121,12 +208,15 @@ export function draftFromPayload(payload: ContactRequestPayload): ContactDraft {
   return {
     name: payload.name,
     company: payload.company ?? "",
-    email: payload.email ?? "",
-    memo: payload.memo ?? "",
+    summary: payload.summary ?? "",
+    notes: payload.notes ?? "",
+    notesBaseline: payload.notes ?? "",
     visibility: payload.visibility ?? "organization",
     targets: payload.targets ?? [],
     excluded_user_ids: payload.excluded_user_ids ?? [],
     phones: phoneRowsFrom(payload.phones),
+    emails: emailRowsFrom(payload.emails),
+    links: linkRowsFrom(payload.links),
     tags: payload.tags ?? [],
     reason: "",
   };
@@ -157,20 +247,43 @@ export function draftToPayload(draft: ContactDraft): ContactRequestPayload {
       number: p.number.trim(),
       is_primary: p.is_primary,
     }));
-  if (phones.length > 0 && !phones.some((p) => p.is_primary)) {
-    phones[0].is_primary = true;
+  // 빈 줄은 버린다 — 추가만 하고 안 채운 줄이 저장되면 안 된다
+  const emails = draft.emails
+    .filter((e) => e.address.trim().length > 0)
+    .map((e) => ({
+      label: orNull(e.label),
+      address: e.address.trim(),
+      is_primary: e.is_primary,
+    }));
+  const links = draft.links
+    .filter((l) => l.url.trim().length > 0)
+    // URL 은 **원문 그대로** 보낸다. https:// 를 붙이는 건 여는 시점의 일이다.
+    .map((l) => ({ label: orNull(l.label), url: l.url.trim(), is_primary: l.is_primary }));
+
+  // 메인은 **셋을 통틀어 하나**다. 아무도 안 골랐으면 첫 전화 → 이메일 → 링크를 올린다
+  // (서버도 같은 규칙이지만, 화면에 보이는 별과 저장 결과가 어긋나면 안 된다).
+  const mainCount =
+    phones.filter((p) => p.is_primary).length +
+    emails.filter((e) => e.is_primary).length +
+    links.filter((l) => l.is_primary).length;
+  if (mainCount === 0) {
+    const first = phones[0] ?? emails[0] ?? links[0];
+    if (first) first.is_primary = true;
   }
+
   return {
     name: draft.name.trim(),
     company: orNull(draft.company),
-    email: orNull(draft.email),
-    memo: orNull(draft.memo),
+    summary: orNull(draft.summary),
+    notes: orNull(draft.notes),
     visibility: draft.visibility,
     // 전체 공유면 대상을 딸려 보내지 않는다 — 서버가 모순 상태로 거부한다.
     targets: draft.visibility === "restricted" ? draft.targets : [],
     excluded_user_ids:
       draft.visibility === "restricted" ? draft.excluded_user_ids : [],
     phones,
+    emails,
+    links,
     tags: draft.tags,
   };
 }
@@ -179,10 +292,12 @@ export function draftToPayload(draft: ContactDraft): ContactRequestPayload {
 export type ContactDraftErrors = Partial<
   Record<
     | "name"
-    | "email"
-    | "memo"
+    | "summary"
+    | "notes"
     | "company"
     | "phones"
+    | "emails"
+    | "links"
     | "tags"
     | "reason"
     | "visibility",
@@ -211,17 +326,48 @@ export function validateContactDraft(
     errors.company = `Company is too long (max ${CONTACT_LIMITS.company} characters).`;
   }
 
-  const email = draft.email.trim();
-  if (email.length > 0) {
-    if (!email.includes("@")) {
-      errors.email = "Email must contain @. Fix it or leave the field empty.";
-    } else if (email.length > CONTACT_LIMITS.email) {
-      errors.email = `Email is too long (max ${CONTACT_LIMITS.email} characters).`;
-    }
+  const summary = draft.summary.trim();
+  if (summary.length > CONTACT_LIMITS.summary) {
+    errors.summary =
+      `Summary is ${summary.length}/${CONTACT_LIMITS.summary} characters. ` +
+      "Keep it to one line — the long version goes in Notes.";
   }
 
-  if (draft.memo.trim().length > CONTACT_LIMITS.memo) {
-    errors.memo = `Memo is too long (max ${CONTACT_LIMITS.memo} characters). Trim it down.`;
+  // Notes 상한은 **바뀐 값에만** 건다 (서버와 같은 규칙).
+  // 예전에 길게 적힌 메모를 손대지 않았다면 그대로 통과시킨다 — 안 그러면
+  // 그 연락처는 이름 한 글자도 못 고친다.
+  const notes = draft.notes.trim();
+  const notesChanged = notes !== draft.notesBaseline.trim();
+  if (notesChanged && notes.length > CONTACT_LIMITS.notes) {
+    errors.notes =
+      `Notes is ${notes.length}/${CONTACT_LIMITS.notes} characters. ` +
+      "Shorten it, or move the details to a document.";
+  } else if (!notesChanged && notes.length > CONTACT_LIMITS.notesLegacy) {
+    errors.notes = `Notes is too long (max ${CONTACT_LIMITS.notesLegacy} characters).`;
+  }
+
+  const filledEmails = draft.emails.filter((e) => e.address.trim().length > 0);
+  if (filledEmails.length > CONTACT_LIMITS.emails) {
+    errors.emails = `Up to ${CONTACT_LIMITS.emails} email addresses. Remove a few.`;
+  } else if (filledEmails.some((e) => !e.address.includes("@"))) {
+    errors.emails = "An email is missing @. Fix it or remove the row.";
+  } else if (
+    filledEmails.some((e) => e.address.trim().length > CONTACT_LIMITS.emailAddress)
+  ) {
+    errors.emails = `An email is too long (max ${CONTACT_LIMITS.emailAddress} characters).`;
+  } else if (filledEmails.some((e) => e.label.trim().length > CONTACT_LIMITS.emailLabel)) {
+    errors.emails = `A label is too long (max ${CONTACT_LIMITS.emailLabel} characters).`;
+  }
+
+  const filledLinks = draft.links.filter((l) => l.url.trim().length > 0);
+  if (filledLinks.length > CONTACT_LIMITS.links) {
+    errors.links = `Up to ${CONTACT_LIMITS.links} links. Remove a few.`;
+  } else if (filledLinks.some((l) => /\s/.test(l.url.trim()))) {
+    errors.links = "A link contains a space. Links cannot have spaces.";
+  } else if (filledLinks.some((l) => l.url.trim().length > CONTACT_LIMITS.linkUrl)) {
+    errors.links = `A link is too long (max ${CONTACT_LIMITS.linkUrl} characters).`;
+  } else if (filledLinks.some((l) => l.label.trim().length > CONTACT_LIMITS.linkLabel)) {
+    errors.links = `A label is too long (max ${CONTACT_LIMITS.linkLabel} characters).`;
   }
 
   const filledPhones = draft.phones.filter((p) => p.number.trim().length > 0);

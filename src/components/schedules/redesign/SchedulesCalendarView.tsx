@@ -31,6 +31,7 @@ import { ContextMenu } from "./ContextMenu";
 import { HistoryPanel } from "./HistoryPanel";
 import { SwapModal } from "./SwapModal";
 import { ChangeStaffModal } from "./ChangeStaffModal";
+import { canAssignOn, assignBlockReason } from "@/lib/assignability";
 import { ScheduleEditModal, type ScheduleEditPayload } from "./ScheduleEditModal";
 import { useModal } from "@/components/ui/imperative-modal";
 import { FilterBar, type FilterState, type EmptyStaffSort } from "./FilterBar";
@@ -613,6 +614,11 @@ export default function SchedulesCalendarView() {
         department: (r.user_department as User["department"]) ?? null,
         is_active: false,
         is_provisional: false,
+        // 배정 가능 범위는 roster 가 알려준다 — 여기서 임의 판정하지 않는다.
+        assignable: r.assignable ?? false,
+        assignable_until: r.assignable_until ?? null,
+        employed_from: r.employed_from ?? null,
+        employed_to: r.employed_to ?? null,
         created_at: "",
       } as User));
   }, [roster, usersQ.data]);
@@ -1879,38 +1885,92 @@ export default function SchedulesCalendarView() {
                   // 기존 스케줄의 stored rate와는 무관 — 표시 라벨에만 사용.
                   const userEffective = effectiveRate(u, currentStore, orgDefaultRate);
                   const isUserCustom = u.hourly_rate != null;
+                  /*
+                    재직 상태 — 라벨(넓은 화면)과 점(좁은 화면)이 **같은 판정**을 쓰도록
+                    한 번만 계산한다. 둘이 갈리면 화면 폭에 따라 다른 상태가 보인다.
+                  */
+                  const staffStatus = u.is_provisional
+                    ? {
+                        label: "Not signed up",
+                        tone: "warning" as const,
+                        title: "Not signed up — this employee hasn't signed up yet. They can be scheduled, but can't log in.",
+                      }
+                    : !u.is_active
+                      ? u.assignable_until
+                        ? {
+                            label: "Terminated",
+                            tone: "muted" as const,
+                            title: `Terminated — last working day ${u.assignable_until}. Shifts can still be entered up to that date.`,
+                          }
+                        : {
+                            label: "Deactivated",
+                            tone: "muted" as const,
+                            title: "Deactivated — no last working day recorded, so no date can be scheduled. Offboard them with a date to allow past entries.",
+                          }
+                      : null;
+                  const statusPillClass = staffStatus?.tone === "warning"
+                    ? "bg-[var(--color-warning-muted)] text-[var(--color-warning)]"
+                    : "bg-[var(--color-surface-hover)] text-[var(--color-text-muted)]";
                 return (
                   <tr key={u.id} className="border-b border-[var(--color-border)] last:border-b-0 hover:bg-[var(--color-surface-hover)] transition-[background-color] duration-100">
                     <td className="px-4 py-3 border-r-2 border-[var(--color-border)] sticky left-0 z-[25] bg-[var(--color-surface)]">
                       <div className="flex items-center gap-3">
-                        <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 ${rolePriorityToColor(u.role_priority)}`}>{getInitials(u.full_name)}</div>
+                        {/*
+                          아바타 점은 **좁은 화면 전용** 폴백이다. 칸이 좁아지면 라벨이
+                          들어갈 자리가 없어 이름/기간이 잘린다(실측) → 그때만 점으로 줄인다.
+                          md 이상에서는 이름 위 라벨이 보이므로 점은 숨긴다.
+                        */}
+                        <div className="relative shrink-0">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold ${rolePriorityToColor(u.role_priority)} ${!u.is_active && !u.is_provisional ? "opacity-50" : ""}`}>{getInitials(u.full_name)}</div>
+                          {staffStatus && (
+                            <span
+                              title={staffStatus.title}
+                              className={`md:hidden absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[var(--color-surface)] ${staffStatus.tone === "warning" ? "bg-[var(--color-warning)]" : "bg-[var(--color-text-muted)]"}`}
+                            />
+                          )}
+                        </div>
                         <div className="min-w-0">
-                          <div className="text-[13px] font-semibold text-[var(--color-text)] truncate flex items-center gap-1.5">
-                            <span className="truncate">{u.full_name || u.username}</span>
-                            {/* 미가입(유령) 직원 — 스케줄 배정은 되지만 아직 앱 계정이 없다 */}
-                            {u.is_provisional && (
+                          {/*
+                            상태 라벨 — 이름 **위** 독립 줄. 이름과 같은 줄에 두면 긴 이름이
+                            잘리고(실측 "Sinai Ga…"), 기간 줄에 두면 날짜가 잘린다.
+                            좁은 화면에서는 숨기고 아바타 점이 대신한다.
+                          */}
+                          {staffStatus && (
+                            <div className="hidden md:block mb-0.5">
                               <span
-                                title="This employee hasn't signed up yet — they can be scheduled, but can't log in."
-                                className="shrink-0 rounded-full bg-[var(--color-warning-muted)] px-1.5 py-px text-[8px] font-bold uppercase leading-[14px] tracking-wide text-[var(--color-warning)]"
+                                title={staffStatus.title}
+                                className={`inline-block rounded-full px-1.5 py-px text-[8px] font-bold uppercase leading-[14px] tracking-wide ${statusPillClass}`}
                               >
-                                Not signed up
+                                {staffStatus.label}
                               </span>
-                            )}
-                            {/* 퇴사·배정해제된 직원 — 이 기간 근무 기록이 있어 남긴 행. 새 배정 대상은 아니다 */}
-                            {!u.is_active && !u.is_provisional && (
-                              <span
-                                title="No longer active. Shown because they worked during this period."
-                                className="shrink-0 rounded-full bg-[var(--color-surface-hover)] px-1.5 py-px text-[8px] font-bold uppercase leading-[14px] tracking-wide text-[var(--color-text-muted)]"
-                              >
-                                Former
-                              </span>
-                            )}
+                            </div>
+                          )}
+                          {/* 이름 — 이 줄은 이름만 쓴다 */}
+                          <div className="text-[13px] font-semibold text-[var(--color-text)] truncate">
+                            {u.full_name || u.username}
                           </div>
-                          <div className="text-[10px] text-[var(--color-text-muted)]">
+                          {/* 2행: 직급 · 시급 */}
+                          <div className="text-[10px] text-[var(--color-text-muted)] truncate">
                             <span className={u.role_priority <= ROLE_PRIORITY.GM ? "text-[var(--color-accent)] font-semibold" : u.role_priority <= ROLE_PRIORITY.SV ? "text-[var(--color-warning)] font-semibold" : "font-semibold"}>{rolePriorityToBadge(u.role_priority)}</span>
                             {isGMView && userEffective != null ? <span title="Default rate for new schedules"> · ${userEffective}/hr{isUserCustom ? "" : " (inherited)"}</span> : null}
                             {isGMView && userEffective == null && <span className="text-[var(--color-danger)]"> · No default rate</span>}
                           </div>
+                          {/*
+                            [보류 2026-08-19] 재직기간(입사일 ~ 퇴사일) 표시.
+                            지금은 **숨긴다.** 입사일(`org_members.hire_date`)이 전원 비어 있고,
+                            무엇보다 퇴사는 원래 **매장 단위** 개념이라 org 단위 날짜를 여기에
+                            띄우면 "다른 매장에서는 재직 중"인 사람을 잘못 말하게 된다.
+
+                            재개 조건: 매장별 입·퇴사일이 생기고 이 화면이 매장 컨텍스트로
+                            그 값을 받게 될 때. 그때 아래 한 줄만 되살리면 된다 —
+                            서버는 이미 employed_from/employed_to 를 내려주고,
+                            표시 함수(`formatEmploymentPeriod`)도 테스트와 함께 남아 있다.
+                            설계: docs/99_inbox/2026-08-19-퇴사-매장별-재정의.md
+
+                            <div className="text-[10px] text-[var(--color-text-muted)] whitespace-nowrap truncate">
+                              {formatEmploymentPeriod(u)}
+                            </div>
+                          */}
                         </div>
                       </div>
                     </td>
@@ -1936,21 +1996,28 @@ export default function SchedulesCalendarView() {
                                       onClick={(e) => handleBlockClick(e, s)}
                                     />
                                   ))}
-                                  <button
-                                    type="button"
-                                    onClick={() => openAddModal(u.id, day.date)}
-                                    className="w-full py-0.5 rounded border border-dashed border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors text-[12px] opacity-0 hover:opacity-100 focus:opacity-100"
-                                    title="Add another schedule"
-                                  >
-                                    +
-                                  </button>
+                                  {/* 퇴사일 이후 칸에는 추가 자체를 열지 않는다 — 눌러봐야 서버가 400 이다. */}
+                                  {canAssignOn(u, day.date) && (
+                                    <button
+                                      type="button"
+                                      onClick={() => openAddModal(u.id, day.date)}
+                                      className="w-full py-0.5 rounded border border-dashed border-[var(--color-border)] text-[var(--color-text-muted)] hover:border-[var(--color-accent)] hover:text-[var(--color-accent)] transition-colors text-[12px] opacity-0 hover:opacity-100 focus:opacity-100"
+                                      title="Add another schedule"
+                                    >
+                                      +
+                                    </button>
+                                  )}
                                 </div>
                               ) : (
                                   <div
-                                    className="h-full min-h-[44px] flex items-center justify-center opacity-0 hover:opacity-40 transition-opacity cursor-pointer"
+                                    className={canAssignOn(u, day.date)
+                                      ? "h-full min-h-[44px] flex items-center justify-center opacity-0 hover:opacity-40 transition-opacity cursor-pointer"
+                                      // 잠긴 칸 — 왜 못 넣는지는 hover 툴팁으로 알린다(조용한 무반응 금지).
+                                      : "h-full min-h-[44px] flex items-center justify-center opacity-0 hover:opacity-30 cursor-not-allowed"}
                                     role="button"
-                                    onClick={() => openAddModal(u.id, day.date)}
-                                    title={userEffective == null ? "Warning: this user has no hourly rate" : undefined}
+                                    onClick={() => { if (canAssignOn(u, day.date)) openAddModal(u.id, day.date); }}
+                                    title={assignBlockReason(u, day.date)
+                                      ?? (userEffective == null ? "Warning: this user has no hourly rate" : undefined)}
                                   >
                                     {userEffective == null ? (
                                       <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
@@ -2050,7 +2117,7 @@ export default function SchedulesCalendarView() {
                                           <div
                                             key={clickH}
                                             className="group/cell flex-1 cursor-pointer hover:bg-[var(--color-surface-hover)] relative"
-                                            onClick={() => openAddModal(u.id, selectedDay, `${String(clickH % 24).padStart(2, "0")}:00`, Math.floor(clickH / 24))}
+                                            onClick={() => { if (canAssignOn(u, selectedDay)) openAddModal(u.id, selectedDay, `${String(clickH % 24).padStart(2, "0")}:00`, Math.floor(clickH / 24)); }}
                                             role="button"
                                           >
                                             <span className="absolute inset-0 flex items-center justify-center opacity-0 group-hover/cell:opacity-100 transition-opacity text-[var(--color-accent)]">

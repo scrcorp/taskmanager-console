@@ -57,6 +57,12 @@ interface TableProps<T> {
    * (Opt-in row reorder. When set, rows get a drag handle and dropping emits the new id order.)
    */
   onReorder?: (orderedIds: string[]) => void;
+  /**
+   * 행 아래에 펼쳐지는 내용. `null` 을 돌려주면 아무것도 그리지 않는다.
+   * 제공하지 않으면 기존 동작과 동일 — 부가 기능이라 기존 사용처는 영향이 없다.
+   * (드래그 정렬과는 함께 쓰지 않는다: 정렬 중 행 높이가 바뀌면 드롭 위치가 흔들린다.)
+   */
+  renderExpanded?: (item: T, index: number) => React.ReactNode;
 }
 
 /** 드래그 가능한 테이블 행 / Sortable table row (used only when onReorder is set) */
@@ -148,6 +154,7 @@ export function Table<T extends { id?: string }>({
   sortDirection,
   onSort,
   onReorder,
+  renderExpanded,
 }: TableProps<T>): React.ReactElement {
   const skeletonRowCount: number = 5;
   const reorderEnabled: boolean = !!onReorder && !isLoading && data.length > 0;
@@ -243,9 +250,11 @@ export function Table<T extends { id?: string }>({
                 </td>
               </tr>
             ) : (
-              data.map((item: T, index: number) => (
+              data.map((item: T, index: number) => {
+                const expandedContent = renderExpanded?.(item, index);
+                return (
+                <React.Fragment key={(item as Record<string, unknown>).id as string || index}>
                 <tr
-                  key={(item as Record<string, unknown>).id as string || index}
                   onClick={onRowClick ? () => onRowClick(item) : undefined}
                   className={cn(
                     "border-b border-border transition-colors duration-150",
@@ -273,7 +282,16 @@ export function Table<T extends { id?: string }>({
                     </td>
                   ))}
                 </tr>
-              ))
+                {expandedContent != null && (
+                  <tr className="border-b border-border bg-surface-hover/40">
+                    <td colSpan={totalColSpan} className="px-4 py-4">
+                      {expandedContent}
+                    </td>
+                  </tr>
+                )}
+                </React.Fragment>
+                );
+              })
             )}
           </tbody>
         )}

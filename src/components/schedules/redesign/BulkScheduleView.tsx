@@ -13,6 +13,7 @@ import type { Schedule, Store, User, WorkRole } from "@/types";
 import { ScheduleBlock } from "./ScheduleBlock";
 import { ApplyToSelectedModal, type PreviewEntry } from "./ApplyToSelectedModal";
 import { startOffsetDaysOf } from "@/lib/scheduleTime";
+import { canAssignOn } from "@/lib/assignability";
 import { BlockEditModal } from "./BlockEditModal";
 import { WeekPickerCalendar, getWeekStart } from "./WeekPickerCalendar";
 import { FilterBar, type FilterState } from "./FilterBar";
@@ -221,7 +222,13 @@ export default function BulkScheduleView({
   // ─── Derived data ─────────────────────────────────
 
   // Filtered users (FilterBar 적용)
-  const filteredUsers = useMemo(() => filterBulkUsers(allUsers, filters), [allUsers, filters]);
+  const filteredUsers = useMemo(() => {
+    const base = filterBulkUsers(allUsers, filters);
+    // 이 주의 어느 날짜로도 배정할 수 없는 사람은 행을 만들지 않는다 (퇴사·비활성).
+    // 주 중간에 퇴사일이 걸친 사람은 행이 남고, 퇴사일 이후 칸만 잠긴다.
+    const days = weekDates.map((d) => d.date);
+    return base.filter((u) => days.some((d) => canAssignOn(u, d)));
+  }, [allUsers, filters, weekDates]);
   const visibleUserIds = useMemo(() => new Set(filteredUsers.map((u) => u.id)), [filteredUsers]);
 
   // 행/블록을 가리는 필터가 걸려 있는지 (Copy from week 안내 문구 분기용).
@@ -451,7 +458,7 @@ export default function BulkScheduleView({
       }
     }
     if (newEntries.length > 0) {
-      setPreviewEntries((prev) => [...prev, ...newEntries]);
+      addPreviewEntries(newEntries);
       toast({ type: "success", message: `Pasted ${newEntries.length} previews` });
     }
   }
@@ -497,7 +504,7 @@ export default function BulkScheduleView({
         });
       }
       pushDataSnapshot();
-      setPreviewEntries((prev) => [...prev, ...newEntries]);
+      addPreviewEntries(newEntries);
       toast({ type: "success", message: `Pasted ${newEntries.length} schedule${newEntries.length !== 1 ? "s" : ""} to ${staffCount} staff` });
       return;
     }
@@ -522,7 +529,7 @@ export default function BulkScheduleView({
       }
     }
     pushDataSnapshot();
-    setPreviewEntries((prev) => [...prev, ...newEntries]);
+    addPreviewEntries(newEntries);
     toast({ type: "success", message: `Pasted to ${filteredUsers.length} staff` });
   }
 
@@ -539,7 +546,7 @@ export default function BulkScheduleView({
       startOffsetFromTime: e.startOffsetFromTime,
       status: "confirmed",
     }));
-    setPreviewEntries((prev) => [...prev, ...newEntries]);
+    addPreviewEntries(newEntries);
   }
 
   /** 선택된 셀 전체에 붙여넣기 (1개 복사 → 다중 셀) */
@@ -561,7 +568,7 @@ export default function BulkScheduleView({
         });
       }
     }
-    setPreviewEntries((prev) => [...prev, ...newEntries]);
+    addPreviewEntries(newEntries);
     setSelectedCells(new Set());
     toast({ type: "success", message: `Pasted to ${selectedCells.size} cells` });
   }
@@ -634,7 +641,7 @@ export default function BulkScheduleView({
 
   function handleApplyPreviews(entries: PreviewEntry[]) {
     pushDataSnapshot();
-    setPreviewEntries((prev) => [...prev, ...entries]);
+    addPreviewEntries(entries);
     setApplyModalOpen(false);
     setSelectedCells(new Set());
     toast({ type: "success", message: `${entries.length} previews added` });
@@ -797,6 +804,32 @@ export default function BulkScheduleView({
     );
   }
 
+  /**
+   * preview 추가의 **단일 관문** — 배정할 수 없는 (사람, 날짜) 조합을 여기서 떨군다.
+   *
+   * copy-from-week / 행·열 붙여넣기 / Apply to selected 가 전부 이 함수를 지난다.
+   * 개별 경로마다 검사를 흩으면 하나를 빠뜨리는 순간 다시 새고, 저장 시점에 서버가
+   * 거절해서 "부분 저장" 으로 끝난다. 떨어뜨린 건수는 **반드시 알린다** — 조용히
+   * 사라지면 사용자는 다 들어간 줄 안다.
+   */
+  function addPreviewEntries(entries: PreviewEntry[]): number {
+    const userById = new Map(allUsers.map((u) => [u.id, u]));
+    const kept: PreviewEntry[] = [];
+    let dropped = 0;
+    for (const e of entries) {
+      if (canAssignOn(userById.get(e.userId), e.workDate)) kept.push(e);
+      else dropped++;
+    }
+    if (kept.length > 0) setPreviewEntries((prev) => [...prev, ...kept]);
+    if (dropped > 0) {
+      toast({
+        type: "error",
+        message: `${dropped} skipped — that employee can't be scheduled on those dates (no longer active).`,
+      });
+    }
+    return kept.length;
+  }
+
   // ─── Copy from week ──────────────────────────────
 
   async function handleCopyFromWeek() {
@@ -854,14 +887,15 @@ export default function BulkScheduleView({
         status: "confirmed",
       });
     }
-    setPreviewEntries((prev) => [...prev, ...newEntries]);
+    // 실제로 들어간 건수만 보고한다 — 배정 불가로 떨어진 건은 관문이 따로 알린다.
+    const copied = addPreviewEntries(newEntries);
     setCopyPickerOpen(false);
     const dropped = visible.length + hidden.length - targetScheds.length;
     toast({
       type: "success",
       message: dropped > 0
-        ? `${added} schedules copied as preview — ${dropped} skipped (hidden by filter)`
-        : `${added} schedules copied as preview`,
+        ? `${copied} schedules copied as preview — ${dropped} skipped (hidden by filter)`
+        : `${copied} schedules copied as preview`,
     });
   }
 
