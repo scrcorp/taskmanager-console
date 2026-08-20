@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { AlertTriangle, Lock, RefreshCw } from "lucide-react";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@/lib/permissions";
@@ -14,6 +14,7 @@ import type {
   PayPeriod,
   PayrollEvent,
 } from "@/types/payroll";
+import type { Store } from "@/types";
 
 const KIND_LABELS: Record<string, { label: string; className: string }> = {
   meal_penalty: {
@@ -53,7 +54,8 @@ function kindBadge(kind: string): { label: string; className: string } {
 }
 
 interface Props {
-  storeId: string;
+  /** 기간 스코프(법인) 소속 매장들 — 이벤트 조회는 매장 단위 API 그대로. */
+  stores: Store[];
   period: PayPeriod;
   /** 귀책 필터 (controlled) — 페이지가 URL + 영속 저장으로 관리한다. */
   filter: EventFilter;
@@ -64,15 +66,18 @@ interface Props {
  * 기간 내 payroll 이벤트(penalty/OT 사유) 목록 + 귀책 태깅 (E1).
  * 조회/태깅 권한: schedules:update (금액 없는 운영 페이로드 — GM/SV 가능).
  * confirm 으로 동결(frozen)된 이벤트는 읽기 전용.
+ *
+ * 급여 스코프는 법인(group)이지만 이벤트 원장은 매장 귀속이라, 그룹에 매장이
+ * 여럿이면 섹션 안에서 매장을 골라 본다 (기본 첫 매장).
  */
-export function EventsSection({
-  storeId,
-  period,
-  filter,
-  onFilterChange,
-}: Props) {
+export function EventsSection({ stores, period, filter, onFilterChange }: Props) {
   const { hasPermission } = usePermissions();
   const canTag = hasPermission(PERMISSIONS.SCHEDULES_UPDATE);
+  const [storePick, setStorePick] = useState<string>("");
+  const storeId = useMemo(() => {
+    if (stores.length === 0) return null;
+    return stores.find((s) => s.id === storePick)?.id ?? stores[0].id;
+  }, [stores, storePick]);
   // 서버 목록 조회 자체가 schedules:update 게이트 — 권한 없으면 요청도 안 보냄
   const eventsQ = usePayrollEvents(
     canTag ? storeId : null,
@@ -89,7 +94,7 @@ export function EventsSection({
     return all.filter((e) => e.attribution === filter);
   }, [eventsQ.data, filter]);
 
-  if (!canTag) return null;
+  if (!canTag || storeId === null) return null;
 
   const onTag = (event: PayrollEvent, attribution: EventAttribution): void => {
     tagMut.mutate(
@@ -116,7 +121,21 @@ export function EventsSection({
             Penalty and overtime events in this period — tag who is responsible
           </p>
         </div>
-        <div className="flex gap-1">
+        <div className="flex items-center gap-2">
+          {stores.length > 1 && (
+            <select
+              aria-label="Store"
+              value={storeId}
+              onChange={(e) => setStorePick(e.target.value)}
+              className="rounded-lg border border-[#E2E4EA] bg-white px-2 py-1 text-[11.5px] font-semibold text-[#1A1D27] focus:border-[#6C5CE7] focus:outline-none"
+            >
+              {stores.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          )}
           {FILTERS.map((f) => (
             <button
               key={f.key}

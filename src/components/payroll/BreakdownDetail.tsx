@@ -170,7 +170,7 @@ function contextNote(c: ContextDay): string {
 interface Props {
   breakdown: EntryBreakdown;
   /** 근태 딥링크용 — 이 payroll 기간의 매장 */
-  storeId: string;
+  storeId: string | null;
   /** 근태 딥링크의 staff 필터. null 이면 그 날 매장 전체로 열린다. */
   userId: string | null;
   /** 캘린더가 덮어야 할 기간 (YYYY-MM-DD, end 포함) */
@@ -236,12 +236,24 @@ export function BreakdownDetail({
     ? breakdown.penalties
     : breakdown.penalties.slice(0, COLLAPSED_PENALTIES);
 
+  /**
+   * 그날 근태 열기 — 가능하면 **상세 페이지로 직행**한다.
+   *
+   * attendance 가 1건인 날은 id 가 breakdown 에 실려 오므로 목록을 거칠 이유가
+   * 없다. split shift·같은 날 두 매장이면 특정이 안 되니 그때만 목록을 필터해
+   * 연다. 매장도 period 가 아니라 **그날 값**을 쓴다 — group(법인) 기간은
+   * period 에 매장이 없어서 period 를 보면 기본 매장으로 열려 버린다.
+   */
   const openAttendance = (date: string): void => {
-    window.open(
-      buildAttendanceOneShotLink({ storeId, date, userId }),
-      "_blank",
-      "noopener,noreferrer",
-    );
+    const info = breakdown.days.find((d) => d.work_date === date);
+    const href = info?.attendance_id
+      ? `/attendances/${info.attendance_id}`
+      : buildAttendanceOneShotLink({
+          storeId: info?.store_id ?? storeId,
+          date,
+          userId,
+        });
+    window.open(href, "_blank", "noopener,noreferrer");
   };
 
   /** 날짜 텍스트 — 권한이 있으면 근태로 여는 링크, 없으면 평문. */

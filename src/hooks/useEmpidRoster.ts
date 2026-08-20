@@ -22,6 +22,8 @@ export interface EmpidRosterMember {
   /** false = dormant — has the assignment row but stays out of work assignment. */
   is_work_assignment: boolean;
   is_manager: boolean;
+  /** false = deactivated account — still occupies its number but excluded from export by default. */
+  is_active: boolean;
   /** Role name (owner/general_manager/supervisor/staff/custom; null = none). */
   role_name: string | null;
   /** Role sort priority — lower = higher rank (null = none). */

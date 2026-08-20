@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { AlertTriangle, Download, Lock, RefreshCw } from "lucide-react";
 import { usePermissions } from "@/hooks/usePermissions";
 import { useTimezone } from "@/hooks/useTimezone";
@@ -31,6 +31,8 @@ export function ConfirmedPeriodView({ period }: Props) {
   const tz = useTimezone();
   const { hasPermission } = usePermissions();
   const canExport = hasPermission(PERMISSIONS.PAYROLL_EXPORT);
+  // export 전용 옵션 — 동결 entries 테이블은 바뀌지 않는다
+  const [includeIdle, setIncludeIdle] = useState(false);
 
   // confirmed_by 이름 해석 (실패해도 배너는 시각만 표시)
   const { data: users } = useUsers();
@@ -114,15 +116,31 @@ export function ConfirmedPeriodView({ period }: Props) {
             </div>
           </div>
           {canExport && (
-            <button
-              type="button"
-              onClick={() => exportMut.mutate({ periodId: period.id })}
-              disabled={exportMut.isPending}
-              className="flex items-center gap-1.5 rounded-lg bg-white px-3.5 py-2 text-[12.5px] font-semibold text-[#00A084] hover:bg-white/90 disabled:opacity-60"
-            >
-              <Download size={14} />
-              {exportMut.isPending ? "Preparing..." : "Export .xlsx"}
-            </button>
+            <div className="flex items-center gap-3">
+              <label className="flex cursor-pointer items-center gap-1.5 text-[12px] text-white/90">
+                <input
+                  type="checkbox"
+                  checked={includeIdle}
+                  onChange={(e) => setIncludeIdle(e.target.checked)}
+                  className="h-3.5 w-3.5 accent-white"
+                />
+                Include active staff with no activity
+              </label>
+              <button
+                type="button"
+                onClick={() =>
+                  exportMut.mutate({
+                    periodId: period.id,
+                    includeIdleMembers: includeIdle,
+                  })
+                }
+                disabled={exportMut.isPending}
+                className="flex items-center gap-1.5 rounded-lg bg-white px-3.5 py-2 text-[12.5px] font-semibold text-[#00A084] hover:bg-white/90 disabled:opacity-60"
+              >
+                <Download size={14} />
+                {exportMut.isPending ? "Preparing..." : "Export .xlsx"}
+              </button>
+            </div>
           )}
         </div>
         {period.override_reason && (
