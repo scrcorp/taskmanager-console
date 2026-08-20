@@ -1,12 +1,13 @@
 "use client";
 
 import { Fragment, useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, Pencil } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { minutesToHours, money } from "@/lib/payrollFormat";
 import { sumPayrollRows } from "@/lib/payrollTotals";
 import { PENALTY_TERM_HINT } from "@/lib/payrollTerms";
 import { BreakdownDetail } from "@/components/payroll/BreakdownDetail";
+import { RateQuickEditModal } from "@/components/payroll/RateQuickEditModal";
 import {
   PAYROLL_GATE,
   type EntryBreakdown,
@@ -124,6 +125,11 @@ interface Props {
   period: PayPeriod;
   /** frozen 뷰의 행 액션 (Pay Stub 버튼 등) */
   renderRowAction?: (row: PayrollTableRow) => React.ReactNode;
+  /**
+   * Rate 셀 인라인 편집 허용 — open preview 전용 (frozen 은 재계산이 없어
+   * 오해만 부르므로 끔). 권한(users:update + GM+)은 호출측이 게이트.
+   */
+  rateEditable?: boolean;
 }
 
 /**
@@ -136,8 +142,11 @@ export function PayrollTable({
   emptyMessage,
   period,
   renderRowAction,
+  rateEditable = false,
 }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  /** 인라인 rate 편집 대상 행 (null = 모달 닫힘) */
+  const [rateTarget, setRateTarget] = useState<PayrollTableRow | null>(null);
   const colCount = renderRowAction ? 9 : 8;
   const totals = sumPayrollRows(rows);
 
@@ -266,7 +275,36 @@ export function PayrollTable({
                         "—"
                       )}
                     </Td>
-                    <Td align="right">{ratesLabel(row.breakdown)}</Td>
+                    <Td align="right">
+                      {rateEditable && row.userId !== null ? (
+                        (() => {
+                          const label = ratesLabel(row.breakdown);
+                          const noRate = row.validations?.some(
+                            (v) => v.code === PAYROLL_GATE.RATE_MISSING,
+                          );
+                          return (
+                            <button
+                              type="button"
+                              title="Set hourly rate"
+                              onClick={(e) => {
+                                // 확장 토글로 번지지 않게 차단
+                                e.stopPropagation();
+                                setRateTarget(row);
+                              }}
+                              className={cn(
+                                "inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 hover:bg-[#F0F1F5]",
+                                noRate && "font-semibold text-[#FF6B6B]",
+                              )}
+                            >
+                              {noRate ? "Set rate" : label}
+                              <Pencil size={11} className="text-[#94A3B8]" />
+                            </button>
+                          );
+                        })()
+                      ) : (
+                        ratesLabel(row.breakdown)
+                      )}
+                    </Td>
                     <Td align="right">
                       {Number(row.penalty_pay) > 0 ? (
                         <span className="text-[#B45F06]">
@@ -347,6 +385,21 @@ export function PayrollTable({
           )}
         </table>
       </div>
+
+      {rateTarget && rateTarget.userId !== null && (
+        <RateQuickEditModal
+          isOpen
+          onClose={() => setRateTarget(null)}
+          userId={rateTarget.userId}
+          name={rateTarget.name}
+          currentRateLabel={
+            ratesLabel(rateTarget.breakdown) === "—"
+              ? null
+              : ratesLabel(rateTarget.breakdown)
+          }
+          periodStart={period.start_date}
+        />
+      )}
     </div>
   );
 }

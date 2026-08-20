@@ -194,6 +194,9 @@ export function OpenPeriodView({ period }: Props) {
         rows={tableRows}
         emptyMessage="No payable work in this period yet."
         period={period}
+        // 시급 인라인 편집 — 서버 게이트(users:update + GM+ cost 가시성)와 동일 축.
+        // payroll 화면 자체가 cost 뷰라 GM+ 전제, 여기선 쓰기 permission 만 본다.
+        rateEditable={hasPermission(PERMISSIONS.USERS_UPDATE)}
         renderRowAction={
           // 미확정 기간도 직원별 draft 명세서를 미리 볼 수 있다 (서버가 DRAFT 표시)
           canExport
