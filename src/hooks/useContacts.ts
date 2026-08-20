@@ -72,7 +72,8 @@ function invalidateContacts(qc: QueryClient, contactId?: string | null): void {
 /**
  * 연락처 목록/검색.
  *
- * `q` 하나로 이름·회사·이메일·메모·태그·전화번호를 OR 부분일치한다(서버가 처리).
+ * `q` 하나로 이름·회사·요약·메모·태그·전화·이메일·링크를 OR 부분일치한다(서버가 처리).
+ * 즐겨찾기는 어느 정렬에서든 맨 위로 온다 — 정렬도 서버가 한다 (D4).
  * 검색어는 호출 측에서 디바운스해서 넘길 것.
  */
 export const useContacts = (
@@ -86,6 +87,8 @@ export const useContacts = (
           ...(filters.q ? { q: filters.q } : {}),
           ...(filters.tag ? { tag: filters.tag } : {}),
           ...(filters.store_id ? { store_id: filters.store_id } : {}),
+          ...(filters.visibility ? { visibility: filters.visibility } : {}),
+          ...(filters.favorites_only ? { favorites_only: true } : {}),
           sort: filters.sort ?? "name",
           page: filters.page ?? 1,
           per_page: filters.per_page ?? 20,
@@ -169,6 +172,70 @@ export const useUpdateContact = (): UseMutationResult<
       success("Contact updated.");
     },
     onError: error("Couldn't update contact"),
+  });
+};
+
+/**
+ * 즐겨찾기 토글 — 켜기는 PUT, 끄기는 DELETE. 둘 다 **멱등**이라 연타해도 안전하다.
+ *
+ * 별은 **즉시** 반응해야 한다 — 서버 왕복을 기다리면 눌렸는지 모르고 또 누른다.
+ * 그래서 캐시를 먼저 바꾸고(낙관적), 실패하면 되돌린 뒤 이유를 띄운다.
+ *
+ * 성공 토스트는 띄우지 않는다. 별 모양이 이미 결과를 말하고 있고,
+ * 목록을 훑으며 여러 개를 켜는 동작이라 토스트가 쌓이면 방해만 된다.
+ */
+export const useToggleContactFavorite = (): UseMutationResult<
+  Contact,
+  Error,
+  { id: string; favorite: boolean },
+  { previousLists: [readonly unknown[], unknown][]; previousDetail: Contact | undefined }
+> => {
+  const qc = useQueryClient();
+  const { error } = useMutationResult();
+  return useMutation({
+    mutationFn: async ({ id, favorite }): Promise<Contact> => {
+      const url = `${COLLECTION}${id}/favorite`;
+      const res: AxiosResponse<Contact> = favorite
+        ? await api.put(url)
+        : await api.delete(url);
+      return res.data;
+    },
+    onMutate: async ({ id, favorite }) => {
+      await qc.cancelQueries({ queryKey: KEYS.all });
+      const previousLists = qc.getQueriesData({ queryKey: KEYS.all });
+      const previousDetail = qc.getQueryData<Contact>(KEYS.detail(id));
+
+      // 목록 캐시 — 별만 바꾼다. **재정렬은 하지 않는다**:
+      // 보고 있던 행이 손 밑에서 맨 위로 튀어 오르면 다음에 누를 행을 놓친다.
+      // 순서는 다음 조회(무효화) 때 서버 규칙대로 정리된다.
+      qc.setQueriesData<PaginatedResponse<Contact>>({ queryKey: KEYS.all }, (old) => {
+        if (!old?.items) return old;
+        return {
+          ...old,
+          items: old.items.map((c) =>
+            c.id === id ? { ...c, is_favorite: favorite } : c,
+          ),
+        };
+      });
+      if (previousDetail) {
+        qc.setQueryData<Contact>(KEYS.detail(id), {
+          ...previousDetail,
+          is_favorite: favorite,
+        });
+      }
+      return { previousLists, previousDetail };
+    },
+    onError: (err, variables, context) => {
+      // 되돌린다 — 조용히 실패하면 켜진 줄 알고 넘어간다
+      context?.previousLists.forEach(([key, data]) => qc.setQueryData(key, data));
+      if (context?.previousDetail) {
+        qc.setQueryData(KEYS.detail(variables.id), context.previousDetail);
+      }
+      error("Couldn't update favorites")(err);
+    },
+    onSettled: (_data, _err, variables): void => {
+      invalidateContacts(qc, variables.id);
+    },
   });
 };
 

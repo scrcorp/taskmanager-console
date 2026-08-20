@@ -1052,6 +1052,8 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
                   onChange={(id) => { setUserId(id); }}
                   eligible={users}
                   changed={changed("userId", userId)}
+                  /* 영업일 기준으로 후보를 좁힌다 — 퇴사일 이후엔 그 사람이 후보가 아니다. */
+                  date={date}
                   /*
                     eligible(users) 는 캘린더에서 선택된 store 범위로 걸러진 목록이다.
                     store 를 정확히 1개 보고 있을 때만 매장 이름을 붙인다 —

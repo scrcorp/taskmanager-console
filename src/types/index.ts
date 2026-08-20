@@ -351,6 +351,18 @@ export interface User {
    * optional — 기존 mock/테스트 리터럴 보호.
    */
   is_provisional?: boolean;
+  /**
+   * 배정 가능 범위 (2026-08-19) — 서버 저장 검증과 **같은 판정**에서 나온다.
+   *   assignable=false        → 어떤 날짜도 배정 불가 (모든 칸 잠금)
+   *   assignable_until=null   → 제한 없음
+   *   assignable_until="D"    → D 까지(당일 포함) 가능, 다음날부터 잠금
+   * 화면이 자체 규칙으로 판단하지 말 것 — 갈리면 "눌리는데 저장 안 됨" 이 된다.
+   */
+  assignable?: boolean;
+  assignable_until?: string | null;
+  /** 표시용 재직기간 (hire_date ~ termination_date). 시작일은 아직 대부분 비어 있다. */
+  employed_from?: string | null;
+  employed_to?: string | null;
   /** 인수 코드 — 유령 계정만. 직원이 가입할 때 입력하면 이 계정을 인수한다. */
   claim_code?: string | null;
   created_at: string;

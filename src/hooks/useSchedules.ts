@@ -113,6 +113,18 @@ export interface RosterRow {
    * 미가입(유령)은 앞으로 일할 사람이므로 false.
    */
   is_inactive?: boolean;
+  /**
+   * 배정 가능 범위 (2026-08-19) — 서버 저장 검증과 **같은 판정**에서 나온다.
+   *   assignable=false        → 어떤 날짜도 배정 불가 (모든 칸 잠금)
+   *   assignable_until=null   → 제한 없음
+   *   assignable_until="D"    → D 까지(당일 포함) 가능, 다음날부터 잠금
+   * 화면이 자체 규칙으로 판단하지 말 것 — 갈리면 "눌리는데 저장 안 됨" 이 된다.
+   */
+  assignable?: boolean;
+  assignable_until?: string | null;
+  /** 표시용 재직기간 — 판정과 별개 축. */
+  employed_from?: string | null;
+  employed_to?: string | null;
   confirmed_hours: number;
   pending_hours: number;
   confirmed_cost: number | null;

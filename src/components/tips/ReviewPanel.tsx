@@ -1,5 +1,7 @@
 "use client";
 
+import { StaffStatusBadge } from "@/components/ui/StaffStatusBadge";
+import { canAssignOn } from "@/lib/assignability";
 import { Pencil, Plus } from "lucide-react";
 import { useMemo, useState } from "react";
 import { useStoreTipEntries } from "@/hooks/useTips";
@@ -59,9 +61,20 @@ export function ReviewPanel({ storeId, period }: Props) {
   }, [entries]);
 
   const visibleUsers = useMemo(() => {
-    if (!hideNoTips) return storeUsers;
-    return storeUsers.filter((u) => (totals.get(u.id)?.count ?? 0) > 0);
-  }, [storeUsers, totals, hideNoTips]);
+    /*
+      1차 억제 — 이 기간에 하루도 근무할 수 없었던 사람(퇴사·비활성)은 행을 만들지 않는다.
+      **단 팁 기록이 있으면 남긴다** — 과거 기록을 화면에서 지우면 합계가 맞지 않는다.
+      판정은 스케줄 저장 게이트와 같은 `canAssignOn`(서버가 준 값)만 쓴다.
+    */
+    const employable = storeUsers.filter(
+      (u) =>
+        (totals.get(u.id)?.count ?? 0) > 0 ||
+        canAssignOn(u, period.start) ||
+        canAssignOn(u, period.end),
+    );
+    if (!hideNoTips) return employable;
+    return employable.filter((u) => (totals.get(u.id)?.count ?? 0) > 0);
+  }, [storeUsers, totals, hideNoTips, period.start, period.end]);
 
   const dailyTotals = useMemo(() => {
     const m = new Map<string, number>();
@@ -135,6 +148,8 @@ export function ReviewPanel({ storeId, period }: Props) {
                     <span className="ml-2 text-[10px] text-[#94A3B8]">
                       {u.role_name}
                     </span>
+                    {/* 퇴사·비활성 직원 표시 — 팁 입력 대상에 섞여 있어도 알아보게 (2026-08-19) */}
+                    <StaffStatusBadge staff={u} className="ml-1.5" />
                   </td>
                   {days.map((d) => {
                     const cellEntries = grid.get(`${u.id}_${d}`) ?? [];

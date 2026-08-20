@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { X, CalendarClock, Check, Pencil, Link2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useUsers } from "@/hooks/useUsers";
+import type { User } from "@/types";
+import { staffStatusOf } from "@/components/ui/StaffStatusBadge";
 import {
   useApplicationInterview,
   useInterviewSlots,
@@ -51,6 +53,15 @@ export function InterviewConfirmModal({ applicationId, candidateName, onClose, i
   const [slotId, setSlotId] = useState<string>("");
   const [linkCopied, setLinkCopied] = useState(false);
   const [interviewerId, setInterviewerId] = useState<string>("");
+  /**
+   * 면접관 후보 — 퇴사·비활성 직원은 뺀다 (2026-08-19).
+   * **이미 배정된 사람은 남긴다** — 후보에서 사라지면 지금 누가 배정돼 있는지 보이지도,
+   * 다른 사람으로 바꾸지도 못한다. 상태는 이름 뒤에 적어 실수로 다시 고르는 걸 막는다.
+   */
+  const interviewerOptions = useMemo(
+    () => users.filter((u: User) => u.is_active !== false || u.id === interviewerId),
+    [users, interviewerId],
+  );
   const [showAll, setShowAll] = useState(false);
   const [reviewing, setReviewing] = useState(false);
   const [rescheduling, setRescheduling] = useState(false);
@@ -199,9 +210,14 @@ export function InterviewConfirmModal({ applicationId, candidateName, onClose, i
                     className="rounded-lg border border-[#E2E4EA] bg-white px-2.5 py-1.5 text-[13px] outline-none focus:border-[#6C5CE7]"
                   >
                     <option value="">— Not assigned —</option>
-                    {users.map((u) => (
-                      <option key={u.id} value={u.id}>{u.full_name} ({u.role_name})</option>
-                    ))}
+                    {interviewerOptions.map((u) => {
+                      const st = staffStatusOf(u);
+                      return (
+                        <option key={u.id} value={u.id}>
+                          {u.full_name} ({u.role_name}){st ? ` — ${st.label}` : ""}
+                        </option>
+                      );
+                    })}
                   </select>
                   <button
                     type="button"
@@ -427,11 +443,14 @@ export function InterviewConfirmModal({ applicationId, candidateName, onClose, i
                 className="w-full rounded-lg border border-[#E2E4EA] bg-white px-3 py-2 text-[13px] outline-none focus:border-[#6C5CE7]"
               >
                 <option value="">— Assign later —</option>
-                {users.map((u) => (
-                  <option key={u.id} value={u.id}>
-                    {u.full_name} ({u.role_name})
-                  </option>
-                ))}
+                {interviewerOptions.map((u) => {
+                  const st = staffStatusOf(u);
+                  return (
+                    <option key={u.id} value={u.id}>
+                      {u.full_name} ({u.role_name}){st ? ` — ${st.label}` : ""}
+                    </option>
+                  );
+                })}
               </select>
             </div>
 
