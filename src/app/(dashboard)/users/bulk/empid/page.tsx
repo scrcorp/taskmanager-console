@@ -588,6 +588,8 @@ function ExportEmpidModal({ onClose }: { onClose: () => void }): React.ReactElem
   const [bandFrom, setBandFrom] = useState("");
   const [bandTo, setBandTo] = useState("");
   const [includeDormant, setIncludeDormant] = useState(true);
+  /** Deactivated accounts still occupy numbers but are not export targets — off by default. */
+  const [includeInactive, setIncludeInactive] = useState(false);
   /** Manual per-row exclusions ("user:store" keys) — survive filter changes. */
   const [manualOff, setManualOff] = useState<Set<string>>(new Set());
 
@@ -746,13 +748,14 @@ function ExportEmpidModal({ onClose }: { onClose: () => void }): React.ReactElem
         if (band.to !== null && m.empid > band.to) return false;
       }
       if (!includeDormant && !m.is_work_assignment) return false;
+      if (!includeInactive && !m.is_active) return false;
       return true;
     };
     return roster
       .filter((s) => storeSel === "all" || storeSel.has(s.store_id))
       .map((s) => ({ store: s, members: s.members.filter(passes) }))
       .filter((r) => r.members.length > 0);
-  }, [roster, storeSel, rolesOff, dept, numbers, band, includeDormant]);
+  }, [roster, storeSel, rolesOff, dept, numbers, band, includeDormant, includeInactive]);
 
   /** Final export list = filter-passing rows minus manual exclusions. */
   const { visibleCount, selectedItems } = useMemo(() => {
@@ -1013,6 +1016,17 @@ function ExportEmpidModal({ onClose }: { onClose: () => void }): React.ReactElem
               />
               Include dormant assignments
             </label>
+
+            {/* Deactivated accounts */}
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-text">
+              <input
+                type="checkbox"
+                checked={includeInactive}
+                onChange={() => setIncludeInactive((v) => !v)}
+                className="cursor-pointer accent-accent"
+              />
+              Include deactivated accounts
+            </label>
           </div>
 
           {/* ── Right: filtered people, grouped by store ── */}
@@ -1082,6 +1096,14 @@ function ExportEmpidModal({ onClose }: { onClose: () => void }): React.ReactElem
                                 className="text-[10px] uppercase tracking-wide"
                               >
                                 Dormant
+                              </Badge>
+                            )}
+                            {!m.is_active && (
+                              <Badge
+                                variant="danger"
+                                className="text-[10px] uppercase tracking-wide"
+                              >
+                                Deactivated
                               </Badge>
                             )}
                           </label>
