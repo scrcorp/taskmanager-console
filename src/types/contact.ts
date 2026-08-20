@@ -35,6 +35,42 @@ export interface ContactPhoneInput {
   is_primary?: boolean;
 }
 
+/** 연락처에 달린 이메일 한 건 (응답). 전화번호와 같은 모양 (D7). */
+export interface ContactEmail {
+  id: string;
+  /** orders / billing / support 등 자유 문자열. 없을 수 있다. */
+  label: string | null;
+  address: string;
+  is_primary: boolean;
+  sort_order: number;
+}
+
+/** 이메일 입력. 배열 순서가 곧 sort_order. */
+export interface ContactEmailInput {
+  label?: string | null;
+  address: string;
+  is_primary?: boolean;
+}
+
+/** 연락처에 달린 링크 한 건 (응답). */
+export interface ContactLink {
+  id: string;
+  /** website / order portal / catalog 등 자유 문자열. */
+  label: string | null;
+  /** **입력 원문 그대로**. 스킴이 없을 수 있다 — 여는 시점에 https:// 를 붙인다. */
+  url: string;
+  /** 메인 연락수단 — 전화/이메일/링크를 **통틀어** 연락처당 하나만 true. */
+  is_primary: boolean;
+  sort_order: number;
+}
+
+/** 링크 입력. 배열 순서가 곧 sort_order. */
+export interface ContactLinkInput {
+  label?: string | null;
+  url: string;
+  is_primary?: boolean;
+}
+
 /** 연락처 가시성 모드. `restricted` = 아래 대상들에게만. */
 export type ContactVisibility = "organization" | "restricted";
 
@@ -89,15 +125,21 @@ export interface Contact {
   id: string;
   name: string;
   company: string | null;
-  email: string | null;
-  memo: string | null;
+  /** 한 줄 요약 (72자) — 목록에 그대로 실린다. */
+  summary: string | null;
+  /** 상세 메모 (신규 입력 300자) — 상세·펼침에서만 보인다. */
+  notes: string | null;
   visibility: ContactVisibility;
   /** visibility === "restricted" 일 때만 채워진다. (타입, 이름) 순. */
   targets: ContactTargetRef[];
   /** 명시적으로 제외된 사람들 (V4). */
   excluded_users: ContactTargetRef[];
   phones: ContactPhone[];
+  emails: ContactEmail[];
+  links: ContactLink[];
   tags: ContactTag[];
+  /** **요청자 기준** 즐겨찾기 여부. 남의 별은 오지 않는다 (D3). */
+  is_favorite: boolean;
   created_by: string | null;
   created_by_name: string | null;
   created_at: string;
@@ -110,13 +152,15 @@ export interface Contact {
 export interface ContactCreate {
   name: string;
   company?: string | null;
-  email?: string | null;
-  memo?: string | null;
+  summary?: string | null;
+  notes?: string | null;
   visibility?: ContactVisibility;
   /** visibility === "restricted" 이면 1개 이상 필수. */
   targets?: ContactTargetInput[];
   excluded_user_ids?: string[];
   phones?: ContactPhoneInput[];
+  emails?: ContactEmailInput[];
+  links?: ContactLinkInput[];
   tags?: string[];
   /** 등록 사유 — 선택 (이력에 남는다). */
   reason?: string | null;
@@ -131,12 +175,14 @@ export interface ContactCreate {
 export interface ContactUpdate {
   name?: string;
   company?: string | null;
-  email?: string | null;
-  memo?: string | null;
+  summary?: string | null;
+  notes?: string | null;
   visibility?: ContactVisibility;
   targets?: ContactTargetInput[];
   excluded_user_ids?: string[];
   phones?: ContactPhoneInput[];
+  emails?: ContactEmailInput[];
+  links?: ContactLinkInput[];
   tags?: string[];
   /** 수정 사유 — **필수**. */
   reason: string;
@@ -159,12 +205,16 @@ export type ContactSort = "name" | "name_desc" | "created_at" | "updated_at";
 
 /** 목록/검색 필터. */
 export interface ContactFilters {
-  /** 통합 검색어 — name/company/email/memo/tag/phone 을 OR 부분일치. */
+  /** 통합 검색어 — name/company/summary/notes/tag/phone/email/link 를 OR 부분일치. */
   q?: string;
   /** 태그 필터 (정규화 키로 비교). */
   tag?: string;
   /** UUID | "none"(전체 공유만) | 미지정(전부). */
   store_id?: string;
+  /** 공개 범위로 좁히기 — "전 조직 공유로 잘못 열린 건 없나"를 눈으로 확인하는 용도. */
+  visibility?: ContactVisibility;
+  /** 내가 별을 단 것만 (D4). 꺼져 있어도 즐겨찾기는 목록 맨 위로 온다. */
+  favorites_only?: boolean;
   sort?: ContactSort;
   page?: number;
   per_page?: number;
@@ -188,12 +238,14 @@ export type ContactRequestStatus =
 export interface ContactRequestPayload {
   name: string;
   company?: string | null;
-  email?: string | null;
-  memo?: string | null;
+  summary?: string | null;
+  notes?: string | null;
   visibility?: ContactVisibility;
   targets?: ContactTargetInput[];
   excluded_user_ids?: string[];
   phones?: ContactPhoneInput[];
+  emails?: ContactEmailInput[];
+  links?: ContactLinkInput[];
   tags?: string[];
 }
 

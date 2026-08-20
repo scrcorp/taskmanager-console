@@ -26,6 +26,26 @@ import type {
 
 const EMPTY = "—";
 
+function formatEmails(
+  emails: { label?: string | null; address: string; is_primary?: boolean }[] | undefined,
+): string {
+  if (!emails || emails.length === 0) return EMPTY;
+  return emails
+    .map((e) => {
+      const label = e.label ? `${e.label}: ` : "";
+      const star = e.is_primary ? " (primary)" : "";
+      return `${label}${e.address}${star}`;
+    })
+    .join("\n");
+}
+
+function formatLinks(
+  links: { label?: string | null; url: string }[] | undefined,
+): string {
+  if (!links || links.length === 0) return EMPTY;
+  return links.map((l) => (l.label ? `${l.label}: ${l.url}` : l.url)).join("\n");
+}
+
 function formatPhones(
   phones: { label?: string | null; number: string; is_primary?: boolean }[] | undefined,
 ): string {
@@ -104,10 +124,12 @@ export function ContactRequestDiff({
           <dl className="space-y-2 rounded-lg border border-border bg-surface/50 p-3 text-sm">
             <Row label="Name" value={current.name} />
             <Row label="Company" value={current.company || EMPTY} />
+            <Row label="Summary" value={current.summary || EMPTY} />
             <Row label="Phone numbers" value={formatPhones(current.phones)} />
-            <Row label="Email" value={current.email || EMPTY} />
+            <Row label="Email" value={formatEmails(current.emails)} />
+            <Row label="Links" value={formatLinks(current.links)} />
             <Row label="Tags" value={formatTags(current.tags.map((t) => t.name))} />
-            <Row label="Memo" value={current.memo || EMPTY} />
+            <Row label="Notes" value={current.notes || EMPTY} />
             <Row
               label="Visible to"
               value={visibilityText(
@@ -140,17 +162,31 @@ export function ContactRequestDiff({
       proposed: payload.company || EMPTY,
     },
     {
+      field: "Summary",
+      current: current?.summary || EMPTY,
+      proposed: payload.summary || EMPTY,
+    },
+    {
       field: "Phone numbers",
       current: current ? formatPhones(current.phones) : EMPTY,
       proposed: formatPhones(payload.phones),
     },
-    { field: "Email", current: current?.email || EMPTY, proposed: payload.email || EMPTY },
+    {
+      field: "Email",
+      current: current ? formatEmails(current.emails) : EMPTY,
+      proposed: formatEmails(payload.emails),
+    },
+    {
+      field: "Links",
+      current: current ? formatLinks(current.links) : EMPTY,
+      proposed: formatLinks(payload.links),
+    },
     {
       field: "Tags",
       current: current ? formatTags(current.tags.map((t) => t.name)) : EMPTY,
       proposed: formatTags(payload.tags),
     },
-    { field: "Memo", current: current?.memo || EMPTY, proposed: payload.memo || EMPTY },
+    { field: "Notes", current: current?.notes || EMPTY, proposed: payload.notes || EMPTY },
     {
       field: "Visible to",
       current: current
