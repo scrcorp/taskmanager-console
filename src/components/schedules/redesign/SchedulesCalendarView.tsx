@@ -28,6 +28,8 @@ import { ScheduleBlock } from "./ScheduleBlock";
 import { StatsHeader } from "./StatsHeader";
 import { absShiftHours, hourOccupancy, slotOverlap } from "./scheduleStats";
 import { ContextMenu } from "./ContextMenu";
+import { useOccurrenceAction, useDeleteOccurrenceFlow, useRevertToPatternFlow } from "@/hooks/useSchedulePatterns";
+import { isVirtualSchedule, parseVirtualId } from "@/types/schedulePattern";
 import { HistoryPanel } from "./HistoryPanel";
 import { SwapModal } from "./SwapModal";
 import { ChangeStaffModal } from "./ChangeStaffModal";
@@ -42,6 +44,7 @@ import { useMidnightRefresh } from "@/hooks/useMidnightRefresh";
 import { useWorkRoles } from "@/hooks/useWorkRoles";
 import { useBulkCreateSchedules, useBulkUpdateSchedules, useBulkDeleteSchedules } from "@/hooks/useSchedules";
 import BulkScheduleView, { type SavePayload } from "./BulkScheduleView";
+import { displayName } from "@/lib/staffLabel";
 
 type ViewMode = "weekly" | "daily" | "monthly";
 type SortState = "none" | "confirmed" | "requested";
@@ -381,7 +384,25 @@ export default function SchedulesCalendarView() {
   );
   const [changeStaffOpen, setChangeStaffOpen] = useState(false);
   const [changeStaffSourceId, setChangeStaffSourceId] = useState<string | null>(null);
-  const [editModal, setEditModal] = useState<{ open: boolean; mode: "add" | "edit"; blockId?: string; staffId?: string; date?: string; startTime?: string; startOffsetDays?: number }>({ open: false, mode: "add" });
+  const [editModal, setEditModal] = useState<{
+    open: boolean;
+    mode: "add" | "edit";
+    blockId?: string;
+    staffId?: string;
+    date?: string;
+    startTime?: string;
+    startOffsetDays?: number;
+    /**
+     * 고정 근무 미리보기(virtual) 한 칸을 "Edit this day" 로 연 경우.
+     * 저장은 PATCH /schedules/{id} 가 아니라 occurrence action(edit) 으로 간다.
+     */
+    virtual?: { patternId: string; date: string };
+    /**
+     * "Edit fixed schedule" 로 연 경우 — 모달이 고정 근무 폼(FixedScheduleForm)으로 열려야 한다.
+     * 렌더부에서 ScheduleEditModal 에 initialFormMode="fixed" 로 넘긴다.
+     */
+    fixed?: boolean;
+  }>({ open: false, mode: "add" });
   const [editModalError, setEditModalError] = useState<string | null>(null);
   const modal = useModal();
   const filters: FilterState = useMemo(
@@ -693,6 +714,10 @@ export default function SchedulesCalendarView() {
   const createMutation = useCreateSchedule();
   const updateMutation = useUpdateSchedule();
   const switchMutation = useSwitchSchedule();
+  // 고정 근무(pattern) — virtual 칸 실체화(edit/delete) + overridden 실 행 되돌리기.
+  const occurrenceMutation = useOccurrenceAction({ silent: true });
+  const deleteOccurrenceFlow = useDeleteOccurrenceFlow();
+  const revertToPatternFlow = useRevertToPatternFlow();
 
   // ─── Derived helpers ──────────────────────────────────
 
@@ -1276,6 +1301,29 @@ export default function SchedulesCalendarView() {
     }
     if (action === "details") router.push(`/schedules/${blockId}`);
     if (action === "edit") setEditModal({ open: true, mode: "edit", blockId });
+    // ─── 고정 근무(pattern) 메뉴 ───
+    if (action === "edit-fixed") {
+      const block = schedules.find((s) => s.id === blockId);
+      if (block) onEditFixedSchedule(block);
+    }
+    if (action === "revert-to-pattern") void revertToPatternFlow(blockId);
+    if (action === "edit-occurrence") {
+      // virtual 칸 — 기존 편집 모달을 그 칸 값으로 prefilled 해서 열고, 저장은 occurrence action(edit) 으로.
+      const v = parseVirtualId(blockId);
+      if (!v) {
+        void modal.alert({ type: "error", title: "Can't edit this day", message: "This preview entry has an unexpected id. Refresh the page and try again." });
+        return;
+      }
+      setEditModal({ open: true, mode: "edit", blockId, virtual: v });
+    }
+    if (action === "delete-occurrence") {
+      const v = parseVirtualId(blockId);
+      if (!v) {
+        void modal.alert({ type: "error", title: "Can't delete this day", message: "This preview entry has an unexpected id. Refresh the page and try again." });
+        return;
+      }
+      void deleteOccurrenceFlow(v.patternId, v.date);
+    }
     if (action === "add") {
       // 해당 스케줄의 직원과 날짜로 새 스케줄 추가 모달 열기
       const block = schedules.find((s) => s.id === blockId);
@@ -1352,13 +1400,67 @@ export default function SchedulesCalendarView() {
     }
   }
 
+  /**
+   * "Edit fixed schedule" — 실 행(pattern_id 有)·virtual 공통. 기존 편집 모달을 고정 근무 폼으로 연다.
+   * 모달은 `schedule.pattern_id` 로 그룹을 찾아 편집 모드로 들어간다(폼 내부는 console-fixed-form 몫).
+   */
+  function onEditFixedSchedule(schedule: Schedule) {
+    if (!schedule.pattern_id) {
+      void modal.alert({ type: "error", title: "Not a fixed schedule", message: "This schedule isn't linked to a fixed schedule. Use Edit Schedule instead." });
+      return;
+    }
+    setEditModal({ open: true, mode: "edit", blockId: schedule.id, staffId: schedule.user_id, date: schedule.work_date, fixed: true });
+  }
+
   function handleScheduleEditSave(payload: ScheduleEditPayload) {
     setEditModalError(null);
     if (editModal.mode === "add") {
       submitCreateMutation(payload);
+    } else if (editModal.mode === "edit" && editModal.virtual) {
+      submitOccurrenceEditMutation(editModal.virtual, payload);
     } else if (editModal.mode === "edit" && editModal.blockId) {
       submitEditMutation(editModal.blockId, payload, undefined);
     }
+  }
+
+  /**
+   * virtual 칸 "Edit this day" 저장 — 실체화 + patch + overridden (계약 §3-2 materialize_occurrence).
+   * 경고 409 는 일반 편집과 같은 D9 게이트로 확인 후 force 재요청.
+   */
+  function submitOccurrenceEditMutation(v: { patternId: string; date: string }, payload: ScheduleEditPayload) {
+    occurrenceMutation.mutate({
+      pattern_id: v.patternId,
+      date: v.date,
+      data: {
+        action: "edit",
+        patch: {
+          user_id: payload.userId,
+          work_role_id: payload.workRoleId,
+          work_date: payload.date,
+          start_time: payload.startTime,
+          end_time: payload.endTime,
+          break_start_time: payload.breakStartTime,
+          break_end_time: payload.breakEndTime,
+          operating_day: payload.operatingDay,
+          start_at: payload.startAt,
+          end_at: payload.endAt,
+          break_start_at: payload.breakStartAt,
+          break_end_at: payload.breakEndAt,
+          date_override: payload.dateOverride,
+          note: payload.notes || null,
+          hourly_rate: payload.hourlyRate,
+          force: payload.force,
+        },
+      },
+    }, {
+      onSuccess: closeEditModal,
+      onError: async (err) => {
+        const gate = await warningGate(err);
+        if (gate === "retry") { submitOccurrenceEditMutation(v, { ...payload, force: true }); return; }
+        if (gate === "cancelled") return;
+        setEditModalError(scheduleErrorText(err, "Failed to update this day"));
+      },
+    });
   }
 
   function submitCreateMutation(payload: ScheduleEditPayload) {
@@ -1511,13 +1613,18 @@ export default function SchedulesCalendarView() {
         // Sync 메뉴 노출 조건: GM 권한 + cascade rate 존재 + stored와 다름
         const canSync = isGMView && blockEffective != null && stored !== blockEffective;
         const blockIsPast = !!block && block.work_date < todayStr;
+        const blockIsVirtual = isVirtualSchedule(block);
         return (
           <ContextMenu
             anchorEl={contextMenu.anchorEl}
             status={contextMenu.status}
             userRole={isGMView ? "gm" : "sv"}
             isPast={blockIsPast}
-            canSyncRate={canSync}
+            isVirtual={blockIsVirtual}
+            hasPattern={!!block?.pattern_id}
+            isPatternOverridden={block?.pattern_overridden === true}
+            // virtual 은 시급 동기화 대상이 아니다 (DB 행 없음)
+            canSyncRate={canSync && !blockIsVirtual}
             syncRateLabel={canSync ? `$${blockEffective}/hr` : undefined}
             onClose={() => setContextMenu(null)}
             onAction={handleContextAction}
@@ -1619,8 +1726,11 @@ export default function SchedulesCalendarView() {
             onDismissError={() => setEditModalError(null)}
             onClose={closeEditModal}
             onSave={handleScheduleEditSave}
-            isSaving={createMutation.isPending || updateMutation.isPending}
-            onDeleted={editModal.mode === "edit" ? () => { /* hook 이 cache invalidate → grid 자동 refetch */ } : undefined}
+            // "Edit fixed schedule" 로 열면 같은 모달을 고정 근무 폼으로 시작한다 (그룹은 schedule.pattern_id 로 찾음).
+            initialFormMode={editModal.fixed ? "fixed" : undefined}
+            isSaving={createMutation.isPending || updateMutation.isPending || occurrenceMutation.isPending}
+            // virtual 칸은 DELETE /schedules/{id} 가 404 — 모달 삭제 버튼을 숨기고(onDeleted 없음) 메뉴 "Delete this day" 만 쓴다.
+            onDeleted={editModal.mode === "edit" && !editModal.virtual ? () => { /* hook 이 cache invalidate → grid 자동 refetch */ } : undefined}
           />
         );
       })()}
@@ -1947,7 +2057,7 @@ export default function SchedulesCalendarView() {
                           )}
                           {/* 이름 — 이 줄은 이름만 쓴다 */}
                           <div className="text-[13px] font-semibold text-[var(--color-text)] truncate">
-                            {u.full_name || u.username}
+                            {displayName(u)}
                           </div>
                           {/* 2행: 직급 · 시급 */}
                           <div className="text-[10px] text-[var(--color-text-muted)] truncate">

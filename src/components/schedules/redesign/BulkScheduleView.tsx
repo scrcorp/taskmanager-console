@@ -32,6 +32,7 @@ import { useStores } from "@/hooks/useStores";
 import { useWorkRoles } from "@/hooks/useWorkRoles";
 import { useToast } from "@/components/ui/Toast";
 import { ROLE_PRIORITY } from "@/lib/permissions";
+import { displayName } from "@/lib/staffLabel";
 
 // ─── Helpers ──────────────────────────────────────────
 
@@ -1300,7 +1301,7 @@ export default function BulkScheduleView({
                           {getInitials(u.full_name)}
                         </div>
                         <div className="min-w-0">
-                          <div className="text-[13px] font-semibold text-[var(--color-text)] truncate">{u.full_name || u.username}</div>
+                          <div className="text-[13px] font-semibold text-[var(--color-text)] truncate">{displayName(u)}</div>
                           <div className="text-[10px] text-[var(--color-text-muted)]">
                             <span className={u.role_priority <= ROLE_PRIORITY.GM ? "text-[var(--color-accent)] font-semibold" : u.role_priority <= ROLE_PRIORITY.SV ? "text-[var(--color-warning)] font-semibold" : "font-semibold"}>
                               {rolePriorityToBadge(u.role_priority)}

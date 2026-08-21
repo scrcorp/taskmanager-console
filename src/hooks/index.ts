@@ -198,6 +198,10 @@ export {
 export { useTimezone } from "./useTimezone";
 
 export { useDebounce } from "./useDebounce";
+export { useSearchState } from "./useSearchState";
+export { useStaffOptions, toStaffOptions, matchStaffOption } from "./useStaffOptions";
+export type { StaffOption, StaffInclude, StaffOptionsParams } from "./useStaffOptions";
+export type { SearchState, SearchStateOptions, SearchParamBinding } from "./useSearchState";
 
 export { useWorkRoles, useCreateWorkRole, useUpdateWorkRole, useDeleteWorkRole } from "./useWorkRoles";
 export { useBreakRule, useUpsertBreakRule } from "./useBreakRules";

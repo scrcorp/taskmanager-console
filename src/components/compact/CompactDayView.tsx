@@ -37,6 +37,7 @@ import { CompactDayCard } from "./CompactDayCard";
 import { CompactDayFilterBar } from "./CompactDayFilterBar";
 import { CompactEntryDetail } from "./CompactEntryDetail";
 import { CompactScheduleForm } from "./CompactScheduleForm";
+import { useSearchState } from "@/hooks/useSearchState";
 
 export function CompactDayView() {
   const modal = useModal();
@@ -75,7 +76,9 @@ export function CompactDayView() {
     if (params.date && params.date !== today) setParams({ date: today });
   }, [today, params.date]);
 
-  const [query, setQuery] = useState("");
+  // 검색 동작 통일 (draft/committed 분리·IME 보정).
+  const search = useSearchState({ delay: 0 });
+  const query = search.committed;
   const [sort, setSort] = useState<DaySort>("default");
   const [filters, setFilters] = useState<DayFilters>(EMPTY_DAY_FILTERS);
 
@@ -259,16 +262,17 @@ export function CompactDayView() {
         <div className="relative">
           <Search size={14} className="pointer-events-none absolute left-3 top-3 text-text-muted" />
           <input
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            value={search.value}
+            {...search.imeProps}
+            onChange={search.onChange}
             placeholder="Search name or role"
             aria-label="Search this day"
             className="h-10 w-full rounded-lg border border-border bg-bg pl-9 pr-9 text-sm text-text focus:outline-none focus:ring-2 focus:ring-accent"
           />
-          {query && (
+          {search.value && (
             <button
               type="button"
-              onClick={() => setQuery("")}
+              onClick={() => search.clear()}
               aria-label="Clear search"
               className="absolute right-2 top-2 flex h-6 w-6 items-center justify-center rounded-full bg-surface-hover text-text-secondary"
             >

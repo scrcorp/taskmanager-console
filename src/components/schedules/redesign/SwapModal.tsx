@@ -8,6 +8,8 @@ import { useState, useMemo, useEffect } from "react";
 import { useAuthStore } from "@/stores/authStore";
 import { todayInTimezone } from "@/lib/utils";
 import type { Schedule, User } from "@/types";
+import { displayName, searchHaystack } from "@/lib/staffLabel";
+import { useSearchState } from "@/hooks/useSearchState";
 
 interface Props {
   open: boolean;
@@ -69,7 +71,9 @@ type Step = "staff" | "schedule" | "confirm";
 
 export function SwapModal({ open, onClose, fromSchedule, fromUser, candidateSchedules, users, onSwap, isSubmitting, errorMessage, onClearError }: Props) {
   const [step, setStep] = useState<Step>("staff");
-  const [search, setSearch] = useState("");
+  // 검색 동작은 useSearchState 로 통일. 매칭 대상은 searchHaystack(이름·username·EMPID·email).
+  const searchState = useSearchState({ delay: 0 });
+  const search = searchState.committed;
   const [targetUserId, setTargetUserId] = useState("");
   const [targetScheduleId, setTargetScheduleId] = useState("");
   const [reason, setReason] = useState("");
@@ -81,7 +85,7 @@ export function SwapModal({ open, onClose, fromSchedule, fromUser, candidateSche
 
   // 모달 열릴 때 상태 초기화
   useEffect(() => {
-    if (open) { setStep("staff"); setSearch(""); setTargetUserId(""); setTargetScheduleId(""); setReason(""); }
+    if (open) { setStep("staff"); searchState.clear(); setTargetUserId(""); setTargetScheduleId(""); setReason(""); }
   }, [open]);
 
   // Step 1: 다른 직원 목록 (검색 필터)
@@ -97,7 +101,7 @@ export function SwapModal({ open, onClose, fromSchedule, fromUser, candidateSche
     let list = others.filter((u) => hasSchedule.has(u.id));
     if (search.trim()) {
       const q = search.toLowerCase();
-      list = list.filter((u) => (u.full_name || u.username || "").toLowerCase().includes(q));
+      list = list.filter((u) => searchHaystack(u).includes(q));
     }
     return list;
   }, [users, fromSchedule, candidateSchedules, search]);
@@ -120,7 +124,7 @@ export function SwapModal({ open, onClose, fromSchedule, fromUser, candidateSche
   const toName = targetUser?.full_name || targetUser?.username || "—";
   const toTime = targetSchedule ? `${fmt(targetSchedule.start_time)}–${fmt(targetSchedule.end_time)}` : "";
 
-  function reset() { setStep("staff"); setSearch(""); setTargetUserId(""); setTargetScheduleId(""); setReason(""); }
+  function reset() { setStep("staff"); searchState.clear(); setTargetUserId(""); setTargetScheduleId(""); setReason(""); }
   function handleClose() { reset(); onClearError?.(); onClose(); }
 
   const parsedError = errorMessage ? parseSwitchError(errorMessage) : null;
@@ -152,8 +156,9 @@ export function SwapModal({ open, onClose, fromSchedule, fromUser, candidateSche
             <div className="px-6 py-4 space-y-3">
               <input
                 type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                value={searchState.value}
+                {...searchState.imeProps}
+                onChange={searchState.onChange}
                 placeholder="Search staff..."
                 className="w-full px-3 py-2 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg text-[13px] outline-none focus:border-[var(--color-accent)]"
                 autoFocus
@@ -175,7 +180,7 @@ export function SwapModal({ open, onClose, fromSchedule, fromUser, candidateSche
                       }`}
                     >
                       <div className="flex items-center justify-between">
-                        <span className="text-[13px] font-semibold text-[var(--color-text)]">{u.full_name || u.username}</span>
+                        <span className="text-[13px] font-semibold text-[var(--color-text)]">{displayName(u)}</span>
                         <span className="text-[11px] text-[var(--color-text-muted)]">{count} schedule{count > 1 ? "s" : ""}</span>
                       </div>
                     </button>

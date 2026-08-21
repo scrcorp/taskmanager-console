@@ -23,6 +23,8 @@ import { useStores } from "@/hooks/useStores";
 import { useUsers } from "@/hooks/useUsers";
 import { useVisibilityPreview } from "@/hooks/useContacts";
 import type { ContactTargetInput, ContactTargetType, ContactVisibility } from "@/types";
+import { displayName } from "@/lib/staffLabel";
+import { useSearchState } from "@/hooks/useSearchState";
 
 interface VisibilityPickerProps {
   visibility: ContactVisibility;
@@ -50,7 +52,9 @@ export function VisibilityPicker({
   onChange,
 }: VisibilityPickerProps): React.ReactElement {
   const [axis, setAxis] = useState<ContactTargetType>("store");
-  const [search, setSearch] = useState("");
+  // 검색 동작 통일 (draft/committed 분리·IME 보정).
+  const searchState = useSearchState({ delay: 0 });
+  const search = searchState.committed;
 
   const { data: stores } = useStores();
   const { data: roles } = useRoles();
@@ -109,12 +113,12 @@ export function VisibilityPicker({
             .map((u) => {
               // 옵션이 문자열 목록이라 배지 대신 이름 뒤에 상태를 적는다.
               const status = staffStatusOf(u);
-              const base = u.full_name || u.username;
+              const base = displayName(u);
               return { id: u.id, name: status ? `${base} — ${status.label}` : base };
             });
 
   const filtered = search.trim()
-    ? options.filter((o) => o.name.toLowerCase().includes(search.trim().toLowerCase()))
+    ? options.filter((o) => o.name.toLowerCase().includes(search.toLowerCase()))
     : options;
 
   const excludedNames = excludedUserIds.map((id) => ({
@@ -173,7 +177,7 @@ export function VisibilityPicker({
                   type="button"
                   onClick={() => {
                     setAxis(a.type);
-                    setSearch("");
+                    searchState.clear();
                   }}
                   title={a.hint}
                   className={
@@ -196,8 +200,9 @@ export function VisibilityPicker({
               className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-text-muted"
             />
             <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              value={searchState.value}
+              {...searchState.imeProps}
+              onChange={searchState.onChange}
               placeholder={`Search ${AXES.find((a) => a.type === axis)?.label.toLowerCase()}`}
               aria-label="Search visibility targets"
               className="w-full rounded-lg border border-border bg-surface py-1.5 pl-7 pr-2 text-xs text-text placeholder:text-text-muted focus:border-accent focus:outline-none"

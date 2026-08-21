@@ -7,6 +7,8 @@
 import { useState, useMemo } from "react";
 import type { Schedule, User } from "@/types";
 import { canAssignOn } from "@/lib/assignability";
+import { displayName, searchHaystack } from "@/lib/staffLabel";
+import { useSearchState } from "@/hooks/useSearchState";
 
 interface Props {
   open: boolean;
@@ -28,7 +30,9 @@ function fmt(t: string | null): string {
 }
 
 export function ChangeStaffModal({ open, onClose, schedule, currentUser, users, onChange, isSubmitting }: Props) {
-  const [search, setSearch] = useState("");
+  // 검색 동작은 useSearchState 로 통일. 매칭 대상은 searchHaystack(이름·username·EMPID·email).
+  const searchState = useSearchState({ delay: 0 });
+  const search = searchState.committed;
   const [selectedUserId, setSelectedUserId] = useState("");
   const [step, setStep] = useState<"select" | "confirm">("select");
 
@@ -40,7 +44,7 @@ export function ChangeStaffModal({ open, onClose, schedule, currentUser, users, 
     );
     if (search.trim()) {
       const q = search.toLowerCase();
-      list = list.filter((u) => (u.full_name || u.username || "").toLowerCase().includes(q));
+      list = list.filter((u) => searchHaystack(u).includes(q));
     }
     return list;
   }, [users, schedule, search]);
@@ -54,7 +58,7 @@ export function ChangeStaffModal({ open, onClose, schedule, currentUser, users, 
   const time = `${fmt(schedule.start_time)}–${fmt(schedule.end_time)}`;
 
   function reset() {
-    setSearch(""); setSelectedUserId(""); setStep("select");
+    searchState.clear(); setSelectedUserId(""); setStep("select");
   }
   function handleClose() { reset(); onClose(); }
   function handleBack() { setStep("select"); }
@@ -76,8 +80,9 @@ export function ChangeStaffModal({ open, onClose, schedule, currentUser, users, 
               {/* Search */}
               <input
                 type="text"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                value={searchState.value}
+                {...searchState.imeProps}
+                onChange={searchState.onChange}
                 placeholder="Search staff..."
                 className="w-full px-3 py-2 bg-[var(--color-bg)] border border-[var(--color-border)] rounded-lg text-[13px] outline-none focus:border-[var(--color-accent)]"
                 autoFocus
@@ -98,7 +103,7 @@ export function ChangeStaffModal({ open, onClose, schedule, currentUser, users, 
                         selected ? "bg-[var(--color-accent-muted)]" : "hover:bg-[var(--color-surface-hover)]"
                       }`}
                     >
-                      <div className="text-[13px] font-semibold text-[var(--color-text)]">{u.full_name || u.username}</div>
+                      <div className="text-[13px] font-semibold text-[var(--color-text)]">{displayName(u)}</div>
                     </button>
                   );
                 })}

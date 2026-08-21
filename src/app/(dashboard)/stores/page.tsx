@@ -12,6 +12,8 @@ import React, { useState, useMemo, useCallback, useRef, useEffect } from "react"
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { usePersistedFilters } from "@/hooks/usePersistedFilters";
+import { isImeComposing } from "@/lib/ime";
+import { useSearchState } from "@/hooks/useSearchState";
 import { Plus, Search, Edit, Trash2, X, GripVertical, Layers, AlertTriangle, Archive, RefreshCw } from "lucide-react";
 import {
   DndContext,
@@ -804,6 +806,8 @@ function SortableGroupRow({
   };
 
   const blurOnEnter = (e: React.KeyboardEvent<HTMLInputElement>): void => {
+    // 조합 중 Enter 로 blur 하면 확정 전 글자가 잘린 채 저장된다.
+    if (isImeComposing(e)) return;
     if (e.key === "Enter") {
       e.preventDefault();
       e.currentTarget.blur();
@@ -2130,7 +2134,11 @@ export default function StoresPage(): React.ReactElement {
     search: "",
     status: "active", // active = closed 제외 전체 (기본). open/preparing/paused/closed = 해당만
   });
-  const searchQuery = urlParams.search;
+  // 입력(즉시) / URL 커밋(디바운스) 분리 — useSearchState 참조.
+  const search = useSearchState({
+    param: { value: urlParams.search, commit: (v) => setUrlParams({ search: v || null }) },
+  });
+  const searchQuery = search.committed;
   const statusFilter = urlParams.status;
   const includeClosed = statusFilter === "closed";
 
@@ -2733,10 +2741,9 @@ export default function StoresPage(): React.ReactElement {
           <input
             type="text"
             placeholder="Search stores..."
-            value={searchQuery}
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-              setUrlParams({ search: e.target.value })
-            }
+            value={search.value}
+            {...search.imeProps}
+            onChange={search.onChange}
             className="w-full rounded-lg border border-border bg-surface pl-9 pr-3 py-2 text-sm text-text placeholder:text-text-muted transition-colors focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent"
           />
         </div>
@@ -3013,6 +3020,7 @@ export default function StoresPage(): React.ReactElement {
                   setNewShiftName(e.target.value)
                 }
                 onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
+                  if (isImeComposing(e)) return;
                   if (e.key === "Enter") {
                     e.preventDefault();
                     handleAddShift();
@@ -3069,6 +3077,7 @@ export default function StoresPage(): React.ReactElement {
                   setNewPositionName(e.target.value)
                 }
                 onKeyDown={(e: React.KeyboardEvent<HTMLInputElement>) => {
+                  if (isImeComposing(e)) return;
                   if (e.key === "Enter") {
                     e.preventDefault();
                     handleAddPosition();

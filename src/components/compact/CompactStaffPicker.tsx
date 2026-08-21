@@ -16,6 +16,8 @@ import { useUsers } from "@/hooks/useUsers";
 import { cn } from "@/lib/utils";
 import { wallClock } from "@/lib/compactDay";
 import type { Schedule, User } from "@/types";
+import { searchHaystack } from "@/lib/staffLabel";
+import { useSearchState } from "@/hooks/useSearchState";
 
 function initials(name: string): string {
   return name
@@ -39,7 +41,9 @@ export function CompactStaffPicker({
   onPick: (user: User | undefined) => void;
 }) {
   const { data: users, isLoading } = useUsers({ store_id: storeId, is_active: true });
-  const [query, setQuery] = useState("");
+  // 검색 동작 통일. 이 화면은 역할·EMPID 로도 찾는다("Name, role or EMPID").
+  const search = useSearchState({ delay: 0 });
+  const query = search.committed;
 
   const busyByUser = useMemo(() => {
     const map = new Map<string, string>();
@@ -53,10 +57,10 @@ export function CompactStaffPicker({
   }, [daySchedules]);
 
   const groups = useMemo(() => {
-    const q = query.trim().toLowerCase();
+    const q = query.toLowerCase();
     const matched = (users ?? []).filter((u) => {
       if (!q) return true;
-      return `${u.full_name} ${u.role_name} ${u.employee_no ?? ""}`.toLowerCase().includes(q);
+      return searchHaystack(u, { includeRole: true }).includes(q);
     });
     const byRole = new Map<string, User[]>();
     for (const u of matched) {
@@ -77,8 +81,9 @@ export function CompactStaffPicker({
       <div className="relative shrink-0 pb-2">
         <Search size={14} className="pointer-events-none absolute left-3 top-3.5 text-text-muted" />
         <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
+          value={search.value}
+          {...search.imeProps}
+          onChange={search.onChange}
           placeholder="Name, role or EMPID"
           aria-label="Search staff"
           className="h-11 w-full rounded-lg border border-border bg-surface pl-9 pr-9 text-sm text-text focus:outline-none focus:ring-2 focus:ring-accent"
@@ -86,7 +91,7 @@ export function CompactStaffPicker({
         {query && (
           <button
             type="button"
-            onClick={() => setQuery("")}
+            onClick={() => search.clear()}
             aria-label="Clear search"
             className="absolute right-2 top-2.5 flex h-6 w-6 items-center justify-center rounded-full bg-surface-hover text-text-secondary"
           >

@@ -7,7 +7,22 @@ interface Props {
   isPast?: boolean
   canSyncRate?: boolean
   syncRateLabel?: string
+  /**
+   * 고정 근무(pattern) 미리보기 행(`id` 가 `virtual:`, DB 행 없음).
+   * 기존 Edit/Delete/Switch/Confirm 등 PATCH/DELETE 계열 메뉴는 **비노출** — 대신
+   * `edit-occurrence` / `edit-fixed` / `delete-occurrence` 3개만 낸다.
+   */
+  isVirtual?: boolean
+  /** 실 행에 `pattern_id` 가 있다 → "Edit fixed schedule" 노출 */
+  hasPattern?: boolean
+  /** 실 행 `pattern_overridden` → "Revert to pattern" 노출 */
+  isPatternOverridden?: boolean
   onClose: () => void
+  /**
+   * action id:
+   *  공통  — details / history / edit / add / change-staff / switch / confirm / reject / revert / sync-rate / cancel / delete
+   *  고정  — edit-fixed(실 행·virtual 공통) / revert-to-pattern(실 행) / edit-occurrence / delete-occurrence(virtual)
+   */
   onAction: (action: string) => void
 }
 
@@ -20,7 +35,7 @@ const GAP = 4
 const PAD = 8
 const ARROW_OFFSET_TOP = 16 // 기본 화살표 위치 (메뉴 상단에서)
 
-export function ContextMenu({ anchorEl, status, userRole = 'gm', isPast = false, canSyncRate = false, syncRateLabel, onClose, onAction }: Props) {
+export function ContextMenu({ anchorEl, status, userRole = 'gm', isPast = false, canSyncRate = false, syncRateLabel, isVirtual = false, hasPattern = false, isPatternOverridden = false, onClose, onAction }: Props) {
   const menuRef = useRef<HTMLDivElement>(null)
   const [pos, setPos] = useState({ left: 0, top: 0, side: 'right' as 'right' | 'left', arrowTop: ARROW_OFFSET_TOP })
 
@@ -107,44 +122,63 @@ export function ContextMenu({ anchorEl, status, userRole = 'gm', isPast = false,
   const isDraft = status === 'draft'
   const isCancelled = status === 'cancelled'
 
-  const viewItems: Item[] = [
-    { id: 'details', label: 'View Details' },
-    { id: 'history', label: 'View History' },
-  ]
+  // virtual(고정 근무 미리보기) — DB 행이 없어 id 기반 PATCH/DELETE/상세/이력이 전부 404.
+  // occurrence 3종만 낸다. 상세·이력·Switch·Confirm 등 기존 메뉴는 의도적으로 비노출.
+  const groups: Group[] = isVirtual
+    ? [
+        {
+          key: 'occurrence',
+          items: [
+            { id: 'edit-occurrence', label: 'Edit this day' },
+            { id: 'edit-fixed', label: 'Edit fixed schedule' },
+          ],
+        },
+        { key: 'remove', items: [{ id: 'delete-occurrence', label: 'Delete this day', tone: 'danger' }] },
+      ]
+    : (() => {
+        const viewItems: Item[] = [
+          { id: 'details', label: 'View Details' },
+          { id: 'history', label: 'View History' },
+        ]
 
-  const modifyItems: Item[] = []
-  if (isEditable && (isDraft || isRequested || (isConfirmed && isGmPlus))) {
-    modifyItems.push({ id: 'edit', label: 'Edit Schedule' })
-  }
-  modifyItems.push({ id: 'add', label: 'Add Schedule' })
-  if (isConfirmed && isGmPlus) {
-    modifyItems.push({ id: 'change-staff', label: 'Change Staff' })
-    if (!isPast) modifyItems.push({ id: 'switch', label: 'Switch Schedule' })
-  }
+        const modifyItems: Item[] = []
+        if (isEditable && (isDraft || isRequested || (isConfirmed && isGmPlus))) {
+          modifyItems.push({ id: 'edit', label: 'Edit Schedule' })
+        }
+        // 고정 근무에서 나온 실 행 — 이 날만이 아니라 패턴(그룹) 자체를 고친다.
+        if (hasPattern) modifyItems.push({ id: 'edit-fixed', label: 'Edit fixed schedule' })
+        modifyItems.push({ id: 'add', label: 'Add Schedule' })
+        if (isConfirmed && isGmPlus) {
+          modifyItems.push({ id: 'change-staff', label: 'Change Staff' })
+          if (!isPast) modifyItems.push({ id: 'switch', label: 'Switch Schedule' })
+        }
 
-  const stateItems: Item[] = []
-  if (isRequested) stateItems.push({ id: 'confirm', label: 'Confirm' })
-  if (isRequested) stateItems.push({ id: 'reject', label: 'Reject...', tone: 'warning' })
-  if (isConfirmed && isGmPlus) stateItems.push({ id: 'revert', label: 'Revert to Requested' })
-  if (isCancelled && isGmPlus) stateItems.push({ id: 'revert', label: 'Restore Schedule' })
-  if (canSyncRate) {
-    stateItems.push({
-      id: 'sync-rate',
-      label: syncRateLabel ? `Apply rate (${syncRateLabel})` : 'Apply current rate',
-    })
-  }
+        const stateItems: Item[] = []
+        if (isRequested) stateItems.push({ id: 'confirm', label: 'Confirm' })
+        if (isRequested) stateItems.push({ id: 'reject', label: 'Reject...', tone: 'warning' })
+        if (isConfirmed && isGmPlus) stateItems.push({ id: 'revert', label: 'Revert to Requested' })
+        if (isCancelled && isGmPlus) stateItems.push({ id: 'revert', label: 'Restore Schedule' })
+        // 사람이 손댄 고정 근무 행 → 패턴 값으로 되돌리기 (overridden 일 때만)
+        if (hasPattern && isPatternOverridden && isEditable) stateItems.push({ id: 'revert-to-pattern', label: 'Revert to pattern' })
+        if (canSyncRate) {
+          stateItems.push({
+            id: 'sync-rate',
+            label: syncRateLabel ? `Apply rate (${syncRateLabel})` : 'Apply current rate',
+          })
+        }
 
-  const removeItems: Item[] = []
-  if (isConfirmed && isGmPlus) removeItems.push({ id: 'cancel', label: 'Cancel...', tone: 'warning' })
-  const canDelete = isDraft || isRequested || (isConfirmed && isGmPlus)
-  if (canDelete) removeItems.push({ id: 'delete', label: 'Delete', tone: 'danger' })
+        const removeItems: Item[] = []
+        if (isConfirmed && isGmPlus) removeItems.push({ id: 'cancel', label: 'Cancel...', tone: 'warning' })
+        const canDelete = isDraft || isRequested || (isConfirmed && isGmPlus)
+        if (canDelete) removeItems.push({ id: 'delete', label: 'Delete', tone: 'danger' })
 
-  const groups: Group[] = [
-    { key: 'view', items: viewItems },
-    { key: 'modify', items: modifyItems },
-    { key: 'state', items: stateItems },
-    { key: 'remove', items: removeItems },
-  ].filter((g) => g.items.length > 0)
+        return [
+          { key: 'view', items: viewItems },
+          { key: 'modify', items: modifyItems },
+          { key: 'state', items: stateItems },
+          { key: 'remove', items: removeItems },
+        ]
+      })().filter((g) => g.items.length > 0)
 
   const isLeft = pos.side === 'left'
 

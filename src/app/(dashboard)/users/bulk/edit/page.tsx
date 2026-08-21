@@ -16,6 +16,8 @@ import { Input } from "@/components/ui/Input";
 import { Badge, Select } from "@/components/ui";
 import { useModal } from "@/components/ui/imperative-modal";
 import { type User } from "@/types";
+import { displayName, searchHaystack } from "@/lib/staffLabel";
+import { useSearchState } from "@/hooks/useSearchState";
 
 /** 일괄 변경 payload — useBulkUpdateUsers 와 구조 호환 (보낸 필드만 적용) */
 interface BulkPayload {
@@ -43,7 +45,9 @@ export default function BulkEditPage(): React.ReactElement {
   );
 
   // ── 필터 ──
-  const [search, setSearch] = useState("");
+  // 검색 동작 통일 (draft/committed 분리·IME 보정).
+  const searchState = useSearchState({ delay: 0 });
+  const search = searchState.committed;
   const [roleFilter, setRoleFilter] = useState("");
   const [deptFilter, setDeptFilter] = useState("");
 
@@ -65,12 +69,11 @@ export default function BulkEditPage(): React.ReactElement {
 
   const filtered = useMemo(() => {
     let r = users;
-    const q = search.trim().toLowerCase();
+    const q = search.toLowerCase();
     if (q) {
       r = r.filter(
         (u) =>
-          (u.full_name?.toLowerCase().includes(q) ?? false) ||
-          u.username.toLowerCase().includes(q),
+          searchHaystack(u).includes(q),
       );
     }
     if (roleFilter) r = r.filter((u) => u.role_name === roleFilter);
@@ -160,8 +163,9 @@ export default function BulkEditPage(): React.ReactElement {
           <div className="relative flex-1 min-w-[180px]">
             <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted" />
             <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              value={searchState.value}
+              {...searchState.imeProps}
+              onChange={searchState.onChange}
               placeholder="Search staff…"
               className="w-full pl-8 pr-3 py-1.5 rounded-lg bg-surface border border-border text-sm text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/20"
             />
@@ -219,7 +223,7 @@ export default function BulkEditPage(): React.ReactElement {
                 />
                 <div className="flex-1 min-w-0">
                   <p className="text-sm font-medium text-text truncate">
-                    {u.full_name || u.username}
+                    {displayName(u)}
                     {!u.is_active && <span className="text-[10px] text-danger ml-1">inactive</span>}
                   </p>
                   <p className="text-xs text-text-muted">@{u.username} · {u.role_name}</p>
@@ -251,7 +255,7 @@ export default function BulkEditPage(): React.ReactElement {
                   key={u.id}
                   className="inline-flex items-center gap-1 px-2 py-0.5 bg-accent-muted text-accent rounded-full text-[11px] font-medium"
                 >
-                  {u.full_name || u.username}
+                  {displayName(u)}
                   <button type="button" onClick={() => toggle(u.id)} className="opacity-60 hover:opacity-100">×</button>
                 </span>
               ))}

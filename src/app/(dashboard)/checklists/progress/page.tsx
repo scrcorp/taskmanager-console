@@ -14,6 +14,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { useStores } from "@/hooks/useStores";
 import { useChecklistInstances, useReviewSummary } from "@/hooks/useChecklistInstances";
 import { usePersistedFilters } from "@/hooks/usePersistedFilters";
+import { useSearchState } from "@/hooks/useSearchState";
 import { Select } from "@/components/ui";
 import { ProgressDayView } from "@/components/checklists/ProgressDayView";
 import { ProgressWeekView } from "@/components/checklists/ProgressWeekView";
@@ -83,7 +84,11 @@ export default function ChecklistProgressPage(): React.ReactElement {
   );
   const view = params.view as ViewMode;
   const selectedStoreId = params.store;
-  const searchQuery = params.q;
+  // 입력(즉시) / URL 커밋(디바운스) 분리 — useSearchState 참조.
+  const search = useSearchState({
+    param: { value: params.q, commit: (v) => setParams({ q: v || null }) },
+  });
+  const searchQuery = search.committed;
   const selectedDate: Date = useMemo(() => {
     const raw = params.date || todayInTimezone(tz);
     const [y, m, d] = raw.split("-").map(Number);
@@ -95,7 +100,6 @@ export default function ChecklistProgressPage(): React.ReactElement {
   };
   const setView = (v: ViewMode): void => setParams({ view: v === "day" ? null : v });
   const setSelectedStoreId = (v: string): void => setParams({ store: v || null });
-  const setSearchQuery = (v: string): void => setParams({ q: v || null });
 
   // ── Derived date ranges ──────────────────────────────────────────────────
 
@@ -302,8 +306,9 @@ export default function ChecklistProgressPage(): React.ReactElement {
           <input
             type="text"
             placeholder="Search staff or template…"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            value={search.value}
+            {...search.imeProps}
+            onChange={search.onChange}
             className="px-3 py-1.5 text-sm bg-surface border border-border rounded-lg text-text placeholder:text-text-muted outline-none focus:border-accent transition-colors w-52"
           />
         )}

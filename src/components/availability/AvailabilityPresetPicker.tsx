@@ -14,6 +14,7 @@ import { Plus } from "lucide-react";
 import { useCreatePreset } from "@/hooks/useAvailability";
 import { toRoutine, toDaysInput, type AvailabilityDay, type Preset } from "@/types";
 
+import { isImeComposing } from "@/lib/ime";
 interface Props {
   presets: Preset[];
   /** Apply a preset's week as a dense 7-slot routine. */
@@ -86,6 +87,7 @@ export function AvailabilityPresetPicker({
               onChange={(e) => setName(e.target.value)}
               placeholder="Preset name"
               onKeyDown={(e) => {
+                if (isImeComposing(e)) return;
                 if (e.key === "Enter") void saveAs();
                 if (e.key === "Escape") {
                   setNaming(false);

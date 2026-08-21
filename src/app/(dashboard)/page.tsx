@@ -40,6 +40,7 @@ import {
 import { Card, Select, Badge, LoadingSpinner, Button } from "@/components/ui";
 import { useModal } from "@/components/ui/imperative-modal";
 import api from "@/lib/api";
+import { filenameFromDisposition, triggerBlobDownload } from "@/lib/download";
 import { cn, formatDate, parseApiError, todayInTimezone } from "@/lib/utils";
 import { useTimezone } from "@/hooks/useTimezone";
 import { useMidnightRefresh } from "@/hooks/useMidnightRefresh";
@@ -315,23 +316,33 @@ export default function DashboardPage(): React.ReactElement {
   const handleExport = useCallback(async (): Promise<void> => {
     setIsExporting(true);
     try {
+      // 화면 필터를 그대로 보낸다 — 파일에 담긴 범위/매장이 화면과 같아야
+      // 서버가 붙여주는 파일명(Dashboard_{매장}_{기간}_{받은시각})이 사실이 된다.
       const response = await api.get("/console/dashboard/export", {
         responseType: "blob",
+        params: {
+          date_from: dateFrom,
+          date_to: dateTo,
+          ...(storeIdParam ? { store_id: storeIdParam } : {}),
+        },
       });
-      const exportDate = todayInTimezone(tz);
-      const url = window.URL.createObjectURL(response.data);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = `dashboard_${exportDate}.xlsx`;
-      link.click();
-      window.URL.revokeObjectURL(url);
+      const dispo = (response.headers as Record<string, unknown>)["content-disposition"];
+      triggerBlobDownload(
+        new Blob([response.data as BlobPart], {
+          type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        }),
+        filenameFromDisposition(
+          typeof dispo === "string" ? dispo : undefined,
+          `Dashboard_${todayInTimezone(tz)}.xlsx`,
+        ),
+      );
       void modal.alert({ type: "success", message: "Dashboard exported." });
     } catch (err) {
       void modal.alert({ type: "error", message: parseApiError(err, "Failed to export dashboard.") });
     } finally {
       setIsExporting(false);
     }
-  }, [modal, tz]);
+  }, [modal, tz, dateFrom, dateTo, storeIdParam]);
 
   // ─── Date range button handler ────────────────────
   const handleDateRange = useCallback((range: DateRange) => {

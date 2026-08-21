@@ -13,6 +13,7 @@ import { anomalyLabel } from "@/lib/attendanceAnomalies";
 import { START_OUTSIDE_WINDOW_TEXT } from "@/lib/scheduleTime";
 import type { ScheduleAuditLogEntry } from "@/hooks/useSchedules";
 import { DiffDisplay } from "./DiffDisplay";
+import { displayName } from "@/lib/staffLabel";
 
 interface Props {
   schedule: Schedule;
@@ -229,7 +230,7 @@ export function ScheduleDetailPage({ schedule, user, attendance, auditEvents, re
                 {getInitials(user.full_name)}
               </div>
               <div className="min-w-0 flex-1">
-                <div className="text-[16px] font-bold text-[var(--color-text)]">{user.full_name || user.username}</div>
+                <div className="text-[16px] font-bold text-[var(--color-text)]">{displayName(user)}</div>
                 <div className="flex items-center gap-2 text-[12px] mt-1">
                   <span className={`font-semibold ${user.role_priority <= ROLE_PRIORITY.GM ? "text-[var(--color-accent)]" : user.role_priority <= ROLE_PRIORITY.SV ? "text-[var(--color-warning)]" : "text-[var(--color-text-muted)]"}`}>
                     {userRoleBadge}

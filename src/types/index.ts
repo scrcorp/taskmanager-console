@@ -1352,9 +1352,24 @@ export interface Schedule {
   effective_rate: number | null;
   /** effective_rate 출처 레이어 */
   effective_rate_source: "schedule" | "user" | "store" | "org" | null;
-  status: "draft" | "requested" | "confirmed" | "rejected" | "cancelled" | "deleted";
+  /**
+   * `virtual` = 고정 근무(pattern) 펼치기 결과, **응답 전용**(DB 행 없음). id 는 `virtual:<pattern_id>:<date>`.
+   * PATCH/DELETE /schedules/{id} 에 보내면 404 — `useSchedulePatterns` 의 occurrence action 으로만 다룬다.
+   * 화면은 confirmed 와 동일하게 그린다(점선·흐림 금지).
+   */
+  status: "draft" | "requested" | "confirmed" | "rejected" | "cancelled" | "deleted" | "virtual";
   /** 스케줄 출처: 'manual' = 관리자/직원 등록, 'walk_in' = 키오스크 워크인 클락인으로 자동 생성. */
   origin: "manual" | "walk_in";
+  /**
+   * 고정 근무 패턴(staff_work_patterns.id). null = 일회성(One-time).
+   * 서버는 항상 내려준다 — 옵셔널인 이유는 화면 내부에서 Schedule 리터럴을 조립하는 곳(bulk 미리보기 등)의
+   * 하위호환뿐이다. 읽는 쪽은 `!!s.pattern_id` / `s.pattern_overridden === true` 로 본다.
+   */
+  pattern_id?: string | null;
+  /** 패턴상 원래 날짜 — 날짜를 옮긴 override 면 operating_day 와 다를 수 있다. pattern_id 와 항상 쌍. */
+  pattern_occurrence_date?: string | null;
+  /** 사람이 손댄 자동생성분 — 패턴 sweep 이 건드리지 않는다. "Revert to pattern" 노출 조건. */
+  pattern_overridden?: boolean;
   submitted_at: string | null;
   is_modified: boolean;
   rejected_by: string | null;

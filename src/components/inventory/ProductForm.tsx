@@ -18,6 +18,7 @@ import { useModal } from "@/components/ui/imperative-modal";
 import { useCategories, useProducts, useCreateCategory, useGenerateProductCode, useSubUnits, useCreateSubUnit } from "@/hooks/useInventory";
 import type { InventoryCategory, InventoryProduct } from "@/types";
 
+import { isImeComposing } from "@/lib/ime";
 export interface ProductFormData {
   name: string;
   code: string;
@@ -63,6 +64,7 @@ function InlineAddInput({
         value={value}
         onChange={(e) => setValue(e.target.value)}
         onKeyDown={(e) => {
+          if (isImeComposing(e)) return;
           if (e.key === "Enter" && value.trim()) onAdd(value.trim());
           if (e.key === "Escape") onCancel();
         }}

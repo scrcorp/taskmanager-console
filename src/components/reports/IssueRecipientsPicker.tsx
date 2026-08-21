@@ -19,6 +19,7 @@ import { useUsers } from "@/hooks/useUsers";
 import { describeApiError } from "@/lib/errorDisplay";
 import { LoadingSpinner } from "@/components/ui";
 import type { IssueRecipientItem, User } from "@/types";
+import { displayName } from "@/lib/staffLabel";
 
 /** DB role name 원문 → 화면 라벨. 커스텀 role 은 원문을 사람이 읽게 다듬어 표시. */
 const ROLE_LABELS: Record<string, string> = {
@@ -76,7 +77,7 @@ export function IssueRecipientsPicker({
     const map = new Map<string, { name: string; role: string }>();
     (storeUsers ?? []).forEach((u: User) => {
       map.set(u.id, {
-        name: u.full_name ?? u.username,
+        name: displayName(u),
         role: formatRoleLabel(u.role_name),
       });
     });

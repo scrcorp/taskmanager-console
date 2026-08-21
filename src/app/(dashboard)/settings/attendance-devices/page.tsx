@@ -41,6 +41,7 @@ import { useModal } from "@/components/ui/imperative-modal";
 import { formatDate, formatDateTimeSeconds } from "@/lib/utils";
 import type { AttendanceDevice } from "@/types";
 
+import { isImeComposing } from "@/lib/ime";
 const ATTENDANCE_SERVICE_KEY = "attendance";
 
 export default function AttendanceDevicesSettingsPage(): React.ReactElement {
@@ -231,6 +232,7 @@ function AttendanceDevicesContent(): React.ReactElement {
                       setCodeEditValue(e.target.value.toUpperCase())
                     }
                     onKeyDown={(e) => {
+                      if (isImeComposing(e)) return;
                       if (e.key === "Enter") {
                         e.preventDefault();
                         void handleSaveCode();
@@ -390,6 +392,7 @@ function AttendanceDevicesContent(): React.ReactElement {
                               value={renameValue}
                               onChange={(e) => setRenameValue(e.target.value)}
                               onKeyDown={(e) => {
+                                if (isImeComposing(e)) return;
                                 if (e.key === "Enter") {
                                   e.preventDefault();
                                   void handleSaveRename();

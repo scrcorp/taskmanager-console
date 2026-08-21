@@ -24,6 +24,8 @@ import { describeApiError } from "@/lib/errorDisplay";
 import { LoadingSpinner } from "@/components/ui";
 import { formatRoleLabel } from "@/components/reports/IssueRecipientsPicker";
 import type { IssueViewerItem, IssueVisibilityScope, User } from "@/types";
+import { displayName, searchHaystack } from "@/lib/staffLabel";
+import { useSearchState } from "@/hooks/useSearchState";
 
 /** 서버가 준 reason_label 을 그대로 쓴다. 없을 때만 코드에서 문구를 만든다. */
 function describeReason(item: IssueViewerItem): string {
@@ -59,7 +61,9 @@ export function IssueViewersPreview({
   onAddedChange: (next: string[]) => void;
 }): React.ReactElement {
   const [addOpen, setAddOpen] = useState(false);
-  const [search, setSearch] = useState("");
+  // 검색 동작 통일 (draft/committed 분리·IME 보정).
+  const searchState = useSearchState({ delay: 0 });
+  const search = searchState.committed;
 
   const hasTarget = !!storeId || !!reportId;
 
@@ -99,7 +103,7 @@ export function IssueViewersPreview({
     const map = new Map<string, { name: string; role: string }>();
     (storeUsers ?? []).forEach((u: User) => {
       map.set(u.id, {
-        name: u.full_name ?? u.username,
+        name: displayName(u),
         role: formatRoleLabel(u.role_name),
       });
     });
@@ -114,7 +118,7 @@ export function IssueViewersPreview({
   const addUser = (userId: string) => {
     if (addedUserIds.includes(userId)) return;
     onAddedChange([...addedUserIds, userId]);
-    setSearch("");
+    searchState.clear();
     setAddOpen(false);
   };
 
@@ -123,14 +127,13 @@ export function IssueViewersPreview({
   };
 
   const addableUsers: User[] = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = search.toLowerCase();
     return (storeUsers ?? [])
       .filter(
         (u) =>
           !addedUserIds.includes(u.id) &&
           (q === "" ||
-            (u.full_name ?? "").toLowerCase().includes(q) ||
-            u.username.toLowerCase().includes(q)),
+            searchHaystack(u).includes(q)),
       )
       .sort((a, b) => {
         if (a.role_priority !== b.role_priority)
@@ -169,8 +172,9 @@ export function IssueViewersPreview({
       {addOpen ? (
         <div className="border border-border rounded-md bg-surface p-2 space-y-2">
           <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
+            value={searchState.value}
+            {...searchState.imeProps}
+            onChange={searchState.onChange}
             placeholder="Search staff at this store…"
             className="w-full bg-background border border-border rounded-md px-3 py-2 text-sm text-text"
             autoFocus
@@ -188,7 +192,7 @@ export function IssueViewersPreview({
                   onClick={() => addUser(u.id)}
                   className="w-full text-left px-2 py-1.5 rounded text-sm text-text hover:bg-surfaceHover flex items-center gap-2"
                 >
-                  <span>{u.full_name ?? u.username}</span>
+                  <span>{displayName(u)}</span>
                   <span className="text-xs text-textMuted">
                     ({formatRoleLabel(u.role_name)})
                   </span>
@@ -201,7 +205,7 @@ export function IssueViewersPreview({
               type="button"
               onClick={() => {
                 setAddOpen(false);
-                setSearch("");
+                searchState.clear();
               }}
               className="text-xs text-textMuted hover:text-text px-2 py-1"
             >

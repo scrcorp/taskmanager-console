@@ -24,6 +24,7 @@ import { SCHEDULE_HISTORY_DELETE_ENABLED } from "@/lib/featureFlags";
 import { DiffDisplay } from "@/components/schedules/redesign/DiffDisplay";
 import { useModal } from "@/components/ui/imperative-modal";
 import type { User } from "@/types";
+import { displayName } from "@/lib/staffLabel";
 
 const EVENT_TYPES = [
   { value: "", label: "All events" },
@@ -295,7 +296,7 @@ export default function ScheduleHistoryPage() {
               >
                 <option value="">Anyone</option>
                 {(usersQ.data ?? []).map((u) => (
-                  <option key={u.id} value={u.id}>{u.full_name || u.username}</option>
+                  <option key={u.id} value={u.id}>{displayName(u)}</option>
                 ))}
               </select>
             </div>
@@ -308,7 +309,7 @@ export default function ScheduleHistoryPage() {
               >
                 <option value="">Anyone</option>
                 {(usersQ.data ?? []).map((u) => (
-                  <option key={u.id} value={u.id}>{u.full_name || u.username}</option>
+                  <option key={u.id} value={u.id}>{displayName(u)}</option>
                 ))}
               </select>
             </div>

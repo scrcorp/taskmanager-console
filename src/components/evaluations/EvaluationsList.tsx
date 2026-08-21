@@ -9,6 +9,7 @@ import { Button, Badge, LoadingSpinner, Pagination } from "@/components/ui";
 import { averageScore, completedCount, initials } from "./criteria";
 import { fmtRange } from "./format";
 import { RowMenu } from "./RowMenu";
+import { useSearchState } from "@/hooks/useSearchState";
 
 const PER_PAGE = 20;
 
@@ -88,6 +89,9 @@ export function EvaluationsList({
   onEdit,
   onDelete,
 }: EvaluationsListProps): React.ReactElement {
+  // 검색 입력은 useSearchState 가 담당 — 부모가 준 query(커밋값)/onQuery(커밋)에 묶고,
+  // 타이핑 자체는 로컬 draft 로 즉시 반영한다. 부모 쪽 URL 갱신은 디바운스된다.
+  const search = useSearchState({ param: { value: query, commit: onQuery } });
   const { data: stores } = useStores();
   const activeStores = useMemo<Store[]>(
     () => (stores ?? []).filter((s) => s.is_active !== false),
@@ -140,8 +144,9 @@ export function EvaluationsList({
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-text-muted pointer-events-none" />
           <input
-            value={query}
-            onChange={(e) => onQuery(e.target.value)}
+            value={search.value}
+            {...search.imeProps}
+            onChange={search.onChange}
             placeholder="Search employee…"
             className="w-[240px] rounded-lg border border-border bg-surface pl-9 pr-3 py-2 text-sm text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent"
           />

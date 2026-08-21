@@ -60,6 +60,8 @@ import {
   type EmpidRosterMember,
   type EmpidRosterStore,
 } from "@/hooks/useEmpidRoster";
+import { displayName, searchHaystack } from "@/lib/staffLabel";
+import { useSearchState } from "@/hooks/useSearchState";
 
 type Step = "upload" | "preview" | "result";
 
@@ -247,17 +249,17 @@ function UserPicker({
   suggestedId: string | null;
   onChange: (userId: string) => void;
 }): React.ReactElement {
-  const [filter, setFilter] = useState("");
+  // 검색 동작 통일 (draft/committed 분리·IME 보정).
+  const searchState = useSearchState({ delay: 0 });
+  const filter = searchState.committed;
 
   const options = useMemo(() => {
-    const q = filter.trim().toLowerCase();
+    const q = filter.toLowerCase();
     let list = users;
     if (q) {
       list = users.filter(
         (u) =>
-          (u.full_name?.toLowerCase().includes(q) ?? false) ||
-          u.username.toLowerCase().includes(q) ||
-          (u.email?.toLowerCase().includes(q) ?? false),
+          searchHaystack(u).includes(q),
       );
     }
     if (value && !list.some((u) => u.id === value)) {
@@ -270,8 +272,9 @@ function UserPicker({
   return (
     <span className="inline-flex flex-col gap-1">
       <input
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
+        value={searchState.value}
+        {...searchState.imeProps}
+        onChange={searchState.onChange}
         placeholder="Filter users…"
         className="w-56 px-2 py-1 rounded-md bg-surface border border-border text-xs text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/20"
       />
@@ -289,7 +292,7 @@ function UserPicker({
           </option>
           {options.map((u) => (
             <option key={u.id} value={u.id}>
-              {u.full_name || u.username}
+              {displayName(u)}
               {u.email ? ` (${u.email})` : ""}
             </option>
           ))}

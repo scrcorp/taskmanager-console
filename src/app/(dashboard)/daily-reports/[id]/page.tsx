@@ -33,6 +33,7 @@ import { PERMISSIONS } from "@/lib/permissions";
 import { formatDate, formatFixedDate } from "@/lib/utils";
 import { describeApiError } from "@/lib/errorDisplay";
 import { useTimezone } from "@/hooks/useTimezone";
+import { isImeComposing } from "@/lib/ime";
 import type {
   DailyReportPayload,
   DailyReportPayloadSection,
@@ -363,6 +364,7 @@ export default function DailyReportDetailPage(): React.ReactElement {
             rows={2}
             className="flex-1 px-3 py-2 text-sm bg-surface border border-border rounded-lg text-text placeholder-text-muted focus:outline-none focus:ring-1 focus:ring-accent resize-none"
             onKeyDown={(e: React.KeyboardEvent) => {
+              if (isImeComposing(e)) return;
               if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
                 handleAddComment();
               }

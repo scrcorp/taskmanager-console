@@ -26,6 +26,7 @@ import { Button, Card, Modal, Input } from "@/components/ui";
 import { useModal } from "@/components/ui/imperative-modal";
 import type { InventoryCategory, InventorySubUnit } from "@/types";
 
+import { isImeComposing } from "@/lib/ime";
 // ─── Tab types ────────────────────────────────────────────────────────────────
 
 type ActiveTab = "categories" | "sub_units";
@@ -303,7 +304,7 @@ function CategoriesTab({ canManage }: { canManage: boolean }): React.ReactElemen
             value={addName}
             placeholder="e.g. Beverages"
             onChange={(e) => setAddName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") handleAddSubmit(); }}
+            onKeyDown={(e) => { if (isImeComposing(e)) return; if (e.key === "Enter") handleAddSubmit(); }}
           />
           <div className="flex justify-end gap-3">
             <Button variant="secondary" size="sm" onClick={() => setIsAddOpen(false)}>
@@ -334,7 +335,7 @@ function CategoriesTab({ canManage }: { canManage: boolean }): React.ReactElemen
             label="Category Name"
             value={editName}
             onChange={(e) => setEditName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") handleEditSubmit(); }}
+            onKeyDown={(e) => { if (isImeComposing(e)) return; if (e.key === "Enter") handleEditSubmit(); }}
           />
           <div className="flex justify-end gap-3">
             <Button variant="secondary" size="sm" onClick={() => setEditTarget(null)}>
@@ -500,7 +501,7 @@ function SubUnitsTab({ canManage }: { canManage: boolean }): React.ReactElement 
             value={addName}
             placeholder="e.g. Box, Pack, Case"
             onChange={(e) => setAddName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") handleAddSubmit(); }}
+            onKeyDown={(e) => { if (isImeComposing(e)) return; if (e.key === "Enter") handleAddSubmit(); }}
           />
           {addName.trim() && (
             <p className="text-xs text-text-muted -mt-2">
@@ -536,7 +537,7 @@ function SubUnitsTab({ canManage }: { canManage: boolean }): React.ReactElement 
             label="Name"
             value={editName}
             onChange={(e) => setEditName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") handleEditSubmit(); }}
+            onKeyDown={(e) => { if (isImeComposing(e)) return; if (e.key === "Enter") handleEditSubmit(); }}
           />
           <p className="text-xs text-text-muted -mt-2">
             Code <span className="font-mono text-text-secondary">{editTarget?.code}</span> cannot be changed.
