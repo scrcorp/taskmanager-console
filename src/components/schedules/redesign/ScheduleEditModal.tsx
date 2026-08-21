@@ -25,6 +25,18 @@ import {
 } from "@/lib/scheduleCodes";
 import type { Schedule, User, WorkRole, Store } from "@/types";
 import { ROLE_PRIORITY } from "@/lib/permissions";
+import {
+  FixedScheduleForm, makeInitialFixedState, makeBlockDraft, dowOf,
+  type FixedFormState,
+} from "../fixed/FixedScheduleForm";
+
+/** 이 모달이 보여주는 폼. `one-time` = 기존 단건 스케줄, `fixed` = 고정 근무(반복 패턴) 설정창. */
+export type ScheduleFormMode = "one-time" | "fixed";
+
+/** 행의 pattern_id — 고정 근무에서 나온 행(실 행·virtual 모두)이면 그 패턴. */
+function patternIdOf(s: Schedule | null | undefined): string | null {
+  return s?.pattern_id ? s.pattern_id : null;
+}
 
 export interface ScheduleEditPayload {
   userId: string;
@@ -94,9 +106,19 @@ interface Props {
    */
   onDeleted?: (id: string) => void;
   isSaving?: boolean;
+  /**
+   * 열리는 폼. 기본 `one-time`. 컨텍스트 메뉴 "Edit fixed schedule" 은 `fixed` 로 바로 연다.
+   * 모달 안에서 푸터 링크로 서로 전환되며, 전환해도 양쪽 입력은 모달이 닫힐 때까지 보존된다.
+   */
+  initialFormMode?: ScheduleFormMode;
+  /**
+   * 고정 모드로 열 때 편집할 패턴(pattern_id). 없으면 `schedule.pattern_id` 를 쓴다.
+   * virtual 행(`id` 가 `virtual:`)도 pattern_id 를 갖고 있으므로 그대로 넘기면 된다.
+   */
+  fixedPatternId?: string | null;
 }
 
-function workRoleLabel(wr: WorkRole): string {
+export function workRoleLabel(wr: WorkRole): string {
   if (wr.name) return wr.name;
   return `${wr.shift_name ?? ""} - ${wr.position_name ?? ""}`.trim();
 }
@@ -127,7 +149,7 @@ const STEP_MINUTE_OPTIONS = Array.from({ length: 60 / SCHEDULE_STEP_MINUTES }, (
  * 시/분/AM·PM 를 분리한 시간 선택기. 네이티브 time input 은 브라우저별로 1·15분을 노출하므로
  * 짧은 드롭다운 3개로 입력 단위(5분, D6-1)를 보장한다.
  */
-function TimeSelect({ value, onChange, className }: { value: string; onChange: (v: string) => void; className: string }) {
+export function TimeSelect({ value, onChange, className }: { value: string; onChange: (v: string) => void; className: string }) {
   const total = value ? timeToMinutes(value) : 0;
   const h24 = Math.floor(total / 60);
   const min = total % 60;
@@ -392,7 +414,7 @@ function computeAutoBreak(startHHMM: string, endHHMM: string, breakMin: number):
   return { start: minutesToTime(mid), end: minutesToTime(mid + breakMin) };
 }
 
-export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefilledDate, prefilledStartTime, prefilledStartOffsetDays, users, storeId, stores, selectedStoreIds, inheritedRate, inheritedRateSource, showCost = true, errorMessage, onDismissError, onClose, onSave, onDeleted, isSaving }: Props) {
+export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefilledDate, prefilledStartTime, prefilledStartOffsetDays, users, storeId, stores, selectedStoreIds, inheritedRate, inheritedRateSource, showCost = true, errorMessage, onDismissError, onClose, onSave, onDeleted, isSaving, initialFormMode, fixedPatternId }: Props) {
   // Delete 흐름은 공유 hook 사용 — confirm 메시지/톤/시스템이 Detail/Calendar 어디서 호출되든 동일.
   // hook 이 confirm + mutation 까지 처리하고, 우리는 성공 후 후처리(onClose/onDeleted)만 콜백으로 전달.
   const deleteFlow = useDeleteScheduleFlow();
@@ -430,6 +452,12 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
   const [notes, setNotes] = useState("");
   // hourly rate input as string ("" = clear/null)
   const [hourlyRateInput, setHourlyRateInput] = useState<string>("");
+  // ── Fixed(고정 근무) 모드 — 같은 모달 안에서 본문만 스왑한다 (설계 D-i(1)).
+  // 두 폼의 상태를 **둘 다** 모달이 들고 있어 "← Back to one-time" 이 폐기가 아니라 보존이 된다.
+  // 저장은 현재 모드 기준으로만 한다.
+  const [formMode, setFormMode] = useState<ScheduleFormMode>("one-time");
+  const [fixedState, setFixedState] = useState<FixedFormState | null>(null);
+  const [fixedDirty, setFixedDirty] = useState(false);
   const modal = useModal();
   const dialogDepth = useModalDepth();
   // Edit 모드 원본 값 스냅샷 — 변경 여부 비교용
@@ -497,6 +525,10 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
     if (!open) return;
     timeDirtyRef.current = false;
     breakDirtyRef.current = false;
+    // 고정 모드 상태는 열 때마다 새로 — 이전 모달의 입력이 다른 날짜/직원에 묻어오면 안 된다.
+    setFixedState(null);
+    setFixedDirty(false);
+    setFormMode(initialFormMode ?? "one-time");
     if (mode === "edit" && schedule) {
       // edit 모드: shift의 store/work_role을 정확히 반영 (그리드 필터값 무시)
       const initStore = schedule.store_id;
@@ -635,10 +667,13 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
 
   // Cancel/ESC/backdrop 공통 close 경로 — dirty면 확인 먼저
   async function tryClose(): Promise<void> {
-    if (!isDirty) { onClose(); return; }
+    const dirtyNow = formMode === "fixed" ? fixedDirty : isDirty;
+    if (!dirtyNow) { onClose(); return; }
     const ok = await modal.confirm({
       title: "Discard changes?",
-      message: "You have unsaved changes in this schedule. Close without saving?",
+      message: formMode === "fixed"
+        ? "You have unsaved changes in this fixed schedule. Close without saving?"
+        : "You have unsaved changes in this schedule. Close without saving?",
       confirmLabel: "Discard",
       variant: "danger",
     });
@@ -660,7 +695,7 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, isDirty, dialogDepth]);
+  }, [open, isDirty, fixedDirty, formMode, dialogDepth]);
 
   const validateSchedule = useValidateSchedule();
 
@@ -903,6 +938,36 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
     };
   }
 
+  // ── Fixed 모드 전환 ──
+  const editingPatternId = fixedPatternId ?? patternIdOf(schedule);
+  /**
+   * "↻ Set up fixed schedule" / "Edit this fixed schedule".
+   * 처음 전환할 때만 일반 폼의 입력을 이월한다(시각·휴게·역할, 누른 날짜의 요일 체크, start_date=누른 날짜).
+   * 이미 고정 폼을 만진 적이 있으면 그 입력을 그대로 되살린다 — 돌아가기가 보존이라면 되돌아오기도 보존이다.
+   */
+  function switchToFixed() {
+    if (!fixedState) {
+      setFixedState(makeInitialFixedState({
+        startDate: date,
+        untilDate: "",
+        blocks: [makeBlockDraft({
+          startTime,
+          endTime,
+          breakEnabled: splitEnabled && !!breakStart && !!breakEnd,
+          breakStart: splitEnabled ? breakStart : "",
+          breakEnd: splitEnabled ? breakEnd : "",
+          workRoleId,
+          byday: [dowOf(date)],
+        })],
+      }));
+    }
+    setFormMode("fixed");
+  }
+  // initialFormMode="fixed" 로 열렸는데 아직 고정 상태가 없으면 첫 렌더에서 만든다 (effect 없이 — 렌더 중 setState 는 1회로 끝난다).
+  if (formMode === "fixed" && !fixedState) {
+    switchToFixed();
+  }
+
   async function handleSave() {
     if (validationError) return;
     const payload = buildPayload(false);
@@ -956,8 +1021,13 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
       <div className="relative bg-[var(--color-surface)] rounded-2xl shadow-[0_16px_48px_rgba(0,0,0,0.2)] w-full max-w-lg max-h-[90vh] flex flex-col">
         {/* Header (sticky) */}
         <div className="shrink-0 px-5 py-4 border-b border-[var(--color-border)] flex items-center justify-between">
-          <h2 className="text-[15px] font-bold text-[var(--color-text)]">
-            {mode === "add" ? "Add Schedule" : "Edit Schedule"}
+          <h2 className="text-[15px] font-bold text-[var(--color-text)] flex items-center gap-2">
+            {formMode === "fixed"
+              ? (fixedState?.editingGroupId ? "Edit Fixed Schedule" : "Fixed Schedule")
+              : mode === "add" ? "Add Schedule" : "Edit Schedule"}
+            {formMode === "fixed" && (
+              <span className="px-1.5 py-0.5 rounded-md text-[9px] font-extrabold tracking-wide bg-[var(--color-accent-muted)] text-[var(--color-accent)]">FIXED</span>
+            )}
           </h2>
           <button
             type="button"
@@ -971,6 +1041,23 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
           </button>
         </div>
 
+        {formMode === "fixed" && fixedState ? (
+          <FixedScheduleForm
+            userId={userId}
+            storeId={effectiveStoreId}
+            users={users}
+            stores={stores}
+            today={todayInTimezone(selectedStore?.timezone ?? orgTimezone)}
+            state={fixedState}
+            onStateChange={setFixedState}
+            initialPatternId={editingPatternId}
+            onBackToOneTime={() => setFormMode("one-time")}
+            onCancel={() => void tryClose()}
+            onSaved={onClose}
+            onDirtyChange={setFixedDirty}
+          />
+        ) : (
+        <>
         {/* Scrollable body */}
         <div className="flex-1 overflow-y-auto">
         {/* Inline error banner (서버 검증 실패) */}
@@ -1387,6 +1474,17 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
         </div>
         {/* Footer (sticky) */}
         <div className="shrink-0 px-5 py-4 border-t border-[var(--color-border)] flex items-center gap-2 bg-[var(--color-surface)]">
+          {/* 고정 근무 진입 — 같은 모달 안에서 폼만 바뀐다. 기존 행이 패턴 소속이면 "이 고정근무 편집". */}
+          <button
+            type="button"
+            onClick={switchToFixed}
+            disabled={isSaving}
+            data-testid="switch-to-fixed"
+            className="px-2 py-2 rounded-lg text-[12px] font-semibold text-[var(--color-accent)] hover:bg-[var(--color-accent-muted)] disabled:opacity-50"
+            title={editingPatternId ? "Open the fixed schedule this day belongs to" : "Repeat this shift on chosen weekdays"}
+          >
+            {editingPatternId ? "Edit this fixed schedule" : "↻ Set up fixed schedule"}
+          </button>
           {mode === "edit" && schedule && onDeleted && (
             <button
               type="button"
@@ -1414,6 +1512,8 @@ export function ScheduleEditModal({ open, mode, schedule, prefilledUserId, prefi
             </button>
           </div>
         </div>
+        </>
+        )}
       </div>
 
       {/* Discard / warning confirm 은 useModal imperative API 로 inline 처리됨 */}
