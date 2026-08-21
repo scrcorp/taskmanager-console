@@ -73,6 +73,7 @@ import { useModal } from "@/components/ui/imperative-modal";
 import { formatFixedDate } from "@/lib/utils";
 import { PERMISSIONS } from "@/lib/permissions";
 import { ISSUE_SEVERITIES } from "@/types";
+import { displayName } from "@/lib/staffLabel";
 
 const statusBadge: Record<
   Task["status"],
@@ -933,7 +934,7 @@ function EditTaskModal({
                     }
                     className="accent-accent"
                   />
-                  <span className="text-text">{u.full_name ?? u.username}</span>
+                  <span className="text-text">{displayName(u)}</span>
                   <span className="text-xs text-textMuted">· {u.role_name}</span>
                 </label>
               ))}
@@ -1209,7 +1210,7 @@ function RelatedResources({
   const userLabels = useMemo(() => {
     const map = new Map<string, string>();
     (storeUsers ?? []).forEach((u) => {
-      const display = u.full_name ?? u.username;
+      const display = displayName(u);
       map.set(u.id, `${display} (${u.role_name})`);
     });
     return map;

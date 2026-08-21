@@ -42,6 +42,8 @@ import {
   type AvailabilityMember,
   type User,
 } from "@/types";
+import { displayName, searchHaystack } from "@/lib/staffLabel";
+import { useSearchState } from "@/hooks/useSearchState";
 
 /** initials from a display name, e.g. "John Smith" → "JS" */
 function initials(name: string): string {
@@ -80,16 +82,17 @@ export default function BulkAvailabilityPage(): React.ReactElement {
     [availMap],
   );
 
-  const [search, setSearch] = useState("");
+  // 검색 동작 통일 (draft/committed 분리·IME 보정).
+  const searchState = useSearchState({ delay: 0 });
+  const search = searchState.committed;
   const [selId, setSelId] = useState<string>("");
 
   const filtered: User[] = useMemo(() => {
-    const q = search.trim().toLowerCase();
+    const q = search.toLowerCase();
     if (!q) return staff;
     return staff.filter(
       (u) =>
-        u.full_name.toLowerCase().includes(q) ||
-        u.username.toLowerCase().includes(q),
+        searchHaystack(u).includes(q),
     );
   }, [staff, search]);
 
@@ -232,8 +235,9 @@ export default function BulkAvailabilityPage(): React.ReactElement {
               <input
                 type="text"
                 placeholder="Search staff..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
+                value={searchState.value}
+                {...searchState.imeProps}
+                onChange={searchState.onChange}
                 className="w-full rounded-lg border border-border bg-bg py-1.5 pl-8 pr-3 text-[12px] text-text placeholder:text-text-muted focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/50"
               />
             </div>
@@ -269,7 +273,7 @@ export default function BulkAvailabilityPage(): React.ReactElement {
                           active ? "font-bold text-accent" : "font-medium text-text"
                         }`}
                       >
-                        {u.full_name || u.username}
+                        {displayName(u)}
                       </span>
                       <span className="block truncate text-[11px] uppercase text-text-muted">
                         {u.role_name}
@@ -293,11 +297,11 @@ export default function BulkAvailabilityPage(): React.ReactElement {
             <>
               <div className="flex items-center gap-3 border-b border-border px-5 py-3">
                 <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-accent-muted text-[12px] font-bold text-accent">
-                  {initials(selected.full_name || selected.username)}
+                  {initials(displayName(selected))}
                 </div>
                 <div className="min-w-0">
                   <div className="truncate text-[15px] font-bold text-text">
-                    {selected.full_name || selected.username}
+                    {displayName(selected)}
                   </div>
                   <div className="truncate text-[12px] text-text-secondary">
                     {selected.role_name}

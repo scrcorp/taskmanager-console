@@ -13,6 +13,7 @@ import {
 import type { AxiosResponse } from "axios";
 import api from "@/lib/api";
 import { useMutationResult } from "@/lib/mutationResult";
+import { downloadFromResponse } from "@/lib/download";
 import type {
   InventoryCategory,
   InventoryCategoryCreate,
@@ -256,12 +257,7 @@ export const useDownloadProductTemplate = (): (() => Promise<void>) => {
       "/console/inventory/products/excel-template",
       { responseType: "blob" },
     );
-    const url = URL.createObjectURL(response.data);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "product_import_template.xlsx";
-    a.click();
-    URL.revokeObjectURL(url);
+    downloadFromResponse(response, "product_import_template.xlsx");
   };
 };
 

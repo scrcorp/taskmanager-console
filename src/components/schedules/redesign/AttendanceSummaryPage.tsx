@@ -16,6 +16,8 @@ import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import { todayInTimezone } from "@/lib/utils";
 import type { Attendance, User } from "@/types";
 import { ROLE_PRIORITY } from "@/lib/permissions";
+import { buildExportFilename, triggerBlobDownload } from "@/lib/download";
+import { displayName } from "@/lib/staffLabel";
 
 function getWeekStart(d: Date): Date {
   const r = new Date(d);
@@ -162,7 +164,7 @@ export function AttendanceSummaryPage() {
     usersInWeek.forEach((u: User) => {
       const userMap = matrix.get(u.id);
       if (!userMap) return;
-      const cells: string[] = [u.full_name || u.username];
+      const cells: string[] = [displayName(u)];
       let totalMin = 0;
       weekDates.forEach((d) => {
         const att = userMap.get(d.date);
@@ -175,12 +177,17 @@ export function AttendanceSummaryPage() {
     });
     const csv = rows.map((r) => r.map((c) => `"${c.replace(/"/g, '""')}"`).join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `attendance_summary_${dateFrom}_${dateTo}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    // 파일명은 서버 export 와 같은 규칙 — 매장/주간/받은시각이 다 들어가야
+    // 여러 주를 연달아 받았을 때 어떤 파일인지 구분된다.
+    triggerBlobDownload(
+      blob,
+      buildExportFilename({
+        kind: "AttendanceSummary",
+        scope: stores.find((s) => s.id === selectedStore)?.name,
+        startDate: dateFrom,
+        endDate: dateTo,
+      }),
+    );
   }
 
   return (
@@ -262,7 +269,7 @@ export function AttendanceSummaryPage() {
                     <div className="flex items-center gap-2.5">
                       <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-bold shrink-0 ${rolePriorityToColorClass(u.role_priority)}`}>{getInitials(u.full_name)}</div>
                       <div className="min-w-0">
-                        <div className="text-[13px] font-semibold text-[var(--color-text)] truncate">{u.full_name || u.username}</div>
+                        <div className="text-[13px] font-semibold text-[var(--color-text)] truncate">{displayName(u)}</div>
                       </div>
                     </div>
                   </td>

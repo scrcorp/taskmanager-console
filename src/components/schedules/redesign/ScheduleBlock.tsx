@@ -160,6 +160,35 @@ function OutsideWindowChip() {
   );
 }
 
+/**
+ * FIXED 칩 — 고정 근무(pattern) 에서 나온 블록. virtual(미리보기) 과 실체화된 행 모두 같은 칩.
+ * virtual 은 confirmed 와 **동일 렌더**(점선·흐림 금지) — 이 칩이 유일한 구분 표식이다.
+ */
+function FixedChip() {
+  return (
+    <span
+      data-testid="schedule-fixed"
+      className="inline-flex items-center shrink-0 text-[8px] font-bold uppercase tracking-wider px-1 py-px rounded bg-[var(--color-info-muted)] text-[var(--color-info)] border border-[var(--color-info)]/30"
+      title="Fixed schedule (repeats weekly)"
+    >
+      Fixed
+    </span>
+  );
+}
+
+/** OVERRIDE 칩 — 고정 근무 자동생성분을 사람이 손댄 행. 패턴 변경(sweep)이 건드리지 않는다. */
+function OverrideChip() {
+  return (
+    <span
+      data-testid="schedule-override"
+      className="inline-flex items-center shrink-0 text-[8px] font-bold uppercase tracking-wider px-1 py-px rounded bg-[var(--color-warning-muted)] text-[var(--color-warning)] border border-[var(--color-warning)]/30"
+      title="Edited from the fixed schedule — changes to the fixed schedule won't touch this day"
+    >
+      Override
+    </span>
+  );
+}
+
 function elapsedSince(iso: string): string {
   const start = new Date(iso).getTime();
   const diff = Math.max(0, Date.now() - start);
@@ -211,6 +240,9 @@ export function ScheduleBlock({ schedule, showCost, attendance, currentStoreId, 
   // 서버 판정 — 시작이 자기 영업일 구간 밖. 저장 검증 이전 행/임포트/경계 설정 변경으로 생긴다.
   const startsOutsideWindow = schedule.start_outside_operating_window === true;
   const autoClockedOut = isAutoClockedOut(attendance);
+  // 고정 근무 표식 — pattern_id 가 있으면 FIXED, 거기에 사람이 손댔으면 OVERRIDE 를 덧붙인다.
+  const isFixed = !!schedule.pattern_id;
+  const isOverridden = isFixed && schedule.pattern_overridden === true;
 
   if (isOtherStore) {
     return (
@@ -222,6 +254,8 @@ export function ScheduleBlock({ schedule, showCost, attendance, currentStoreId, 
           <div className="text-[10px] font-semibold truncate">{schedule.store_name ?? "—"}</div>
           {startsOutsideWindow && <OutsideWindowChip />}
           {isWalkIn && <WalkInChip />}
+          {isFixed && <FixedChip />}
+          {isOverridden && <OverrideChip />}
         </div>
         <div className="text-[11px] font-semibold leading-tight truncate">{roleName} · {positionName}</div>
         <div className="text-[10px] mt-0.5">{timeRange} ({fmtH(hours)} h)</div>
@@ -232,7 +266,8 @@ export function ScheduleBlock({ schedule, showCost, attendance, currentStoreId, 
   const level = getAlertLevel(hours);
   const styles = alertStyles[level];
   const status = schedule.status;
-  const isConfirmed = status === "confirmed";
+  // virtual(고정 근무 미리보기, DB 행 없음)은 confirmed 와 동일하게 그린다 — 제품 UI 에서 점선·흐림 금지.
+  const isConfirmed = status === "confirmed" || status === "virtual";
   const isRequested = status === "requested";
   const isDraft = status === "draft";
   const isRejected = status === "rejected";
@@ -289,6 +324,8 @@ export function ScheduleBlock({ schedule, showCost, attendance, currentStoreId, 
         </span>
         {startsOutsideWindow && <OutsideWindowChip />}
         {isWalkIn && <WalkInChip />}
+        {isFixed && <FixedChip />}
+        {isOverridden && <OverrideChip />}
         <span className={`text-[11px] font-bold tabular-nums shrink-0 ${styles.text}`}>{fmtH(hours)} h</span>
       </div>
 

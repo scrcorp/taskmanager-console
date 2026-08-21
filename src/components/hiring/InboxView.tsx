@@ -9,6 +9,7 @@ import { usePersistedFilters } from "@/hooks/usePersistedFilters";
 import { InboxApplicantsTable } from "./InboxApplicantsTable";
 import { InboxPipeline } from "./InboxPipeline";
 import { InterviewsView } from "./InterviewsView";
+import { useSearchState } from "@/hooks/useSearchState";
 
 type InboxTab = "applicants" | "pipeline" | "interviews";
 
@@ -40,7 +41,9 @@ export function InboxView({ stores }: Props) {
   const setSub = (s: InboxTab): void => setParams({ sub: s === "applicants" ? null : s });
   const setStoreFilter = (id: string): void => setParams({ store: id || null });
 
-  const [q, setQ] = useState("");
+  // 검색 동작 통일 (draft/committed 분리·IME 보정).
+  const search = useSearchState({ delay: 0 });
+  const q = search.committed;
   // applicants 테이블과 공유하는 stage 필터 키 — summary chip 클릭으로 제어.
   const [, setStageParams] = usePersistedFilters("hiring.inbox", { stage: "active" });
 
@@ -125,8 +128,9 @@ export function InboxView({ stores }: Props) {
               className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8]"
             />
             <input
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
+              value={search.value}
+              {...search.imeProps}
+              onChange={search.onChange}
               placeholder="Search name or email"
               className="w-[210px] rounded-xl border border-[#E2E4EA] bg-white py-2 pl-8 pr-3 text-[12.5px] outline-none placeholder:text-[#94A3B8] focus:border-[#6C5CE7]"
             />

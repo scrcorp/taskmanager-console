@@ -33,6 +33,8 @@ import { DateField } from "@/components/ui/DateField";
 import { ROLE_PRIORITY } from "@/lib/permissions";
 import { cn, formatFixedDate } from "@/lib/utils";
 import type { User } from "@/types";
+import { displayName, searchHaystack } from "@/lib/staffLabel";
+import { useSearchState } from "@/hooks/useSearchState";
 
 export interface LinkValues {
   schedule_ids: string[];
@@ -105,7 +107,9 @@ export function LinkPicker({
 
   const [schedDate, setSchedDate] = useState<string>("");
   const [schedQuery, setSchedQuery] = useState<string>("");
-  const [peopleQuery, setPeopleQuery] = useState<string>("");
+  // 검색 동작 통일. 이 목록은 역할로도 찾는다("Search name or role").
+  const peopleSearch = useSearchState({ delay: 0 });
+  const peopleQuery = peopleSearch.committed;
 
   // schedule + (1:1) checklist instance 매핑. checklist.schedule_id 로 link.
   const checklistByScheduleId = useMemo(() => {
@@ -156,14 +160,11 @@ export function LinkPicker({
   }, [storeUsers]);
 
   const filteredUsers = useMemo(() => {
-    if (!peopleQuery.trim()) return sortedUsers;
+    if (!peopleQuery) return sortedUsers;
     const q = peopleQuery.toLowerCase();
-    return sortedUsers.filter((u) => {
-      const fields = [u.full_name, u.username, u.role_name];
-      return fields.some(
-        (s) => typeof s === "string" && s.toLowerCase().includes(q),
-      );
-    });
+    return sortedUsers.filter((u) =>
+      searchHaystack(u, { includeRole: true }).includes(q),
+    );
   }, [sortedUsers, peopleQuery]);
 
   if (!storeId) {
@@ -394,15 +395,16 @@ export function LinkPicker({
           <div className="relative">
             <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-textMuted pointer-events-none" />
             <input
-              value={peopleQuery}
-              onChange={(e) => setPeopleQuery(e.target.value)}
+              value={peopleSearch.value}
+              {...peopleSearch.imeProps}
+              onChange={peopleSearch.onChange}
               placeholder="Search name or role"
               className="pl-7 pr-7 py-1.5 text-xs bg-surface border border-border rounded-md text-text w-56 focus:outline-none focus:ring-1 focus:ring-accent"
             />
-            {peopleQuery && (
+            {peopleSearch.value && (
               <button
                 type="button"
-                onClick={() => setPeopleQuery("")}
+                onClick={() => peopleSearch.clear()}
                 className="absolute right-1.5 top-1/2 -translate-y-1/2 text-textMuted hover:text-text"
                 aria-label="Clear search"
               >
@@ -431,7 +433,7 @@ export function LinkPicker({
                   className="accent-accent"
                 />
                 <UserCircle2 className="w-3.5 h-3.5 text-textMuted shrink-0" />
-                <span className="text-text">{u.full_name ?? u.username}</span>
+                <span className="text-text">{displayName(u)}</span>
                 {u.role_name && (
                   <span className="text-xs text-textMuted">· {u.role_name}</span>
                 )}

@@ -30,6 +30,7 @@ import { useStores } from "@/hooks/useStores";
 import { useStoreGroups } from "@/hooks/useStoreGroups";
 import { EmpidCommitSummary } from "@/components/users/EmpidCommitSummary";
 import type { EmpidKind, EmpidKindFields, Store, StoreGroup, User } from "@/types";
+import { displayName } from "@/lib/staffLabel";
 
 /**
  * 채번 계약(§3-4·§3-6)으로 넓어진 요청/응답 모양. roster/commit 훅 타입은 다른
@@ -305,7 +306,7 @@ function EmpidEditPageBody(): React.ReactElement {
         ?.members.find((m) => m.user_id === uid);
       if (member) return member.full_name;
       const u = usersById.get(uid);
-      return u ? u.full_name || u.username : uid;
+      return u ? displayName(u) : uid;
     },
     [roster, usersById],
   );
@@ -423,7 +424,7 @@ function EmpidEditPageBody(): React.ReactElement {
   addedHere.forEach((a) => memberIds.add(a.user_id));
   const candidates = (Array.isArray(usersData) ? usersData : [])
     .filter((u) => !memberIds.has(u.id))
-    .sort((a, b) => (a.full_name || a.username).localeCompare(b.full_name || b.username));
+    .sort((a, b) => (displayName(a)).localeCompare(displayName(b)));
 
   // ── 구분(kind) 카운트 · 필터 — 선택된 매장 기준. 경고가 아니라 조용한 분류다 ──
   const members: EmpidRosterMember[] = store?.members ?? [];
@@ -716,7 +717,7 @@ function EmpidEditPageBody(): React.ReactElement {
                   return renderRow(
                     {
                       user_id: a.user_id,
-                      name: u ? u.full_name || u.username : a.user_id,
+                      name: u ? displayName(u) : a.user_id,
                       email: u?.email ?? null,
                       empid: null,
                       dormant: false,
@@ -749,7 +750,7 @@ function EmpidEditPageBody(): React.ReactElement {
                   { value: "", label: "Add person…" },
                   ...candidates.map((u) => ({
                     value: u.id,
-                    label: `${u.full_name || u.username}${u.email ? ` (${u.email})` : ""}`,
+                    label: `${displayName(u)}${u.email ? ` (${u.email})` : ""}`,
                   })),
                 ]}
                 value={addUserId}

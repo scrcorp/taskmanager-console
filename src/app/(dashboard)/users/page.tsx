@@ -20,6 +20,8 @@ import { WarnRangeFilter, WARN_MAX } from "@/components/warnings/WarnRangeFilter
 import { useRoles } from "@/hooks/useRoles";
 import { useStores } from "@/hooks/useStores";
 import { usePersistedFilters } from "@/hooks/usePersistedFilters";
+import { useSearchState } from "@/hooks/useSearchState";
+import { displayName, searchHaystack } from "@/lib/staffLabel";
 import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Table, Badge, Modal, Select, MultiSelectFilter } from "@/components/ui";
@@ -137,7 +139,12 @@ export default function UsersPage(): React.ReactElement {
     inactive: "",
     prov: "all",
   });
-  const searchQuery = params.q;
+  // 검색 입력은 useSearchState 가 담당한다 — 입력값(즉시)과 URL 커밋(디바운스)을 분리해
+  // 글자 하나마다 router.replace 가 돌지 않게 한다. IME 조합 중 커밋도 막는다.
+  const search = useSearchState({
+    param: { value: params.q, commit: (v) => setParams({ q: v || null }) },
+  });
+  const searchQuery = search.committed;
   const selectedStaffIds = useMemo(() => csvToArr(params.staff), [params.staff]);
   const selectedRoles = useMemo(() => csvToArr(params.role), [params.role]);
   const selectedDepartments = useMemo(() => csvToArr(params.dept), [params.dept]);
@@ -152,7 +159,6 @@ export default function UsersPage(): React.ReactElement {
   const showInactive = params.inactive === "1";
   const provFilter = (params.prov || "all") as ProvFilter;
 
-  const setSearchQuery = useCallback((v: string) => setParams({ q: v || null }), [setParams]);
   const toggleStaffId = useCallback((id: string) => {
     setParams({ staff: arrToCsv(selectedStaffIds.includes(id) ? selectedStaffIds.filter((x) => x !== id) : [...selectedStaffIds, id]) });
   }, [selectedStaffIds, setParams]);
@@ -437,6 +443,21 @@ export default function UsersPage(): React.ReactElement {
     return result;
   }, [userList, searchQuery, selectedStaffIds, selectedRoles, selectedDepartments, emailFilter, showInactive, provFilter, sortKey, sortDirection, warnFilterActive, warnLo, warnHi, warnMap]);
 
+  /**
+   * Staff 드롭다운에 그릴 후보 — 검색어로 좁힌 뒤 상한만큼만 그린다.
+   * 이전에는 JSX 안에서 매 렌더 전 직원(수백 명) 버튼을 다시 만들었다.
+   */
+  const STAFF_DROPDOWN_LIMIT = 100;
+  const staffDropdownMatches = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return userList;
+    return userList.filter((u) => searchHaystack(u).includes(q));
+  }, [userList, searchQuery]);
+  const staffDropdownVisible = useMemo(
+    () => staffDropdownMatches.slice(0, STAFF_DROPDOWN_LIMIT),
+    [staffDropdownMatches],
+  );
+
   const totalFilterCount = selectedStaffIds.length + selectedRoles.length + selectedDepartments.length + selectedStoreIds.length + (warnFilterActive ? 1 : 0) + (emailFilter !== "all" ? 1 : 0) + (provFilter !== "all" ? 1 : 0);
 
   /**
@@ -682,11 +703,11 @@ export default function UsersPage(): React.ReactElement {
               onClick={(e) => {
                 e.stopPropagation();
                 setAvailHover(null);
-                setAvailEdit({ userId: user.id, name: user.full_name || user.username });
+                setAvailEdit({ userId: user.id, name: displayName(user) });
               }}
               onMouseEnter={(e) =>
                 member &&
-                setAvailHover({ member, name: user.full_name || user.username, x: e.clientX, y: e.clientY })
+                setAvailHover({ member, name: displayName(user), x: e.clientX, y: e.clientY })
               }
               onMouseMove={(e) =>
                 setAvailHover((h) =>
@@ -795,8 +816,9 @@ export default function UsersPage(): React.ReactElement {
             <input
               type="text"
               placeholder="Search..."
-              value={searchQuery}
-              onChange={(e: React.ChangeEvent<HTMLInputElement>) => { setSearchQuery(e.target.value); setOpenFilter("staff"); }}
+              value={search.value}
+              {...search.imeProps}
+              onChange={(e: React.ChangeEvent<HTMLInputElement>) => { search.onChange(e); setOpenFilter("staff"); }}
               onFocus={() => setOpenFilter("staff")}
               onKeyDown={(e: React.KeyboardEvent) => { if (e.key === "Escape") { e.preventDefault(); setOpenFilter(null); } }}
               className={`w-48 rounded-lg border border-border bg-bg pl-8 pr-3 py-1.5 text-[12px] text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/50 focus:border-accent ${selectedStaffIds.length > 0 ? "pr-8" : ""}`}
@@ -824,15 +846,15 @@ export default function UsersPage(): React.ReactElement {
                       <span className="flex-1 font-semibold text-text">All</span>
                     </button>
                   )}
-                  {(() => {
-                    const query = searchQuery.trim().toLowerCase();
-                    const filtered = query
-                      ? userList.filter((u) => (u.full_name ?? u.username).toLowerCase().includes(query) || u.username.toLowerCase().includes(query))
-                      : userList;
-                    if (filtered.length === 0) {
-                      return <p className="px-3 py-4 text-center text-[13px] text-text-muted">No matching staff found.</p>;
-                    }
-                    return filtered.map((u) => (
+                  {staffDropdownMatches.length === 0 && (
+                    <p className="px-3 py-4 text-center text-[13px] text-text-muted">No matching staff found.</p>
+                  )}
+                  {staffDropdownMatches.length > staffDropdownVisible.length && (
+                    <p className="px-3 py-2 text-[11px] text-text-muted border-b border-border">
+                      Showing first {STAFF_DROPDOWN_LIMIT} of {staffDropdownMatches.length} — type to narrow.
+                    </p>
+                  )}
+                  {staffDropdownVisible.map((u) => (
                       <button
                         key={u.id}
                         type="button"
@@ -844,11 +866,10 @@ export default function UsersPage(): React.ReactElement {
                             <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="2 5 4.5 7.5 8 3" /></svg>
                           )}
                         </span>
-                        <span className="flex-1 font-medium text-text">{u.full_name || u.username}</span>
+                        <span className="flex-1 font-medium text-text">{displayName(u)}</span>
                         <span className="text-[10px] text-text-muted uppercase">{u.role_name}</span>
                       </button>
-                    ));
-                  })()}
+                  ))}
                 </div>
               </div>
             )}
@@ -1012,7 +1033,7 @@ export default function UsersPage(): React.ReactElement {
               if (!u) return null;
               return (
                 <span key={`u${id}`} className="inline-flex items-center gap-1 px-2.5 py-1 bg-accent-muted text-accent rounded-full text-[11px] font-semibold">
-                  {u.full_name || u.username}
+                  {displayName(u)}
                   <button type="button" onClick={() => toggleStaffId(id)} className="opacity-60 hover:opacity-100 ml-0.5">×</button>
                 </span>
               );

@@ -10,6 +10,8 @@ export const PAYROLL_GATE = {
   RATE_MISSING: "rate_missing",
   BELOW_MINIMUM_WAGE: "below_minimum_wage",
   OPEN_SHIFT: "open_shift",
+  /** 스케줄은 있었는데 clock-in 없이 no_show 승격 — 경고만 (차단 게이트 아님). */
+  NO_SHOW: "no_show",
   UNCONFIRMED_AUTO_CLOCKOUT: "unconfirmed_auto_clockout",
   UNCONFIRMED_EARLY_CLOCK_IN: "unconfirmed_early_clock_in",
   /** 같은 사람의 두 근태가 시간대로 겹침 — 같은 시간이 두 번 지급된다 (D15). */
@@ -29,7 +31,10 @@ export const PAYROLL_ERROR_CODES = {
 export interface PayPeriod {
   id: string;
   organization_id: string;
-  store_id: string;
+  /** 급여 스코프 = 법인(group). 레거시(전환 전 확정) 기간만 null. */
+  store_group_id: string | null;
+  /** 레거시 store 스코프 기간 전용 — 신규(group) 기간은 null. */
+  store_id: string | null;
   /** YYYY-MM-DD */
   start_date: string;
   /** YYYY-MM-DD (inclusive) */
@@ -38,7 +43,7 @@ export interface PayPeriod {
   confirmed_at: string | null;
   confirmed_by: string | null;
   override_reason: string | null;
-  /** 대응 tip_period.status. null = tip period 미생성. */
+  /** tip_period status 요약 — 그룹 내 전 매장 confirmed 여야 "confirmed". null = 미생성 매장 있음. */
   tip_period_status: string | null;
 }
 
@@ -91,6 +96,19 @@ export interface DayDetail {
    */
   shifts?: WorkedShift[];
   breaks?: WorkedBreak[];
+  /**
+   * 그날 대표 매장(근무 시간 최다) — 근태 딥링크의 매장.
+   * group(법인) 기간은 period 에 매장이 없으므로 **이 값이 매장의 유일한 원천**이다.
+   * 옛 동결본에는 없다(undefined) → 매장 없이 열린다.
+   */
+  store_id?: string | null;
+  /** 그날 근무한 매장 전체 — 같은 날 그룹 내 두 매장이면 2개 */
+  store_ids?: string[];
+  /**
+   * 그날 attendance 가 정확히 1건일 때만 — 있으면 목록 대신 **상세로 직행**.
+   * split shift·같은 날 두 매장이면 없다(하나로 특정 불가) → 목록 필터로 폴백.
+   */
+  attendance_id?: string | null;
 }
 
 /**

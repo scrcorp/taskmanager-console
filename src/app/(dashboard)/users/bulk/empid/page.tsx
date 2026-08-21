@@ -60,6 +60,8 @@ import {
   type EmpidRosterMember,
   type EmpidRosterStore,
 } from "@/hooks/useEmpidRoster";
+import { displayName, searchHaystack } from "@/lib/staffLabel";
+import { useSearchState } from "@/hooks/useSearchState";
 
 type Step = "upload" | "preview" | "result";
 
@@ -247,17 +249,17 @@ function UserPicker({
   suggestedId: string | null;
   onChange: (userId: string) => void;
 }): React.ReactElement {
-  const [filter, setFilter] = useState("");
+  // 검색 동작 통일 (draft/committed 분리·IME 보정).
+  const searchState = useSearchState({ delay: 0 });
+  const filter = searchState.committed;
 
   const options = useMemo(() => {
-    const q = filter.trim().toLowerCase();
+    const q = filter.toLowerCase();
     let list = users;
     if (q) {
       list = users.filter(
         (u) =>
-          (u.full_name?.toLowerCase().includes(q) ?? false) ||
-          u.username.toLowerCase().includes(q) ||
-          (u.email?.toLowerCase().includes(q) ?? false),
+          searchHaystack(u).includes(q),
       );
     }
     if (value && !list.some((u) => u.id === value)) {
@@ -270,8 +272,9 @@ function UserPicker({
   return (
     <span className="inline-flex flex-col gap-1">
       <input
-        value={filter}
-        onChange={(e) => setFilter(e.target.value)}
+        value={searchState.value}
+        {...searchState.imeProps}
+        onChange={searchState.onChange}
         placeholder="Filter users…"
         className="w-56 px-2 py-1 rounded-md bg-surface border border-border text-xs text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/20"
       />
@@ -289,7 +292,7 @@ function UserPicker({
           </option>
           {options.map((u) => (
             <option key={u.id} value={u.id}>
-              {u.full_name || u.username}
+              {displayName(u)}
               {u.email ? ` (${u.email})` : ""}
             </option>
           ))}
@@ -588,6 +591,8 @@ function ExportEmpidModal({ onClose }: { onClose: () => void }): React.ReactElem
   const [bandFrom, setBandFrom] = useState("");
   const [bandTo, setBandTo] = useState("");
   const [includeDormant, setIncludeDormant] = useState(true);
+  /** Deactivated accounts still occupy numbers but are not export targets — off by default. */
+  const [includeInactive, setIncludeInactive] = useState(false);
   /** Manual per-row exclusions ("user:store" keys) — survive filter changes. */
   const [manualOff, setManualOff] = useState<Set<string>>(new Set());
 
@@ -746,13 +751,14 @@ function ExportEmpidModal({ onClose }: { onClose: () => void }): React.ReactElem
         if (band.to !== null && m.empid > band.to) return false;
       }
       if (!includeDormant && !m.is_work_assignment) return false;
+      if (!includeInactive && !m.is_active) return false;
       return true;
     };
     return roster
       .filter((s) => storeSel === "all" || storeSel.has(s.store_id))
       .map((s) => ({ store: s, members: s.members.filter(passes) }))
       .filter((r) => r.members.length > 0);
-  }, [roster, storeSel, rolesOff, dept, numbers, band, includeDormant]);
+  }, [roster, storeSel, rolesOff, dept, numbers, band, includeDormant, includeInactive]);
 
   /** Final export list = filter-passing rows minus manual exclusions. */
   const { visibleCount, selectedItems } = useMemo(() => {
@@ -1013,6 +1019,17 @@ function ExportEmpidModal({ onClose }: { onClose: () => void }): React.ReactElem
               />
               Include dormant assignments
             </label>
+
+            {/* Deactivated accounts */}
+            <label className="flex items-center gap-2 cursor-pointer text-sm text-text">
+              <input
+                type="checkbox"
+                checked={includeInactive}
+                onChange={() => setIncludeInactive((v) => !v)}
+                className="cursor-pointer accent-accent"
+              />
+              Include deactivated accounts
+            </label>
           </div>
 
           {/* ── Right: filtered people, grouped by store ── */}
@@ -1082,6 +1099,14 @@ function ExportEmpidModal({ onClose }: { onClose: () => void }): React.ReactElem
                                 className="text-[10px] uppercase tracking-wide"
                               >
                                 Dormant
+                              </Badge>
+                            )}
+                            {!m.is_active && (
+                              <Badge
+                                variant="danger"
+                                className="text-[10px] uppercase tracking-wide"
+                              >
+                                Deactivated
                               </Badge>
                             )}
                           </label>

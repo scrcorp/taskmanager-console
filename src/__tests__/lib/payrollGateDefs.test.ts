@@ -11,6 +11,7 @@ import {
   ATTENDANCE_FIXES,
   EXTRA_GATE_LABELS,
   GATE_DEFS,
+  WARNING_ONLY_GATE_CODES,
 } from "@/lib/payrollGateDefs";
 import { PAYROLL_GATE } from "@/types/payroll";
 
@@ -21,10 +22,21 @@ const coveredCodes = new Set([
 
 describe("GATE_DEFS 코드 커버리지", () => {
   it("PAYROLL_GATE 의 모든 코드가 카드 하나에 매핑돼 있다", () => {
+    // 경고 전용 코드(확정을 막지 않음)는 카드가 없지만 **명시 선언**돼야 한다.
+    // 선언도 카드도 없으면 매니저 눈에서 조용히 사라지므로 여기서 잡는다.
     const missing = Object.values(PAYROLL_GATE).filter(
-      (code) => !coveredCodes.has(code),
+      (code) =>
+        !coveredCodes.has(code) && !WARNING_ONLY_GATE_CODES.includes(code),
     );
     expect(missing).toEqual([]);
+  });
+
+  it("경고 전용 코드는 게이트 카드로 올라가 있지 않다", () => {
+    // 카드로 올리면 "해결해야 확정된다" 로 읽히는데 실제로는 통과한다.
+    const leaked = WARNING_ONLY_GATE_CODES.filter((code) =>
+      coveredCodes.has(code),
+    );
+    expect(leaked).toEqual([]);
   });
 
   it("겹침 게이트가 존재하고 근태 화면에서 고치게 되어 있다", () => {

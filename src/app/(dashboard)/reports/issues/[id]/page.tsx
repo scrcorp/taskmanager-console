@@ -70,6 +70,7 @@ import {
   type IssueSeverity,
   type IssueVisibilityScope,
 } from "@/types";
+import { displayName } from "@/lib/staffLabel";
 
 const statusMeta: Record<
   string,
@@ -718,7 +719,7 @@ function RelatedResources({
   const userLabels = React.useMemo(() => {
     const map = new Map<string, string>();
     (storeUsers ?? []).forEach((u) => {
-      const display = u.full_name ?? u.username;
+      const display = displayName(u);
       map.set(u.id, `${display} (${u.role_name})`);
     });
     return map;

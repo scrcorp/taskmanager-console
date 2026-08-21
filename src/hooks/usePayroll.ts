@@ -87,25 +87,27 @@ function rangeStart(): string {
 }
 
 /**
- * 매장의 pay period 목록 — 최근 ~6개월. end 는 서버가 store-tz 오늘로 기본 처리.
- * 응답은 start_date 오름차순 보장 위해 클라이언트에서 정렬.
+ * 법인(그룹)의 pay period 목록 — 최근 ~6개월. end 는 서버가 그룹-tz 오늘로 기본 처리.
+ * 급여 스코프는 매장이 아니라 법인(group)이다 — 2026-08-19 전환.
+ * 응답은 start_date 오름차순 보장 위해 클라이언트에서 정렬
+ * (레거시 store 스코프 확정 기간도 함께 온다).
  *
- * 매장 전환 시 직전 목록을 placeholder 로 유지 — 헤더의 기간 네비가 사라졌다
+ * 그룹 전환 시 직전 목록을 placeholder 로 유지 — 헤더의 기간 네비가 사라졌다
  * 나타나며 페이지가 리셋된 것처럼 보이는 것을 막는다 (호출 측은
  * isPlaceholderData 로 본문만 로딩 처리).
  */
 export function usePayPeriods(
-  storeId: string | null,
+  groupId: string | null,
 ): UseQueryResult<PayPeriod[], Error> {
   return useQuery<PayPeriod[], Error>({
-    queryKey: ["payroll", "periods", storeId],
-    enabled: !!storeId,
+    queryKey: ["payroll", "periods", groupId],
+    enabled: !!groupId,
     retry: retryNon4xx,
     placeholderData: keepPreviousData,
     queryFn: async (): Promise<PayPeriod[]> => {
       const resp: AxiosResponse<PayPeriod[]> = await api.get(
         "/console/payroll/periods/",
-        { params: { store_id: storeId, start: rangeStart() } },
+        { params: { group_id: groupId, start: rangeStart() } },
       );
       return [...resp.data].sort((a, b) =>
         a.start_date.localeCompare(b.start_date),
@@ -229,15 +231,22 @@ async function blobErrorMessage(err: unknown, fallback: string): Promise<string>
  * 확정 기간은 동결본, open 기간은 draft (서버가 배너 행 + payroll_draft_… 파일명을
  * 내려준다) — 파일명은 Content-Disposition 을 그대로 따른다.
  */
+export interface ExportPeriodInput {
+  periodId: string;
+  /** 기간에 급여 활동이 없는 재직 직원도 0 행으로 — 파일 전용, 화면 로스터 무관 */
+  includeIdleMembers?: boolean;
+}
+
 export function useExportPeriod(): UseMutationResult<
   void,
   Error,
-  { periodId: string }
+  ExportPeriodInput
 > {
   const { rawError } = useMutationResult();
-  return useMutation<void, Error, { periodId: string }>({
-    mutationFn: async ({ periodId }): Promise<void> => {
+  return useMutation<void, Error, ExportPeriodInput>({
+    mutationFn: async ({ periodId, includeIdleMembers }): Promise<void> => {
       const resp = await api.get(`/console/payroll/periods/${periodId}/export`, {
+        params: includeIdleMembers ? { include_idle_members: true } : undefined,
         responseType: "blob",
       });
       const dispo = (resp.headers as Record<string, unknown>)[
