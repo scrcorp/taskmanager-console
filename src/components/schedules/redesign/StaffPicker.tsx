@@ -17,6 +17,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { User } from "@/types";
 import { canAssignOn, isNeverAssignable } from "@/lib/assignability";
+import { displayName } from "@/lib/staffLabel";
+import { useSearchState } from "@/hooks/useSearchState";
 
 interface Props {
   /** 선택된 user id */
@@ -40,9 +42,6 @@ function getInitials(name: string | null | undefined): string {
   return ((parts[0]![0] ?? "") + (parts[parts.length - 1]![0] ?? "")).toUpperCase();
 }
 
-function displayName(u: User): string {
-  return u.full_name || u.username;
-}
 
 /** 검색 대상: 이름 / username / 사번 — 사용자가 아는 식별자는 이 셋 중 하나다. */
 function matches(u: User, q: string): boolean {
@@ -53,10 +52,11 @@ function matches(u: User, q: string): boolean {
 
 export function StaffPicker({ value, onChange, eligible, changed, storeName, date }: Props) {
   const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
+  // 검색 동작은 useSearchState 로 통일 (draft/committed 분리·IME 보정).
+  const search = useSearchState({ delay: 0 });
   const rootRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
-  const q = query.trim().toLowerCase();
+  const q = search.committed.toLowerCase();
 
   const inStore = useMemo(
     () => eligible
@@ -99,7 +99,9 @@ export function StaffPicker({ value, onChange, eligible, changed, storeName, dat
 
   useEffect(() => {
     if (open) inputRef.current?.focus();
-    else setQuery("");
+    else search.clear();
+    // search.clear 는 안정 콜백 — open 변화에만 반응한다.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open]);
 
   return (
@@ -127,8 +129,9 @@ export function StaffPicker({ value, onChange, eligible, changed, storeName, dat
           <div className="p-2 border-b border-[var(--color-border)]">
             <input
               ref={inputRef}
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
+              value={search.value}
+              {...search.imeProps}
+              onChange={search.onChange}
               placeholder="Search by name or ID"
               className="w-full px-2.5 py-1.5 rounded-lg border border-[var(--color-border)] bg-[var(--color-bg)] text-[13px] focus:outline-none focus:border-[var(--color-accent)]"
             />
@@ -159,7 +162,7 @@ export function StaffPicker({ value, onChange, eligible, changed, storeName, dat
 
             {inStore.length === 0 && (
               <div className="px-3 py-6 text-center text-[12px] text-[var(--color-text-muted)]">
-                {query.trim()
+                {search.committed
                   ? "No staff match this search."
                   : `No staff assigned to ${storeName ?? "this store"} can be scheduled on this date.`}
               </div>

@@ -38,6 +38,7 @@ import {
   anomalyLabel,
   hasOverlappingClockIn,
 } from '@/lib/attendanceAnomalies'
+import { displayName } from "@/lib/staffLabel"
 
 type ViewMode = 'daily' | 'weekly'
 
@@ -461,7 +462,7 @@ export function AttendancePage() {
   // Confirmed 툴팁의 "who" resolve 용 (확인자가 이 매장 소속이 아니면 이름 생략).
   const userIdToName = useMemo(() => {
     const m = new Map<string, string>()
-    for (const u of storeUsers) m.set(u.id, u.full_name || u.username)
+    for (const u of storeUsers) m.set(u.id, displayName(u))
     return m
   }, [storeUsers])
 

@@ -44,6 +44,7 @@ import { useMidnightRefresh } from "@/hooks/useMidnightRefresh";
 import { useWorkRoles } from "@/hooks/useWorkRoles";
 import { useBulkCreateSchedules, useBulkUpdateSchedules, useBulkDeleteSchedules } from "@/hooks/useSchedules";
 import BulkScheduleView, { type SavePayload } from "./BulkScheduleView";
+import { displayName } from "@/lib/staffLabel";
 
 type ViewMode = "weekly" | "daily" | "monthly";
 type SortState = "none" | "confirmed" | "requested";
@@ -2056,7 +2057,7 @@ export default function SchedulesCalendarView() {
                           )}
                           {/* 이름 — 이 줄은 이름만 쓴다 */}
                           <div className="text-[13px] font-semibold text-[var(--color-text)] truncate">
-                            {u.full_name || u.username}
+                            {displayName(u)}
                           </div>
                           {/* 2행: 직급 · 시급 */}
                           <div className="text-[10px] text-[var(--color-text-muted)] truncate">

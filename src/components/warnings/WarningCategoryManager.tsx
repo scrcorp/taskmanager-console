@@ -23,6 +23,7 @@ import {
 } from "@/hooks/useWarningCategories";
 import type { WarningCategoryItem } from "@/types";
 
+import { isImeComposing } from "@/lib/ime";
 export function WarningCategoryManager() {
   const modal = useModal();
   const { isOwner } = usePermissions();
@@ -147,6 +148,7 @@ export function WarningCategoryManager() {
             value={newLabel}
             onChange={(e) => setNewLabel(e.target.value)}
             onKeyDown={(e) => {
+              if (isImeComposing(e)) return;
               if (e.key === "Enter") handleAdd();
             }}
             placeholder="Add a category…"

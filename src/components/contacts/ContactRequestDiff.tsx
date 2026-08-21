@@ -23,6 +23,7 @@ import type {
   ContactTargetType,
   ContactVisibility,
 } from "@/types";
+import { displayName } from "@/lib/staffLabel";
 
 const EMPTY = "—";
 
@@ -93,7 +94,7 @@ export function ContactRequestDiff({
       return (roles ?? []).find((x) => x.id === id)?.name ?? "A role you cannot see";
     }
     const u = (users ?? []).find((x) => x.id === id);
-    return u ? u.full_name || u.username : "Someone you cannot see";
+    return u ? displayName(u) : "Someone you cannot see";
   }
 
   function visibilityText(

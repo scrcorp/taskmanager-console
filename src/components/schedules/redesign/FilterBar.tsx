@@ -10,8 +10,10 @@
 
 import { useState, useRef, useEffect, useMemo } from "react";
 import { MultiSelectFilter } from "@/components/ui";
+import { toStaffOptions, matchStaffOption } from "@/hooks/useStaffOptions";
 import type { User, Schedule } from "@/types";
 import { ROLE_PRIORITY } from "@/lib/permissions";
+import { displayName } from "@/lib/staffLabel";
 
 export interface FilterState {
   staffIds: string[];
@@ -162,11 +164,9 @@ export function FilterBar({ filters, onChange, users, schedules, selectedStoreId
   };
 
   // ── Staff 옵션 (검색 + 커스텀 row: 아바타 + role 약어 + Scheduled 뱃지)
-  const staffOptions = users.map((u) => ({
-    id: u.id,
-    label: u.full_name || u.username,
-    user: u,
-  }));
+  // 옵션 파생은 toStaffOptions 단일 규칙 (AttendanceFilterBar 와 동일).
+  // useMemo 필수 — 매 렌더 새 배열이면 하위가 매번 새 참조를 받는다.
+  const staffOptions = useMemo(() => toStaffOptions(users), [users]);
 
   return (
     <div className="bg-[var(--color-surface)] border border-[var(--color-border)] rounded-xl px-4 py-3 mb-4">
@@ -183,12 +183,7 @@ export function FilterBar({ filters, onChange, users, schedules, selectedStoreId
           width={300}
           open={openMenu === "staff"}
           onOpenChange={handleOpenChange("staff")}
-          filterFn={(opt, q) => {
-            const u = opt.user;
-            const needle = q.trim().toLowerCase();
-            return (u.full_name ?? u.username).toLowerCase().includes(needle)
-              || u.username.toLowerCase().includes(needle);
-          }}
+          filterFn={matchStaffOption}
           renderOption={(opt, isSelected) => {
             const u = opt.user;
             const hasSchedule = usersWithSchedule.has(u.id);
@@ -199,7 +194,7 @@ export function FilterBar({ filters, onChange, users, schedules, selectedStoreId
                   <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold shrink-0 ${rolePriorityToColorClass(u.role_priority)}`}>
                     {getInitials(u.full_name)}
                   </div>
-                  <span className="font-medium text-[var(--color-text)] truncate">{u.full_name || u.username}</span>
+                  <span className="font-medium text-[var(--color-text)] truncate">{displayName(u)}</span>
                   <span className="text-[10px] text-[var(--color-text-muted)] uppercase shrink-0">{roleId}</span>
                 </div>
                 <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded shrink-0 ${hasSchedule ? "bg-[var(--color-success-muted)] text-[var(--color-success)]" : "bg-[var(--color-bg)] text-[var(--color-text-muted)]"}`}>
@@ -378,7 +373,7 @@ export function FilterBar({ filters, onChange, users, schedules, selectedStoreId
             if (!u) return null;
             return (
               <span key={`s${id}`} className="inline-flex items-center gap-1 px-2.5 py-1 bg-[var(--color-accent-muted)] text-[var(--color-accent)] rounded-full text-[11px] font-semibold">
-                {u.full_name || u.username}
+                {displayName(u)}
                 <button type="button" onClick={() => toggle("staffIds", id)} className="opacity-60 hover:opacity-100 ml-0.5">×</button>
               </span>
             );

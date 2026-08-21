@@ -61,6 +61,9 @@ import { StaffWarningsSection } from "@/components/warnings/StaffWarningsSection
 import { RateChangeSection } from "@/components/users/RateChangeSection";
 import type { User, Store, StoreGroup, Role, UserStoreAssignment } from "@/types";
 
+import { isImeComposing } from "@/lib/ime";
+import { displayName } from "@/lib/staffLabel";
+import { useSearchState } from "@/hooks/useSearchState";
 /* -------------------------------------------------------------------------- */
 /*  Type Definitions                                                          */
 /* -------------------------------------------------------------------------- */
@@ -185,7 +188,9 @@ export default function UserDetailPage(): React.ReactElement {
   const absorbProvisional = useAbsorbProvisional();
   /** org 유저 목록 — 흡수 대상 후보. 미가입 계정만 보고 있을 때만 필요하다. */
   const { data: orgUsers, isLoading: orgUsersLoading } = useUsers();
-  const [absorbFilter, setAbsorbFilter] = useState<string>("");
+  // 검색 동작 통일 (draft/committed 분리·IME 보정).
+  const absorbSearch = useSearchState({ delay: 0 });
+  const absorbFilter = absorbSearch.committed;
   const [absorbTargetId, setAbsorbTargetId] = useState<string>("");
   /** preview 결과 — 열려 있으면 확인 모달이 뜬다 */
   const [absorbPlan, setAbsorbPlan] = useState<AbsorbPlan | null>(null);
@@ -200,7 +205,7 @@ export default function UserDetailPage(): React.ReactElement {
 
   /** 검색어 적용 — 선택된 유저는 필터에서 밀려나도 목록에 남긴다 */
   const absorbOptions: User[] = useMemo(() => {
-    const q = absorbFilter.trim().toLowerCase();
+    const q = absorbFilter.toLowerCase();
     let list = absorbCandidates;
     if (q) {
       list = absorbCandidates.filter(
@@ -924,8 +929,9 @@ export default function UserDetailPage(): React.ReactElement {
               </label>
               <input
                 id="absorb-target-filter"
-                value={absorbFilter}
-                onChange={(e) => setAbsorbFilter(e.target.value)}
+                value={absorbSearch.value}
+                {...absorbSearch.imeProps}
+                onChange={absorbSearch.onChange}
                 placeholder="Filter by name, username or email…"
                 className="w-full sm:w-72 px-3 py-1.5 rounded-lg bg-surface border border-border text-sm text-text placeholder:text-text-muted focus:outline-none focus:ring-2 focus:ring-accent/20 focus:border-accent transition-colors"
               />
@@ -941,7 +947,7 @@ export default function UserDetailPage(): React.ReactElement {
                 </option>
                 {absorbOptions.map((u: User) => (
                   <option key={u.id} value={u.id}>
-                    {u.full_name || u.username}
+                    {displayName(u)}
                     {u.username ? ` (@${u.username})` : ""}
                   </option>
                 ))}
@@ -1971,6 +1977,7 @@ function StoreEmpidCell({
             setDraft(e.target.value.replace(/\D/g, "").slice(0, 6))
           }
           onKeyDown={(e) => {
+            if (isImeComposing(e)) return;
             if (e.key === "Enter") saveEdit();
             if (e.key === "Escape") cancelEdit();
           }}

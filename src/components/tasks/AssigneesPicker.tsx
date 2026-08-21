@@ -21,6 +21,8 @@ import { LoadingSpinner } from "@/components/ui";
 import { ROLE_PRIORITY } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 import type { User } from "@/types";
+import { displayName, searchHaystack } from "@/lib/staffLabel";
+import { useSearchState } from "@/hooks/useSearchState";
 
 export interface AssigneesValue {
   user_ids: string[];
@@ -61,7 +63,9 @@ export function AssigneesPicker({
     ? { store_ids: storeIds, is_active: true }
     : undefined;
   const { data: storeUsers, isLoading } = useUsers(usersFilter);
-  const [query, setQuery] = useState("");
+  // 검색 동작 통일. 이 화면은 역할로도 찾는다("Search name or role") — 명시적으로 켠다.
+  const search = useSearchState({ delay: 0 });
+  const query = search.committed;
 
   const sortedUsers: User[] = useMemo(() => {
     if (!storeUsers) return [];
@@ -75,9 +79,7 @@ export function AssigneesPicker({
     if (!query.trim()) return sortedUsers;
     const q = query.toLowerCase();
     return sortedUsers.filter((u) =>
-      [u.full_name, u.username, u.role_name].some(
-        (s) => typeof s === "string" && s.toLowerCase().includes(q),
-      ),
+      searchHaystack(u, { includeRole: true }).includes(q),
     );
   }, [sortedUsers, query]);
 
@@ -192,8 +194,9 @@ export function AssigneesPicker({
           />
           <input
             type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            value={search.value}
+            {...search.imeProps}
+            onChange={search.onChange}
             placeholder="Search name or role"
             className="w-full text-sm pl-8 pr-3 py-2 bg-surface border border-border rounded-md text-text placeholder:text-textMuted focus:outline-none focus:border-accent"
           />
@@ -219,7 +222,7 @@ export function AssigneesPicker({
                     onChange={() => toggleUser(u.id)}
                     className="accent-accent"
                   />
-                  <span className="text-text">{u.full_name ?? u.username}</span>
+                  <span className="text-text">{displayName(u)}</span>
                   <span className="text-xs text-textMuted">· {u.role_name}</span>
                   {/* 퇴사·비활성 직원이 목록에 섞여 있어도 한눈에 보이게 (2026-08-19) */}
                   <StaffStatusBadge staff={u} />

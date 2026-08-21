@@ -16,6 +16,7 @@ import { useCompletionLog } from "@/hooks/useCompletionLog";
 import type { CompletionLogEntry } from "@/hooks/useCompletionLog";
 import { usePermissions } from "@/hooks/usePermissions";
 import { usePersistedFilters } from "@/hooks/usePersistedFilters";
+import { useSearchState } from "@/hooks/useSearchState";
 import { PERMISSIONS } from "@/lib/permissions";
 import { Card, Badge, Pagination, EmptyState, LoadingSpinner } from "@/components/ui";
 import { useTimezone } from "@/hooks/useTimezone";
@@ -130,7 +131,11 @@ function ScheduleLogsContent(): React.ReactElement {
   const datePreset = params.preset as DatePreset;
   const customFrom = params.from;
   const customTo = params.to;
-  const searchQuery = params.q;
+  // 입력(즉시) / URL 커밋(디바운스) 분리 — useSearchState 참조.
+  const search = useSearchState({
+    param: { value: params.q, commit: (v) => setParams({ q: v || null, page: null }) },
+  });
+  const searchQuery = search.committed;
   const sort: SortState = { key: params.sort_key, dir: params.sort_dir as "asc" | "desc" };
   const page = Math.max(1, Number(params.page) || 1);
   const perPage = 15;
@@ -140,7 +145,6 @@ function ScheduleLogsContent(): React.ReactElement {
   const setDatePreset = (v: DatePreset): void => setParams({ preset: v === "today" ? null : v, page: null });
   const setCustomFrom = (v: string): void => setParams({ from: v || null, page: null });
   const setCustomTo = (v: string): void => setParams({ to: v || null, page: null });
-  const setSearchQuery = (v: string): void => setParams({ q: v || null, page: null });
   const setSort = (next: SortState | ((prev: SortState) => SortState)): void => {
     const resolved = typeof next === "function" ? next(sort) : next;
     setParams({ sort_key: resolved.key, sort_dir: resolved.dir });
@@ -315,8 +319,9 @@ function ScheduleLogsContent(): React.ReactElement {
           <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-text-muted pointer-events-none" />
           <input
             type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            value={search.value}
+            {...search.imeProps}
+            onChange={search.onChange}
             placeholder="Search logs..."
             className="pl-8 pr-3 py-1.5 text-xs bg-surface border border-border rounded-lg text-text focus:border-accent focus:ring-1 focus:ring-accent outline-none min-w-[180px]"
           />

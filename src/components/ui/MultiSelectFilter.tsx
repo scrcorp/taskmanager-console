@@ -14,7 +14,8 @@
  * One component, many variations via props (searchable, renderOption, width).
  */
 
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useSearchState } from "@/hooks/useSearchState";
 import { Search, ChevronDown, Check, X } from "lucide-react";
 
 export interface MultiSelectOption {
@@ -52,6 +53,11 @@ interface Props<T extends MultiSelectOption = MultiSelectOption> {
   onOpenChange?: (open: boolean) => void;
   /** 트리거 버튼 className 추가 hook. */
   className?: string;
+  /**
+   * 한 번에 그릴 옵션 최대 개수 (기본 100). 직원 수백 명 목록에서 검색어를 칠 때마다
+   * 전 항목 버튼을 다시 만드는 비용을 막는다. 넘치면 "좁혀 달라" 안내를 보여준다.
+   */
+  maxRendered?: number;
 }
 
 export function MultiSelectFilter<T extends MultiSelectOption = MultiSelectOption>({
@@ -68,9 +74,14 @@ export function MultiSelectFilter<T extends MultiSelectOption = MultiSelectOptio
   open: controlledOpen,
   onOpenChange,
   className = "",
+  maxRendered = 100,
 }: Props<T>): React.ReactElement {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
-  const [query, setQuery] = useState("");
+  // 검색 동작은 useSearchState 에 위임 — IME 조합 가드가 여기 한 곳에 들어가면
+  // 이 컴포넌트를 쓰는 모든 필터가 동시에 고쳐진다. 클라이언트 필터라 지연은 짧게.
+  const search = useSearchState({ delay: 0 });
+  const query = search.value;
+  const committedQuery = search.committed;
   const containerRef = useRef<HTMLDivElement>(null);
 
   const isControlled = controlledOpen !== undefined;
@@ -82,7 +93,7 @@ export function MultiSelectFilter<T extends MultiSelectOption = MultiSelectOptio
     } else {
       setUncontrolledOpen(next);
     }
-    if (!next) setQuery("");
+    if (!next) search.clear();
   };
 
   // Outside click + ESC → 닫기
@@ -111,12 +122,21 @@ export function MultiSelectFilter<T extends MultiSelectOption = MultiSelectOptio
   const count = selected.length;
   const allChecked = count === 0;
 
-  const visibleOptions: T[] = searchable && query.trim()
-    ? options.filter((o) => {
-        if (filterFn) return filterFn(o, query);
-        return o.label.toLowerCase().includes(query.trim().toLowerCase());
-      })
-    : options;
+  const matched: T[] = useMemo(() => {
+    if (!searchable || !committedQuery) return options;
+    return options.filter((o) => {
+      if (filterFn) return filterFn(o, committedQuery);
+      return o.label.toLowerCase().includes(committedQuery.toLowerCase());
+    });
+    // filterFn 은 호출부에서 매 렌더 새 함수로 오는 경우가 많아 의존성에서 뺀다
+    // (같은 렌더 안에서는 항상 최신 것이 쓰인다).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [options, committedQuery, searchable]);
+
+  const visibleOptions: T[] = matched.length > maxRendered
+    ? matched.slice(0, maxRendered)
+    : matched;
+  const hiddenCount = matched.length - visibleOptions.length;
 
   return (
     <div ref={containerRef} className={`relative ${className}`}>
@@ -154,14 +174,15 @@ export function MultiSelectFilter<T extends MultiSelectOption = MultiSelectOptio
                   type="text"
                   autoFocus
                   placeholder={searchPlaceholder}
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
+                  value={search.value}
+                  {...search.imeProps}
+                  onChange={search.onChange}
                   className="bg-transparent outline-none text-[13px] w-full"
                 />
                 {query && (
                   <button
                     type="button"
-                    onClick={() => setQuery("")}
+                    onClick={() => search.clear()}
                     className="text-[var(--color-text-muted)] hover:text-[var(--color-text)]"
                   >
                     <X size={11} />
@@ -191,6 +212,12 @@ export function MultiSelectFilter<T extends MultiSelectOption = MultiSelectOptio
                 <div className="text-[12px] text-[var(--color-text-muted)]">
                   {query ? "No matches" : "No options"}
                 </div>
+              </div>
+            )}
+
+            {hiddenCount > 0 && (
+              <div className="px-3 py-2 text-[11px] text-[var(--color-text-muted)] border-b border-[var(--color-border)]">
+                Showing first {maxRendered} of {matched.length} — type to narrow.
               </div>
             )}
 

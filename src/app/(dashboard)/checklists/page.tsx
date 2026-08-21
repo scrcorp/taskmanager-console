@@ -41,6 +41,7 @@ import { useModal } from "@/components/ui/imperative-modal";
 import { cn } from "@/lib/utils";
 import { usePermissions } from "@/hooks/usePermissions";
 import { PERMISSIONS } from "@/lib/permissions";
+import { isImeComposing } from "@/lib/ime";
 import type {
   Store,
   Shift,
@@ -917,7 +918,7 @@ export default function ChecklistsPage(): React.ReactElement {
                     placeholder="New shift name"
                     value={newShiftName}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewShiftName(e.target.value)}
-                    onKeyDown={(e: React.KeyboardEvent) => { if (e.key === "Enter") handleCreateInlineShift(); }}
+                    onKeyDown={(e: React.KeyboardEvent) => { if (isImeComposing(e)) return; if (e.key === "Enter") handleCreateInlineShift(); }}
                   />
                 </div>
                 <Button
@@ -985,7 +986,7 @@ export default function ChecklistsPage(): React.ReactElement {
                     placeholder="New position name"
                     value={newPositionName}
                     onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewPositionName(e.target.value)}
-                    onKeyDown={(e: React.KeyboardEvent) => { if (e.key === "Enter") handleCreateInlinePosition(); }}
+                    onKeyDown={(e: React.KeyboardEvent) => { if (isImeComposing(e)) return; if (e.key === "Enter") handleCreateInlinePosition(); }}
                   />
                 </div>
                 <Button

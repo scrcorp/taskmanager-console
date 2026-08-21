@@ -32,6 +32,7 @@ import {
   OVERLAP_EXPLANATION,
   hasOverlappingClockIn,
 } from "@/lib/attendanceAnomalies";
+import { displayName } from "@/lib/staffLabel";
 
 type AttendanceState = Attendance["status"];
 
@@ -234,7 +235,7 @@ export function AttendanceWeeklyView({ storeId, weekStart, filters, storeUsers: 
         .filter((u) => passesRowFilter(u.id))
         .map((u) => ({
           user_id: u.id,
-          user_name: u.full_name || u.username || "—",
+          user_name: displayName(u) || "—",
           perDay: attendanceByUser.get(u.id) ?? new Map<string, Attendance[]>(),
         }))
         .sort((a, b) => a.user_name.localeCompare(b.user_name));

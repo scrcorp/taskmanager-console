@@ -12,11 +12,13 @@
  * 필터 상태는 부모(AttendancePage) 가 보유하고 setFilters 로 전달받는다.
  */
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { MultiSelectFilter } from "@/components/ui";
+import { toStaffOptions, matchStaffOption, type StaffOption } from "@/hooks/useStaffOptions";
 import { ROLE_PRIORITY } from "@/lib/permissions";
 import { hasOverlappingClockIn } from "@/lib/attendanceAnomalies";
 import type { User } from "@/types";
+import { displayName } from "@/lib/staffLabel";
 
 export type AttendanceStatusKey =
   | "upcoming"
@@ -102,12 +104,6 @@ function getInitials(name: string | null | undefined): string {
   return parts.slice(0, 2).map((s) => s[0] ?? "").join("").toUpperCase();
 }
 
-interface StaffOption {
-  id: string;
-  label: string;
-  user: User;
-}
-
 interface Props {
   filters: AttendanceUiFilters;
   onChange: (next: AttendanceUiFilters) => void;
@@ -133,11 +129,12 @@ export function AttendanceFilterBar({ filters, onChange, storeUsers }: Props) {
     onChange({ ...filters, [key]: next as AttendanceUiFilters[K] });
   }
 
-  const staffOptions: StaffOption[] = storeUsers.map((u) => ({
-    id: u.id,
-    label: u.full_name || u.username,
-    user: u,
-  }));
+  // 옵션 파생은 toStaffOptions 단일 규칙 — 라벨·정렬·검색 대상이 콘솔 전역과 같아진다.
+  // useMemo 필수: 매 렌더 새 배열이면 MultiSelectFilter 가 매번 새 참조를 받는다.
+  const staffOptions: StaffOption[] = useMemo(
+    () => toStaffOptions(storeUsers),
+    [storeUsers],
+  );
 
   const totalActive =
     filters.staffIds.length +
@@ -161,12 +158,7 @@ export function AttendanceFilterBar({ filters, onChange, storeUsers }: Props) {
           width={280}
           open={openMenu === "staff"}
           onOpenChange={handleOpenChange("staff")}
-          filterFn={(opt, q) => {
-            const u = opt.user;
-            const needle = q.trim().toLowerCase();
-            return (u.full_name ?? u.username).toLowerCase().includes(needle)
-              || u.username.toLowerCase().includes(needle);
-          }}
+          filterFn={matchStaffOption}
           renderOption={(opt) => {
             const u = opt.user;
             const roleId = rolePriorityToBadgeId(u.role_priority);
@@ -175,7 +167,7 @@ export function AttendanceFilterBar({ filters, onChange, storeUsers }: Props) {
                 <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[9px] font-bold shrink-0 ${rolePriorityToColorClass(u.role_priority)}`}>
                   {getInitials(u.full_name)}
                 </div>
-                <span className="font-medium text-[var(--color-text)] truncate">{u.full_name || u.username}</span>
+                <span className="font-medium text-[var(--color-text)] truncate">{displayName(u)}</span>
                 <span className="text-[10px] text-[var(--color-text-muted)] uppercase shrink-0">{roleId}</span>
               </div>
             );

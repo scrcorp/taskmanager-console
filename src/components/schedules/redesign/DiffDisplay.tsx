@@ -10,6 +10,7 @@
 
 import Link from "next/link";
 import type { User } from "@/types";
+import { displayName } from "@/lib/staffLabel";
 
 const FIELD_LABELS: Record<string, string> = {
   user_id: "Staff",
@@ -48,7 +49,7 @@ function resolveValue(field: string, value: unknown, nameHint: string | undefine
   const str = String(value);
   if (field === "user_id" && UUID_RE.test(str) && users) {
     const u = users.find((x) => x.id === str);
-    if (u) return u.full_name || u.username || str;
+    if (u) return displayName(u) || str;
   }
   if (field === "hourly_rate" && !isNaN(Number(str))) return `$${str}`;
   // datetime 인코딩("YYYY-MM-DDTHH:MM" 또는 "YYYY-MM-DD HH:MM:SS") → "Jul 9, 1:00 AM"

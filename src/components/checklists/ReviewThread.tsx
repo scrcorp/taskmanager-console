@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 import { toReviewPhotos, photoWatermarkTime, type ReviewPhoto } from "@/lib/photos";
 import type { ChecklistInstanceItem, ChecklistItemMessage } from "@/types";
 
+import { isImeComposing } from "@/lib/ime";
 type TimelineEvent =
   | { type: "initial_completion"; created_at: string; photos: ReviewPhoto[]; note: string | null }
   | { type: "review_change"; created_at: string; data: { id: string; old_result: string | null; new_result: string | null; changed_by_name: string | null; comment: string | null; created_at: string } }
@@ -234,6 +235,8 @@ export function ReviewThread({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // 조합 중 Enter 로 미완성 댓글이 전송되면 남에게 그대로 보인다.
+    if (isImeComposing(e)) return;
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
       handleSendText();
